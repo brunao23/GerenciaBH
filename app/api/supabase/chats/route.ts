@@ -96,32 +96,56 @@ function stripMensagemBlock(t: string) {
 }
 
 function cleanHumanMessage(text: string) {
-  if (!text) return text
+  if (!text) return ""
   let s = String(text).replace(/\r/g, "")
 
-  // 1. Remove blocos JSON completos com prompts/regras (automação fazendo eco)
-  // Remove objetos JSON que contêm "rules", "inviolaveis", "prompt", etc.
-  s = s.replace(/\{[^{}]*"rules"[^{}]*\}/gi, "")
-  s = s.replace(/\{[^{}]*"inviolaveis"[^{}]*\}/gi, "")
-  s = s.replace(/\{[^{}]*"prompt"[^{}]*\}/gi, "")
-  s = s.replace(/"rules"\s*:\s*\{[^{}]*\}/gi, "")
-  s = s.replace(/"inviolaveis"\s*:\s*\[[^\]]*\]/gi, "")
+  // LEI INVIOLÁVEL: Remove COMPLETAMENTE qualquer bloco JSON que contenha prompt/regras
+  // Remove TODOS os objetos JSON completos (incluindo aninhados)
+  while (s.includes('"rules"') || s.includes('"inviolaveis"') || s.includes('"prompt"') || s.includes('"variaveis"') || s.includes('"contexto"') || s.includes('"geracao_de_mensagem"') || s.includes('"modelos_de_saida"')) {
+    // Remove blocos JSON completos de qualquer tamanho
+    s = s.replace(/\{[\s\S]{0,50000}?"rules"[\s\S]{0,50000}?\}/gi, "")
+    s = s.replace(/\{[\s\S]{0,50000}?"inviolaveis"[\s\S]{0,50000}?\}/gi, "")
+    s = s.replace(/\{[\s\S]{0,50000}?"prompt"[\s\S]{0,50000}?\}/gi, "")
+    s = s.replace(/\{[\s\S]{0,50000}?"variaveis"[\s\S]{0,50000}?\}/gi, "")
+    s = s.replace(/\{[\s\S]{0,50000}?"contexto"[\s\S]{0,50000}?\}/gi, "")
+    s = s.replace(/\{[\s\S]{0,50000}?"geracao_de_mensagem"[\s\S]{0,50000}?\}/gi, "")
+    s = s.replace(/\{[\s\S]{0,50000}?"modelos_de_saida"[\s\S]{0,50000}?\}/gi, "")
+    
+    // Remove seções específicas
+    s = s.replace(/"rules"\s*:\s*\{[\s\S]{0,50000}?\}/gi, "")
+    s = s.replace(/"inviolaveis"\s*:\s*\[[\s\S]{0,50000}?\]/gi, "")
+    s = s.replace(/"prompt"\s*:\s*\{[\s\S]{0,50000}?\}/gi, "")
+    s = s.replace(/"variaveis"\s*:\s*\{[\s\S]{0,50000}?\}/gi, "")
+    s = s.replace(/"contexto"\s*:\s*\{[\s\S]{0,50000}?\}/gi, "")
+    s = s.replace(/"geracao_de_mensagem"\s*:\s*\{[\s\S]{0,50000}?\}/gi, "")
+    s = s.replace(/"modelos_de_saida"\s*:\s*\{[\s\S]{0,50000}?\}/gi, "")
+    
+    // Remove qualquer linha que contenha essas palavras-chave
+    s = s.replace(/^.*?(?:rules|inviolaveis|prompt|variaveis|contexto|geracao_de_mensagem|modelos_de_saida).*$/gim, "")
+    
+    // Se não conseguiu remover mais nada, quebra o loop
+    if (!s.includes('"rules"') && !s.includes('"inviolaveis"') && !s.includes('"prompt"') && !s.includes('"variaveis"')) {
+      break
+    }
+  }
   
-  // 2. Remove seções de regras e prompts em texto
-  s = s.replace(/\{[\s\S]*?"rules"[\s\S]*?\}/gi, "")
-  s = s.replace(/inviolaveis[\s\S]*?\]/gi, "")
-  s = s.replace(/Sempre chame o lead[\s\S]*?Jamais[\s\S]*?/gi, "")
-  s = s.replace(/maior escola de oratória[\s\S]*?rules[\s\S]*?/gi, "")
-  s = s.replace(/Use emojis de forma leve[\s\S]*?/gi, "")
-  s = s.replace(/Use vícios de linguagem[\s\S]*?/gi, "")
-  s = s.replace(/Nunca use travessões[\s\S]*?/gi, "")
-  s = s.replace(/Sempre finalize com uma pergunta[\s\S]*?/gi, "")
-  s = s.replace(/Sempre diga que recebeu o formulário[\s\S]*?/gi, "")
-  s = s.replace(/Sempre utilize as variáveis[\s\S]*?/gi, "")
+  // Remove TODAS as seções de regras e prompts em texto (ultra-agressivo)
+  s = s.replace(/inviolaveis[\s\S]{0,10000}?\]/gi, "")
+  s = s.replace(/Sempre chame o lead[\s\S]{0,5000}?Jamais[\s\S]{0,5000}?/gi, "")
+  s = s.replace(/maior escola de oratória[\s\S]{0,5000}?rules[\s\S]{0,5000}?/gi, "")
+  s = s.replace(/Use no maximo[\s\S]{0,500}?caracteres[\s\S]{0,500}?/gi, "")
+  s = s.replace(/Use emojis de forma leve[\s\S]{0,500}?/gi, "")
+  s = s.replace(/Use vícios de linguagem[\s\S]{0,500}?/gi, "")
+  s = s.replace(/Nunca use travessões[\s\S]{0,500}?/gi, "")
+  s = s.replace(/Sempre finalize com uma pergunta[\s\S]{0,500}?/gi, "")
+  s = s.replace(/Sempre diga que recebeu o formulário[\s\S]{0,500}?/gi, "")
+  s = s.replace(/Sempre utilize as variáveis[\s\S]{0,500}?/gi, "")
+  s = s.replace(/Jamais explique[\s\S]{0,500}?/gi, "")
+  s = s.replace(/Nunca use os valores[\s\S]{0,500}?/gi, "")
   
-  // 3. Remove blocos que começam com "}" e contêm regras
-  s = s.replace(/\}[\s\S]*?"rules"[\s\S]*?\{/gi, "")
-  s = s.replace(/\}[\s\S]*?"inviolaveis"[\s\S]*?\[/gi, "")
+  // Remove blocos que começam com "}" e contêm regras
+  s = s.replace(/\}[\s\S]{0,5000}?"rules"[\s\S]{0,5000}?\{/gi, "")
+  s = s.replace(/\}[\s\S]{0,5000}?"inviolaveis"[\s\S]{0,5000}?\[/gi, "")
 
   // 4. Primeiro, procura especificamente por "Mensagem do cliente/lead:" e extrai só essa parte
   const messageMatch = s.match(
@@ -231,13 +255,31 @@ function cleanHumanMessage(text: string) {
     .replace(/\s{2,}/g, " ")
     .trim()
 
-  // 9. Validação final: se ainda parece ser um prompt, retorna vazio
-  if (s.match(/^(rules|inviolaveis|\{|\"rules\")/i) || 
-      (s.length > 300 && s.match(/(Sempre chame|Sempre diga|Sempre utilize|Nunca use)/i))) {
+  // 9. VALIDAÇÃO FINAL ULTRA-AGRESSIVA: Se encontrar QUALQUER resquício de prompt, retorna VAZIO
+  const promptIndicators = [
+    /rules/i, /inviolaveis/i, /"rules"/i, /"inviolaveis"/i, /"prompt"/i, /"variaveis"/i,
+    /Sempre chame/i, /Sempre diga/i, /Sempre utilize/i, /Nunca use/i, /Sempre finalize/i,
+    /Use emojis/i, /Use vícios/i, /Jamais/i, /maior escola/i, /América Latina/i,
+    /Use no maximo/i, /caracteres por mensagem/i, /Tereza/i, /Vox2You/i,
+    /\{[^}]*rules/i, /\{[^}]*inviolaveis/i, /\{[^}]*prompt/i
+  ]
+  
+  // Se encontrar QUALQUER indicador de prompt, retorna VAZIO
+  for (const indicator of promptIndicators) {
+    if (indicator.test(s)) {
+      return "" // LEI INVIOLÁVEL: Retorna vazio se tiver QUALQUER prompt
+    }
+  }
+  
+  // Se o texto é muito longo e contém palavras-chave de prompt, retorna vazio
+  if (s.length > 200 && (
+    s.includes("Sempre") || s.includes("Nunca") || s.includes("Use") || 
+    s.includes("Jamais") || s.includes("regras") || s.includes("inviol")
+  )) {
     return ""
   }
 
-  return s
+  return s.trim()
 }
 
 // Limpeza geral para mensagens da IA (mantém limpeza agressiva)
@@ -702,17 +744,41 @@ export async function GET(req: Request) {
             }
           }
           
-          // Filtro adicional: se for mensagem de usuário mas contém prompts/regras, ignora
+          // LEI INVIOLÁVEL: Filtro adicional ultra-agressivo para mensagens de usuário
           if (role === "user" && content) {
-            // Se a mensagem limpa ainda contém indicadores de prompt, considera inválida
-            if (content.match(/(rules|inviolaveis|Sempre chame|Sempre diga|Sempre utilize|Nunca use|Sempre finalize|maior escola)/i) &&
-                content.length > 100) {
-              // Tenta extrair apenas a parte final que pode ser a mensagem real
+            // Lista completa de indicadores de prompt
+            const promptIndicators = [
+              /rules/i, /inviolaveis/i, /"rules"/i, /"inviolaveis"/i, /"prompt"/i, /"variaveis"/i,
+              /Sempre chame/i, /Sempre diga/i, /Sempre utilize/i, /Nunca use/i, /Sempre finalize/i,
+              /Use emojis/i, /Use vícios/i, /Jamais/i, /maior escola/i, /América Latina/i,
+              /Use no maximo/i, /caracteres por mensagem/i, /Tereza.*Vox2You/i,
+              /\{[^}]*rules/i, /\{[^}]*inviolaveis/i, /\{[^}]*prompt/i
+            ]
+            
+            // Se encontrar QUALQUER indicador, marca como vazia
+            for (const indicator of promptIndicators) {
+              if (indicator.test(content)) {
+                content = "" // LEI INVIOLÁVEL: Remove completamente
+                break
+              }
+            }
+            
+            // Se ainda tem conteúdo mas é suspeito (muito longo com palavras-chave), tenta limpar mais
+            if (content && content.length > 100 && (
+              content.includes("Sempre") || content.includes("Nunca") || 
+              content.includes("Use") || content.includes("Jamais") || 
+              content.includes("regras") || content.includes("inviol")
+            )) {
+              // Tenta extrair apenas linhas que NÃO são prompts
               const lines = content.split(/\n/)
-              const realLines = lines.filter(line => 
-                !line.match(/(rules|inviolaveis|Sempre|Nunca|Use|Jamais|maior escola|América Latina)/i) &&
-                line.trim().length > 0
-              )
+              const realLines = lines.filter(line => {
+                const lineLower = line.toLowerCase()
+                return !lineLower.includes("sempre") && !lineLower.includes("nunca") && 
+                       !lineLower.includes("use") && !lineLower.includes("jamais") &&
+                       !lineLower.includes("rules") && !lineLower.includes("inviol") &&
+                       !lineLower.includes("prompt") && !lineLower.includes("variaveis") &&
+                       line.trim().length > 0
+              })
               
               if (realLines.length > 0) {
                 content = realLines.join(" ").trim()
@@ -730,10 +796,31 @@ export async function GET(req: Request) {
           // Remove mensagens vazias
           if (!m.content || m.content.trim().length === 0) return false
           
-          // Remove mensagens de usuário que ainda contêm prompts/regras (não foram limpas corretamente)
-          if (m.role === "user" && m.content.match(/(rules|inviolaveis|Sempre chame|Sempre diga|Sempre utilize|Nunca use|Sempre finalize|maior escola|América Latina)/i) &&
-              m.content.length > 150) {
-            return false // Ignora mensagens que são claramente prompts
+          // LEI INVIOLÁVEL: Remove mensagens de usuário que ainda contêm QUALQUER resquício de prompt
+          if (m.role === "user") {
+            const promptIndicators = [
+              /rules/i, /inviolaveis/i, /"rules"/i, /"inviolaveis"/i, /"prompt"/i, /"variaveis"/i,
+              /Sempre chame/i, /Sempre diga/i, /Sempre utilize/i, /Nunca use/i, /Sempre finalize/i,
+              /Use emojis/i, /Use vícios/i, /Jamais/i, /maior escola/i, /América Latina/i,
+              /Use no maximo/i, /caracteres por mensagem/i, /Tereza.*Vox2You/i,
+              /\{[^}]*rules/i, /\{[^}]*inviolaveis/i, /\{[^}]*prompt/i
+            ]
+            
+            // Se encontrar QUALQUER indicador, remove a mensagem
+            for (const indicator of promptIndicators) {
+              if (indicator.test(m.content)) {
+                return false // LEI INVIOLÁVEL: Remove se tiver QUALQUER prompt
+              }
+            }
+            
+            // Se é muito longo e contém palavras-chave de prompt, remove
+            if (m.content.length > 100 && (
+              m.content.includes("Sempre") || m.content.includes("Nunca") || 
+              m.content.includes("Use") || m.content.includes("Jamais") || 
+              m.content.includes("regras") || m.content.includes("inviol")
+            )) {
+              return false
+            }
           }
           
           return true

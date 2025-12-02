@@ -36,19 +36,68 @@ interface CRMColumn {
 }
 
 function cleanHumanMessage(text: string): string {
-    if (!text) return text
+    if (!text) return ""
     let s = String(text).replace(/\r/g, '')
-    const messageMatch = s.match(/Mensagem do cliente\/lead:\s*(.*?)(?:\s+Para \d{4}|\s+Sua mem[óo]ria|\s+Hor[áa]rio|\s+Dia da semana|\s+lembre-se|$)/is)
+
+    // LEI INVIOLÁVEL: Remove COMPLETAMENTE qualquer bloco JSON que contenha prompt/regras
+    while (s.includes('"rules"') || s.includes('"inviolaveis"') || s.includes('"prompt"') || s.includes('"variaveis"') || s.includes('"contexto"') || s.includes('"geracao_de_mensagem"') || s.includes('"modelos_de_saida"')) {
+        s = s.replace(/\{[\s\S]{0,50000}?"rules"[\s\S]{0,50000}?\}/gi, "")
+        s = s.replace(/\{[\s\S]{0,50000}?"inviolaveis"[\s\S]{0,50000}?\}/gi, "")
+        s = s.replace(/\{[\s\S]{0,50000}?"prompt"[\s\S]{0,50000}?\}/gi, "")
+        s = s.replace(/\{[\s\S]{0,50000}?"variaveis"[\s\S]{0,50000}?\}/gi, "")
+        s = s.replace(/\{[\s\S]{0,50000}?"contexto"[\s\S]{0,50000}?\}/gi, "")
+        s = s.replace(/\{[\s\S]{0,50000}?"geracao_de_mensagem"[\s\S]{0,50000}?\}/gi, "")
+        s = s.replace(/\{[\s\S]{0,50000}?"modelos_de_saida"[\s\S]{0,50000}?\}/gi, "")
+        s = s.replace(/^.*?(?:rules|inviolaveis|prompt|variaveis|contexto|geracao_de_mensagem|modelos_de_saida).*$/gim, "")
+        if (!s.includes('"rules"') && !s.includes('"inviolaveis"') && !s.includes('"prompt"') && !s.includes('"variaveis"')) break
+    }
+    
+    // Remove TODAS as seções de regras
+    s = s.replace(/inviolaveis[\s\S]{0,10000}?\]/gi, "")
+    s = s.replace(/Sempre chame[\s\S]{0,5000}?/gi, "")
+    s = s.replace(/Use no maximo[\s\S]{0,500}?caracteres[\s\S]{0,500}?/gi, "")
+    s = s.replace(/Use emojis[\s\S]{0,500}?/gi, "")
+    s = s.replace(/Use vícios[\s\S]{0,500}?/gi, "")
+    s = s.replace(/Nunca use[\s\S]{0,500}?/gi, "")
+    s = s.replace(/Sempre finalize[\s\S]{0,500}?/gi, "")
+    s = s.replace(/Sempre diga[\s\S]{0,500}?/gi, "")
+    s = s.replace(/Sempre utilize[\s\S]{0,500}?/gi, "")
+    s = s.replace(/Jamais[\s\S]{0,500}?/gi, "")
+    s = s.replace(/maior escola[\s\S]{0,500}?/gi, "")
+    
+    // Tenta extrair mensagem do cliente
+    const messageMatch = s.match(/Mensagem do cliente\/lead:\s*(.*?)(?:\s+Para \d{4}|\s+Sua mem[óo]ria|\s+Hor[áa]rio|\s+Dia da semana|\s+lembre-se|\s+\{|$)/is)
     if (messageMatch && messageMatch[1]) {
         s = messageMatch[1].trim()
-        if (s.length > 0) return s.replace(/^Sua mem[óo]ria:\s*/gi, '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').replace(/\s{2,}/g, ' ').trim()
+        if (s.length > 0 && !s.match(/^(rules|inviolaveis|Sempre|Nunca|Use|Jamais)/i)) {
+            return s.replace(/^Sua mem[óo]ria:\s*/gi, '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').replace(/\s{2,}/g, ' ').trim()
+        }
     }
-    const altMatch = s.match(/Mensagem do cliente\/usuário\/lead:\s*(.*?)(?:\s+Para \d{4}|\s+Sua mem[óo]ria|\s+Hor[áa]rio|\s+Dia da semana|\s+lembre-se|$)/is)
+    
+    const altMatch = s.match(/Mensagem do cliente\/usuário\/lead:\s*(.*?)(?:\s+Para \d{4}|\s+Sua mem[óo]ria|\s+Hor[áa]rio|\s+Dia da semana|\s+lembre-se|\s+\{|$)/is)
     if (altMatch && altMatch[1]) {
         s = altMatch[1].trim()
-        if (s.length > 0) return s.replace(/^Sua mem[óo]ria:\s*/gi, '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').replace(/\s{2,}/g, ' ').trim()
+        if (s.length > 0 && !s.match(/^(rules|inviolaveis|Sempre|Nunca|Use|Jamais)/i)) {
+            return s.replace(/^Sua mem[óo]ria:\s*/gi, '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').replace(/\s{2,}/g, ' ').trim()
+        }
     }
-    s = s.replace(/^Sua mem[óo]ria:\s*/gi, '').replace(/\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?[+-]\d{2}:\d{2}\b/g, '').replace(/,\s*(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s*\.?/gi, '').replace(/^Nome do cliente\/usuário\/lead:.*$/gim, '').replace(/^Para \d{4} no cartão de memória:.*$/gim, '').replace(/^Horário mensagem:.*$/gim, '').replace(/^Dia da semana:.*$/gim, '').replace(/lembre-se\s*dessa\s*informação:.*$/gim, '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').replace(/\s{2,}/g, ' ').trim()
+    
+    // Limpeza final
+    s = s.replace(/^Sua mem[óo]ria:\s*/gi, '')
+    s = s.replace(/\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?[+-]\d{2}:\d{2}\b/g, '')
+    s = s.replace(/,\s*(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s*\.?/gi, '')
+    s = s.replace(/^Nome do cliente\/usuário\/lead:.*$/gim, '')
+    s = s.replace(/^Para \d{4} no cartão de memória:.*$/gim, '')
+    s = s.replace(/^Horário mensagem:.*$/gim, '')
+    s = s.replace(/^Dia da semana:.*$/gim, '')
+    s = s.replace(/lembre-se\s*dessa\s*informação:.*$/gim, '')
+    s = s.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').replace(/\s{2,}/g, ' ').trim()
+    
+    // VALIDAÇÃO FINAL: Se encontrar QUALQUER resquício de prompt, retorna VAZIO
+    if (s.match(/(rules|inviolaveis|Sempre chame|Sempre diga|Sempre utilize|Nunca use|Sempre finalize|Use emojis|Use vícios|Jamais|maior escola|América Latina|Use no maximo|caracteres por mensagem)/i)) {
+        return ""
+    }
+    
     return s
 }
 
