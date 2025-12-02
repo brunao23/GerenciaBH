@@ -44,14 +44,41 @@ function cleanHumanMessage(text: string) {
   if (!text) return text
   let s = String(text).replace(/\r/g, "")
 
-  // Primeiro, procura especificamente por "Mensagem do cliente/lead:" e extrai só essa parte
+  // 1. Remove blocos JSON completos com prompts/regras (automação fazendo eco)
+  // Remove objetos JSON que contêm "rules", "inviolaveis", "prompt", etc.
+  s = s.replace(/\{[^{}]*"rules"[^{}]*\}/gi, "")
+  s = s.replace(/\{[^{}]*"inviolaveis"[^{}]*\}/gi, "")
+  s = s.replace(/\{[^{}]*"prompt"[^{}]*\}/gi, "")
+  s = s.replace(/"rules"\s*:\s*\{[^{}]*\}/gi, "")
+  s = s.replace(/"inviolaveis"\s*:\s*\[[^\]]*\]/gi, "")
+  
+  // 2. Remove seções de regras e prompts em texto
+  s = s.replace(/\{[\s\S]*?"rules"[\s\S]*?\}/gi, "")
+  s = s.replace(/inviolaveis[\s\S]*?\]/gi, "")
+  s = s.replace(/Sempre chame o lead[\s\S]*?Jamais[\s\S]*?/gi, "")
+  s = s.replace(/maior escola de oratória[\s\S]*?rules[\s\S]*?/gi, "")
+  s = s.replace(/Use emojis de forma leve[\s\S]*?/gi, "")
+  s = s.replace(/Use vícios de linguagem[\s\S]*?/gi, "")
+  s = s.replace(/Nunca use travessões[\s\S]*?/gi, "")
+  s = s.replace(/Sempre finalize com uma pergunta[\s\S]*?/gi, "")
+  s = s.replace(/Sempre diga que recebeu o formulário[\s\S]*?/gi, "")
+  s = s.replace(/Sempre utilize as variáveis[\s\S]*?/gi, "")
+  
+  // 3. Remove blocos que começam com "}" e contêm regras
+  s = s.replace(/\}[\s\S]*?"rules"[\s\S]*?\{/gi, "")
+  s = s.replace(/\}[\s\S]*?"inviolaveis"[\s\S]*?\[/gi, "")
+
+  // 4. Primeiro, procura especificamente por "Mensagem do cliente/lead:" e extrai só essa parte
   const messageMatch = s.match(
-    /Mensagem do cliente\/lead:\s*(.*?)(?:\s+Para \d{4}|\s+Sua mem[óo]ria|\s+Hor[áa]rio|\s+Dia da semana|\s+lembre-se|$)/is,
+    /Mensagem do cliente\/lead:\s*(.*?)(?:\s+Para \d{4}|\s+Sua mem[óo]ria|\s+Hor[áa]rio|\s+Dia da semana|\s+lembre-se|\s+\{|\s+"rules"|$)/is,
   )
   if (messageMatch && messageMatch[1]) {
     s = messageMatch[1].trim()
+    // Remove qualquer resquício de JSON ou regras
+    s = s.replace(/\{[\s\S]*?"rules"[\s\S]*?\}/gi, "")
+    s = s.replace(/inviolaveis[\s\S]*?\]/gi, "")
     // Se conseguiu extrair a mensagem, retorna direto
-    if (s.length > 0) {
+    if (s.length > 0 && !s.match(/^(rules|inviolaveis|Sempre|Nunca|Use|Jamais)/i)) {
       return s
         .replace(/^Sua mem[óo]ria:\s*/gi, "")
         .replace(/[ \t]+\n/g, "\n")
@@ -61,13 +88,15 @@ function cleanHumanMessage(text: string) {
     }
   }
 
-  // Tenta outros padrões se o primeiro não funcionar
+  // 5. Tenta outros padrões se o primeiro não funcionar
   const altMatch = s.match(
-    /Mensagem do cliente\/usuário\/lead:\s*(.*?)(?:\s+Para \d{4}|\s+Sua mem[óo]ria|\s+Hor[áa]rio|\s+Dia da semana|\s+lembre-se|$)/is,
+    /Mensagem do cliente\/usuário\/lead:\s*(.*?)(?:\s+Para \d{4}|\s+Sua mem[óo]ria|\s+Hor[áa]rio|\s+Dia da semana|\s+lembre-se|\s+\{|\s+"rules"|$)/is,
   )
   if (altMatch && altMatch[1]) {
     s = altMatch[1].trim()
-    if (s.length > 0) {
+    s = s.replace(/\{[\s\S]*?"rules"[\s\S]*?\}/gi, "")
+    s = s.replace(/inviolaveis[\s\S]*?\]/gi, "")
+    if (s.length > 0 && !s.match(/^(rules|inviolaveis|Sempre|Nunca|Use|Jamais)/i)) {
       return s
         .replace(/^Sua mem[óo]ria:\s*/gi, "")
         .replace(/[ \t]+\n/g, "\n")
@@ -77,10 +106,45 @@ function cleanHumanMessage(text: string) {
     }
   }
 
-  // Se não encontrar os padrões específicos, faz limpeza básica
+  // 6. Se ainda contém prompts/regras, tenta extrair apenas a parte que NÃO é prompt
+  // Procura por padrões que indicam início de mensagem real do cliente
+  const realMessagePatterns = [
+    /(?:Oi|Olá|Opa|Bom dia|Boa tarde|Boa noite|Oi|Olá)[\s\S]*?(?:\{|\"rules\"|inviolaveis|Sempre chame|$)/i,
+    /^[^{"]*?(?:Oi|Olá|Opa|Sim|Não|Ok|Quero|Gostaria|Tenho interesse)[\s\S]*?(?:\{|\"rules\"|inviolaveis|$)/i,
+  ]
+  
+  for (const pattern of realMessagePatterns) {
+    const match = s.match(pattern)
+    if (match && match[0]) {
+      let extracted = match[0]
+        .replace(/\{[\s\S]*?"rules"[\s\S]*?\}/gi, "")
+        .replace(/inviolaveis[\s\S]*?\]/gi, "")
+        .replace(/Sempre chame[\s\S]*?/gi, "")
+        .trim()
+      
+      if (extracted.length > 5 && !extracted.match(/^(rules|inviolaveis)/i)) {
+        return extracted
+          .replace(/^Sua mem[óo]ria:\s*/gi, "")
+          .replace(/[ \t]+\n/g, "\n")
+          .replace(/\n{3,}/g, "\n\n")
+          .replace(/\s{2,}/g, " ")
+          .trim()
+      }
+    }
+  }
+
+  // 7. Se não encontrar os padrões específicos, faz limpeza agressiva de prompts
   // Remove "Sua memoria:" ou "Sua memória:"
   s = s.replace(/^Sua mem[óo]ria:\s*/gi, "")
 
+  // Remove blocos JSON completos
+  s = s.replace(/\{[\s\S]*?"rules"[\s\S]*?\}/gi, "")
+  s = s.replace(/\{[\s\S]*?"inviolaveis"[\s\S]*?\}/gi, "")
+  
+  // Remove linhas que começam com regras conhecidas
+  s = s.replace(/^.*?(?:Sempre chame|Sempre diga|Sempre utilize|Nunca use|Sempre finalize|Use emojis|Use vícios|Jamais).*$/gim, "")
+  s = s.replace(/^.*?(?:maior escola de oratória|América Latina).*$/gim, "")
+  
   // Remove timestamps e informações de sistema
   s = s.replace(/\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?[+-]\d{2}:\d{2}\b/g, "")
   s = s.replace(/,\s*(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s*\.?/gi, "")
@@ -90,12 +154,33 @@ function cleanHumanMessage(text: string) {
   s = s.replace(/^Dia da semana:.*$/gim, "")
   s = s.replace(/lembre-se\s*dessa\s*informação:.*$/gim, "")
 
+  // 8. Se ainda contém muito texto de prompt, retorna vazio (não é mensagem real)
+  if (s.match(/(rules|inviolaveis|Sempre chame|Sempre diga|Sempre utilize|Nunca use|Sempre finalize)/i) && 
+      s.length > 200) {
+    // Tenta extrair apenas a última parte que pode ser a mensagem real
+    const lastPart = s.split(/\n/).filter(line => 
+      !line.match(/(rules|inviolaveis|Sempre|Nunca|Use|Jamais|maior escola)/i) &&
+      line.trim().length > 0
+    ).slice(-3).join(" ").trim()
+    
+    if (lastPart.length > 5 && lastPart.length < 500) {
+      return lastPart
+    }
+    return "" // Retorna vazio se for claramente um prompt
+  }
+
   // Normalização final de espaços
   s = s
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .replace(/\s{2,}/g, " ")
     .trim()
+
+  // 9. Validação final: se ainda parece ser um prompt, retorna vazio
+  if (s.match(/^(rules|inviolaveis|\{|\"rules\")/i) || 
+      (s.length > 300 && s.match(/(Sempre chame|Sempre diga|Sempre utilize|Nunca use)/i))) {
+    return ""
+  }
 
   return s
 }
@@ -252,15 +337,46 @@ function extractNameFromMessage(text: string, role: string): string | null {
 function extractTimestampFromText(text: string): string | null {
   if (!text) return null
   const t = String(text)
-  // 1) "Horário mensagem: 2025-08-05T08:30:39.578-03:00"
+  
+  // 1) "Horário mensagem: 2025-08-05T08:30:39.578-03:00" (mais específico)
   const m1 = t.match(/Hor[áa]rio(?:\s+da)?\s+mensagem:\s*([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.+-Z]+)/i)
-  if (m1?.[1]) return m1[1]
+  if (m1?.[1]) {
+    const ts = m1[1]
+    // Valida se é uma data válida
+    const date = new Date(ts)
+    if (!isNaN(date.getTime())) return ts
+  }
+  
   // 2) "Hoje é: 2025-08-05T08:30:39.578-03:00"
   const m2 = t.match(/Hoje\s*[ée]:\s*([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.+-Z]+)/i)
-  if (m2?.[1]) return m2[1]
-  // 3) ISO solto (fallback)
-  const m3 = t.match(/([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.+-Z]+)/)
-  if (m3?.[1]) return m3[1]
+  if (m2?.[1]) {
+    const ts = m2[1]
+    const date = new Date(ts)
+    if (!isNaN(date.getTime())) return ts
+  }
+  
+  // 3) Formato brasileiro: "02/12/2025, 08:45:01" ou "29/11/2020"
+  const m3 = t.match(/(\d{2}\/\d{2}\/\d{4})(?:,\s*(\d{2}:\d{2}:\d{2}))?/i)
+  if (m3) {
+    const [day, month, year] = m3[1].split('/')
+    const time = m3[2] || '00:00:00'
+    const [hours, minutes, seconds] = time.split(':')
+    // Converte para ISO
+    const isoDate = `${year}-${month}-${day}T${hours}:${minutes}:${seconds || '00'}.000-03:00`
+    const date = new Date(isoDate)
+    if (!isNaN(date.getTime())) return date.toISOString()
+  }
+  
+  // 4) ISO solto (fallback) - mas só se não estiver dentro de um bloco de prompt
+  if (!t.match(/(rules|inviolaveis|Sempre chame)/i)) {
+    const m4 = t.match(/([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.+-Z]+)/)
+    if (m4?.[1]) {
+      const ts = m4[1]
+      const date = new Date(ts)
+      if (!isNaN(date.getTime())) return ts
+    }
+  }
+  
   return null
 }
 
@@ -483,12 +599,45 @@ export async function GET(req: Request) {
           if (!ts && lastTs) ts = lastTs
           if (ts) lastTs = ts
 
-          const content = role === "user" ? cleanHumanMessage(raw) : cleanAnyMessage(raw)
+          // Limpa a mensagem baseado no role
+          let content = role === "user" ? cleanHumanMessage(raw) : cleanAnyMessage(raw)
+          
+          // Filtro adicional: se for mensagem de usuário mas contém prompts/regras, ignora
+          if (role === "user" && content) {
+            // Se a mensagem limpa ainda contém indicadores de prompt, considera inválida
+            if (content.match(/(rules|inviolaveis|Sempre chame|Sempre diga|Sempre utilize|Nunca use|Sempre finalize|maior escola)/i) &&
+                content.length > 100) {
+              // Tenta extrair apenas a parte final que pode ser a mensagem real
+              const lines = content.split(/\n/)
+              const realLines = lines.filter(line => 
+                !line.match(/(rules|inviolaveis|Sempre|Nunca|Use|Jamais|maior escola|América Latina)/i) &&
+                line.trim().length > 0
+              )
+              
+              if (realLines.length > 0) {
+                content = realLines.join(" ").trim()
+              } else {
+                content = "" // Se não conseguiu extrair nada válido, marca como vazia
+              }
+            }
+          }
+          
           const created_at: string = ts ?? ""
 
           return { role, content, created_at, isError, isSuccess, message_id: r.id }
         })
-        .filter((m) => m.content && m.content.trim().length > 0) // Remove mensagens vazias
+        .filter((m) => {
+          // Remove mensagens vazias
+          if (!m.content || m.content.trim().length === 0) return false
+          
+          // Remove mensagens de usuário que ainda contêm prompts/regras (não foram limpas corretamente)
+          if (m.role === "user" && m.content.match(/(rules|inviolaveis|Sempre chame|Sempre diga|Sempre utilize|Nunca use|Sempre finalize|maior escola|América Latina)/i) &&
+              m.content.length > 150) {
+            return false // Ignora mensagens que são claramente prompts
+          }
+          
+          return true
+        })
         .sort((a, b) => {
           // Se ambas têm timestamp, ordena por timestamp
           if (a.created_at && b.created_at) {
