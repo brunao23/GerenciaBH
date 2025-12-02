@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Button } from "@/components/ui/button"
-import { Phone, MessageSquare, Calendar, TrendingUp, ExternalLink, Clock } from "lucide-react"
+import { Phone, MessageSquare, Calendar, TrendingUp, ExternalLink, Clock, User, Briefcase, Target, Clock3 } from "lucide-react"
 import Link from "next/link"
 
 interface LeadDetailsProps {
@@ -27,6 +27,15 @@ interface LeadDetailsProps {
             type: string
             timestamp: string
         }>
+        formData?: {
+            nome?: string
+            primeiroNome?: string
+            dificuldade?: string
+            motivo?: string
+            profissao?: string
+            tempoDecisao?: string
+            comparecimento?: string
+        }
     } | null
 }
 
@@ -130,6 +139,76 @@ export function LeadDetailsModal({ isOpen, onClose, lead }: LeadDetailsProps) {
                     </div>
 
                     <Separator className="bg-border-gray" />
+
+                    {/* Dados do Formulário */}
+                    {lead.formData && (
+                        <>
+                            <div>
+                                <h3 className="text-sm font-semibold text-pure-white mb-3 flex items-center gap-2">
+                                    <User className="w-4 h-4 text-accent-green" />
+                                    Dados do Formulário
+                                </h3>
+                                <div className="bg-[#1a1a1a] rounded-lg p-4 space-y-3">
+                                    <div className="grid grid-cols-2 gap-3">
+                                        {lead.formData.nome && (
+                                            <div>
+                                                <div className="text-xs text-text-gray mb-1">Nome Completo</div>
+                                                <div className="text-sm text-pure-white">{lead.formData.nome}</div>
+                                            </div>
+                                        )}
+                                        {lead.formData.primeiroNome && (
+                                            <div>
+                                                <div className="text-xs text-text-gray mb-1">Primeiro Nome</div>
+                                                <div className="text-sm text-pure-white">{lead.formData.primeiroNome}</div>
+                                            </div>
+                                        )}
+                                        {lead.formData.profissao && (
+                                            <div>
+                                                <div className="text-xs text-text-gray mb-1 flex items-center gap-1">
+                                                    <Briefcase className="w-3 h-3" />
+                                                    Profissão
+                                                </div>
+                                                <div className="text-sm text-pure-white">{lead.formData.profissao.replace(/_/g, ' ')}</div>
+                                            </div>
+                                        )}
+                                        {lead.formData.dificuldade && (
+                                            <div>
+                                                <div className="text-xs text-text-gray mb-1 flex items-center gap-1">
+                                                    <Target className="w-3 h-3" />
+                                                    Dificuldade
+                                                </div>
+                                                <div className="text-sm text-pure-white">{lead.formData.dificuldade.replace(/_/g, ' ')}</div>
+                                            </div>
+                                        )}
+                                        {lead.formData.motivo && (
+                                            <div>
+                                                <div className="text-xs text-text-gray mb-1">Motivo</div>
+                                                <div className="text-sm text-pure-white">{lead.formData.motivo.replace(/_/g, ' ')}</div>
+                                            </div>
+                                        )}
+                                        {lead.formData.tempoDecisao && (
+                                            <div>
+                                                <div className="text-xs text-text-gray mb-1 flex items-center gap-1">
+                                                    <Clock3 className="w-3 h-3" />
+                                                    Tempo de Decisão
+                                                </div>
+                                                <div className="text-sm text-pure-white">{lead.formData.tempoDecisao.replace(/_/g, ' ')}</div>
+                                            </div>
+                                        )}
+                                        {lead.formData.comparecimento && (
+                                            <div>
+                                                <div className="text-xs text-text-gray mb-1">Comparecimento</div>
+                                                <Badge variant="outline" className={lead.formData.comparecimento === 'sim' ? 'border-emerald-500/30 text-emerald-400' : 'border-gray-500/30 text-gray-400'}>
+                                                    {lead.formData.comparecimento === 'sim' ? 'Sim' : 'Não'}
+                                                </Badge>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                            <Separator className="bg-border-gray" />
+                        </>
+                    )}
 
                     {/* Histórico de Mensagens */}
                     <div>

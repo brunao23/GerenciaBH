@@ -3,6 +3,61 @@ import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 
 type Row = { session_id: string; message: any; id: number }
 
+// Extrai informações estruturadas do formulário quando presente no prompt
+function extractFormData(text: string): {
+  nome?: string
+  primeiroNome?: string
+  dificuldade?: string
+  motivo?: string
+  profissao?: string
+  tempoDecisao?: string
+  comparecimento?: string
+} | null {
+  if (!text) return null
+  
+  const formData: any = {}
+  
+  // Tenta extrair do JSON completo
+  try {
+    // Procura por objeto JSON com "variaveis"
+    const jsonMatch = text.match(/"variaveis"\s*:\s*\{([^}]+)\}/i)
+    if (jsonMatch) {
+      const varsText = jsonMatch[1]
+      
+      // Extrai cada variável
+      const nomeMatch = varsText.match(/"Nome"\s*:\s*"([^"]+)"/i)
+      if (nomeMatch) formData.nome = nomeMatch[1]
+      
+      const primeiroNomeMatch = varsText.match(/"PrimeiroNome"\s*:\s*"([^"]+)"/i)
+      if (primeiroNomeMatch) formData.primeiroNome = primeiroNomeMatch[1]
+      
+      const dificuldadeMatch = varsText.match(/"Dificuldade"\s*:\s*"([^"]+)"/i)
+      if (dificuldadeMatch) formData.dificuldade = dificuldadeMatch[1]
+      
+      const motivoMatch = varsText.match(/"Motivo"\s*:\s*"([^"]+)"/i)
+      if (motivoMatch) formData.motivo = motivoMatch[1]
+      
+      const profissaoMatch = varsText.match(/"Profissao"\s*:\s*"([^"]+)"/i)
+      if (profissaoMatch) formData.profissao = profissaoMatch[1]
+      
+      const tempoDecisaoMatch = varsText.match(/"TempoDecisao"\s*:\s*"([^"]+)"/i)
+      if (tempoDecisaoMatch) formData.tempoDecisao = tempoDecisaoMatch[1]
+      
+      const comparecimentoMatch = varsText.match(/"Comparecimento"\s*:\s*"([^"]+)"/i)
+      if (comparecimentoMatch) formData.comparecimento = comparecimentoMatch[1]
+    }
+    
+    // Se encontrou pelo menos uma variável, retorna
+    if (Object.keys(formData).length > 0) {
+      return formData
+    }
+  } catch (e) {
+    // Ignora erros de parsing
+  }
+  
+  return null
+}
+
 // Remove metadados e prefácios comuns
 function stripSystemMetaLines(t: string) {
   let s = t
@@ -569,6 +624,7 @@ export async function GET(req: Request) {
       let hasError = false
       let hasSuccess = false
       let detectedName: string | null = null
+      let formData: any = null // Dados do formulário extraídos
 
       const messages = items
         .map((r) => {
@@ -582,6 +638,22 @@ export async function GET(req: Request) {
 
           const isSuccess = isVictoryText(raw)
           if (isSuccess) hasSuccess = true
+
+          // Extrai dados do formulário se presente (primeira mensagem com prompt)
+          if (!formData && raw.includes('"variaveis"')) {
+            const extractedFormData = extractFormData(raw)
+            if (extractedFormData) {
+              formData = extractedFormData
+              // Usa o nome do formulário se disponível
+              if (extractedFormData.primeiroNome && !detectedName) {
+                detectedName = extractedFormData.primeiroNome
+              } else if (extractedFormData.nome && !detectedName) {
+                // Extrai primeiro nome do nome completo
+                const firstName = extractedFormData.nome.split(' ')[0]
+                if (firstName) detectedName = firstName
+              }
+            }
+          }
 
           // Extrai nome de qualquer mensagem (usuário ou IA)
           if (!detectedName) {
@@ -601,6 +673,34 @@ export async function GET(req: Request) {
 
           // Limpa a mensagem baseado no role
           let content = role === "user" ? cleanHumanMessage(raw) : cleanAnyMessage(raw)
+          
+          // Se for mensagem da IA com prompt, tenta extrair a mensagem final gerada
+          if (role === "bot" && raw.includes('"modelos_de_saida"')) {
+            // Procura por padrão_1, padrão_2, urgente_1, etc. e extrai a mensagem final
+            const messagePatterns = [
+              /"padrao_\d+"\s*:\s*"([^"]+)"/i,
+              /"urgente_\d+"\s*:\s*"([^"]+)"/i,
+              /"indeciso_\d+"\s*:\s*"([^"]+)"/i,
+              /"profissional_\d+"\s*:\s*"([^"]+)"/i,
+              /"comparecimento_sim"\s*:\s*"([^"]+)"/i,
+            ]
+            
+            for (const pattern of messagePatterns) {
+              const match = raw.match(pattern)
+              if (match && match[1]) {
+                content = match[1].trim()
+                break
+              }
+            }
+            
+            // Se não encontrou nos padrões, tenta pegar a última mensagem antes de "saida_final"
+            if (content === raw || content.length > 500) {
+              const lastMessageMatch = raw.match(/"([^"]{20,300})"\s*,\s*"saida_final"/i)
+              if (lastMessageMatch && lastMessageMatch[1]) {
+                content = lastMessageMatch[1].trim()
+              }
+            }
+          }
           
           // Filtro adicional: se for mensagem de usuário mas contém prompts/regras, ignora
           if (role === "user" && content) {
@@ -746,6 +846,7 @@ export async function GET(req: Request) {
         last_id,
         error: hasError,
         success: hasSuccess,
+        formData: formData || undefined, // Dados do formulário se disponíveis
       }
     })
 

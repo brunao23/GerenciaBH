@@ -18,6 +18,15 @@ interface CRMCard {
         type: string
         timestamp: string
     }>
+    formData?: {
+        nome?: string
+        primeiroNome?: string
+        dificuldade?: string
+        motivo?: string
+        profissao?: string
+        tempoDecisao?: string
+        comparecimento?: string
+    }
 }
 
 interface CRMColumn {
@@ -47,6 +56,57 @@ function cleanAIMessage(text: string): string {
     if (!text) return text
     let s = String(text).replace(/\r/g, '').replace(/Hoje é:\s*[^.]+\./gi, '').replace(/Dia da semana:\s*[^.]+\./gi, '').replace(/,\s*\./g, '.').replace(/\.{2,}/g, '.').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').replace(/\s{2,}/g, ' ').trim()
     return s
+}
+
+// Extrai informações estruturadas do formulário quando presente no prompt
+function extractFormData(text: string): {
+  nome?: string
+  primeiroNome?: string
+  dificuldade?: string
+  motivo?: string
+  profissao?: string
+  tempoDecisao?: string
+  comparecimento?: string
+} | null {
+  if (!text) return null
+  
+  const formData: any = {}
+  
+  try {
+    const jsonMatch = text.match(/"variaveis"\s*:\s*\{([^}]+)\}/i)
+    if (jsonMatch) {
+      const varsText = jsonMatch[1]
+      
+      const nomeMatch = varsText.match(/"Nome"\s*:\s*"([^"]+)"/i)
+      if (nomeMatch) formData.nome = nomeMatch[1]
+      
+      const primeiroNomeMatch = varsText.match(/"PrimeiroNome"\s*:\s*"([^"]+)"/i)
+      if (primeiroNomeMatch) formData.primeiroNome = primeiroNomeMatch[1]
+      
+      const dificuldadeMatch = varsText.match(/"Dificuldade"\s*:\s*"([^"]+)"/i)
+      if (dificuldadeMatch) formData.dificuldade = dificuldadeMatch[1]
+      
+      const motivoMatch = varsText.match(/"Motivo"\s*:\s*"([^"]+)"/i)
+      if (motivoMatch) formData.motivo = motivoMatch[1]
+      
+      const profissaoMatch = varsText.match(/"Profissao"\s*:\s*"([^"]+)"/i)
+      if (profissaoMatch) formData.profissao = profissaoMatch[1]
+      
+      const tempoDecisaoMatch = varsText.match(/"TempoDecisao"\s*:\s*"([^"]+)"/i)
+      if (tempoDecisaoMatch) formData.tempoDecisao = tempoDecisaoMatch[1]
+      
+      const comparecimentoMatch = varsText.match(/"Comparecimento"\s*:\s*"([^"]+)"/i)
+      if (comparecimentoMatch) formData.comparecimento = comparecimentoMatch[1]
+    }
+    
+    if (Object.keys(formData).length > 0) {
+      return formData
+    }
+  } catch (e) {
+    // Ignora erros
+  }
+  
+  return null
 }
 
 function extractContactName(messages: any[]): string {
@@ -197,6 +257,19 @@ export async function GET(req: Request) {
             const lastMsg = messages[messages.length - 1]
             const firstMsg = messages[0]
 
+            // Extrai dados do formulário da primeira mensagem que contém prompt
+            let formData: any = null
+            for (const msg of messages) {
+                const rawContent = String(msg.message?.content || msg.message?.text || '')
+                if (rawContent.includes('"variaveis"')) {
+                    const extracted = extractFormData(rawContent)
+                    if (extracted) {
+                        formData = extracted
+                        break
+                    }
+                }
+            }
+
             const enableDebug = debugCount < 3
             if (enableDebug) {
                 console.log(`\n==================== DEBUG SESSÃO ${debugCount + 1} ====================`)
@@ -236,7 +309,8 @@ export async function GET(req: Request) {
 
             let numero = sessionId
             if (numero.includes('@')) numero = numero.split('@')[0]
-            const name = extractContactName(messages) || `Lead ${numero.slice(-4)}`
+            // Usa nome do formulário se disponível, senão tenta extrair das mensagens
+            const name = formData?.primeiroNome || formData?.nome?.split(' ')[0] || extractContactName(messages) || `Lead ${numero.slice(-4)}`
 
             let sentiment: 'positive' | 'neutral' | 'negative' = 'neutral'
             if (/ótimo|excelente|bom|gostei/i.test(fullText)) sentiment = 'positive'
@@ -270,7 +344,8 @@ export async function GET(req: Request) {
                 tags: isSuccess ? ['Convertido'] : [],
                 sentiment,
                 totalMessages: messages.length,
-                messageHistory
+                messageHistory,
+                formData: formData || undefined
             })
 
             debugCount++
