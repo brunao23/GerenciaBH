@@ -1,0 +1,604 @@
+import { NextResponse } from "next/server"
+import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
+
+// Tipos
+interface ConversationMetrics {
+    sessionId: string
+    numero: string
+    contactName: string
+    totalMessages: number
+    userMessages: number
+    aiMessages: number
+    conversationDuration: number
+    responseTime: number[]
+    avgResponseTime: number
+    hasError: boolean
+    hasSuccess: boolean
+    conversionStatus: 'converted' | 'in_progress' | 'lost'
+    sentimentScore: number
+    engagementScore: number
+    keywords: string[]
+    firstMessageTime: string
+    lastMessageTime: string
+    objections: string[]
+    schedulingReason: string
+}
+
+interface ConversionPattern {
+    pattern: string
+    frequency: number
+    avgMessagesToConvert: number
+    avgTimeToConvert: number
+    successRate: number
+    keywords: string[]
+    objectionHandling: string[]
+}
+
+interface TopContact {
+    numero: string
+    contactName: string
+    totalMessages: number
+    totalConversations: number
+    conversionStatus: string
+    lastInteraction: string
+}
+
+interface AnalyticsInsights {
+    totalConversations: number
+    conversionRate: number
+    avgMessagesToConvert: number
+    avgTimeToConvert: number
+    bestPerformingHours: { hour: number; conversions: number }[]
+    bestPerformingDays: { day: string; conversions: number }[]
+    conversionPatterns: ConversionPattern[]
+    sentimentAnalysis: {
+        positive: number
+        neutral: number
+        negative: number
+    }
+    engagementMetrics: {
+        highEngagement: number
+        mediumEngagement: number
+        lowEngagement: number
+    }
+    topKeywords: { keyword: string; frequency: number; conversionRate: number }[]
+    topContacts: TopContact[]
+    objectionAnalysis: {
+        objection: string
+        frequency: number
+        successfulHandling: number
+        successRate: number
+    }[]
+    nonSchedulingReasons: {
+        reason: string
+        frequency: number
+    }[]
+    recommendations: string[]
+}
+
+// Extrai nome do contato das mensagens
+function extractContactName(messages: any[]): string {
+    for (const msg of messages) {
+        const content = String(msg.message?.content || msg.message?.text || '')
+
+        // Padrões de nome
+        const patterns = [
+            /nome\s+(?:do\s+)?(?:cliente|lead|usuário|contato):\s*([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Ú][a-zà-ú]+)?)/i,
+            /(?:oi|olá|bom\s+dia|boa\s+tarde|boa\s+noite),?\s+([A-ZÀ-Ú][a-zà-ú]+)/i,
+            /meu\s+nome\s+é\s+([A-ZÀ-Ú][a-zà-ú]+)/i
+        ]
+
+        for (const pattern of patterns) {
+            const match = content.match(pattern)
+            if (match && match[1]) {
+                return match[1].trim()
+            }
+        }
+    }
+
+    return ''
+}
+
+// Identifica objeções nas conversas
+function identifyObjections(messages: string[]): string[] {
+    const objections: string[] = []
+    const text = messages.join(' ').toLowerCase()
+
+    const objectionPatterns = [
+        { pattern: /(?:muito\s+)?caro|preço\s+alto|não\s+tenho\s+dinheiro/i, label: 'Preço alto' },
+        { pattern: /não\s+tenho\s+tempo|muito\s+ocupad|agenda\s+cheia/i, label: 'Falta de tempo' },
+        { pattern: /preciso\s+pensar|vou\s+ver|depois\s+eu\s+vejo/i, label: 'Indecisão' },
+        { pattern: /já\s+tenho|já\s+uso|já\s+contratei/i, label: 'Já tem solução' },
+        { pattern: /não\s+(?:estou\s+)?interessad|não\s+quero/i, label: 'Falta de interesse' },
+        { pattern: /não\s+(?:é\s+)?para\s+mim|não\s+serve/i, label: 'Não se aplica' }
+    ]
+
+    objectionPatterns.forEach(({ pattern, label }) => {
+        if (pattern.test(text)) {
+            objections.push(label)
+        }
+    })
+
+    return objections
+}
+
+// Identifica motivo de não agendamento
+function identifyNonSchedulingReason(messages: string[], hasSuccess: boolean): string {
+    if (hasSuccess) return 'Agendou com sucesso'
+
+    const text = messages.join(' ').toLowerCase()
+
+    if (/não\s+tenho\s+tempo|muito\s+ocupad|agenda\s+cheia/i.test(text)) {
+        return 'Sem disponibilidade de agenda'
+    }
+    if (/(?:muito\s+)?caro|preço\s+alto|não\s+tenho\s+dinheiro/i.test(text)) {
+        return 'Objeção de preço'
+    }
+    if (/preciso\s+pensar|vou\s+ver|depois\s+eu\s+vejo/i.test(text)) {
+        return 'Indeciso - precisa pensar'
+    }
+    if (/já\s+tenho|já\s+uso|já\s+contratei/i.test(text)) {
+        return 'Já possui solução similar'
+    }
+    if (/não\s+(?:estou\s+)?interessad|não\s+quero/i.test(text)) {
+        return 'Sem interesse'
+    }
+    if (/erro|problem|falh|indisponível/i.test(text)) {
+        return 'Erro técnico'
+    }
+
+    return 'Motivo não identificado'
+}
+
+// Calcula sentimento
+function calculateSentiment(messages: string[]): number {
+    const positiveWords = ['obrigad', 'ótimo', 'excelente', 'perfeito', 'legal', 'bom', 'sim', 'claro', 'certeza', 'parabéns', 'adorei', 'amei', 'maravilh', 'top', 'show']
+    const negativeWords = ['não', 'ruim', 'péssimo', 'problema', 'erro', 'difícil', 'complicado', 'cancelar', 'desistir', 'chato', 'horrível', 'terrível']
+
+    let score = 0
+    const text = messages.join(' ').toLowerCase()
+
+    positiveWords.forEach(word => {
+        const count = (text.match(new RegExp(word, 'g')) || []).length
+        score += count
+    })
+
+    negativeWords.forEach(word => {
+        const count = (text.match(new RegExp(word, 'g')) || []).length
+        score -= count
+    })
+
+    return Math.max(-1, Math.min(1, score / Math.max(1, messages.length)))
+}
+
+// Calcula engajamento
+function calculateEngagement(metrics: {
+    totalMessages: number
+    userMessages: number
+    avgResponseTime: number
+    conversationDuration: number
+}): number {
+    let score = 0
+
+    const userRatio = metrics.userMessages / Math.max(1, metrics.totalMessages)
+    score += userRatio * 40
+
+    if (metrics.avgResponseTime < 60) score += 30
+    else if (metrics.avgResponseTime < 300) score += 20
+    else if (metrics.avgResponseTime < 600) score += 10
+
+    if (metrics.conversationDuration > 5 && metrics.conversationDuration < 60) score += 30
+    else if (metrics.conversationDuration >= 60) score += 20
+
+    return Math.min(100, score)
+}
+
+// Extrai keywords relevantes (melhorado)
+function extractKeywords(messages: string[]): string[] {
+    const text = messages.join(' ').toLowerCase()
+    const stopWords = ['o', 'a', 'de', 'da', 'do', 'em', 'para', 'com', 'por', 'que', 'e', 'é', 'um', 'uma', 'os', 'as', 'dos', 'das', 'ao', 'à', 'no', 'na', 'pelo', 'pela']
+
+    // Palavras relevantes para negócios
+    const businessKeywords = ['agendamento', 'consulta', 'avaliação', 'horário', 'disponível', 'interesse', 'preço', 'valor', 'investimento', 'serviço', 'atendimento', 'profissional', 'especialista', 'tratamento', 'procedimento', 'resultado']
+
+    const words = text
+        .replace(/[^\w\sáàâãéêíóôõúç]/g, '')
+        .split(/\s+/)
+        .filter(w => w.length > 4 && !stopWords.includes(w))
+
+    const freq: { [key: string]: number } = {}
+    words.forEach(w => {
+        // Prioriza palavras de negócio
+        const multiplier = businessKeywords.some(bw => w.includes(bw)) ? 3 : 1
+        freq[w] = (freq[w] || 0) + multiplier
+    })
+
+    return Object.entries(freq)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10)
+        .map(([word]) => word)
+}
+
+// Identifica padrões de conversão
+function identifyConversionPatterns(conversations: ConversationMetrics[]): ConversionPattern[] {
+    const converted = conversations.filter(c => c.conversionStatus === 'converted')
+
+    const patterns: { [key: string]: ConversationMetrics[] } = {}
+
+    converted.forEach(conv => {
+        const bucket = Math.floor(conv.totalMessages / 5) * 5
+        const key = `${bucket}-${bucket + 5} mensagens`
+        if (!patterns[key]) patterns[key] = []
+        patterns[key].push(conv)
+    })
+
+    return Object.entries(patterns)
+        .map(([pattern, convs]) => ({
+            pattern,
+            frequency: convs.length,
+            avgMessagesToConvert: convs.reduce((sum, c) => sum + c.totalMessages, 0) / convs.length,
+            avgTimeToConvert: convs.reduce((sum, c) => sum + c.conversationDuration, 0) / convs.length,
+            successRate: (convs.length / converted.length) * 100,
+            keywords: extractKeywords(convs.flatMap(c => c.keywords)),
+            objectionHandling: Array.from(new Set(convs.flatMap(c => c.objections)))
+        }))
+        .sort((a, b) => b.frequency - a.frequency)
+        .slice(0, 5)
+}
+
+export async function GET(req: Request) {
+    try {
+        const { searchParams } = new URL(req.url)
+        const period = searchParams.get('period') || 'week' // day, week, 2weeks, month
+        const customStart = searchParams.get('startDate')
+        const customEnd = searchParams.get('endDate')
+
+        console.log(`[Analytics] Iniciando análise para período: ${period}`)
+        const supabase = createBiaSupabaseServerClient()
+
+        // Calcula data de início baseado no período
+        const now = new Date()
+        let startDate = new Date()
+        let endDate = new Date() // Default: agora
+
+        switch (period) {
+            case 'day':
+                startDate.setDate(now.getDate() - 1)
+                break
+            case 'week':
+                startDate.setDate(now.getDate() - 7)
+                break
+            case '2weeks':
+                startDate.setDate(now.getDate() - 14)
+                break
+            case 'month':
+                startDate.setMonth(now.getMonth() - 1)
+                break
+            case 'custom':
+                if (customStart) startDate = new Date(customStart)
+                if (customEnd) endDate = new Date(customEnd)
+                // Ajusta endDate para final do dia
+                endDate.setHours(23, 59, 59, 999)
+                break
+        }
+
+        // Busca dados de chats
+        // Aumentado para 10000 para garantir histórico
+        const { data: chats, error } = await supabase
+            .from("robson_voxn8n_chat_histories")
+            .select("*")
+            .order("id", { ascending: false }) // Mais recentes primeiro
+            .limit(10000)
+
+        if (error) {
+            console.error("[Analytics] Erro ao buscar chats:", error)
+            return NextResponse.json({ error: error.message }, { status: 500 })
+        }
+
+        // Agrupa por sessão
+        const sessionMap = new Map<string, any[]>()
+        chats?.forEach(chat => {
+            const sessionId = chat.session_id || 'unknown'
+            if (!sessionMap.has(sessionId)) {
+                sessionMap.set(sessionId, [])
+            }
+            sessionMap.get(sessionId)!.push(chat)
+        })
+
+        console.log(`[Analytics] Processando ${sessionMap.size} sessões encontradas...`)
+
+        // Analisa cada conversa
+        const conversationMetrics: ConversationMetrics[] = []
+        const contactMap = new Map<string, { messages: number; conversations: number; lastTime: string; name: string; status: string }>()
+
+        for (const [sessionId, messages] of sessionMap.entries()) {
+            // Ordena mensagens por ID (cronológico)
+            const sortedMessages = messages.sort((a, b) => a.id - b.id)
+
+            // Extrai data da primeira mensagem para filtrar pelo período
+            const firstMsg = sortedMessages[0]
+            let firstTimeStr = firstMsg.message?.created_at
+
+            // Tenta extrair do texto se não tiver no message.created_at
+            if (!firstTimeStr) {
+                const content = String(firstMsg.message?.content || firstMsg.message?.text || '')
+                const dateMatch = content.match(/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})/)
+                if (dateMatch) firstTimeStr = dateMatch[1]
+            }
+
+            const firstTime = new Date(firstTimeStr || Date.now())
+
+            // Filtra pelo período selecionado
+            if (firstTime < startDate || firstTime > endDate) {
+                continue
+            }
+
+            const userMessages = sortedMessages.filter(m => m.message?.type === 'human')
+            const aiMessages = sortedMessages.filter(m => m.message?.type !== 'human')
+
+            // Identifica momento da conversão
+            let successTime: Date | null = null
+            const messageContents: string[] = []
+
+            for (const m of sortedMessages) {
+                const content = String(m.message?.content || m.message?.text || '')
+                messageContents.push(content)
+
+                if (!successTime && /agendad|confirmad|marcad|fechad|contrat/i.test(content)) {
+                    const msgTimeStr = m.message?.created_at || m.created_at
+                    if (msgTimeStr) {
+                        successTime = new Date(msgTimeStr)
+                    } else {
+                        const dateMatch = content.match(/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})/)
+                        if (dateMatch) successTime = new Date(dateMatch[1])
+                    }
+                }
+            }
+
+            const lastMsg = sortedMessages[sortedMessages.length - 1]
+            let lastTimeStr = lastMsg.message?.created_at
+            if (!lastTimeStr) {
+                const content = String(lastMsg.message?.content || lastMsg.message?.text || '')
+                const dateMatch = content.match(/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})/)
+                if (dateMatch) lastTimeStr = dateMatch[1]
+            }
+            const lastTime = new Date(lastTimeStr || Date.now())
+
+            // Se converteu, usa tempo até conversão. Se não, usa tempo total.
+            const duration = successTime
+                ? (successTime.getTime() - firstTime.getTime()) / (1000 * 60)
+                : (lastTime.getTime() - firstTime.getTime()) / (1000 * 60)
+
+            const hasSuccess = !!successTime
+            const hasError = messageContents.some(m =>
+                /erro|problem|falh|indisponível/i.test(m)
+            )
+
+            const responseTimes: number[] = []
+            for (let i = 1; i < sortedMessages.length; i++) {
+                const prev = new Date(sortedMessages[i - 1].message?.created_at || sortedMessages[i - 1].created_at || Date.now())
+                const curr = new Date(sortedMessages[i].message?.created_at || sortedMessages[i].created_at || Date.now())
+                responseTimes.push((curr.getTime() - prev.getTime()) / 1000)
+            }
+
+            const avgResponseTime = responseTimes.length > 0
+                ? responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length
+                : 0
+
+            let conversionStatus: 'converted' | 'in_progress' | 'lost' = 'in_progress'
+            if (hasSuccess) conversionStatus = 'converted'
+            else if (hasError || duration > 1440) conversionStatus = 'lost'
+
+            const sentiment = calculateSentiment(messageContents)
+            const engagement = calculateEngagement({
+                totalMessages: sortedMessages.length,
+                userMessages: userMessages.length,
+                avgResponseTime,
+                conversationDuration: duration
+            })
+
+            const keywords = extractKeywords(messageContents)
+            const objections = identifyObjections(messageContents)
+            const schedulingReason = identifyNonSchedulingReason(messageContents, hasSuccess)
+
+            let numero = sessionId
+            if (sessionId.endsWith('@s.whatsapp.net')) {
+                numero = sessionId.replace('@s.whatsapp.net', '')
+            }
+
+            const contactName = extractContactName(sortedMessages) || `Lead ${numero.substring(numero.length - 4)}`
+
+            conversationMetrics.push({
+                sessionId,
+                numero,
+                contactName,
+                totalMessages: sortedMessages.length,
+                userMessages: userMessages.length,
+                aiMessages: aiMessages.length,
+                conversationDuration: duration,
+                responseTime: responseTimes,
+                avgResponseTime,
+                hasError,
+                hasSuccess,
+                conversionStatus,
+                sentimentScore: sentiment,
+                engagementScore: engagement,
+                keywords,
+                firstMessageTime: firstTime.toISOString(),
+                lastMessageTime: lastTime.toISOString(),
+                objections,
+                schedulingReason
+            })
+
+            // Atualiza mapa de contatos
+            if (!contactMap.has(numero)) {
+                contactMap.set(numero, {
+                    messages: 0,
+                    conversations: 0,
+                    lastTime: lastTime.toISOString(),
+                    name: contactName,
+                    status: conversionStatus
+                })
+            }
+            const contact = contactMap.get(numero)!
+            contact.messages += sortedMessages.length
+            contact.conversations += 1
+            if (new Date(lastTime) > new Date(contact.lastTime)) {
+                contact.lastTime = lastTime.toISOString()
+                contact.name = contactName
+                contact.status = conversionStatus
+            }
+        }
+
+        console.log(`[Analytics] ${conversationMetrics.length} conversas analisadas após filtro de data`)
+
+        // Top contatos que mais interagiram
+        const topContacts: TopContact[] = Array.from(contactMap.entries())
+            .map(([numero, data]) => ({
+                numero,
+                contactName: data.name,
+                totalMessages: data.messages,
+                totalConversations: data.conversations,
+                conversionStatus: data.status,
+                lastInteraction: data.lastTime
+            }))
+            .sort((a, b) => b.totalMessages - a.totalMessages)
+            .slice(0, 20)
+
+        // Calcula insights
+        const converted = conversationMetrics.filter(c => c.conversionStatus === 'converted')
+        const conversionRate = conversationMetrics.length > 0
+            ? (converted.length / conversationMetrics.length) * 100
+            : 0
+
+        const avgMessagesToConvert = converted.length > 0
+            ? converted.reduce((sum, c) => sum + c.totalMessages, 0) / converted.length
+            : 0
+
+        const avgTimeToConvert = converted.length > 0
+            ? converted.reduce((sum, c) => sum + c.conversationDuration, 0) / converted.length
+            : 0
+
+        // Análise por hora
+        const hourlyConversions: { [hour: number]: number } = {}
+        converted.forEach(c => {
+            const date = new Date(c.firstMessageTime)
+            if (!isNaN(date.getTime())) {
+                const hour = date.getHours()
+                hourlyConversions[hour] = (hourlyConversions[hour] || 0) + 1
+            }
+        })
+
+        const bestPerformingHours = Object.entries(hourlyConversions)
+            .map(([hour, conversions]) => ({ hour: parseInt(hour), conversions }))
+            .sort((a, b) => b.conversions - a.conversions)
+            .slice(0, 5)
+
+        // Análise por dia da semana
+        const dayNames = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado']
+        const dailyConversions: { [day: string]: number } = {}
+        converted.forEach(c => {
+            const date = new Date(c.firstMessageTime)
+            if (!isNaN(date.getTime())) {
+                const day = dayNames[date.getDay()]
+                dailyConversions[day] = (dailyConversions[day] || 0) + 1
+            }
+        })
+
+        const bestPerformingDays = Object.entries(dailyConversions)
+            .map(([day, conversions]) => ({ day, conversions }))
+            .sort((a, b) => b.conversions - a.conversions)
+
+        // Padrões de conversão
+        const conversionPatterns = identifyConversionPatterns(conversationMetrics)
+
+        // Análise de sentimento
+        const sentimentAnalysis = {
+            positive: conversationMetrics.filter(c => c.sentimentScore > 0.3).length,
+            neutral: conversationMetrics.filter(c => c.sentimentScore >= -0.3 && c.sentimentScore <= 0.3).length,
+            negative: conversationMetrics.filter(c => c.sentimentScore < -0.3).length
+        }
+
+        // Métricas de engajamento
+        const engagementMetrics = {
+            highEngagement: conversationMetrics.filter(c => c.engagementScore > 70).length,
+            mediumEngagement: conversationMetrics.filter(c => c.engagementScore >= 40 && c.engagementScore <= 70).length,
+            lowEngagement: conversationMetrics.filter(c => c.engagementScore < 40).length
+        }
+
+        // Top Keywords
+        const allKeywords = conversationMetrics.flatMap(c => c.keywords)
+        const keywordFreq: { [key: string]: number } = {}
+        allKeywords.forEach(k => keywordFreq[k] = (keywordFreq[k] || 0) + 1)
+
+        const topKeywords = Object.entries(keywordFreq)
+            .map(([keyword, frequency]) => ({
+                keyword,
+                frequency,
+                conversionRate: 0 // TODO: calcular taxa por keyword
+            }))
+            .sort((a, b) => b.frequency - a.frequency)
+            .slice(0, 20)
+
+        // Análise de Objeções
+        const allObjections = conversationMetrics.flatMap(c => c.objections)
+        const objectionFreq: { [key: string]: number } = {}
+        allObjections.forEach(o => objectionFreq[o] = (objectionFreq[o] || 0) + 1)
+
+        const objectionAnalysis = Object.entries(objectionFreq)
+            .map(([objection, frequency]) => ({
+                objection,
+                frequency,
+                successfulHandling: 0, // TODO: implementar lógica
+                successRate: 0
+            }))
+            .sort((a, b) => b.frequency - a.frequency)
+
+        // Motivos de não agendamento
+        const nonSchedulingReasons = conversationMetrics
+            .filter(c => !c.hasSuccess)
+            .map(c => c.schedulingReason)
+            .reduce((acc: { [key: string]: number }, reason) => {
+                acc[reason] = (acc[reason] || 0) + 1
+                return acc
+            }, {})
+
+        const nonSchedulingAnalysis = Object.entries(nonSchedulingReasons)
+            .map(([reason, frequency]) => ({ reason, frequency }))
+            .sort((a, b) => b.frequency - a.frequency)
+
+        // Recomendações
+        const recommendations: string[] = []
+        if (conversionRate < 10) recommendations.push("A taxa de conversão está baixa. Revise o script de vendas.")
+        if (avgMessagesToConvert > 20) recommendations.push("O ciclo de vendas está longo. Tente ser mais direto nas propostas.")
+        if (sentimentAnalysis.negative > sentimentAnalysis.positive) recommendations.push("O sentimento geral é negativo. Verifique a qualidade do atendimento.")
+        if (bestPerformingHours.length > 0) recommendations.push(`O melhor horário para vendas é ${bestPerformingHours[0].hour}h. Foque esforços neste período.`)
+
+        const insights: AnalyticsInsights = {
+            totalConversations: conversationMetrics.length,
+            conversionRate,
+            avgMessagesToConvert,
+            avgTimeToConvert,
+            bestPerformingHours,
+            bestPerformingDays,
+            conversionPatterns,
+            sentimentAnalysis,
+            engagementMetrics,
+            topKeywords,
+            topContacts,
+            objectionAnalysis,
+            nonSchedulingReasons: nonSchedulingAnalysis,
+            recommendations
+        }
+
+        return NextResponse.json({
+            success: true,
+            period,
+            insights
+        })
+
+    } catch (error: any) {
+        console.error("[Analytics] Erro interno:", error)
+        return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+}

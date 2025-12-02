@@ -1,0 +1,215 @@
+// app/api/supabase/agendamentos/route.ts
+import { NextResponse } from "next/server"
+import { supabaseServer } from "@/lib/supabase/server"
+
+async function getAgendamentos(table: string, dayStart?: string | null, dayEnd?: string | null) {
+let query = supabaseServer
+  .from(table)
+  .select(
+    `id,
+     created_at,
+     nome_responsavel,
+     nome_aluno,
+     horario,
+     dia,
+     "observações" as observacoes,
+     contato,
+     status`
+  )
+  .order("created_at", { ascending: false })
+
+if (dayStart) query = query.gte("dia", dayStart)
+if (dayEnd) query = query.lte("dia", dayEnd)
+
+return query
+}
+
+export async function GET(req: Request) {
+try {
+  const { searchParams } = new URL(req.url)
+  const dayStart = searchParams.get("dayStart")
+  const dayEnd = searchParams.get("dayEnd")
+
+  // Tenta primeiro com "Agendamentos" (case-sensitive), depois com "agendamentos" como fallback.
+  const tables = ["Agendamentos", "agendamentos"]
+  let data: any[] | null = null
+  let lastError: any = null
+
+  for (const t of tables) {
+    const { data: rows, error } = await getAgendamentos(t, dayStart, dayEnd)
+    if (!error) {
+      data = rows ?? []
+      break
+    }
+    lastError = error
+  }
+
+  if (!data) throw lastError ?? new Error("Falha ao consultar agendamentos")
+
+  return NextResponse.json(data)
+} catch (e: any) {
+  return NextResponse.json({ error: e?.message ?? "Erro ao consultar agendamentos" }, { status: 500 })
+}
+}
+
+// app/api/supabase/overview/route.ts
+export async function GET() {
+try {
+  const msgs = await supabaseServer.from("sofian8n_chat_histories").select("session_id")
+  if (msgs.error) throw msgs.error
+  const sessions = new Set<string>((msgs.data ?? []).map((r: any) => r.session_id))
+
+  // Fallback para a tabela de agendamentos com e sem maiúsculas
+  const agTries = ["Agendamentos", "agendamentos"]
+  let agCount = 0
+  let lastError: any = null
+  for (const t of agTries) {
+    const res = await supabaseServer.from(t).select("*", { count: "exact", head: true })
+    if (!res.error) {
+      agCount = res.count ?? 0
+      lastError = null
+      break
+    }
+    lastError = res.error
+  }
+  if (lastError && agCount === 0) {
+    // não lança erro; continua com 0 para não quebrar o overview
+    console.warn("Falha ao contar agendamentos:", lastError?.message)
+  }
+
+  const fu = await supabaseServer.from("sofia_followup").select("*", { count: "exact", head: true })
+  if (fu.error) throw fu.error
+
+  return NextResponse.json({
+    conversas: sessions.size,
+    agendamentos: agCount,
+    followups: fu.count ?? 0,
+  })
+} catch (e: any) {
+  return NextResponse.json({ error: e?.message ?? "Erro ao consultar overview" }, { status: 500 })
+}
+}
+
+// app/api/supabase/chats/route.ts
+// No changes needed for this file based on the updates
+
+// app/(dashboard)/conversas/page.tsx
+import React, { useState, useEffect } from "react"
+import { supabaseClient } from "@/lib/supabase/client"
+
+type Message = {
+session_id: string
+created_at: string
+content: string
+}
+
+const ConversasPage: React.FC = () => {
+const [sessions, setSessions] = useState<Message[]>([])
+const [active, setActive] = useState<string | null>(null)
+
+const fmtBR = (isoLike: string | undefined | null) => {
+  if (!isoLike) return ""
+  const d = new Date(isoLike)
+  if (isNaN(d.getTime())) return String(isoLike)
+  try {
+    return new Intl.DateTimeFormat("pt-BR", {
+      dateStyle: "short",
+      timeStyle: "short",
+      timeZone: "America/Sao_Paulo",
+      hour12: false,
+    }).format(d)
+  } catch {
+    return d.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", hour12: false })
+  }
+}
+
+useEffect(() => {
+  const fetchConversas = async () => {
+    const qs = ""
+    fetch(`/api/supabase/chats${qs ? `?${qs}` : ""}`)
+      .then((r) => r.json())
+      .then((d) => {
+        const arr = Array.isArray(d) ? d : []
+        setSessions(arr)
+        setActive(arr[0]?.session_id ?? null)
+      })
+      .catch(() => {
+        setSessions([])
+        setActive(null)
+      })
+  }
+
+  fetchConversas()
+}, [])
+
+return (
+  <div>
+    <div>
+      {sessions.map((session) => (
+        <div key={session.session_id}>
+          <div>{fmtBR(session.created_at)}</div>
+          {/* rest of code here */}
+        </div>
+      ))}
+    </div>
+    <div>
+      {sessions.map((session) => (
+        <div key={session.session_id}>
+          {session.messages.map((m: any) => (
+            <div key={m.id}>
+              <div className="opacity-80 text-[11px] mb-1">{fmtBR(m.created_at)}</div>
+              {/* rest of code here */}
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  </div>
+)
+}
+
+export default ConversasPage
+
+// app/(dashboard)/agendamentos/page.tsx
+import React, { useState, useEffect } from "react"
+import { supabaseClient } from "@/lib/supabase/client"
+
+type Agendamento = {
+id: number
+created_at: string
+nome_responsavel: string
+nome_aluno: string
+horario: string
+dia: string
+observacoes: string
+contato: string
+status: string
+}
+
+const AgendamentosPage: React.FC = () => {
+const [rows, setRows] = useState<Agendamento[]>([])
+
+useEffect(() => {
+  const fetchAgendamentos = async () => {
+    const qs = ""
+    fetch(`/api/supabase/agendamentos${qs ? `?${qs}` : ""}`)
+      .then((r) => r.json())
+      .then((d) => setRows(Array.isArray(d) ? d : []))
+      .catch(() => setRows([]))
+  }
+
+  fetchAgendamentos()
+}, [])
+
+return (
+  <div>
+    {rows.map((row) => (
+      <div key={row.id}>
+        {/* rest of code here */}
+      </div>
+    ))}
+  </div>
+)
+}
+
+export default AgendamentosPage
