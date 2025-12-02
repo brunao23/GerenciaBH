@@ -103,8 +103,48 @@ function cleanHumanMessage(text: string): string {
 
 function cleanAIMessage(text: string): string {
     if (!text) return text
-    let s = String(text).replace(/\r/g, '').replace(/Hoje é:\s*[^.]+\./gi, '').replace(/Dia da semana:\s*[^.]+\./gi, '').replace(/,\s*\./g, '.').replace(/\.{2,}/g, '.').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').replace(/\s{2,}/g, ' ').trim()
-    return s
+    let s = String(text).replace(/\r/g, '')
+    
+    // LEI INVIOLÁVEL: Remove TODAS as chamadas de ferramentas/tools da IA
+    // Remove blocos [Used tools: ...]
+    while (s.includes('[Used tools') || s.includes('[Tool:') || s.includes('Input:') || s.includes('Result:')) {
+        s = s.replace(/\[Used\s+tools?[\s\S]{0,50000}?\]/gi, "")
+        s = s.replace(/\[Tool[\s\S]{0,50000}?\]/gi, "")
+        s = s.replace(/\[[\s\S]{0,50000}?Input:[\s\S]{0,50000}?Result:[\s\S]{0,50000}?\]/gi, "")
+        if (!s.includes('[Used tools') && !s.includes('[Tool:') && !s.includes('Input:') && !s.includes('Result:')) {
+            break
+        }
+    }
+    
+    // Remove estruturas JSON de resultados de ferramentas
+    s = s.replace(/\{"disponiveis"[\s\S]{0,50000}?\}/gi, "")
+    s = s.replace(/"disponiveis"[\s\S]{0,50000}?\}/gi, "")
+    s = s.replace(/buscar_horarios_disponiveis[\s\S]{0,50000}?\]/gi, "")
+    s = s.replace(/\["[\d:]+"(?:,"[\d:]+")*\]/g, "")
+    
+    // Limpeza padrão
+    s = s.replace(/Hoje é:\s*[^.]+\./gi, '')
+    s = s.replace(/Dia da semana:\s*[^.]+\./gi, '')
+    s = s.replace(/,\s*\./g, '.')
+    s = s.replace(/\.{2,}/g, '.')
+    s = s.replace(/[ \t]+\n/g, '\n')
+    s = s.replace(/\n{3,}/g, '\n\n')
+    s = s.replace(/\s{2,}/g, ' ')
+    
+    // Se ainda contém estruturas de ferramentas, tenta extrair apenas a mensagem real
+    if (s.match(/\[Used\s+tools?|\[Tool:|Input:|Result:|"disponiveis"/i)) {
+        const parts = s.split(/\[Used\s+tools?|\[Tool:|Input:|Result:/i)
+        if (parts.length > 1) {
+            s = parts[parts.length - 1]
+                .replace(/\]/g, "")
+                .replace(/\{[\s\S]*?\}/g, "")
+                .trim()
+        } else {
+            s = ""
+        }
+    }
+    
+    return s.trim()
 }
 
 // Extrai informações estruturadas do formulário quando presente no prompt

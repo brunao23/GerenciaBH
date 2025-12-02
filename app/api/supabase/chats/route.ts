@@ -286,6 +286,43 @@ function cleanHumanMessage(text: string) {
 function cleanAnyMessage(text: string) {
   if (!text) return text
   let s = String(text).replace(/\r/g, "")
+  
+  // LEI INVIOLÁVEL: Remove TODAS as chamadas de ferramentas/tools da IA
+  // Remove blocos [Used tools: ...]
+  s = s.replace(/\[Used\s+tools?[\s\S]{0,50000}?\]/gi, "")
+  s = s.replace(/\[Tool[\s\S]{0,50000}?\]/gi, "")
+  s = s.replace(/Tool:\s*[^\]]+/gi, "")
+  s = s.replace(/Input:\s*\{[^}]*\}/gi, "")
+  s = s.replace(/Result:\s*\[[\s\S]{0,10000}?\]/gi, "")
+  
+  // Remove estruturas JSON de resultados de ferramentas
+  s = s.replace(/\{"disponiveis"[\s\S]{0,50000}?\}/gi, "")
+  s = s.replace(/"disponiveis"[\s\S]{0,50000}?\}/gi, "")
+  s = s.replace(/Quinta\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
+  s = s.replace(/Sexta\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
+  s = s.replace(/Sábado\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
+  s = s.replace(/Segunda\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
+  s = s.replace(/Terça\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
+  s = s.replace(/Quarta\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
+  
+  // Remove arrays de horários
+  s = s.replace(/\["[\d:]+"(?:,"[\d:]+")*\]/g, "")
+  
+  // Remove blocos de ferramentas com nomes específicos
+  s = s.replace(/buscar_horarios_disponiveis[\s\S]{0,50000}?\]/gi, "")
+  s = s.replace(/consultar_agenda[\s\S]{0,50000}?\]/gi, "")
+  s = s.replace(/agendar_visita[\s\S]{0,50000}?\]/gi, "")
+  
+  // Remove qualquer estrutura que comece com [ e contenha Tool, Input, Result
+  while (s.includes('[Used tools') || s.includes('[Tool:') || s.includes('Input:') || s.includes('Result:')) {
+    s = s.replace(/\[[\s\S]{0,50000}?Used\s+tools?[\s\S]{0,50000}?\]/gi, "")
+    s = s.replace(/\[[\s\S]{0,50000}?Tool:[\s\S]{0,50000}?\]/gi, "")
+    s = s.replace(/\[[\s\S]{0,50000}?Input:[\s\S]{0,50000}?Result:[\s\S]{0,50000}?\]/gi, "")
+    if (!s.includes('[Used tools') && !s.includes('[Tool:') && !s.includes('Input:') && !s.includes('Result:')) {
+      break
+    }
+  }
+  
   // 1) se houver bloco "Mensagem:", mantém só o conteúdo principal
   s = stripMensagemBlock(s)
   // 2) remove linhas de metadados
@@ -296,13 +333,34 @@ function cleanAnyMessage(text: string) {
   s = s.replace(/Dia da semana:\s*[^.]+\./gi, "")
   s = s.replace(/,\s*\./g, ".")
   s = s.replace(/\.{2,}/g, ".")
+  
+  // Remove qualquer resquício de estruturas JSON de ferramentas
+  s = s.replace(/\{[^}]*"disponiveis"[^}]*\}/gi, "")
+  s = s.replace(/\[[^\]]*"[\d:]+"[^\]]*\]/g, "")
+  
   // 4) normaliza espaços vazios múltiplos
   s = s
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .replace(/\s{2,}/g, " ")
     .trim()
-  return s
+    
+  // Validação final: se ainda contém estruturas de ferramentas, remove completamente
+  if (s.match(/\[Used\s+tools?|\[Tool:|Input:|Result:|"disponiveis"/i)) {
+    // Tenta extrair apenas a parte que não é ferramenta (geralmente vem depois)
+    const parts = s.split(/\[Used\s+tools?|\[Tool:|Input:|Result:/i)
+    if (parts.length > 1) {
+      // Pega a última parte que geralmente é a mensagem real
+      s = parts[parts.length - 1]
+        .replace(/\]/g, "")
+        .replace(/\{[\s\S]*?\}/g, "")
+        .trim()
+    } else {
+      s = ""
+    }
+  }
+  
+  return s.trim()
 }
 
 function extractNameFromMessage(text: string, role: string): string | null {
