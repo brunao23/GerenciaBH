@@ -429,10 +429,10 @@ export async function GET(req: Request) {
             let status: CRMCard['status'] = 'atendimento'
             const isSuccess = /agendad|confirmad|marcad|fechad|contrat/i.test(fullText)
             // LEI INVIOLÁVEL: Normalização robusta para verificar se última mensagem é da IA
-            const lastMsgType = String(lastMsg.message?.type ?? "").toLowerCase()
-            const lastMsgRole = String(lastMsg.message?.role ?? "").toLowerCase()
-            const lastIsAI = lastMsgType === 'ai' || lastMsgType === 'bot' || lastMsgType === 'assistant' || 
-                             lastMsgRole === 'ai' || lastMsgRole === 'bot' || lastMsgRole === 'assistant'
+            const lastMsgTypeForAI = String(lastMsg.message?.type ?? "").toLowerCase()
+            const lastMsgRoleForAI = String(lastMsg.message?.role ?? "").toLowerCase()
+            const lastIsAI = lastMsgTypeForAI === 'ai' || lastMsgTypeForAI === 'bot' || lastMsgTypeForAI === 'assistant' || 
+                             lastMsgRoleForAI === 'ai' || lastMsgRoleForAI === 'bot' || lastMsgRoleForAI === 'assistant'
 
             if (isSuccess) status = 'agendado'
             else if (messages.length <= 3) status = 'entrada'
