@@ -10,7 +10,7 @@ import { ScrollArea } from "../../../components/ui/scroll-area"
 import { Avatar, AvatarFallback } from "../../../components/ui/avatar"
 import { Badge } from "../../../components/ui/badge"
 import { Button } from "../../../components/ui/button"
-import { Search, MessageSquare, Phone, User, Clock, AlertCircle, CheckCircle2, PauseCircle, PlayCircle, Calendar, UserMinus, Loader2 } from "lucide-react"
+import { Search, MessageSquare, Phone, User, Clock, AlertCircle, CheckCircle2, PauseCircle, PlayCircle, Calendar, UserMinus, Loader2, Briefcase, Target, Clock3 } from "lucide-react"
 
 type ChatMessage = {
   role: "user" | "bot"
@@ -30,6 +30,15 @@ type ChatSession = {
   error?: boolean
   success?: boolean
   last_id: number
+  formData?: {
+    nome?: string
+    primeiroNome?: string
+    dificuldade?: string
+    motivo?: string
+    profissao?: string
+    tempoDecisao?: string
+    comparecimento?: string
+  }
 }
 
 type PauseStatus = {
@@ -444,6 +453,71 @@ export default function ConversasPage() {
             <CardContent className="flex-1 overflow-hidden p-0">
               <ScrollArea ref={scrollAreaRef} className="h-full genial-scrollbar">
                 <div className="p-4 space-y-4">
+                  {/* Dados do Formulário */}
+                  {current.formData && (
+                    <div className="bg-[#1a1a1a] rounded-lg p-4 mb-4 border border-border-gray">
+                      <h4 className="text-sm font-semibold text-pure-white mb-3 flex items-center gap-2">
+                        <User className="w-4 h-4 text-accent-green" />
+                        Dados do Formulário
+                      </h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {current.formData.nome && (
+                          <div>
+                            <div className="text-xs text-text-gray mb-1">Nome Completo</div>
+                            <div className="text-sm text-pure-white">{current.formData.nome}</div>
+                          </div>
+                        )}
+                        {current.formData.primeiroNome && (
+                          <div>
+                            <div className="text-xs text-text-gray mb-1">Primeiro Nome</div>
+                            <div className="text-sm text-pure-white">{current.formData.primeiroNome}</div>
+                          </div>
+                        )}
+                        {current.formData.profissao && (
+                          <div>
+                            <div className="text-xs text-text-gray mb-1 flex items-center gap-1">
+                              <Briefcase className="w-3 h-3" />
+                              Profissão
+                            </div>
+                            <div className="text-sm text-pure-white">{current.formData.profissao.replace(/_/g, ' ')}</div>
+                          </div>
+                        )}
+                        {current.formData.dificuldade && (
+                          <div>
+                            <div className="text-xs text-text-gray mb-1 flex items-center gap-1">
+                              <Target className="w-3 h-3" />
+                              Dificuldade
+                            </div>
+                            <div className="text-sm text-pure-white">{current.formData.dificuldade.replace(/_/g, ' ')}</div>
+                          </div>
+                        )}
+                        {current.formData.motivo && (
+                          <div>
+                            <div className="text-xs text-text-gray mb-1">Motivo</div>
+                            <div className="text-sm text-pure-white">{current.formData.motivo.replace(/_/g, ' ')}</div>
+                          </div>
+                        )}
+                        {current.formData.tempoDecisao && (
+                          <div>
+                            <div className="text-xs text-text-gray mb-1 flex items-center gap-1">
+                              <Clock3 className="w-3 h-3" />
+                              Tempo de Decisão
+                            </div>
+                            <div className="text-sm text-pure-white">{current.formData.tempoDecisao.replace(/_/g, ' ')}</div>
+                          </div>
+                        )}
+                        {current.formData.comparecimento && (
+                          <div>
+                            <div className="text-xs text-text-gray mb-1">Comparecimento</div>
+                            <Badge variant="outline" className={current.formData.comparecimento === 'sim' ? 'border-emerald-500/30 text-emerald-400' : 'border-gray-500/30 text-gray-400'}>
+                              {current.formData.comparecimento === 'sim' ? 'Sim' : 'Não'}
+                            </Badge>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                   {current.messages.map((msg, idx) => (
                     <div
                       key={`${msg.message_id || idx}`}
