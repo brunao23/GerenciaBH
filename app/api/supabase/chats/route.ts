@@ -165,41 +165,73 @@ function cleanHumanMessage(text: string) {
   s = s.replace(/\}[\s\S]{0,5000}?"rules"[\s\S]{0,5000}?\{/gi, "")
   s = s.replace(/\}[\s\S]{0,5000}?"inviolaveis"[\s\S]{0,5000}?\[/gi, "")
 
+  // LEI INVIOLÁVEL: Remove resquícios específicos de prompts/formulários
+  // Remove padrões como "por mensagem. ---, }" ou "por mensagem. ---"
+  s = s.replace(/por\s+mensagem[.\s]*[-]{2,}[,\s]*\}?/gi, "")
+  s = s.replace(/por\s+mensagem[.\s]*\}?/gi, "")
+  s = s.replace(/[-]{3,}[,\s]*\}?/g, "") // Remove "---" ou "---, }"
+  s = s.replace(/^[-\s,\.]+$/gm, "") // Remove linhas só com traços, vírgulas, pontos
+  s = s.replace(/,\s*\}\s*$/g, "") // Remove ", }" no final
+  s = s.replace(/\}\s*$/g, "") // Remove "}" no final
+  s = s.replace(/^[^a-zA-ZáàâãéêíóôõúçÁÀÂÃÉÊÍÓÔÕÚÇ]*$/gm, "") // Remove linhas sem letras
+  
   // 4. Primeiro, procura especificamente por "Mensagem do cliente/lead:" e extrai só essa parte
   const messageMatch = s.match(
-    /Mensagem do cliente\/lead:\s*(.*?)(?:\s+Para \d{4}|\s+Sua mem[óo]ria|\s+Hor[áa]rio|\s+Dia da semana|\s+lembre-se|\s+\{|\s+"rules"|$)/is,
+    /Mensagem do cliente\/lead:\s*(.*?)(?:\s+Para \d{4}|\s+Sua mem[óo]ria|\s+Hor[áa]rio|\s+Dia da semana|\s+lembre-se|\s+\{|\s+"rules"|por\s+mensagem|[-]{2,}|$)/is,
   )
   if (messageMatch && messageMatch[1]) {
     s = messageMatch[1].trim()
     // Remove qualquer resquício de JSON ou regras
     s = s.replace(/\{[\s\S]*?"rules"[\s\S]*?\}/gi, "")
     s = s.replace(/inviolaveis[\s\S]*?\]/gi, "")
+    // Remove resquícios específicos
+    s = s.replace(/por\s+mensagem[.\s]*[-]{2,}[,\s]*\}?/gi, "")
+    s = s.replace(/[-]{3,}[,\s]*\}?/g, "")
+    s = s.replace(/,\s*\}\s*$/g, "")
+    s = s.replace(/\}\s*$/g, "")
     // Se conseguiu extrair a mensagem, retorna direto
-    if (s.length > 0 && !s.match(/^(rules|inviolaveis|Sempre|Nunca|Use|Jamais)/i)) {
-      return s
+    if (s.length > 0 && !s.match(/^(rules|inviolaveis|Sempre|Nunca|Use|Jamais|por\s+mensagem)/i)) {
+      const cleaned = s
         .replace(/^Sua mem[óo]ria:\s*/gi, "")
         .replace(/[ \t]+\n/g, "\n")
         .replace(/\n{3,}/g, "\n\n")
         .replace(/\s{2,}/g, " ")
         .trim()
+      
+      // Validação final: se ainda tem resquícios, retorna vazio
+      if (cleaned.match(/^[-\s,\.\}]+$/)) return ""
+      if (cleaned.length < 3) return ""
+      
+      return cleaned
     }
   }
 
   // 5. Tenta outros padrões se o primeiro não funcionar
   const altMatch = s.match(
-    /Mensagem do cliente\/usuário\/lead:\s*(.*?)(?:\s+Para \d{4}|\s+Sua mem[óo]ria|\s+Hor[áa]rio|\s+Dia da semana|\s+lembre-se|\s+\{|\s+"rules"|$)/is,
+    /Mensagem do cliente\/usuário\/lead:\s*(.*?)(?:\s+Para \d{4}|\s+Sua mem[óo]ria|\s+Hor[áa]rio|\s+Dia da semana|\s+lembre-se|\s+\{|\s+"rules"|por\s+mensagem|[-]{2,}|$)/is,
   )
   if (altMatch && altMatch[1]) {
     s = altMatch[1].trim()
     s = s.replace(/\{[\s\S]*?"rules"[\s\S]*?\}/gi, "")
     s = s.replace(/inviolaveis[\s\S]*?\]/gi, "")
-    if (s.length > 0 && !s.match(/^(rules|inviolaveis|Sempre|Nunca|Use|Jamais)/i)) {
-      return s
+    // Remove resquícios específicos
+    s = s.replace(/por\s+mensagem[.\s]*[-]{2,}[,\s]*\}?/gi, "")
+    s = s.replace(/[-]{3,}[,\s]*\}?/g, "")
+    s = s.replace(/,\s*\}\s*$/g, "")
+    s = s.replace(/\}\s*$/g, "")
+    if (s.length > 0 && !s.match(/^(rules|inviolaveis|Sempre|Nunca|Use|Jamais|por\s+mensagem)/i)) {
+      const cleaned = s
         .replace(/^Sua mem[óo]ria:\s*/gi, "")
         .replace(/[ \t]+\n/g, "\n")
         .replace(/\n{3,}/g, "\n\n")
         .replace(/\s{2,}/g, " ")
         .trim()
+      
+      // Validação final
+      if (cleaned.match(/^[-\s,\.\}]+$/)) return ""
+      if (cleaned.length < 3) return ""
+      
+      return cleaned
     }
   }
 
@@ -266,6 +298,13 @@ function cleanHumanMessage(text: string) {
     return "" // Retorna vazio se for claramente um prompt
   }
 
+  // LEI INVIOLÁVEL: Remove resquícios finais de prompts/formulários
+  s = s.replace(/por\s+mensagem[.\s]*[-]{2,}[,\s]*\}?/gi, "")
+  s = s.replace(/[-]{3,}[,\s]*\}?/g, "")
+  s = s.replace(/,\s*\}\s*$/g, "")
+  s = s.replace(/\}\s*$/g, "")
+  s = s.replace(/^[-\s,\.\}]+$/gm, "") // Remove linhas só com caracteres especiais
+  
   // Normalização final de espaços
   s = s
     .replace(/[ \t]+\n/g, "\n")
@@ -279,7 +318,8 @@ function cleanHumanMessage(text: string) {
     /Sempre chame/i, /Sempre diga/i, /Sempre utilize/i, /Nunca use/i, /Sempre finalize/i,
     /Use emojis/i, /Use vícios/i, /Jamais/i, /maior escola/i, /América Latina/i,
     /Use no maximo/i, /caracteres por mensagem/i, /Tereza/i, /Vox2You/i,
-    /\{[^}]*rules/i, /\{[^}]*inviolaveis/i, /\{[^}]*prompt/i
+    /\{[^}]*rules/i, /\{[^}]*inviolaveis/i, /\{[^}]*prompt/i,
+    /por\s+mensagem/i, /^[-\s,\.\}]+$/ // Resquícios de formulários
   ]
   
   // Se encontrar QUALQUER indicador de prompt, retorna VAZIO
@@ -294,6 +334,11 @@ function cleanHumanMessage(text: string) {
     s.includes("Sempre") || s.includes("Nunca") || s.includes("Use") || 
     s.includes("Jamais") || s.includes("regras") || s.includes("inviol")
   )) {
+    return ""
+  }
+  
+  // LEI INVIOLÁVEL: Se a mensagem final é só caracteres especiais ou resquícios, retorna vazio
+  if (s.match(/^[-\s,\.\}]+$/) || s.match(/^por\s+mensagem/i) || s.length < 3) {
     return ""
   }
 

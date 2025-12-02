@@ -65,20 +65,41 @@ function cleanHumanMessage(text: string): string {
     s = s.replace(/Jamais[\s\S]{0,500}?/gi, "")
     s = s.replace(/maior escola[\s\S]{0,500}?/gi, "")
     
+    // LEI INVIOLÁVEL: Remove resquícios específicos de prompts/formulários
+    s = s.replace(/por\s+mensagem[.\s]*[-]{2,}[,\s]*\}?/gi, "")
+    s = s.replace(/por\s+mensagem[.\s]*\}?/gi, "")
+    s = s.replace(/[-]{3,}[,\s]*\}?/g, "")
+    s = s.replace(/^[-\s,\.]+$/gm, "")
+    s = s.replace(/,\s*\}\s*$/g, "")
+    s = s.replace(/\}\s*$/g, "")
+    s = s.replace(/^[^a-zA-ZáàâãéêíóôõúçÁÀÂÃÉÊÍÓÔÕÚÇ]*$/gm, "")
+    
     // Tenta extrair mensagem do cliente
-    const messageMatch = s.match(/Mensagem do cliente\/lead:\s*(.*?)(?:\s+Para \d{4}|\s+Sua mem[óo]ria|\s+Hor[áa]rio|\s+Dia da semana|\s+lembre-se|\s+\{|$)/is)
+    const messageMatch = s.match(/Mensagem do cliente\/lead:\s*(.*?)(?:\s+Para \d{4}|\s+Sua mem[óo]ria|\s+Hor[áa]rio|\s+Dia da semana|\s+lembre-se|\s+\{|por\s+mensagem|[-]{2,}|$)/is)
     if (messageMatch && messageMatch[1]) {
         s = messageMatch[1].trim()
-        if (s.length > 0 && !s.match(/^(rules|inviolaveis|Sempre|Nunca|Use|Jamais)/i)) {
-            return s.replace(/^Sua mem[óo]ria:\s*/gi, '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').replace(/\s{2,}/g, ' ').trim()
+        s = s.replace(/por\s+mensagem[.\s]*[-]{2,}[,\s]*\}?/gi, "")
+        s = s.replace(/[-]{3,}[,\s]*\}?/g, "")
+        s = s.replace(/,\s*\}\s*$/g, "")
+        s = s.replace(/\}\s*$/g, "")
+        if (s.length > 0 && !s.match(/^(rules|inviolaveis|Sempre|Nunca|Use|Jamais|por\s+mensagem)/i)) {
+            const cleaned = s.replace(/^Sua mem[óo]ria:\s*/gi, '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').replace(/\s{2,}/g, ' ').trim()
+            if (cleaned.match(/^[-\s,\.\}]+$/) || cleaned.length < 3) return ""
+            return cleaned
         }
     }
     
-    const altMatch = s.match(/Mensagem do cliente\/usuário\/lead:\s*(.*?)(?:\s+Para \d{4}|\s+Sua mem[óo]ria|\s+Hor[áa]rio|\s+Dia da semana|\s+lembre-se|\s+\{|$)/is)
+    const altMatch = s.match(/Mensagem do cliente\/usuário\/lead:\s*(.*?)(?:\s+Para \d{4}|\s+Sua mem[óo]ria|\s+Hor[áa]rio|\s+Dia da semana|\s+lembre-se|\s+\{|por\s+mensagem|[-]{2,}|$)/is)
     if (altMatch && altMatch[1]) {
         s = altMatch[1].trim()
-        if (s.length > 0 && !s.match(/^(rules|inviolaveis|Sempre|Nunca|Use|Jamais)/i)) {
-            return s.replace(/^Sua mem[óo]ria:\s*/gi, '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').replace(/\s{2,}/g, ' ').trim()
+        s = s.replace(/por\s+mensagem[.\s]*[-]{2,}[,\s]*\}?/gi, "")
+        s = s.replace(/[-]{3,}[,\s]*\}?/g, "")
+        s = s.replace(/,\s*\}\s*$/g, "")
+        s = s.replace(/\}\s*$/g, "")
+        if (s.length > 0 && !s.match(/^(rules|inviolaveis|Sempre|Nunca|Use|Jamais|por\s+mensagem)/i)) {
+            const cleaned = s.replace(/^Sua mem[óo]ria:\s*/gi, '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').replace(/\s{2,}/g, ' ').trim()
+            if (cleaned.match(/^[-\s,\.\}]+$/) || cleaned.length < 3) return ""
+            return cleaned
         }
     }
     
@@ -91,10 +112,23 @@ function cleanHumanMessage(text: string): string {
     s = s.replace(/^Horário mensagem:.*$/gim, '')
     s = s.replace(/^Dia da semana:.*$/gim, '')
     s = s.replace(/lembre-se\s*dessa\s*informação:.*$/gim, '')
+    
+    // LEI INVIOLÁVEL: Remove resquícios finais de prompts/formulários
+    s = s.replace(/por\s+mensagem[.\s]*[-]{2,}[,\s]*\}?/gi, "")
+    s = s.replace(/[-]{3,}[,\s]*\}?/g, "")
+    s = s.replace(/,\s*\}\s*$/g, "")
+    s = s.replace(/\}\s*$/g, "")
+    s = s.replace(/^[-\s,\.\}]+$/gm, "")
+    
     s = s.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').replace(/\s{2,}/g, ' ').trim()
     
     // VALIDAÇÃO FINAL: Se encontrar QUALQUER resquício de prompt, retorna VAZIO
-    if (s.match(/(rules|inviolaveis|Sempre chame|Sempre diga|Sempre utilize|Nunca use|Sempre finalize|Use emojis|Use vícios|Jamais|maior escola|América Latina|Use no maximo|caracteres por mensagem)/i)) {
+    if (s.match(/(rules|inviolaveis|Sempre chame|Sempre diga|Sempre utilize|Nunca use|Sempre finalize|Use emojis|Use vícios|Jamais|maior escola|América Latina|Use no maximo|caracteres por mensagem|por\s+mensagem)/i)) {
+        return ""
+    }
+    
+    // LEI INVIOLÁVEL: Se a mensagem final é só caracteres especiais ou resquícios, retorna vazio
+    if (s.match(/^[-\s,\.\}]+$/) || s.match(/^por\s+mensagem/i) || s.length < 3) {
         return ""
     }
     
