@@ -102,15 +102,20 @@ function cleanHumanMessage(text: string): string {
 }
 
 function cleanAIMessage(text: string): string {
-    if (!text) return text
+    if (!text) return ""
     let s = String(text).replace(/\r/g, '')
     
     // LEI INVIOLÁVEL: Remove TODAS as chamadas de ferramentas/tools da IA
-    // Remove blocos [Used tools: ...]
-    while (s.includes('[Used tools') || s.includes('[Tool:') || s.includes('Input:') || s.includes('Result:')) {
+    // Remove blocos [Used tools: ...] com loop até remover tudo
+    let iterations = 0
+    while ((s.includes('[Used tools') || s.includes('[Tool:') || s.includes('Input:') || s.includes('Result:')) && iterations < 10) {
         s = s.replace(/\[Used\s+tools?[\s\S]{0,50000}?\]/gi, "")
         s = s.replace(/\[Tool[\s\S]{0,50000}?\]/gi, "")
         s = s.replace(/\[[\s\S]{0,50000}?Input:[\s\S]{0,50000}?Result:[\s\S]{0,50000}?\]/gi, "")
+        s = s.replace(/Tool:\s*[^\]]+/gi, "")
+        s = s.replace(/Input:\s*\{[^}]*\}/gi, "")
+        s = s.replace(/Result:\s*\[[\s\S]{0,10000}?\]/gi, "")
+        iterations++
         if (!s.includes('[Used tools') && !s.includes('[Tool:') && !s.includes('Input:') && !s.includes('Result:')) {
             break
         }
@@ -120,7 +125,15 @@ function cleanAIMessage(text: string): string {
     s = s.replace(/\{"disponiveis"[\s\S]{0,50000}?\}/gi, "")
     s = s.replace(/"disponiveis"[\s\S]{0,50000}?\}/gi, "")
     s = s.replace(/buscar_horarios_disponiveis[\s\S]{0,50000}?\]/gi, "")
+    s = s.replace(/consultar_agenda[\s\S]{0,50000}?\]/gi, "")
+    s = s.replace(/agendar_visita[\s\S]{0,50000}?\]/gi, "")
     s = s.replace(/\["[\d:]+"(?:,"[\d:]+")*\]/g, "")
+    s = s.replace(/Quinta\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
+    s = s.replace(/Sexta\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
+    s = s.replace(/Sábado\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
+    s = s.replace(/Segunda\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
+    s = s.replace(/Terça\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
+    s = s.replace(/Quarta\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
     
     // Limpeza padrão
     s = s.replace(/Hoje é:\s*[^.]+\./gi, '')
@@ -133,18 +146,43 @@ function cleanAIMessage(text: string): string {
     
     // Se ainda contém estruturas de ferramentas, tenta extrair apenas a mensagem real
     if (s.match(/\[Used\s+tools?|\[Tool:|Input:|Result:|"disponiveis"/i)) {
-        const parts = s.split(/\[Used\s+tools?|\[Tool:|Input:|Result:/i)
-        if (parts.length > 1) {
-            s = parts[parts.length - 1]
-                .replace(/\]/g, "")
-                .replace(/\{[\s\S]*?\}/g, "")
-                .trim()
+        // Divide por linhas e filtra apenas linhas conversacionais
+        const lines = s.split(/\n/)
+        const conversationalLines = lines.filter(line => {
+            const lineTrimmed = line.trim()
+            if (lineTrimmed.length < 5) return false
+            const lineLower = lineTrimmed.toLowerCase()
+            return !lineLower.includes('[used tools') && 
+                   !lineLower.includes('[tool:') && 
+                   !lineLower.includes('input:') && 
+                   !lineLower.includes('result:') &&
+                   !lineLower.includes('"disponiveis"') &&
+                   !lineLower.match(/^[\d:,\[\]\s"]+$/) &&
+                   !lineLower.match(/^\{.*\}$/) &&
+                   !lineLower.match(/^\[.*\]$/)
+        })
+        
+        if (conversationalLines.length > 0) {
+            s = conversationalLines.join(" ").trim()
         } else {
-            s = ""
+            const parts = s.split(/\[Used\s+tools?|\[Tool:|Input:|Result:/i)
+            if (parts.length > 1) {
+                s = parts[parts.length - 1]
+                    .replace(/\]/g, "")
+                    .replace(/\{[\s\S]*?\}/g, "")
+                    .trim()
+            } else {
+                s = ""
+            }
         }
     }
     
-    return s.trim()
+    // Validação final: se muito curta ou só caracteres especiais, retorna vazio
+    const cleaned = s.trim()
+    if (cleaned.length < 3) return ""
+    if (cleaned.match(/^[\d\s:,\[\]\{\}"]+$/)) return ""
+    
+    return cleaned
 }
 
 // Extrai informações estruturadas do formulário quando presente no prompt
@@ -380,14 +418,21 @@ export async function GET(req: Request) {
 
             const messageContents = messages.map(m => {
                 const rawContent = String(m.message?.content || m.message?.text || '')
-                const role = m.message?.type || m.message?.role || 'unknown'
-                return role === 'human' || role === 'user' ? cleanHumanMessage(rawContent) : cleanAIMessage(rawContent)
-            })
+                // LEI INVIOLÁVEL: Normalização robusta de role
+                const type = String(m.message?.type ?? "").toLowerCase()
+                const roleStr = String(m.message?.role ?? "").toLowerCase()
+                const isUser = type === "human" || type === "user" || roleStr === "user" || roleStr === "human"
+                return isUser ? cleanHumanMessage(rawContent) : cleanAIMessage(rawContent)
+            }).filter(content => content && content.trim().length >= 3) // Remove vazias
             const fullText = messageContents.join(' ').toLowerCase()
 
             let status: CRMCard['status'] = 'atendimento'
             const isSuccess = /agendad|confirmad|marcad|fechad|contrat/i.test(fullText)
-            const lastIsAI = lastMsg.message?.type === 'ai' || lastMsg.message?.role === 'assistant'
+            // LEI INVIOLÁVEL: Normalização robusta para verificar se última mensagem é da IA
+            const lastMsgType = String(lastMsg.message?.type ?? "").toLowerCase()
+            const lastMsgRole = String(lastMsg.message?.role ?? "").toLowerCase()
+            const lastIsAI = lastMsgType === 'ai' || lastMsgType === 'bot' || lastMsgType === 'assistant' || 
+                             lastMsgRole === 'ai' || lastMsgRole === 'bot' || lastMsgRole === 'assistant'
 
             if (isSuccess) status = 'agendado'
             else if (messages.length <= 3) status = 'entrada'
@@ -407,26 +452,44 @@ export async function GET(req: Request) {
 
             const messageHistory = messages.slice(-10).map(m => {
                 const rawContent = String(m.message?.content || m.message?.text || '')
-                const role = m.message?.type || m.message?.role || 'unknown'
-                const cleanedContent = role === 'human' || role === 'user' ? cleanHumanMessage(rawContent) : cleanAIMessage(rawContent)
+                // LEI INVIOLÁVEL: Normalização robusta de role
+                const type = String(m.message?.type ?? "").toLowerCase()
+                const roleStr = String(m.message?.role ?? "").toLowerCase()
+                const isUser = type === "human" || type === "user" || roleStr === "user" || roleStr === "human"
+                const role = isUser ? 'human' : 'ai'
+                const cleanedContent = isUser ? cleanHumanMessage(rawContent) : cleanAIMessage(rawContent)
+                
+                // Remove mensagens vazias ou inválidas
+                if (!cleanedContent || cleanedContent.trim().length < 3) return null
+                
                 const timestamp = extractDateFromText(rawContent) || new Date(m.created_at || new Date())
                 return { content: cleanedContent, type: role, timestamp: timestamp.toISOString() }
-            })
+            }).filter((m): m is { content: string; type: string; timestamp: string } => m !== null)
 
             const lastMsgContent = String(lastMsg.message?.content || '')
-            const lastMsgRole = lastMsg.message?.type || lastMsg.message?.role || 'unknown'
-            const lastMsgCleaned = lastMsgRole === 'human' || lastMsgRole === 'user' ? cleanHumanMessage(lastMsgContent) : cleanAIMessage(lastMsgContent)
+            // LEI INVIOLÁVEL: Normalização robusta
+            const lastMsgType = String(lastMsg.message?.type ?? "").toLowerCase()
+            const lastMsgRoleStr = String(lastMsg.message?.role ?? "").toLowerCase()
+            const lastMsgIsUser = lastMsgType === "human" || lastMsgType === "user" || lastMsgRoleStr === "user" || lastMsgRoleStr === "human"
+            const lastMsgCleaned = lastMsgIsUser ? cleanHumanMessage(lastMsgContent) : cleanAIMessage(lastMsgContent)
 
             const firstMsgContent = String(firstMsg.message?.content || '')
-            const firstMsgRole = firstMsg.message?.type || firstMsg.message?.role || 'unknown'
-            const firstMsgCleaned = firstMsgRole === 'human' || firstMsgRole === 'user' ? cleanHumanMessage(firstMsgContent) : cleanAIMessage(firstMsgContent)
+            // LEI INVIOLÁVEL: Normalização robusta
+            const firstMsgType = String(firstMsg.message?.type ?? "").toLowerCase()
+            const firstMsgRoleStr = String(firstMsg.message?.role ?? "").toLowerCase()
+            const firstMsgIsUser = firstMsgType === "human" || firstMsgType === "user" || firstMsgRoleStr === "user" || firstMsgRoleStr === "human"
+            const firstMsgCleaned = firstMsgIsUser ? cleanHumanMessage(firstMsgContent) : cleanAIMessage(firstMsgContent)
+            
+            // Validação: se mensagens limpas estão vazias, usa fallback
+            const lastMsgFinal = lastMsgCleaned && lastMsgCleaned.trim().length >= 3 ? lastMsgCleaned : "Mensagem não disponível"
+            const firstMsgFinal = firstMsgCleaned && firstMsgCleaned.trim().length >= 3 ? firstMsgCleaned : "Mensagem não disponível"
 
             cards.push({
                 id: sessionId,
                 numero,
                 name,
-                lastMessage: lastMsgCleaned.substring(0, 60),
-                firstMessage: firstMsgCleaned.substring(0, 60),
+                lastMessage: lastMsgFinal.substring(0, 60),
+                firstMessage: firstMsgFinal.substring(0, 60),
                 lastInteraction: lastTime.toISOString(),
                 status,
                 unreadCount: 0,

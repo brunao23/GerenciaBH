@@ -3,6 +3,24 @@ import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 
 type Row = { session_id: string; message: any; id: number }
 
+// LEI INVIOLÁVEL: Normaliza role de forma consistente e robusta
+function normalizeRole(msg: any): "user" | "bot" {
+  if (!msg) return "bot"
+  
+  // Verifica type primeiro (mais comum)
+  const type = String(msg.type ?? "").toLowerCase()
+  if (type === "human" || type === "user") return "user"
+  if (type === "ai" || type === "bot" || type === "assistant" || type === "system") return "bot"
+  
+  // Verifica role como fallback
+  const role = String(msg.role ?? "").toLowerCase()
+  if (role === "user" || role === "human") return "user"
+  if (role === "bot" || role === "ai" || role === "assistant" || role === "system") return "bot"
+  
+  // Se não conseguir determinar, assume bot (mais seguro)
+  return "bot"
+}
+
 // Extrai informações estruturadas do formulário quando presente no prompt
 function extractFormData(text: string): {
   nome?: string
@@ -345,26 +363,62 @@ function cleanAnyMessage(text: string) {
     .replace(/\s{2,}/g, " ")
     .trim()
     
-  // Validação final: se ainda contém estruturas de ferramentas, remove completamente
+  // Validação final: se ainda contém estruturas de ferramentas, tenta extrair mensagem real
   if (s.match(/\[Used\s+tools?|\[Tool:|Input:|Result:|"disponiveis"/i)) {
-    // Tenta extrair apenas a parte que não é ferramenta (geralmente vem depois)
-    const parts = s.split(/\[Used\s+tools?|\[Tool:|Input:|Result:/i)
-    if (parts.length > 1) {
-      // Pega a última parte que geralmente é a mensagem real
-      s = parts[parts.length - 1]
-        .replace(/\]/g, "")
-        .replace(/\{[\s\S]*?\}/g, "")
-        .trim()
+    // Divide por linhas e filtra apenas linhas conversacionais
+    const lines = s.split(/\n/)
+    const conversationalLines = lines.filter(line => {
+      const lineTrimmed = line.trim()
+      if (lineTrimmed.length < 5) return false
+      
+      const lineLower = lineTrimmed.toLowerCase()
+      // Remove linhas que são claramente de ferramentas
+      if (lineLower.includes('[used tools') || 
+          lineLower.includes('[tool:') || 
+          lineLower.includes('input:') || 
+          lineLower.includes('result:') ||
+          lineLower.includes('"disponiveis"') ||
+          lineLower.match(/^[\d:,\[\]\s"]+$/) || // Só arrays de horários
+          lineLower.match(/^\{.*\}$/) || // Só JSON
+          lineLower.match(/^\[.*\]$/)) { // Só arrays
+        return false
+      }
+      
+      // Mantém linhas que parecem conversacionais
+      return lineTrimmed.length > 10 && 
+             !lineTrimmed.startsWith('[') && 
+             !lineTrimmed.startsWith('{') &&
+             !lineTrimmed.endsWith(']') &&
+             !lineTrimmed.endsWith('}')
+    })
+    
+    if (conversationalLines.length > 0) {
+      s = conversationalLines.join(" ").trim()
     } else {
-      s = ""
+      // Se não encontrou linhas conversacionais, tenta pegar tudo após o último ]
+      const lastBracket = s.lastIndexOf(']')
+      if (lastBracket > 0 && lastBracket < s.length - 10) {
+        s = s.substring(lastBracket + 1).trim()
+        // Remove qualquer JSON restante
+        s = s.replace(/\{[\s\S]*?\}/g, "").trim()
+      } else {
+        s = "" // Se não conseguiu extrair, retorna vazio
+      }
     }
   }
   
-  return s.trim()
+  // Validação final: se a mensagem é muito curta ou só contém caracteres especiais, retorna vazio
+  const cleaned = s.trim()
+  if (cleaned.length < 3) return ""
+  if (cleaned.match(/^[\d\s:,\[\]\{\}"]+$/)) return "" // Só números, espaços e caracteres especiais
+  
+  return cleaned
 }
 
 function extractNameFromMessage(text: string, role: string): string | null {
-  if (!text) return null
+  // LEI INVIOLÁVEL: Tratamento robusto de edge cases
+  if (!text || typeof text !== 'string') return null
+  if (text.trim().length < 2) return null
 
   const cleanText = text.toLowerCase().trim()
 
@@ -728,10 +782,20 @@ export async function GET(req: Request) {
 
       const messages = items
         .map((r) => {
+          // LEI INVIOLÁVEL: Tratamento robusto de edge cases
+          if (!r || !r.message) {
+            return null // Ignora mensagens inválidas
+          }
+          
           const msg = r.message ?? {}
           const type = String(msg.type ?? "").toLowerCase()
-          const role: "user" | "bot" = type === "human" ? "user" : "bot"
-          const raw = msg.content ?? msg.text ?? JSON.stringify(msg)
+          const role = normalizeRole(msg) // LEI INVIOLÁVEL: Normalização robusta
+          const raw = String(msg.content ?? msg.text ?? "").trim()
+          
+          // Se não tem conteúdo válido, ignora
+          if (!raw || raw.length < 1) {
+            return null
+          }
 
           const isError = isSemanticErrorText(raw, type)
           if (isError) hasError = true
@@ -771,33 +835,72 @@ export async function GET(req: Request) {
           if (!ts && lastTs) ts = lastTs
           if (ts) lastTs = ts
 
-          // Limpa a mensagem baseado no role
-          let content = role === "user" ? cleanHumanMessage(raw) : cleanAnyMessage(raw)
+          // LEI INVIOLÁVEL: Limpa a mensagem baseado no role com tratamento robusto
+          let content = ""
           
-          // Se for mensagem da IA com prompt, tenta extrair a mensagem final gerada
-          if (role === "bot" && raw.includes('"modelos_de_saida"')) {
-            // Procura por padrão_1, padrão_2, urgente_1, etc. e extrai a mensagem final
-            const messagePatterns = [
-              /"padrao_\d+"\s*:\s*"([^"]+)"/i,
-              /"urgente_\d+"\s*:\s*"([^"]+)"/i,
-              /"indeciso_\d+"\s*:\s*"([^"]+)"/i,
-              /"profissional_\d+"\s*:\s*"([^"]+)"/i,
-              /"comparecimento_sim"\s*:\s*"([^"]+)"/i,
-            ]
-            
-            for (const pattern of messagePatterns) {
-              const match = raw.match(pattern)
-              if (match && match[1]) {
-                content = match[1].trim()
-                break
+          if (role === "user") {
+            // Mensagem do usuário: limpeza ultra-agressiva
+            content = cleanHumanMessage(raw)
+          } else {
+            // Mensagem da IA: primeiro tenta extrair mensagem final de modelos_de_saida
+            if (raw.includes('"modelos_de_saida"')) {
+              // Procura por padrão_1, padrão_2, urgente_1, etc. e extrai a mensagem final
+              const messagePatterns = [
+                /"padrao_\d+"\s*:\s*"([^"]{10,500})"/i,
+                /"urgente_\d+"\s*:\s*"([^"]{10,500})"/i,
+                /"indeciso_\d+"\s*:\s*"([^"]{10,500})"/i,
+                /"profissional_\d+"\s*:\s*"([^"]{10,500})"/i,
+                /"comparecimento_sim"\s*:\s*"([^"]{10,500})"/i,
+              ]
+              
+              for (const pattern of messagePatterns) {
+                const match = raw.match(pattern)
+                if (match && match[1] && match[1].trim().length > 10) {
+                  content = match[1].trim()
+                  // Remove escapes de JSON se houver
+                  content = content.replace(/\\n/g, "\n").replace(/\\"/g, '"').replace(/\\\\/g, "\\")
+                  break
+                }
+              }
+              
+              // Se não encontrou nos padrões, tenta pegar a última mensagem antes de "saida_final"
+              if (!content || content.length < 10) {
+                const lastMessageMatch = raw.match(/"([^"]{20,500})"\s*,\s*"saida_final"/i)
+                if (lastMessageMatch && lastMessageMatch[1] && lastMessageMatch[1].trim().length > 10) {
+                  content = lastMessageMatch[1].trim()
+                  content = content.replace(/\\n/g, "\n").replace(/\\"/g, '"').replace(/\\\\/g, "\\")
+                }
               }
             }
             
-            // Se não encontrou nos padrões, tenta pegar a última mensagem antes de "saida_final"
-            if (content === raw || content.length > 500) {
-              const lastMessageMatch = raw.match(/"([^"]{20,300})"\s*,\s*"saida_final"/i)
-              if (lastMessageMatch && lastMessageMatch[1]) {
-                content = lastMessageMatch[1].trim()
+            // Se não conseguiu extrair de modelos_de_saida ou não tinha, limpa normalmente
+            if (!content || content.length < 10) {
+              content = cleanAnyMessage(raw)
+            }
+            
+            // Validação final: se ainda contém tools/prompts, tenta extrair apenas a parte conversacional
+            if (content && (content.includes('[Used tools') || content.includes('[Tool:') || content.includes('Input:') || content.includes('Result:'))) {
+              // Divide por linhas e pega apenas as que parecem conversacionais
+              const lines = content.split(/\n/)
+              const conversationalLines = lines.filter(line => {
+                const lineLower = line.toLowerCase().trim()
+                return !lineLower.includes('[used tools') && 
+                       !lineLower.includes('[tool:') && 
+                       !lineLower.includes('input:') && 
+                       !lineLower.includes('result:') &&
+                       !lineLower.includes('"disponiveis"') &&
+                       !lineLower.match(/^[\d:,\[\]]+$/) && // Não é só arrays de horários
+                       line.trim().length > 5
+              })
+              
+              if (conversationalLines.length > 0) {
+                content = conversationalLines.join(" ").trim()
+              } else {
+                // Se não encontrou linhas conversacionais, tenta pegar tudo após o último ]
+                const lastBracket = content.lastIndexOf(']')
+                if (lastBracket > 0) {
+                  content = content.substring(lastBracket + 1).trim()
+                }
               }
             }
           }
@@ -850,9 +953,19 @@ export async function GET(req: Request) {
 
           return { role, content, created_at, isError, isSuccess, message_id: r.id }
         })
+        .filter((m): m is NonNullable<typeof m> => {
+          // Remove mensagens null/undefined
+          if (!m) return false
+          
+          return true
+        })
         .filter((m) => {
-          // Remove mensagens vazias
-          if (!m.content || m.content.trim().length === 0) return false
+          // LEI INVIOLÁVEL: Remove mensagens vazias ou muito curtas (menos de 3 caracteres)
+          if (!m.content || m.content.trim().length < 3) return false
+          
+          // Remove mensagens que são só caracteres especiais/números
+          const trimmed = m.content.trim()
+          if (trimmed.match(/^[\d\s:,\[\]\{\}"]+$/)) return false
           
           // LEI INVIOLÁVEL: Remove mensagens de usuário que ainda contêm QUALQUER resquício de prompt
           if (m.role === "user") {
@@ -877,6 +990,25 @@ export async function GET(req: Request) {
               m.content.includes("Use") || m.content.includes("Jamais") || 
               m.content.includes("regras") || m.content.includes("inviol")
             )) {
+              return false
+            }
+          }
+          
+          // LEI INVIOLÁVEL: Remove mensagens da IA que ainda contêm tools/prompts
+          if (m.role === "bot") {
+            const toolIndicators = [
+              /\[Used\s+tools?/i, /\[Tool:/i, /Input:/i, /Result:/i,
+              /"disponiveis"/i, /buscar_horarios/i, /consultar_agenda/i
+            ]
+            
+            for (const indicator of toolIndicators) {
+              if (indicator.test(m.content)) {
+                return false // Remove se ainda tiver tools
+              }
+            }
+            
+            // Se é muito longo e parece ser só dados técnicos, remove
+            if (m.content.length > 500 && m.content.match(/^[\d\s:,\[\]\{\}"]+$/)) {
               return false
             }
           }
