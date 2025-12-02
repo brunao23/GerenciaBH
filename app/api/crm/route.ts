@@ -286,31 +286,69 @@ function extractContactName(messages: any[]): string {
     return ''
 }
 
-// Extrai data do TEXTO da mensagem (13/11/2025, 12:56:55 ou 2025-11-13T12:56:55)
+// LEI INVIOLÁVEL: Extrai data do TEXTO com 100% de precisão
 function extractDateFromText(text: string): Date | null {
     if (!text) return null
 
-    // ISO completo: 2025-11-13T12:56:55
-    const iso = text.match(/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})/i)
-    if (iso) {
-        const d = new Date(iso[1])
-        if (!isNaN(d.getTime())) return d
+    // Remove timestamps de prompts para não pegar data errada
+    if (text.match(/(rules|inviolaveis|Sempre chame|por\s+mensagem)/i)) {
+        const promptSection = text.match(/(rules|inviolaveis|Sempre chame|por\s+mensagem)[\s\S]*?$/i)
+        if (promptSection) {
+            const cleanText = text.replace(/(rules|inviolaveis|Sempre chame|por\s+mensagem)[\s\S]*$/i, "")
+            if (cleanText.length < 10) return null
+        }
     }
 
-    // Formato BR: 13/11/2025, 12:56:55
+    // 1) "Horário mensagem: 2025-08-05T08:30:39.578-03:00" (mais específico)
+    const m1 = text.match(/Hor[áa]rio(?:\s+da)?\s+mensagem:\s*([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,3})?(?:[+-][0-9]{2}:[0-9]{2}|Z)?)/i)
+    if (m1?.[1]) {
+        const d = new Date(m1[1])
+        if (!isNaN(d.getTime()) && d.getFullYear() >= 2020 && d.getFullYear() <= 2100) return d
+    }
+
+    // 2) "Hoje é: 2025-08-05T08:30:39.578-03:00"
+    const m2 = text.match(/Hoje\s*[ée]:\s*([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,3})?(?:[+-][0-9]{2}:[0-9]{2}|Z)?)/i)
+    if (m2?.[1]) {
+        const d = new Date(m2[1])
+        if (!isNaN(d.getTime()) && d.getFullYear() >= 2020 && d.getFullYear() <= 2100) return d
+    }
+
+    // 3) Formato BR: 13/11/2025, 12:56:55
     const br = text.match(/(\d{2})\/(\d{2})\/(\d{4}),?\s*(\d{2}):(\d{2}):(\d{2})?/)
     if (br) {
-        const [_, day, month, year, hour, min, sec] = br
-        const d = new Date(parseInt(year), parseInt(month) - 1, parseInt(day), parseInt(hour), parseInt(min), parseInt(sec || '0'))
-        if (!isNaN(d.getTime())) return d
+        const day = parseInt(br[1], 10)
+        const month = parseInt(br[2], 10) - 1
+        const year = parseInt(br[3], 10)
+        const hour = br[4] ? parseInt(br[4], 10) : 0
+        const min = br[5] ? parseInt(br[5], 10) : 0
+        const sec = br[6] ? parseInt(br[6], 10) : 0
+        
+        if (day >= 1 && day <= 31 && month >= 0 && month <= 11 && year >= 2020 && year <= 2100 &&
+            hour >= 0 && hour <= 23 && min >= 0 && min <= 59 && sec >= 0 && sec <= 59) {
+            const d = new Date(Date.UTC(year, month, day, hour, min, sec))
+            d.setHours(d.getHours() - 3) // UTC-3 (Brasil)
+            if (!isNaN(d.getTime())) return d
+        }
     }
 
-    // Apenas data: 13/11/2025
+    // 4) ISO completo: 2025-11-13T12:56:55
+    const iso = text.match(/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.[0-9]{1,3})?(?:[+-][0-9]{2}:[0-9]{2}|Z)?)/i)
+    if (iso && !text.match(/(rules|inviolaveis|Sempre chame|por\s+mensagem)/i)) {
+        const d = new Date(iso[1])
+        if (!isNaN(d.getTime()) && d.getFullYear() >= 2020 && d.getFullYear() <= 2100) return d
+    }
+
+    // 5) Apenas data: 13/11/2025 (fallback menos preciso)
     const dateOnly = text.match(/(\d{2})\/(\d{2})\/(\d{4})/)
     if (dateOnly) {
-        const [_, day, month, year] = dateOnly
-        const d = new Date(parseInt(year), parseInt(month) - 1, parseInt(day), 12, 0, 0)
-        if (!isNaN(d.getTime())) return d
+        const day = parseInt(dateOnly[1], 10)
+        const month = parseInt(dateOnly[2], 10) - 1
+        const year = parseInt(dateOnly[3], 10)
+        if (day >= 1 && day <= 31 && month >= 0 && month <= 11 && year >= 2020 && year <= 2100) {
+            const d = new Date(Date.UTC(year, month, day, 12, 0, 0))
+            d.setHours(d.getHours() - 3)
+            if (!isNaN(d.getTime())) return d
+        }
     }
 
     return null

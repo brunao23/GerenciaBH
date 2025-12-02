@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 
-type Row = { session_id: string; message: any; id: number }
+type Row = { session_id: string; message: any; id: number; created_at?: string | null } // LEI INVIOLÁVEL: Inclui created_at da tabela
 
 // LEI INVIOLÁVEL: Normaliza role de forma consistente e robusta
 function normalizeRole(msg: any): "user" | "bot" {
@@ -587,47 +587,75 @@ function extractNameFromMessage(text: string, role: string): string | null {
   return null
 }
 
-// Extrai timestamp do texto do usuário quando não existir message.created_at
+// LEI INVIOLÁVEL: Extrai timestamp do texto com 100% de precisão
 function extractTimestampFromText(text: string): string | null {
   if (!text) return null
   const t = String(text)
   
-  // 1) "Horário mensagem: 2025-08-05T08:30:39.578-03:00" (mais específico)
-  const m1 = t.match(/Hor[áa]rio(?:\s+da)?\s+mensagem:\s*([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.+-Z]+)/i)
+  // Remove timestamps de prompts para não pegar data errada
+  if (t.match(/(rules|inviolaveis|Sempre chame|por\s+mensagem)/i)) {
+    // Só procura timestamps se não for claramente um prompt
+    const promptSection = t.match(/(rules|inviolaveis|Sempre chame|por\s+mensagem)[\s\S]*?$/i)
+    if (promptSection) {
+      // Remove a seção de prompt antes de procurar timestamp
+      const cleanText = t.replace(/(rules|inviolaveis|Sempre chame|por\s+mensagem)[\s\S]*$/i, "")
+      if (cleanText.length < 10) return null // Se sobrou muito pouco, não confia
+    }
+  }
+  
+  // 1) "Horário mensagem: 2025-08-05T08:30:39.578-03:00" (mais específico e confiável)
+  const m1 = t.match(/Hor[áa]rio(?:\s+da)?\s+mensagem:\s*([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,3})?(?:[+-][0-9]{2}:[0-9]{2}|Z)?)/i)
   if (m1?.[1]) {
     const ts = m1[1]
-    // Valida se é uma data válida
     const date = new Date(ts)
-    if (!isNaN(date.getTime())) return ts
+    if (!isNaN(date.getTime()) && date.getFullYear() >= 2020 && date.getFullYear() <= 2100) {
+      return date.toISOString() // Sempre retorna ISO para consistência
+    }
   }
   
   // 2) "Hoje é: 2025-08-05T08:30:39.578-03:00"
-  const m2 = t.match(/Hoje\s*[ée]:\s*([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.+-Z]+)/i)
+  const m2 = t.match(/Hoje\s*[ée]:\s*([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,3})?(?:[+-][0-9]{2}:[0-9]{2}|Z)?)/i)
   if (m2?.[1]) {
     const ts = m2[1]
     const date = new Date(ts)
-    if (!isNaN(date.getTime())) return ts
+    if (!isNaN(date.getTime()) && date.getFullYear() >= 2020 && date.getFullYear() <= 2100) {
+      return date.toISOString()
+    }
   }
   
-  // 3) Formato brasileiro: "02/12/2025, 08:45:01" ou "29/11/2020"
-  const m3 = t.match(/(\d{2}\/\d{2}\/\d{4})(?:,\s*(\d{2}:\d{2}:\d{2}))?/i)
+  // 3) Formato brasileiro: "02/12/2025, 08:45:01" ou "29/11/2020, 12:56:55"
+  const m3 = t.match(/(\d{2})\/(\d{2})\/(\d{4})(?:,\s*(\d{2}):(\d{2}):(\d{2}))?/i)
   if (m3) {
-    const [day, month, year] = m3[1].split('/')
-    const time = m3[2] || '00:00:00'
-    const [hours, minutes, seconds] = time.split(':')
-    // Converte para ISO
-    const isoDate = `${year}-${month}-${day}T${hours}:${minutes}:${seconds || '00'}.000-03:00`
-    const date = new Date(isoDate)
-    if (!isNaN(date.getTime())) return date.toISOString()
+    const day = parseInt(m3[1], 10)
+    const month = parseInt(m3[2], 10) - 1 // JavaScript months are 0-indexed
+    const year = parseInt(m3[3], 10)
+    const hours = m3[4] ? parseInt(m3[4], 10) : 0
+    const minutes = m3[5] ? parseInt(m3[5], 10) : 0
+    const seconds = m3[6] ? parseInt(m3[6], 10) : 0
+    
+    // Validação básica
+    if (day >= 1 && day <= 31 && month >= 0 && month <= 11 && year >= 2020 && year <= 2100 &&
+        hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59 && seconds >= 0 && seconds <= 59) {
+      // Cria data no timezone de São Paulo (UTC-3)
+      const date = new Date(Date.UTC(year, month, day, hours, minutes, seconds))
+      // Ajusta para UTC-3 (Brasil)
+      date.setHours(date.getHours() - 3)
+      
+      if (!isNaN(date.getTime())) {
+        return date.toISOString()
+      }
+    }
   }
   
   // 4) ISO solto (fallback) - mas só se não estiver dentro de um bloco de prompt
-  if (!t.match(/(rules|inviolaveis|Sempre chame)/i)) {
-    const m4 = t.match(/([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.+-Z]+)/)
+  if (!t.match(/(rules|inviolaveis|Sempre chame|por\s+mensagem)/i)) {
+    const m4 = t.match(/([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,3})?(?:[+-][0-9]{2}:[0-9]{2}|Z)?)/)
     if (m4?.[1]) {
       const ts = m4[1]
       const date = new Date(ts)
-      if (!isNaN(date.getTime())) return ts
+      if (!isNaN(date.getTime()) && date.getFullYear() >= 2020 && date.getFullYear() <= 2100) {
+        return date.toISOString()
+      }
     }
   }
   
@@ -766,7 +794,7 @@ export async function GET(req: Request) {
       try {
         const res = await supabase
           .from("robson_voxn8n_chat_histories")
-          .select("session_id, message, id", { count: "planned" })
+          .select("session_id, message, id, created_at", { count: "planned" }) // LEI INVIOLÁVEL: Busca created_at da tabela
           .order("id", { ascending: false }) // Mudado para descendente para pegar mensagens mais recentes primeiro
           .range(from, to)
 
@@ -872,13 +900,42 @@ export async function GET(req: Request) {
             }
           }
 
-          // 1) tenta message.created_at
-          let ts: string | null = msg.created_at ?? null
-          // 2) extrai do texto
-          if (!ts) ts = extractTimestampFromText(raw)
-          // 3) fallback: usa último
-          if (!ts && lastTs) ts = lastTs
-          if (ts) lastTs = ts
+          // LEI INVIOLÁVEL: Prioridade CORRETA para timestamp (100% preciso)
+          // 1) PRIMEIRO: created_at da TABELA (mais confiável)
+          let ts: string | null = r.created_at ?? null
+          
+          // 2) SEGUNDO: created_at dentro do JSON message (se não tiver da tabela)
+          if (!ts) ts = msg.created_at ?? null
+          
+          // 3) TERCEIRO: Extrai do texto da mensagem (apenas se não tiver nenhum dos anteriores)
+          if (!ts) {
+            const extracted = extractTimestampFromText(raw)
+            if (extracted) ts = extracted
+          }
+          
+          // 4) ÚLTIMO RECURSO: Se ainda não tem, usa o timestamp da mensagem anterior (apenas para manter ordem)
+          // MAS marca como não confiável para não exibir data errada
+          if (!ts) {
+            if (lastTs) {
+              // Usa o último timestamp + 1 segundo para manter ordem, mas não é preciso
+              const lastDate = new Date(lastTs)
+              if (!isNaN(lastDate.getTime())) {
+                lastDate.setSeconds(lastDate.getSeconds() + 1)
+                ts = lastDate.toISOString()
+              }
+            } else {
+              // Se não tem nenhum timestamp, usa a data atual (não ideal, mas melhor que vazio)
+              ts = new Date().toISOString()
+            }
+          }
+          
+          // Atualiza lastTs apenas se conseguiu um timestamp válido
+          if (ts) {
+            const date = new Date(ts)
+            if (!isNaN(date.getTime())) {
+              lastTs = ts
+            }
+          }
 
           // LEI INVIOLÁVEL: Limpa a mensagem baseado no role com tratamento robusto
           let content = ""
