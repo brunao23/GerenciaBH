@@ -778,8 +778,9 @@ export async function GET(req: Request) {
 
     console.log("[v0] ChatsAPI: Parâmetros recebidos:", { start, end, session })
 
+    // LEI INVIOLÁVEL: Busca TODAS as mensagens de forma completa e ordenada
     const pageSize = 1000
-    const maxRecords = 5000 // Limite máximo para evitar sobrecarga
+    const maxRecords = 50000 // Aumentado para garantir que todas as mensagens sejam carregadas
     let from = 0
     let to = pageSize - 1
     const all: Row[] = []
@@ -787,8 +788,25 @@ export async function GET(req: Request) {
 
     console.log("[v0] ChatsAPI: Iniciando paginação com pageSize:", pageSize, "maxRecords:", maxRecords)
 
-    for (let page = 0; page < 10; page++) {
-      // Máximo 10 páginas para evitar loop infinito
+    // Primeiro, busca o total de registros para saber quantas páginas buscar
+    let totalCount = 0
+    try {
+      const countRes = await supabase
+        .from("robson_voxn8n_chat_histories")
+        .select("id", { count: "exact", head: true })
+      
+      if (!countRes.error && countRes.count !== null) {
+        totalCount = countRes.count
+        console.log("[v0] ChatsAPI: Total de registros no banco:", totalCount)
+      }
+    } catch (e) {
+      console.log("[v0] ChatsAPI: Não foi possível obter contagem total:", e)
+    }
+
+    // Busca TODAS as mensagens ordenadas por id ASCENDENTE (mais antigas primeiro)
+    // Isso garante que todas as mensagens sejam carregadas na ordem correta
+    for (let page = 0; page < 100; page++) {
+      // Aumentado limite de páginas para garantir que todas sejam carregadas
       console.log("[v0] ChatsAPI: Buscando página", page + 1, "range:", from, "to", to)
 
       try {
@@ -796,7 +814,7 @@ export async function GET(req: Request) {
         let res = await supabase
           .from("robson_voxn8n_chat_histories")
           .select("session_id, message, id, created_at", { count: "planned" }) // LEI INVIOLÁVEL: Busca created_at da tabela
-          .order("id", { ascending: false }) // Mudado para descendente para pegar mensagens mais recentes primeiro
+          .order("id", { ascending: true }) // LEI INVIOLÁVEL: Ordena ASCENDENTE para garantir ordem cronológica correta
           .range(from, to)
 
         // Se der erro por causa de created_at não existir, tenta sem ele
@@ -805,7 +823,7 @@ export async function GET(req: Request) {
           res = await supabase
             .from("robson_voxn8n_chat_histories")
             .select("session_id, message, id", { count: "planned" })
-            .order("id", { ascending: false })
+            .order("id", { ascending: true }) // LEI INVIOLÁVEL: Ordena ASCENDENTE
             .range(from, to)
         }
 
@@ -817,11 +835,23 @@ export async function GET(req: Request) {
         const chunk = (res.data ?? []) as Row[]
         console.log("[v0] ChatsAPI: Página", page + 1, "retornou", chunk.length, "registros")
 
+        if (chunk.length === 0) {
+          console.log("[v0] ChatsAPI: Nenhum registro retornado, parando paginação")
+          break
+        }
+
         all.push(...chunk)
         totalFetched += chunk.length
 
+        // Para se não retornou registros suficientes ou atingiu o limite
         if (chunk.length < pageSize || totalFetched >= maxRecords) {
           console.log("[v0] ChatsAPI: Parando paginação. Chunk size:", chunk.length, "Total fetched:", totalFetched)
+          break
+        }
+
+        // Se já buscou todos os registros disponíveis, para
+        if (totalCount > 0 && totalFetched >= totalCount) {
+          console.log("[v0] ChatsAPI: Todas as mensagens foram carregadas. Total:", totalFetched)
           break
         }
 
@@ -842,14 +872,22 @@ export async function GET(req: Request) {
       console.log("[v0] ChatsAPI: Filtrado por sessão", session, "resultou em", rows.length, "registros")
     }
 
-    // Agrupa por sessão
+    // LEI INVIOLÁVEL: Agrupa por sessão garantindo que TODAS as mensagens sejam incluídas
     const bySession = new Map<string, Row[]>()
     for (const r of rows) {
-      if (!bySession.has(r.session_id)) bySession.set(r.session_id, [])
+      if (!r || !r.session_id) continue // Ignora registros inválidos
+      if (!bySession.has(r.session_id)) {
+        bySession.set(r.session_id, [])
+      }
       bySession.get(r.session_id)!.push(r)
     }
 
     console.log("[v0] ChatsAPI: Agrupado em", bySession.size, "sessões")
+    
+    // Log para debug: mostra quantas mensagens cada sessão tem
+    bySession.forEach((messages, sessionId) => {
+      console.log(`[v0] ChatsAPI: Sessão ${sessionId}: ${messages.length} mensagens`)
+    })
 
     const sessionIds = Array.from(bySession.keys()).sort()
     const leadNumbers = new Map<string, number>()
@@ -1129,15 +1167,23 @@ export async function GET(req: Request) {
           return true
         })
         .sort((a, b) => {
-          // Se ambas têm timestamp, ordena por timestamp
+          // LEI INVIOLÁVEL: Ordenação 100% precisa e correta
+          // 1) PRIMEIRO: Ordena por timestamp se ambos tiverem (mais confiável)
           if (a.created_at && b.created_at) {
             const dateA = new Date(a.created_at).getTime()
             const dateB = new Date(b.created_at).getTime()
             if (!isNaN(dateA) && !isNaN(dateB)) {
+              // Ordena ASCENDENTE (mais antigas primeiro)
               return dateA - dateB
             }
           }
-          // Fallback para ordenação por message_id se timestamps inválidos
+          
+          // 2) SEGUNDO: Se um tem timestamp e outro não, o com timestamp vem primeiro
+          if (a.created_at && !b.created_at) return -1
+          if (!a.created_at && b.created_at) return 1
+          
+          // 3) TERCEIRO: Fallback para ordenação por message_id ASCENDENTE (mais antigas primeiro)
+          // Isso garante ordem cronológica correta mesmo sem timestamp
           return a.message_id - b.message_id
         })
 
