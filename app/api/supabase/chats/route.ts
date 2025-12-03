@@ -792,11 +792,22 @@ export async function GET(req: Request) {
       console.log("[v0] ChatsAPI: Buscando página", page + 1, "range:", from, "to", to)
 
       try {
-        const res = await supabase
+        // Tenta buscar created_at, mas se não existir, busca sem ele
+        let res = await supabase
           .from("robson_voxn8n_chat_histories")
           .select("session_id, message, id, created_at", { count: "planned" }) // LEI INVIOLÁVEL: Busca created_at da tabela
           .order("id", { ascending: false }) // Mudado para descendente para pegar mensagens mais recentes primeiro
           .range(from, to)
+
+        // Se der erro por causa de created_at não existir, tenta sem ele
+        if (res.error && res.error.message?.includes("created_at")) {
+          console.log("[v0] ChatsAPI: Coluna created_at não encontrada, buscando sem ela:", res.error.message)
+          res = await supabase
+            .from("robson_voxn8n_chat_histories")
+            .select("session_id, message, id", { count: "planned" })
+            .order("id", { ascending: false })
+            .range(from, to)
+        }
 
         if (res.error) {
           console.log("[v0] ChatsAPI: Erro na consulta:", res.error)
