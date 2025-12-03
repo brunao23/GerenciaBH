@@ -282,22 +282,70 @@ export async function GET(req: Request) {
                 break
         }
 
-        // Busca dados de chats
-        // Aumentado para 10000 para garantir histórico
-        const { data: chats, error } = await supabase
-            .from("robson_voxn8n_chat_histories")
-            .select("*")
-            .order("id", { ascending: false }) // Mais recentes primeiro
-            .limit(10000)
+        // LEI INVIOLÁVEL: Busca TODAS as mensagens sem limite para garantir dados completos
+        console.log(`[Analytics] Buscando dados do período: ${startDate.toISOString()} até ${endDate.toISOString()}`)
+        
+        const pageSize = 1000
+        let allChats: any[] = []
+        let from = 0
+        let to = pageSize - 1
+        let hasMore = true
+        
+        // Busca todas as mensagens com paginação
+        while (hasMore) {
+            const { data: chats, error } = await supabase
+                .from("robson_voxn8n_chat_histories")
+                .select("session_id, message, id, created_at")
+                .order("id", { ascending: true }) // Ordena ascendente para pegar todas
+                .range(from, to)
 
-        if (error) {
-            console.error("[Analytics] Erro ao buscar chats:", error)
-            return NextResponse.json({ error: error.message }, { status: 500 })
+            if (error) {
+                console.error("[Analytics] Erro ao buscar chats:", error)
+                // Se der erro por created_at não existir, tenta sem ele
+                if (error.message?.includes("created_at")) {
+                    const { data: chatsWithoutDate, error: error2 } = await supabase
+                        .from("robson_voxn8n_chat_histories")
+                        .select("session_id, message, id")
+                        .order("id", { ascending: true })
+                        .range(from, to)
+                    
+                    if (error2) {
+                        return NextResponse.json({ error: error2.message }, { status: 500 })
+                    }
+                    
+                    if (chatsWithoutDate && chatsWithoutDate.length > 0) {
+                        allChats.push(...chatsWithoutDate)
+                        if (chatsWithoutDate.length < pageSize) hasMore = false
+                        from += pageSize
+                        to += pageSize
+                        continue
+                    } else {
+                        hasMore = false
+                        break
+                    }
+                } else {
+                    return NextResponse.json({ error: error.message }, { status: 500 })
+                }
+            }
+
+            if (chats && chats.length > 0) {
+                allChats.push(...chats)
+                if (chats.length < pageSize) {
+                    hasMore = false
+                } else {
+                    from += pageSize
+                    to += pageSize
+                }
+            } else {
+                hasMore = false
+            }
         }
+
+        console.log(`[Analytics] Total de mensagens carregadas: ${allChats.length}`)
 
         // Agrupa por sessão
         const sessionMap = new Map<string, any[]>()
-        chats?.forEach(chat => {
+        allChats.forEach(chat => {
             const sessionId = chat.session_id || 'unknown'
             if (!sessionMap.has(sessionId)) {
                 sessionMap.set(sessionId, [])
@@ -362,9 +410,17 @@ export async function GET(req: Request) {
 
             const firstTime = new Date(firstTimeStr || Date.now())
 
-            // Filtra pelo período selecionado
-            if (isNaN(firstTime.getTime()) || firstTime < startDate || firstTime > endDate) {
-                continue
+            // LEI INVIOLÁVEL: Filtra pelo período selecionado, mas aceita se não tiver timestamp válido
+            // Se não tiver timestamp válido, inclui a conversa (assume que está no período)
+            if (!isNaN(firstTime.getTime())) {
+                // Se tem timestamp válido, filtra pelo período
+                if (firstTime < startDate || firstTime > endDate) {
+                    continue
+                }
+            } else {
+                // Se não tem timestamp válido, usa o ID como proxy (mensagens mais antigas têm ID menor)
+                // Inclui todas as mensagens se não conseguir determinar a data
+                console.log(`[Analytics] Sessão ${sessionId} sem timestamp válido, incluindo mesmo assim`)
             }
 
             const userMessages = parsedMessages.filter(m => m.message?.type === 'human')
