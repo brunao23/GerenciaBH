@@ -98,18 +98,51 @@ export default function RelatoriosPage() {
         }
       }
 
-      const response = await fetch(url)
+      // LEI INVIOLÁVEL: Timeout de 60 segundos para evitar travamento
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 60000) // 60 segundos
+
+      const response = await fetch(url, { signal: controller.signal })
+      clearTimeout(timeoutId)
+      
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
         throw new Error(errorData.error || "Erro ao buscar insights")
       }
 
       const data = await response.json()
+      
+      // Valida se recebeu dados válidos
+      if (!data.insights) {
+        throw new Error("Resposta inválida da API")
+      }
+      
       setInsights(data.insights)
       toast.success("Análise concluída!")
     } catch (error: any) {
       console.error("Erro ao buscar insights:", error)
-      toast.error(`Erro: ${error.message || "Falha ao carregar análise"}`)
+      if (error.name === 'AbortError') {
+        toast.error("Timeout: A análise está demorando muito. Tente um período menor.")
+      } else {
+        toast.error(`Erro: ${error.message || "Falha ao carregar análise"}`)
+      }
+      // Define insights vazios para não quebrar a UI
+      setInsights({
+        totalConversations: 0,
+        conversionRate: 0,
+        avgMessagesToConvert: 0,
+        avgTimeToConvert: 0,
+        bestPerformingHours: [],
+        bestPerformingDays: [],
+        conversionPatterns: [],
+        sentimentAnalysis: { positive: 0, neutral: 0, negative: 0 },
+        engagementMetrics: { highEngagement: 0, mediumEngagement: 0, lowEngagement: 0 },
+        topKeywords: [],
+        topContacts: [],
+        objectionAnalysis: [],
+        nonSchedulingReasons: [],
+        recommendations: ["Erro ao carregar dados. Tente novamente."]
+      })
     } finally {
       setLoading(false)
     }
