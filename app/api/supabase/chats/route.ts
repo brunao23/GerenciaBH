@@ -337,6 +337,24 @@ function cleanHumanMessage(text: string) {
     return ""
   }
   
+  // LEI INVIOLÁVEL: Remove resquícios de arrays e estruturas de dados
+  // Remove "])" e variações que podem aparecer no final de mensagens
+  s = s.replace(/\]\s*\)\s*$/g, "").trim() // Remove "])" no final
+  s = s.replace(/\]\s*\)\s*$/gm, "").trim() // Remove "])" no final de cada linha
+  s = s.replace(/\]\s*\)\s+/g, " ").trim() // Remove "])" no meio do texto
+  s = s.replace(/\]\s*\)/g, "").trim() // Remove qualquer "])"
+  s = s.replace(/\]\s*$/g, "").trim() // Remove "]" solto no final
+  s = s.replace(/\)\s*$/g, "").trim() // Remove ")" solto no final
+  s = s.replace(/\[\s*$/g, "").trim() // Remove "[" solto no final
+  s = s.replace(/\(\s*$/g, "").trim() // Remove "(" solto no final
+  s = s.replace(/,\s*\]\s*\)/g, "").trim() // Remove ",])"
+  s = s.replace(/,\s*\]/g, "").trim() // Remove ",]"
+  s = s.replace(/,\s*\)/g, "").trim() // Remove ",)"
+  
+  // Remove linhas que são só caracteres especiais ou estruturas de dados
+  s = s.replace(/^[,\s\[\]\(\)\-\.\}]+$/gm, "").trim()
+  s = s.replace(/\n[,\s\[\]\(\)\-\.]+\n/g, "\n").trim()
+
   // LEI INVIOLÁVEL: Se a mensagem final é só caracteres especiais ou resquícios, retorna vazio
   if (s.match(/^[-\s,\.\}]+$/) || s.match(/^por\s+mensagem/i) || s.length < 3) {
     return ""
@@ -1196,7 +1214,8 @@ export async function GET(req: Request) {
           return a.message_id - b.message_id
         })
 
-      // Deduplicação ultra-agressiva: remove mensagens duplicadas ou muito similares
+      // LEI INVIOLÁVEL: Deduplicação mantendo ordem cronológica
+      // A deduplicação é feita iterando na ordem já estabelecida, mantendo a ordem correta
       const deduplicatedMessages = []
 
       for (let i = 0; i < messages.length; i++) {
@@ -1204,6 +1223,7 @@ export async function GET(req: Request) {
         let isDuplicate = false
 
         // Verifica se é duplicata comparando com mensagens já adicionadas
+        // IMPORTANTE: Itera na ordem já estabelecida, então mantém ordem cronológica
         for (const existingMsg of deduplicatedMessages) {
           // Mesmo role e conteúdo exatamente igual
           if (currentMsg.role === existingMsg.role &&
