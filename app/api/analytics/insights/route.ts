@@ -495,10 +495,20 @@ export async function GET(req: Request) {
             }
             const lastTime = new Date(lastTimeStr || Date.now())
 
-            // Se converteu, usa tempo até conversão. Se não, usa tempo total.
-            const duration = successTime
-                ? (successTime.getTime() - firstTime.getTime()) / (1000 * 60)
-                : (lastTime.getTime() - firstTime.getTime()) / (1000 * 60)
+            // LEI INVIOLÁVEL: Calcula duração mesmo sem timestamp válido
+            let duration = 0
+            if (firstTime && !isNaN(firstTime.getTime())) {
+                // Se converteu, usa tempo até conversão. Se não, usa tempo total.
+                if (successTime && !isNaN(successTime.getTime())) {
+                    duration = (successTime.getTime() - firstTime.getTime()) / (1000 * 60)
+                } else if (lastTime && !isNaN(lastTime.getTime())) {
+                    duration = (lastTime.getTime() - firstTime.getTime()) / (1000 * 60)
+                }
+            } else {
+                // Se não tem timestamp válido, estima duração baseado no número de mensagens
+                // Assume 2 minutos por mensagem em média
+                duration = parsedMessages.length * 2
+            }
 
             const hasSuccess = !!successTime
             const hasError = messageContents.some(m =>
