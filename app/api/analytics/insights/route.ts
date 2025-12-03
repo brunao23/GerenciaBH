@@ -408,19 +408,33 @@ export async function GET(req: Request) {
                 if (dateMatch) firstTimeStr = dateMatch[1]
             }
 
-            const firstTime = new Date(firstTimeStr || Date.now())
-
-            // LEI INVIOLÁVEL: Filtra pelo período selecionado, mas aceita se não tiver timestamp válido
-            // Se não tiver timestamp válido, inclui a conversa (assume que está no período)
-            if (!isNaN(firstTime.getTime())) {
+            // LEI INVIOLÁVEL: Tenta extrair timestamp de múltiplas fontes
+            let firstTime: Date | null = null
+            
+            if (firstTimeStr) {
+                firstTime = new Date(firstTimeStr)
+                if (isNaN(firstTime.getTime())) {
+                    firstTime = null
+                }
+            }
+            
+            // Se não conseguiu extrair timestamp válido, tenta usar created_at da tabela
+            if (!firstTime && firstMsg.created_at) {
+                firstTime = new Date(firstMsg.created_at)
+                if (isNaN(firstTime.getTime())) {
+                    firstTime = null
+                }
+            }
+            
+            // Se ainda não tem timestamp válido, inclui mesmo assim (não perde dados)
+            if (!firstTime || isNaN(firstTime.getTime())) {
+                console.log(`[Analytics] Sessão ${sessionId} sem timestamp válido, incluindo mesmo assim`)
+                // Não faz continue, inclui a conversa
+            } else {
                 // Se tem timestamp válido, filtra pelo período
                 if (firstTime < startDate || firstTime > endDate) {
                     continue
                 }
-            } else {
-                // Se não tem timestamp válido, usa o ID como proxy (mensagens mais antigas têm ID menor)
-                // Inclui todas as mensagens se não conseguir determinar a data
-                console.log(`[Analytics] Sessão ${sessionId} sem timestamp válido, incluindo mesmo assim`)
             }
 
             const userMessages = parsedMessages.filter(m => m.message?.type === 'human')
