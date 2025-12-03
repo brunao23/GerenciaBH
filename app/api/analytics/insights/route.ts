@@ -458,19 +458,25 @@ export async function GET(req: Request) {
             } else {
                 // Se tem timestamp válido, verifica se está no período
                 // Mas se o período for muito restritivo, inclui mesmo assim para não perder dados
-                const daysDiff = (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
-                
-                if (firstTime < startDate || firstTime > endDate) {
-                    // Se o período é muito curto (menos de 7 dias), inclui mesmo assim
-                    if (daysDiff < 7) {
-                        console.log(`[Analytics] Sessão ${sessionId} fora do período mas período é curto, incluindo mesmo assim`)
-                        includedCount++
-                    } else {
-                        skippedCount++
-                        continue
-                    }
-                } else {
+                // LEI INVIOLÁVEL: Valida firstTime antes de comparar
+                if (!firstTime || isNaN(firstTime.getTime())) {
                     includedCount++
+                    // Não faz continue, inclui a conversa
+                } else {
+                    const daysDiff = (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
+                    
+                    if (firstTime < startDate || firstTime > endDate) {
+                    // Se o período é muito curto (menos de 7 dias), inclui mesmo assim
+                        if (daysDiff < 7) {
+                            console.log(`[Analytics] Sessão ${sessionId} fora do período mas período é curto, incluindo mesmo assim`)
+                            includedCount++
+                        } else {
+                            skippedCount++
+                            continue
+                        }
+                    } else {
+                        includedCount++
+                    }
                 }
             }
 
@@ -530,8 +536,27 @@ export async function GET(req: Request) {
                 const prevTimeStr = parsedMessages[i - 1].message?.created_at || parsedMessages[i - 1].created_at
                 const currTimeStr = parsedMessages[i].message?.created_at || parsedMessages[i].created_at
                 
-                const prev = prevTimeStr ? new Date(prevTimeStr) : new Date(firstTime.getTime() + (i - 1) * 60000)
-                const curr = currTimeStr ? new Date(currTimeStr) : new Date(firstTime.getTime() + i * 60000)
+                // LEI INVIOLÁVEL: Valida firstTime antes de usar
+                let prev: Date
+                let curr: Date
+                
+                if (prevTimeStr) {
+                    prev = new Date(prevTimeStr)
+                } else if (firstTime && !isNaN(firstTime.getTime())) {
+                    prev = new Date(firstTime.getTime() + (i - 1) * 60000)
+                } else {
+                    // Se não tem timestamp, usa timestamp atual como base
+                    prev = new Date(Date.now() - (parsedMessages.length - i) * 60000)
+                }
+                
+                if (currTimeStr) {
+                    curr = new Date(currTimeStr)
+                } else if (firstTime && !isNaN(firstTime.getTime())) {
+                    curr = new Date(firstTime.getTime() + i * 60000)
+                } else {
+                    // Se não tem timestamp, usa timestamp atual como base
+                    curr = new Date(Date.now() - (parsedMessages.length - i - 1) * 60000)
+                }
                 
                 if (!isNaN(prev.getTime()) && !isNaN(curr.getTime())) {
                     responseTimes.push((curr.getTime() - prev.getTime()) / 1000)
