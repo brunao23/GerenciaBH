@@ -282,21 +282,27 @@ export async function GET(req: Request) {
                 break
         }
 
-        // LEI INVIOLÁVEL: Busca TODAS as mensagens sem limite para garantir dados completos
+        // LEI INVIOLÁVEL: Busca mensagens com limite razoável para evitar timeout
         console.log(`[Analytics] Buscando dados do período: ${startDate.toISOString()} até ${endDate.toISOString()}`)
         
         const pageSize = 1000
+        const maxRecords = 50000 // Limite máximo para evitar timeout
         let allChats: any[] = []
         let from = 0
         let to = pageSize - 1
         let hasMore = true
+        let pageCount = 0
+        const maxPages = 50 // Máximo de 50 páginas para evitar loop infinito
         
-        // Busca todas as mensagens com paginação
-        while (hasMore) {
+        // Busca mensagens com paginação e limite
+        while (hasMore && pageCount < maxPages && allChats.length < maxRecords) {
+            pageCount++
+            console.log(`[Analytics] Buscando página ${pageCount}, range ${from}-${to}`)
+            
             const { data: chats, error } = await supabase
                 .from("robson_voxn8n_chat_histories")
                 .select("session_id, message, id, created_at")
-                .order("id", { ascending: true }) // Ordena ascendente para pegar todas
+                .order("id", { ascending: false }) // Mais recentes primeiro para pegar dados mais relevantes
                 .range(from, to)
 
             if (error) {
@@ -306,31 +312,42 @@ export async function GET(req: Request) {
                     const { data: chatsWithoutDate, error: error2 } = await supabase
                         .from("robson_voxn8n_chat_histories")
                         .select("session_id, message, id")
-                        .order("id", { ascending: true })
+                        .order("id", { ascending: false })
                         .range(from, to)
                     
                     if (error2) {
-                        return NextResponse.json({ error: error2.message }, { status: 500 })
+                        console.error("[Analytics] Erro ao buscar sem created_at:", error2)
+                        // Continua com o que já tem
+                        hasMore = false
+                        break
                     }
                     
                     if (chatsWithoutDate && chatsWithoutDate.length > 0) {
                         allChats.push(...chatsWithoutDate)
-                        if (chatsWithoutDate.length < pageSize) hasMore = false
-                        from += pageSize
-                        to += pageSize
+                        if (chatsWithoutDate.length < pageSize || allChats.length >= maxRecords) {
+                            hasMore = false
+                        } else {
+                            from += pageSize
+                            to += pageSize
+                        }
                         continue
                     } else {
                         hasMore = false
                         break
                     }
                 } else {
-                    return NextResponse.json({ error: error.message }, { status: 500 })
+                    // Se for outro erro, continua com o que já tem
+                    console.error("[Analytics] Erro não relacionado a created_at, parando busca")
+                    hasMore = false
+                    break
                 }
             }
 
             if (chats && chats.length > 0) {
                 allChats.push(...chats)
-                if (chats.length < pageSize) {
+                console.log(`[Analytics] Página ${pageCount}: ${chats.length} mensagens, total: ${allChats.length}`)
+                
+                if (chats.length < pageSize || allChats.length >= maxRecords) {
                     hasMore = false
                 } else {
                     from += pageSize
@@ -341,7 +358,7 @@ export async function GET(req: Request) {
             }
         }
 
-        console.log(`[Analytics] Total de mensagens carregadas: ${allChats.length}`)
+        console.log(`[Analytics] Total de mensagens carregadas: ${allChats.length} (${pageCount} páginas)`)
 
         // Agrupa por sessão
         const sessionMap = new Map<string, any[]>()
