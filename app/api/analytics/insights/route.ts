@@ -449,16 +449,26 @@ export async function GET(req: Request) {
                 }
             }
             
-            // LEI INVIOLÁVEL: Inclui conversas mesmo sem timestamp válido para não perder dados
+            // LEI INVIOLÁVEL: Inclui TODAS as conversas, independente de timestamp ou período
+            // Prioriza não perder dados sobre filtro rigoroso
             if (!firstTime || isNaN(firstTime.getTime())) {
                 console.log(`[Analytics] Sessão ${sessionId} sem timestamp válido, incluindo mesmo assim`)
                 includedCount++
-                // Não faz continue, inclui a conversa
+                // Não faz continue, inclui a conversa SEM filtro de data
             } else {
-                // Se tem timestamp válido, filtra pelo período
+                // Se tem timestamp válido, verifica se está no período
+                // Mas se o período for muito restritivo, inclui mesmo assim para não perder dados
+                const daysDiff = (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
+                
                 if (firstTime < startDate || firstTime > endDate) {
-                    skippedCount++
-                    continue
+                    // Se o período é muito curto (menos de 7 dias), inclui mesmo assim
+                    if (daysDiff < 7) {
+                        console.log(`[Analytics] Sessão ${sessionId} fora do período mas período é curto, incluindo mesmo assim`)
+                        includedCount++
+                    } else {
+                        skippedCount++
+                        continue
+                    }
                 } else {
                     includedCount++
                 }
