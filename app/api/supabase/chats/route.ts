@@ -1171,14 +1171,19 @@ export async function GET(req: Request) {
           return true
         })
         .sort((a, b) => {
-          // LEI INVIOLÁVEL: Ordenação 100% precisa e correta
+          // LEI INVIOLÁVEL: Ordenação 100% precisa e correta - SEMPRE usa message_id como desempate
           // 1) PRIMEIRO: Ordena por timestamp se ambos tiverem (mais confiável)
           if (a.created_at && b.created_at) {
             const dateA = new Date(a.created_at).getTime()
             const dateB = new Date(b.created_at).getTime()
             if (!isNaN(dateA) && !isNaN(dateB)) {
-              // Ordena ASCENDENTE (mais antigas primeiro)
-              return dateA - dateB
+              // Se timestamps são diferentes, ordena por timestamp
+              if (dateA !== dateB) {
+                return dateA - dateB // ASCENDENTE (mais antigas primeiro)
+              }
+              // LEI INVIOLÁVEL: Se timestamps são IGUAIS, usa message_id como desempate
+              // Isso garante ordem correta mesmo quando múltiplas mensagens têm o mesmo timestamp
+              return a.message_id - b.message_id
             }
           }
           
