@@ -285,14 +285,15 @@ export async function GET(req: Request) {
         // LEI INVIOLÁVEL: Busca mensagens com limite razoável para evitar timeout
         console.log(`[Analytics] Buscando dados do período: ${startDate.toISOString()} até ${endDate.toISOString()}`)
         
-        const pageSize = 1000
-        const maxRecords = 50000 // Limite máximo para evitar timeout
+        // Limite mais conservador para evitar timeout
+        const pageSize = 500
+        const maxRecords = 10000 // Limite máximo reduzido para evitar timeout
         let allChats: any[] = []
         let from = 0
         let to = pageSize - 1
         let hasMore = true
         let pageCount = 0
-        const maxPages = 50 // Máximo de 50 páginas para evitar loop infinito
+        const maxPages = 20 // Máximo de 20 páginas (10k mensagens) para evitar timeout
         
         // Busca mensagens com paginação e limite
         while (hasMore && pageCount < maxPages && allChats.length < maxRecords) {
