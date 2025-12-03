@@ -902,7 +902,11 @@ export async function GET(req: Request) {
       let detectedName: string | null = null
       let formData: any = null // Dados do formulário extraídos
 
-      const messages = items
+      // LEI INVIOLÁVEL: Ordena items por id ASCENDENTE antes de processar
+      // Isso garante que as mensagens sejam processadas na ordem cronológica correta
+      const sortedItems = [...items].sort((a, b) => a.id - b.id)
+
+      const messages = sortedItems
         .map((r) => {
           // LEI INVIOLÁVEL: Tratamento robusto de edge cases
           if (!r || !r.message) {
