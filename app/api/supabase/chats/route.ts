@@ -471,6 +471,24 @@ function cleanAnyMessage(text: string) {
   }
   
   // Validação final: se a mensagem é muito curta ou só contém caracteres especiais, retorna vazio
+  // LEI INVIOLÁVEL: Remove resquícios de arrays e estruturas de dados
+  // Remove "])" e variações que podem aparecer no final de mensagens
+  s = s.replace(/\]\s*\)\s*$/g, "").trim() // Remove "])" no final
+  s = s.replace(/\]\s*\)\s*$/gm, "").trim() // Remove "])" no final de cada linha
+  s = s.replace(/\]\s*\)\s+/g, " ").trim() // Remove "])" no meio do texto
+  s = s.replace(/\]\s*\)/g, "").trim() // Remove qualquer "])"
+  s = s.replace(/\]\s*$/g, "").trim() // Remove "]" solto no final
+  s = s.replace(/\)\s*$/g, "").trim() // Remove ")" solto no final
+  s = s.replace(/\[\s*$/g, "").trim() // Remove "[" solto no final
+  s = s.replace(/\(\s*$/g, "").trim() // Remove "(" solto no final
+  s = s.replace(/,\s*\]\s*\)/g, "").trim() // Remove ",])"
+  s = s.replace(/,\s*\]/g, "").trim() // Remove ",]"
+  s = s.replace(/,\s*\)/g, "").trim() // Remove ",)"
+  
+  // Remove linhas que são só caracteres especiais ou estruturas de dados
+  s = s.replace(/^[,\s\[\]\(\)\-\.]+$/gm, "").trim()
+  s = s.replace(/\n[,\s\[\]\(\)\-\.]+\n/g, "\n").trim()
+  
   const cleaned = s.trim()
   if (cleaned.length < 3) return ""
   if (cleaned.match(/^[\d\s:,\[\]\{\}"]+$/)) return "" // Só números, espaços e caracteres especiais
