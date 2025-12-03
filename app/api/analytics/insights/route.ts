@@ -494,10 +494,18 @@ export async function GET(req: Request) {
                 if (!successTime && /agendad|confirmad|marcad|fechad|contrat/i.test(content)) {
                     const msgTimeStr = m.message?.created_at || m.created_at
                     if (msgTimeStr) {
-                        successTime = new Date(msgTimeStr)
+                        const tempDate = new Date(msgTimeStr)
+                        if (!isNaN(tempDate.getTime())) {
+                            successTime = tempDate
+                        }
                     } else {
                         const dateMatch = content.match(/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.[0-9]{1,3})?(?:[+-][0-9]{2}:[0-9]{2}|Z)?)/)
-                        if (dateMatch) successTime = new Date(dateMatch[1])
+                        if (dateMatch) {
+                            const tempDate = new Date(dateMatch[1])
+                            if (!isNaN(tempDate.getTime())) {
+                                successTime = tempDate
+                            }
+                        }
                     }
                 }
             }
