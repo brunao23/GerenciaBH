@@ -376,8 +376,13 @@ export async function GET(req: Request) {
         // Analisa cada conversa
         const conversationMetrics: ConversationMetrics[] = []
         const contactMap = new Map<string, { messages: number; conversations: number; lastTime: string; name: string; status: string }>()
+        
+        let processedCount = 0
+        let skippedCount = 0
+        let includedCount = 0
 
         for (const [sessionId, messages] of sessionMap.entries()) {
+            processedCount++
             // Ordena mensagens por ID (cronológico)
             const sortedMessages = messages.sort((a, b) => a.id - b.id)
 
@@ -444,14 +449,18 @@ export async function GET(req: Request) {
                 }
             }
             
-            // Se ainda não tem timestamp válido, inclui mesmo assim (não perde dados)
+            // LEI INVIOLÁVEL: Inclui conversas mesmo sem timestamp válido para não perder dados
             if (!firstTime || isNaN(firstTime.getTime())) {
                 console.log(`[Analytics] Sessão ${sessionId} sem timestamp válido, incluindo mesmo assim`)
+                includedCount++
                 // Não faz continue, inclui a conversa
             } else {
                 // Se tem timestamp válido, filtra pelo período
                 if (firstTime < startDate || firstTime > endDate) {
+                    skippedCount++
                     continue
+                } else {
+                    includedCount++
                 }
             }
 
@@ -578,6 +587,7 @@ export async function GET(req: Request) {
             }
         }
 
+        console.log(`[Analytics] Processadas: ${processedCount}, Incluídas: ${includedCount}, Puladas: ${skippedCount}`)
         console.log(`[Analytics] ${conversationMetrics.length} conversas analisadas após filtro de data`)
         
         // LEI INVIOLÁVEL: Se não encontrou conversas, retorna estrutura vazia mas válida
@@ -585,6 +595,8 @@ export async function GET(req: Request) {
             console.log(`[Analytics] AVISO: Nenhuma conversa encontrada no período. Retornando estrutura vazia.`)
             console.log(`[Analytics] Período buscado: ${startDate.toISOString()} até ${endDate.toISOString()}`)
             console.log(`[Analytics] Total de sessões no banco: ${sessionMap.size}`)
+            console.log(`[Analytics] Total de mensagens carregadas: ${allChats.length}`)
+            console.log(`[Analytics] Processadas: ${processedCount}, Incluídas: ${includedCount}, Puladas: ${skippedCount}`)
             
             // Retorna estrutura vazia mas válida para não quebrar o frontend
             const emptyInsights: AnalyticsInsights = {
