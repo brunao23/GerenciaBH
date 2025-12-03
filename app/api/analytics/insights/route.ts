@@ -509,7 +509,17 @@ export async function GET(req: Request) {
                 const dateMatch = content.match(/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.[0-9]{1,3})?(?:[+-][0-9]{2}:[0-9]{2}|Z)?)/)
                 if (dateMatch) lastTimeStr = dateMatch[1]
             }
-            const lastTime = new Date(lastTimeStr || Date.now())
+            
+            // LEI INVIOLÁVEL: Valida lastTime antes de usar
+            let lastTime: Date
+            if (lastTimeStr) {
+                lastTime = new Date(lastTimeStr)
+                if (isNaN(lastTime.getTime())) {
+                    lastTime = new Date(Date.now())
+                }
+            } else {
+                lastTime = new Date(Date.now())
+            }
 
             // LEI INVIOLÁVEL: Calcula duração mesmo sem timestamp válido
             let duration = 0
