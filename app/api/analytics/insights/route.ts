@@ -315,32 +315,66 @@ export async function GET(req: Request) {
             // Ordena mensagens por ID (cronológico)
             const sortedMessages = messages.sort((a, b) => a.id - b.id)
 
+            // LEI INVIOLÁVEL: Parse robusto de mensagens
+            const parsedMessages = sortedMessages.map(m => {
+                let messageData = m.message
+                
+                // Se message é string, tenta fazer parse
+                if (typeof messageData === 'string') {
+                    try {
+                        messageData = JSON.parse(messageData)
+                    } catch (e) {
+                        // Se falhar, cria estrutura básica
+                        messageData = { content: messageData, type: 'unknown' }
+                    }
+                }
+                
+                // Se message é null/undefined, cria estrutura básica
+                if (!messageData) {
+                    messageData = { content: '', type: 'unknown' }
+                }
+                
+                // Normaliza type/role
+                const type = messageData.type || messageData.role || 'unknown'
+                const normalizedType = type.toLowerCase() === 'human' || type.toLowerCase() === 'user' ? 'human' : 'ai'
+                
+                return {
+                    ...m,
+                    message: {
+                        ...messageData,
+                        type: normalizedType,
+                        content: messageData.content || messageData.text || '',
+                        created_at: messageData.created_at || m.created_at
+                    }
+                }
+            })
+
             // Extrai data da primeira mensagem para filtrar pelo período
-            const firstMsg = sortedMessages[0]
-            let firstTimeStr = firstMsg.message?.created_at
+            const firstMsg = parsedMessages[0]
+            let firstTimeStr = firstMsg.message?.created_at || firstMsg.created_at
 
             // Tenta extrair do texto se não tiver no message.created_at
             if (!firstTimeStr) {
                 const content = String(firstMsg.message?.content || firstMsg.message?.text || '')
-                const dateMatch = content.match(/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})/)
+                const dateMatch = content.match(/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.[0-9]{1,3})?(?:[+-][0-9]{2}:[0-9]{2}|Z)?)/)
                 if (dateMatch) firstTimeStr = dateMatch[1]
             }
 
             const firstTime = new Date(firstTimeStr || Date.now())
 
             // Filtra pelo período selecionado
-            if (firstTime < startDate || firstTime > endDate) {
+            if (isNaN(firstTime.getTime()) || firstTime < startDate || firstTime > endDate) {
                 continue
             }
 
-            const userMessages = sortedMessages.filter(m => m.message?.type === 'human')
-            const aiMessages = sortedMessages.filter(m => m.message?.type !== 'human')
+            const userMessages = parsedMessages.filter(m => m.message?.type === 'human')
+            const aiMessages = parsedMessages.filter(m => m.message?.type !== 'human')
 
             // Identifica momento da conversão
             let successTime: Date | null = null
             const messageContents: string[] = []
 
-            for (const m of sortedMessages) {
+            for (const m of parsedMessages) {
                 const content = String(m.message?.content || m.message?.text || '')
                 messageContents.push(content)
 
@@ -349,17 +383,17 @@ export async function GET(req: Request) {
                     if (msgTimeStr) {
                         successTime = new Date(msgTimeStr)
                     } else {
-                        const dateMatch = content.match(/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})/)
+                        const dateMatch = content.match(/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.[0-9]{1,3})?(?:[+-][0-9]{2}:[0-9]{2}|Z)?)/)
                         if (dateMatch) successTime = new Date(dateMatch[1])
                     }
                 }
             }
 
-            const lastMsg = sortedMessages[sortedMessages.length - 1]
-            let lastTimeStr = lastMsg.message?.created_at
+            const lastMsg = parsedMessages[parsedMessages.length - 1]
+            let lastTimeStr = lastMsg.message?.created_at || lastMsg.created_at
             if (!lastTimeStr) {
                 const content = String(lastMsg.message?.content || lastMsg.message?.text || '')
-                const dateMatch = content.match(/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})/)
+                const dateMatch = content.match(/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.[0-9]{1,3})?(?:[+-][0-9]{2}:[0-9]{2}|Z)?)/)
                 if (dateMatch) lastTimeStr = dateMatch[1]
             }
             const lastTime = new Date(lastTimeStr || Date.now())
@@ -375,10 +409,16 @@ export async function GET(req: Request) {
             )
 
             const responseTimes: number[] = []
-            for (let i = 1; i < sortedMessages.length; i++) {
-                const prev = new Date(sortedMessages[i - 1].message?.created_at || sortedMessages[i - 1].created_at || Date.now())
-                const curr = new Date(sortedMessages[i].message?.created_at || sortedMessages[i].created_at || Date.now())
-                responseTimes.push((curr.getTime() - prev.getTime()) / 1000)
+            for (let i = 1; i < parsedMessages.length; i++) {
+                const prevTimeStr = parsedMessages[i - 1].message?.created_at || parsedMessages[i - 1].created_at
+                const currTimeStr = parsedMessages[i].message?.created_at || parsedMessages[i].created_at
+                
+                const prev = prevTimeStr ? new Date(prevTimeStr) : new Date(firstTime.getTime() + (i - 1) * 60000)
+                const curr = currTimeStr ? new Date(currTimeStr) : new Date(firstTime.getTime() + i * 60000)
+                
+                if (!isNaN(prev.getTime()) && !isNaN(curr.getTime())) {
+                    responseTimes.push((curr.getTime() - prev.getTime()) / 1000)
+                }
             }
 
             const avgResponseTime = responseTimes.length > 0
@@ -406,13 +446,13 @@ export async function GET(req: Request) {
                 numero = sessionId.replace('@s.whatsapp.net', '')
             }
 
-            const contactName = extractContactName(sortedMessages) || `Lead ${numero.substring(numero.length - 4)}`
+            const contactName = extractContactName(parsedMessages) || `Lead ${numero.substring(numero.length - 4)}`
 
             conversationMetrics.push({
                 sessionId,
                 numero,
                 contactName,
-                totalMessages: sortedMessages.length,
+                totalMessages: parsedMessages.length,
                 userMessages: userMessages.length,
                 aiMessages: aiMessages.length,
                 conversationDuration: duration,
@@ -441,7 +481,7 @@ export async function GET(req: Request) {
                 })
             }
             const contact = contactMap.get(numero)!
-            contact.messages += sortedMessages.length
+            contact.messages += parsedMessages.length
             contact.conversations += 1
             if (new Date(lastTime) > new Date(contact.lastTime)) {
                 contact.lastTime = lastTime.toISOString()
