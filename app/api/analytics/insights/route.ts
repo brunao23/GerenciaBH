@@ -547,6 +547,37 @@ export async function GET(req: Request) {
         }
 
         console.log(`[Analytics] ${conversationMetrics.length} conversas analisadas após filtro de data`)
+        
+        // LEI INVIOLÁVEL: Se não encontrou conversas, retorna estrutura vazia mas válida
+        if (conversationMetrics.length === 0) {
+            console.log(`[Analytics] AVISO: Nenhuma conversa encontrada no período. Retornando estrutura vazia.`)
+            console.log(`[Analytics] Período buscado: ${startDate.toISOString()} até ${endDate.toISOString()}`)
+            console.log(`[Analytics] Total de sessões no banco: ${sessionMap.size}`)
+            
+            // Retorna estrutura vazia mas válida para não quebrar o frontend
+            const emptyInsights: AnalyticsInsights = {
+                totalConversations: 0,
+                conversionRate: 0,
+                avgMessagesToConvert: 0,
+                avgTimeToConvert: 0,
+                bestPerformingHours: [],
+                bestPerformingDays: [],
+                conversionPatterns: [],
+                sentimentAnalysis: { positive: 0, neutral: 0, negative: 0 },
+                engagementMetrics: { highEngagement: 0, mediumEngagement: 0, lowEngagement: 0 },
+                topKeywords: [],
+                topContacts: [],
+                objectionAnalysis: [],
+                nonSchedulingReasons: [],
+                recommendations: ["Nenhum dado encontrado no período selecionado. Tente selecionar um período diferente."]
+            }
+            
+            return NextResponse.json({
+                success: true,
+                period,
+                insights: emptyInsights
+            })
+        }
 
         // Top contatos que mais interagiram
         const topContacts: TopContact[] = Array.from(contactMap.entries())
