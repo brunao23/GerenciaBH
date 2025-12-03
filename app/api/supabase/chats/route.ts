@@ -1254,7 +1254,8 @@ export async function GET(req: Request) {
         }
       }
 
-      const finalMessages = deduplicatedMessages.filter((m) => {
+      // LEI INVIOLÁVEL: Filtra por data mas mantém ordem cronológica
+      let finalMessages = deduplicatedMessages.filter((m) => {
         if (!start && !end) return true
         if (!m.created_at) return false
         const dt = new Date(m.created_at)
@@ -1262,6 +1263,25 @@ export async function GET(req: Request) {
         if (start && dt < new Date(start)) return false
         if (end && dt > new Date(end)) return false
         return true
+      })
+      
+      // LEI INVIOLÁVEL: Reordena após filtro para garantir ordem correta
+      // Isso é crítico porque o filtro pode ter removido mensagens e a ordem pode ter sido afetada
+      finalMessages.sort((a, b) => {
+        // 1) Ordena por timestamp se ambos tiverem
+        if (a.created_at && b.created_at) {
+          const dateA = new Date(a.created_at).getTime()
+          const dateB = new Date(b.created_at).getTime()
+          if (!isNaN(dateA) && !isNaN(dateB)) {
+            if (dateA !== dateB) {
+              return dateA - dateB
+            }
+            // Se timestamps iguais, usa message_id como desempate
+            return a.message_id - b.message_id
+          }
+        }
+        // 2) Fallback para message_id
+        return a.message_id - b.message_id
       })
 
       const last_id = Math.max(...items.map((i) => i.id))
