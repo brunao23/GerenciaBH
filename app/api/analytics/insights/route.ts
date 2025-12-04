@@ -660,6 +660,21 @@ export async function GET(req: Request) {
         console.log(`[Analytics] Processadas: ${processedCount}, Incluídas: ${includedCount}, Puladas: ${skippedCount}`)
         console.log(`[Analytics] ${conversationMetrics.length} conversas analisadas após filtro de data`)
         
+        // LEI INVIOLÁVEL: Log detalhado para debug
+        if (conversationMetrics.length > 0) {
+            const sample = conversationMetrics[0]
+            console.log(`[Analytics] Exemplo de conversa processada:`, {
+                sessionId: sample.sessionId,
+                totalMessages: sample.totalMessages,
+                userMessages: sample.userMessages,
+                aiMessages: sample.aiMessages,
+                hasSuccess: sample.hasSuccess,
+                conversionStatus: sample.conversionStatus,
+                sentimentScore: sample.sentimentScore,
+                engagementScore: sample.engagementScore
+            })
+        }
+        
         // LEI INVIOLÁVEL: Se não encontrou conversas, retorna estrutura vazia mas válida
         if (conversationMetrics.length === 0) {
             console.log(`[Analytics] AVISO: Nenhuma conversa encontrada no período. Retornando estrutura vazia.`)
@@ -708,6 +723,11 @@ export async function GET(req: Request) {
 
         // Calcula insights
         const converted = conversationMetrics.filter(c => c.conversionStatus === 'converted')
+        const inProgress = conversationMetrics.filter(c => c.conversionStatus === 'in_progress')
+        const lost = conversationMetrics.filter(c => c.conversionStatus === 'lost')
+        
+        console.log(`[Analytics] Status das conversas: Convertidas: ${converted.length}, Em progresso: ${inProgress.length}, Perdidas: ${lost.length}`)
+        
         const conversionRate = conversationMetrics.length > 0
             ? (converted.length / conversationMetrics.length) * 100
             : 0
@@ -719,6 +739,8 @@ export async function GET(req: Request) {
         const avgTimeToConvert = converted.length > 0
             ? converted.reduce((sum, c) => sum + c.conversationDuration, 0) / converted.length
             : 0
+        
+        console.log(`[Analytics] Métricas calculadas: Taxa de conversão: ${conversionRate.toFixed(2)}%, Média de mensagens: ${avgMessagesToConvert.toFixed(2)}, Média de tempo: ${avgTimeToConvert.toFixed(2)} minutos`)
 
         // Análise por hora
         const hourlyConversions: { [hour: number]: number } = {}
