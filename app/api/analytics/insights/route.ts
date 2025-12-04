@@ -608,6 +608,10 @@ export async function GET(req: Request) {
 
             const contactName = extractContactName(parsedMessages) || `Lead ${numero.substring(numero.length - 4)}`
 
+            // LEI INVIOLÁVEL: Garante que firstTime e lastTime sejam válidos antes de usar toISOString()
+            const safeFirstTime = (firstTime && !isNaN(firstTime.getTime())) ? firstTime : new Date(Date.now())
+            const safeLastTime = (lastTime && !isNaN(lastTime.getTime())) ? lastTime : new Date(Date.now())
+            
             conversationMetrics.push({
                 sessionId,
                 numero,
@@ -624,18 +628,21 @@ export async function GET(req: Request) {
                 sentimentScore: sentiment,
                 engagementScore: engagement,
                 keywords,
-                firstMessageTime: firstTime.toISOString(),
-                lastMessageTime: lastTime.toISOString(),
+                firstMessageTime: safeFirstTime.toISOString(),
+                lastMessageTime: safeLastTime.toISOString(),
                 objections,
                 schedulingReason
             })
 
             // Atualiza mapa de contatos
+            // LEI INVIOLÁVEL: Garante que lastTime seja válido antes de usar toISOString()
+            const safeLastTimeForContact = (lastTime && !isNaN(lastTime.getTime())) ? lastTime : new Date(Date.now())
+            
             if (!contactMap.has(numero)) {
                 contactMap.set(numero, {
                     messages: 0,
                     conversations: 0,
-                    lastTime: lastTime.toISOString(),
+                    lastTime: safeLastTimeForContact.toISOString(),
                     name: contactName,
                     status: conversionStatus
                 })
@@ -643,8 +650,8 @@ export async function GET(req: Request) {
             const contact = contactMap.get(numero)!
             contact.messages += parsedMessages.length
             contact.conversations += 1
-            if (new Date(lastTime) > new Date(contact.lastTime)) {
-                contact.lastTime = lastTime.toISOString()
+            if (safeLastTimeForContact.getTime() > new Date(contact.lastTime).getTime()) {
+                contact.lastTime = safeLastTimeForContact.toISOString()
                 contact.name = contactName
                 contact.status = conversionStatus
             }
