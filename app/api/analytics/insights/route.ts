@@ -569,7 +569,7 @@ export async function GET(req: Request) {
                 duration = parsedMessages.length * 2
             }
 
-            const hasSuccess = !!successTime
+            // hasSuccess já foi definido acima na linha 536
             const hasError = messageContents.some(m =>
                 /erro|problem|falh|indisponível/i.test(m)
             )
