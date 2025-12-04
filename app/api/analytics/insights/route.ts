@@ -486,7 +486,6 @@ export async function GET(req: Request) {
             // LEI INVIOLÁVEL: Identifica momento da conversão com padrões mais amplos
             let successTime: Date | null = null
             const messageContents: string[] = []
-            let hasSuccess = false
 
             for (const m of parsedMessages) {
                 const content = String(m.message?.content || m.message?.text || '').toLowerCase()
@@ -511,7 +510,6 @@ export async function GET(req: Request) {
                 if (!successTime) {
                     for (const pattern of successPatterns) {
                         if (pattern.test(content)) {
-                            hasSuccess = true
                             const msgTimeStr = m.message?.created_at || m.created_at
                             if (msgTimeStr) {
                                 const tempDate = new Date(msgTimeStr)
@@ -533,6 +531,9 @@ export async function GET(req: Request) {
                     }
                 }
             }
+            
+            // LEI INVIOLÁVEL: Define hasSuccess baseado em successTime
+            const hasSuccess = !!successTime
 
             const lastMsg = parsedMessages[parsedMessages.length - 1]
             let lastTimeStr = lastMsg.message?.created_at || lastMsg.created_at
