@@ -483,7 +483,8 @@ export async function GET(req: Request) {
             const userMessages = parsedMessages.filter(m => m.message?.type === 'human')
             const aiMessages = parsedMessages.filter(m => m.message?.type !== 'human')
 
-            // LEI INVIOLÁVEL: Identifica momento da conversão com padrões mais amplos
+            // LEI INVIOLÁVEL: Identifica momento da conversão com padrões RIGOROSOS
+            // Apenas detecta conversão se houver confirmação clara de agendamento
             let successTime: Date | null = null
             const messageContents: string[] = []
             let foundSuccessPattern = false
@@ -493,45 +494,61 @@ export async function GET(req: Request) {
                 const content = String(m.message?.content || m.message?.text || '').toLowerCase()
                 messageContents.push(content)
 
-                // Padrões mais amplos para detectar conversão
+                // LEI INVIOLÁVEL: Padrões RIGOROSOS - apenas confirmações claras de agendamento
+                // Remove padrões genéricos que causam falsos positivos
                 const successPatterns = [
-                    { pattern: /agendad/i, name: 'agendad' },
-                    { pattern: /confirmad/i, name: 'confirmad' },
-                    { pattern: /marcad/i, name: 'marcad' },
-                    { pattern: /fechad/i, name: 'fechad' },
-                    { pattern: /contrat/i, name: 'contrat' },
-                    { pattern: /aceit/i, name: 'aceit' },
-                    { pattern: /combinad/i, name: 'combinad' },
-                    { pattern: /ok.*hor[áa]rio/i, name: 'ok horario' },
-                    { pattern: /sim.*agend/i, name: 'sim agend' },
-                    { pattern: /vou.*comparecer/i, name: 'vou comparecer' },
-                    { pattern: /estarei/i, name: 'estarei' },
-                    { pattern: /confirmo/i, name: 'confirmo' },
-                    { pattern: /perfeito.*hor[áa]rio/i, name: 'perfeito horario' },
-                    { pattern: /vou.*ir/i, name: 'vou ir' },
-                    { pattern: /pode.*marcar/i, name: 'pode marcar' },
-                    { pattern: /quero.*agendar/i, name: 'quero agendar' }
+                    // Confirmações explícitas de agendamento
+                    { pattern: /(?:agendad|marcad|confirmad).*(?:hor[áa]rio|data|dia|consulta|avalia[çc][ãa]o)/i, name: 'agendamento confirmado' },
+                    { pattern: /(?:confirmo|confirmar).*(?:agendamento|hor[áa]rio|data|dia)/i, name: 'confirmo agendamento' },
+                    { pattern: /(?:perfeito|ótimo|ok).*(?:agendad|marcad|confirmad)/i, name: 'perfeito agendado' },
+                    { pattern: /(?:vou|irei|estarei).*(?:comparecer|ir|participar)/i, name: 'vou comparecer' },
+                    { pattern: /(?:aceit|aceito|aceitar).*(?:agendamento|hor[áa]rio)/i, name: 'aceito agendamento' },
+                    // Padrões com contexto de data/horário
+                    { pattern: /(?:agendad|marcad).*(?:para|no|dia|em).*(?:\d{1,2}\/\d{1,2}|\d{1,2}h)/i, name: 'agendado com data' },
+                    { pattern: /(?:confirmad|confirmo).*(?:para|no|dia|em).*(?:\d{1,2}\/\d{1,2}|\d{1,2}h)/i, name: 'confirmado com data' },
+                    // Confirmações de fechamento/contrato
+                    { pattern: /(?:fechad|contrat|fechar|contratar).*(?:neg[óo]cio|servi[çc]o|curso)/i, name: 'fechado/contratado' }
                 ]
 
-                if (!successTime) {
+                // LEI INVIOLÁVEL: Exclui falsos positivos
+                const falsePositivePatterns = [
+                    /n[ãa]o.*agend/i,
+                    /ainda.*n[ãa]o/i,
+                    /talvez/i,
+                    /vou.*pensar/i,
+                    /depois.*vejo/i,
+                    /n[ãa]o.*quero/i,
+                    /cancelar/i,
+                    /desistir/i
+                ]
+
+                // Verifica se não é falso positivo primeiro
+                const isFalsePositive = falsePositivePatterns.some(pattern => pattern.test(content))
+                
+                if (!successTime && !isFalsePositive) {
                     for (const { pattern, name } of successPatterns) {
                         if (pattern.test(content)) {
-                            foundSuccessPattern = true
-                            matchedPattern = name
-                            const msgTimeStr = m.message?.created_at || m.created_at
-                            if (msgTimeStr) {
-                                const tempDate = new Date(msgTimeStr)
-                                if (!isNaN(tempDate.getTime())) {
-                                    successTime = tempDate
-                                    break
-                                }
-                            } else {
-                                const dateMatch = content.match(/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.[0-9]{1,3})?(?:[+-][0-9]{2}:[0-9]{2}|Z)?)/)
-                                if (dateMatch) {
-                                    const tempDate = new Date(dateMatch[1])
+                            // LEI INVIOLÁVEL: Valida que é mensagem do CLIENTE, não da IA
+                            const isUserMessage = m.message?.type === 'human' || m.message?.type === 'user'
+                            
+                            if (isUserMessage) {
+                                foundSuccessPattern = true
+                                matchedPattern = name
+                                const msgTimeStr = m.message?.created_at || m.created_at
+                                if (msgTimeStr) {
+                                    const tempDate = new Date(msgTimeStr)
                                     if (!isNaN(tempDate.getTime())) {
                                         successTime = tempDate
                                         break
+                                    }
+                                } else {
+                                    const dateMatch = content.match(/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.[0-9]{1,3})?(?:[+-][0-9]{2}:[0-9]{2}|Z)?)/)
+                                    if (dateMatch) {
+                                        const tempDate = new Date(dateMatch[1])
+                                        if (!isNaN(tempDate.getTime())) {
+                                            successTime = tempDate
+                                            break
+                                        }
                                     }
                                 }
                             }
@@ -540,15 +557,16 @@ export async function GET(req: Request) {
                 }
             }
             
-            // LEI INVIOLÁVEL: Define hasSuccess baseado em successTime ou padrão encontrado
-            const hasSuccess = !!successTime || foundSuccessPattern
+            // LEI INVIOLÁVEL: Define hasSuccess APENAS se tiver timestamp válido OU padrão muito claro
+            // Não marca como sucesso apenas por palavras soltas
+            const hasSuccess = !!successTime || (foundSuccessPattern && parsedMessages.length >= 3)
             
             // Log para debug
             if (foundSuccessPattern && !successTime) {
-                console.log(`[Analytics] Sessão ${sessionId}: Padrão de sucesso encontrado (${matchedPattern}) mas sem timestamp válido`)
+                console.log(`[Analytics] Sessão ${sessionId}: Padrão encontrado (${matchedPattern}) mas sem timestamp - Mensagens: ${parsedMessages.length}`)
             }
             if (hasSuccess) {
-                console.log(`[Analytics] Sessão ${sessionId}: CONVERSÃO DETECTADA - Padrão: ${matchedPattern || 'timestamp'}`)
+                console.log(`[Analytics] Sessão ${sessionId}: CONVERSÃO DETECTADA - Padrão: ${matchedPattern || 'timestamp'}, Mensagens: ${parsedMessages.length}`)
             }
 
             const lastMsg = parsedMessages[parsedMessages.length - 1]
