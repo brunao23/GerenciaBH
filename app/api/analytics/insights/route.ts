@@ -585,9 +585,25 @@ export async function GET(req: Request) {
                 ? responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length
                 : 0
 
+            // LEI INVIOLÁVEL: Detecção melhorada de conversão
             let conversionStatus: 'converted' | 'in_progress' | 'lost' = 'in_progress'
-            if (hasSuccess) conversionStatus = 'converted'
-            else if (hasError || duration > 1440) conversionStatus = 'lost'
+            
+            // Verifica se há sucesso (agendamento/confirmação)
+            if (hasSuccess) {
+                conversionStatus = 'converted'
+            } else if (hasError) {
+                // Se houve erro, marca como perdida
+                conversionStatus = 'lost'
+            } else if (duration > 1440) {
+                // Se durou mais de 24 horas sem sucesso, marca como perdida
+                conversionStatus = 'lost'
+            } else if (parsedMessages.length >= 10 && !hasSuccess) {
+                // Se tem muitas mensagens mas não converteu, pode estar em progresso
+                conversionStatus = 'in_progress'
+            } else {
+                // Por padrão, em progresso
+                conversionStatus = 'in_progress'
+            }
 
             const sentiment = calculateSentiment(messageContents)
             const engagement = calculateEngagement({
