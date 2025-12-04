@@ -483,27 +483,51 @@ export async function GET(req: Request) {
             const userMessages = parsedMessages.filter(m => m.message?.type === 'human')
             const aiMessages = parsedMessages.filter(m => m.message?.type !== 'human')
 
-            // Identifica momento da conversão
+            // LEI INVIOLÁVEL: Identifica momento da conversão com padrões mais amplos
             let successTime: Date | null = null
             const messageContents: string[] = []
+            let hasSuccess = false
 
             for (const m of parsedMessages) {
-                const content = String(m.message?.content || m.message?.text || '')
+                const content = String(m.message?.content || m.message?.text || '').toLowerCase()
                 messageContents.push(content)
 
-                if (!successTime && /agendad|confirmad|marcad|fechad|contrat/i.test(content)) {
-                    const msgTimeStr = m.message?.created_at || m.created_at
-                    if (msgTimeStr) {
-                        const tempDate = new Date(msgTimeStr)
-                        if (!isNaN(tempDate.getTime())) {
-                            successTime = tempDate
-                        }
-                    } else {
-                        const dateMatch = content.match(/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.[0-9]{1,3})?(?:[+-][0-9]{2}:[0-9]{2}|Z)?)/)
-                        if (dateMatch) {
-                            const tempDate = new Date(dateMatch[1])
-                            if (!isNaN(tempDate.getTime())) {
-                                successTime = tempDate
+                // Padrões mais amplos para detectar conversão
+                const successPatterns = [
+                    /agendad/i,
+                    /confirmad/i,
+                    /marcad/i,
+                    /fechad/i,
+                    /contrat/i,
+                    /aceit/i,
+                    /combinad/i,
+                    /ok.*hor[áa]rio/i,
+                    /sim.*agend/i,
+                    /vou.*comparecer/i,
+                    /estarei/i,
+                    /confirmo/i
+                ]
+
+                if (!successTime) {
+                    for (const pattern of successPatterns) {
+                        if (pattern.test(content)) {
+                            hasSuccess = true
+                            const msgTimeStr = m.message?.created_at || m.created_at
+                            if (msgTimeStr) {
+                                const tempDate = new Date(msgTimeStr)
+                                if (!isNaN(tempDate.getTime())) {
+                                    successTime = tempDate
+                                    break
+                                }
+                            } else {
+                                const dateMatch = content.match(/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.[0-9]{1,3})?(?:[+-][0-9]{2}:[0-9]{2}|Z)?)/)
+                                if (dateMatch) {
+                                    const tempDate = new Date(dateMatch[1])
+                                    if (!isNaN(tempDate.getTime())) {
+                                        successTime = tempDate
+                                        break
+                                    }
+                                }
                             }
                         }
                     }
@@ -737,26 +761,40 @@ export async function GET(req: Request) {
             .sort((a, b) => b.totalMessages - a.totalMessages)
             .slice(0, 20)
 
-        // Calcula insights
+        // LEI INVIOLÁVEL: Calcula insights com validação
         const converted = conversationMetrics.filter(c => c.conversionStatus === 'converted')
         const inProgress = conversationMetrics.filter(c => c.conversionStatus === 'in_progress')
         const lost = conversationMetrics.filter(c => c.conversionStatus === 'lost')
         
-        console.log(`[Analytics] Status das conversas: Convertidas: ${converted.length}, Em progresso: ${inProgress.length}, Perdidas: ${lost.length}`)
+        // Também conta por hasSuccess para garantir
+        const convertedBySuccess = conversationMetrics.filter(c => c.hasSuccess === true)
+        
+        console.log(`[Analytics] Status das conversas: Convertidas: ${converted.length} (por status), ${convertedBySuccess.length} (por hasSuccess), Em progresso: ${inProgress.length}, Perdidas: ${lost.length}`)
+        console.log(`[Analytics] Total de conversas: ${conversationMetrics.length}`)
+        
+        // Usa o maior valor entre converted e convertedBySuccess
+        const actualConverted = converted.length > convertedBySuccess.length ? converted : convertedBySuccess
         
         const conversionRate = conversationMetrics.length > 0
-            ? (converted.length / conversationMetrics.length) * 100
+            ? (actualConverted.length / conversationMetrics.length) * 100
             : 0
 
-        const avgMessagesToConvert = converted.length > 0
-            ? converted.reduce((sum, c) => sum + c.totalMessages, 0) / converted.length
+        const avgMessagesToConvert = actualConverted.length > 0
+            ? actualConverted.reduce((sum, c) => sum + c.totalMessages, 0) / actualConverted.length
             : 0
 
-        const avgTimeToConvert = converted.length > 0
-            ? converted.reduce((sum, c) => sum + c.conversationDuration, 0) / converted.length
+        const avgTimeToConvert = actualConverted.length > 0
+            ? actualConverted.reduce((sum, c) => sum + c.conversationDuration, 0) / actualConverted.length
             : 0
         
-        console.log(`[Analytics] Métricas calculadas: Taxa de conversão: ${conversionRate.toFixed(2)}%, Média de mensagens: ${avgMessagesToConvert.toFixed(2)}, Média de tempo: ${avgTimeToConvert.toFixed(2)} minutos`)
+        // Conta agendamentos (hasSuccess)
+        const appointments = conversationMetrics.filter(c => c.hasSuccess === true).length
+        
+        console.log(`[Analytics] Métricas calculadas:`)
+        console.log(`  - Taxa de conversão: ${conversionRate.toFixed(2)}%`)
+        console.log(`  - Agendamentos: ${appointments}`)
+        console.log(`  - Média de mensagens: ${avgMessagesToConvert.toFixed(2)}`)
+        console.log(`  - Média de tempo: ${avgTimeToConvert.toFixed(2)} minutos`)
 
         // Análise por hora
         const hourlyConversions: { [hour: number]: number } = {}
