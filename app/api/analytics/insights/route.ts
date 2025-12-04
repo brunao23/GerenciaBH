@@ -486,6 +486,8 @@ export async function GET(req: Request) {
             // LEI INVIOLÁVEL: Identifica momento da conversão com padrões mais amplos
             let successTime: Date | null = null
             const messageContents: string[] = []
+            let foundSuccessPattern = false
+            let matchedPattern = ''
 
             for (const m of parsedMessages) {
                 const content = String(m.message?.content || m.message?.text || '').toLowerCase()
@@ -493,23 +495,29 @@ export async function GET(req: Request) {
 
                 // Padrões mais amplos para detectar conversão
                 const successPatterns = [
-                    /agendad/i,
-                    /confirmad/i,
-                    /marcad/i,
-                    /fechad/i,
-                    /contrat/i,
-                    /aceit/i,
-                    /combinad/i,
-                    /ok.*hor[áa]rio/i,
-                    /sim.*agend/i,
-                    /vou.*comparecer/i,
-                    /estarei/i,
-                    /confirmo/i
+                    { pattern: /agendad/i, name: 'agendad' },
+                    { pattern: /confirmad/i, name: 'confirmad' },
+                    { pattern: /marcad/i, name: 'marcad' },
+                    { pattern: /fechad/i, name: 'fechad' },
+                    { pattern: /contrat/i, name: 'contrat' },
+                    { pattern: /aceit/i, name: 'aceit' },
+                    { pattern: /combinad/i, name: 'combinad' },
+                    { pattern: /ok.*hor[áa]rio/i, name: 'ok horario' },
+                    { pattern: /sim.*agend/i, name: 'sim agend' },
+                    { pattern: /vou.*comparecer/i, name: 'vou comparecer' },
+                    { pattern: /estarei/i, name: 'estarei' },
+                    { pattern: /confirmo/i, name: 'confirmo' },
+                    { pattern: /perfeito.*hor[áa]rio/i, name: 'perfeito horario' },
+                    { pattern: /vou.*ir/i, name: 'vou ir' },
+                    { pattern: /pode.*marcar/i, name: 'pode marcar' },
+                    { pattern: /quero.*agendar/i, name: 'quero agendar' }
                 ]
 
                 if (!successTime) {
-                    for (const pattern of successPatterns) {
+                    for (const { pattern, name } of successPatterns) {
                         if (pattern.test(content)) {
+                            foundSuccessPattern = true
+                            matchedPattern = name
                             const msgTimeStr = m.message?.created_at || m.created_at
                             if (msgTimeStr) {
                                 const tempDate = new Date(msgTimeStr)
@@ -532,8 +540,16 @@ export async function GET(req: Request) {
                 }
             }
             
-            // LEI INVIOLÁVEL: Define hasSuccess baseado em successTime
-            const hasSuccess = !!successTime
+            // LEI INVIOLÁVEL: Define hasSuccess baseado em successTime ou padrão encontrado
+            const hasSuccess = !!successTime || foundSuccessPattern
+            
+            // Log para debug
+            if (foundSuccessPattern && !successTime) {
+                console.log(`[Analytics] Sessão ${sessionId}: Padrão de sucesso encontrado (${matchedPattern}) mas sem timestamp válido`)
+            }
+            if (hasSuccess) {
+                console.log(`[Analytics] Sessão ${sessionId}: CONVERSÃO DETECTADA - Padrão: ${matchedPattern || 'timestamp'}`)
+            }
 
             const lastMsg = parsedMessages[parsedMessages.length - 1]
             let lastTimeStr = lastMsg.message?.created_at || lastMsg.created_at
@@ -773,8 +789,23 @@ export async function GET(req: Request) {
         console.log(`[Analytics] Status das conversas: Convertidas: ${converted.length} (por status), ${convertedBySuccess.length} (por hasSuccess), Em progresso: ${inProgress.length}, Perdidas: ${lost.length}`)
         console.log(`[Analytics] Total de conversas: ${conversationMetrics.length}`)
         
-        // Usa o maior valor entre converted e convertedBySuccess
-        const actualConverted = converted.length > convertedBySuccess.length ? converted : convertedBySuccess
+        // LEI INVIOLÁVEL: Usa hasSuccess como fonte principal (mais confiável)
+        // Se hasSuccess > converted, significa que detectamos mais conversões
+        const actualConverted = convertedBySuccess.length > 0 ? convertedBySuccess : converted
+        
+        // Log detalhado das primeiras conversas com hasSuccess
+        if (convertedBySuccess.length > 0) {
+            console.log(`[Analytics] Primeiras 3 conversas com hasSuccess=true:`)
+            convertedBySuccess.slice(0, 3).forEach((c, idx) => {
+                console.log(`  ${idx + 1}. Sessão: ${c.sessionId}, Status: ${c.conversionStatus}, Mensagens: ${c.totalMessages}`)
+            })
+        } else {
+            console.log(`[Analytics] AVISO: Nenhuma conversa com hasSuccess=true encontrada!`)
+            console.log(`[Analytics] Verificando primeiras 3 conversas para debug:`)
+            conversationMetrics.slice(0, 3).forEach((c, idx) => {
+                console.log(`  ${idx + 1}. Sessão: ${c.sessionId}, hasSuccess: ${c.hasSuccess}, Status: ${c.conversionStatus}, Mensagens: ${c.totalMessages}`)
+            })
+        }
         
         const conversionRate = conversationMetrics.length > 0
             ? (actualConverted.length / conversationMetrics.length) * 100
