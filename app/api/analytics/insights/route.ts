@@ -979,7 +979,7 @@ export async function GET(req: Request) {
         if (sentimentAnalysis.negative > sentimentAnalysis.positive) recommendations.push("O sentimento geral é negativo. Verifique a qualidade do atendimento.")
         if (bestPerformingHours.length > 0) recommendations.push(`O melhor horário para vendas é ${bestPerformingHours[0].hour}h. Foque esforços neste período.`)
 
-        // LEI INVIOLÁVEL: Log final antes de retornar
+        // LEI INVIOLÁVEL: Log final antes de retornar com validação
         console.log(`[Analytics] 🎯 RESUMO FINAL:`)
         console.log(`  - Período: ${period}`)
         console.log(`  - Data início: ${startDate.toISOString()}`)
@@ -992,12 +992,18 @@ export async function GET(req: Request) {
         console.log(`  - Melhores horários: ${bestPerformingHours.length}`)
         console.log(`  - Melhores dias: ${bestPerformingDays.length}`)
         
+        // LEI INVIOLÁVEL: Valida valores antes de retornar
+        const validatedConversionRate = isNaN(conversionRate) ? 0 : Math.max(0, Math.min(100, conversionRate))
+        const validatedAvgMessages = isNaN(avgMessagesToConvert) ? 0 : Math.max(0, avgMessagesToConvert)
+        const validatedAvgTime = isNaN(avgTimeToConvert) ? 0 : Math.max(0, avgTimeToConvert)
+        const validatedAppointments = isNaN(appointments) ? 0 : Math.max(0, appointments)
+        
         const insights: AnalyticsInsights = {
             totalConversations: conversationMetrics.length,
-            conversionRate,
-            appointments, // LEI INVIOLÁVEL: Inclui agendamentos no retorno
-            avgMessagesToConvert,
-            avgTimeToConvert,
+            conversionRate: validatedConversionRate,
+            appointments: validatedAppointments, // LEI INVIOLÁVEL: Valida antes de incluir
+            avgMessagesToConvert: validatedAvgMessages,
+            avgTimeToConvert: validatedAvgTime,
             bestPerformingHours,
             bestPerformingDays,
             conversionPatterns,
@@ -1009,6 +1015,14 @@ export async function GET(req: Request) {
             nonSchedulingReasons: nonSchedulingAnalysis,
             recommendations
         }
+        
+        // LEI INVIOLÁVEL: Log de validação final
+        console.log(`[Analytics] ✅ Dados validados antes de retornar:`)
+        console.log(`  - Total conversas: ${insights.totalConversations}`)
+        console.log(`  - Taxa conversão: ${insights.conversionRate.toFixed(2)}%`)
+        console.log(`  - Agendamentos: ${insights.appointments}`)
+        console.log(`  - Média mensagens: ${insights.avgMessagesToConvert.toFixed(2)}`)
+        console.log(`  - Média tempo: ${insights.avgTimeToConvert.toFixed(2)} minutos`)
 
         return NextResponse.json({
             success: true,

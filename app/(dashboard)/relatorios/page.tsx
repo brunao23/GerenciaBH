@@ -118,8 +118,21 @@ export default function RelatoriosPage() {
         throw new Error("Resposta inválida da API")
       }
       
+      // LEI INVIOLÁVEL: Valida dados antes de definir
+      if (!data.insights || typeof data.insights.totalConversations === 'undefined') {
+        throw new Error("Dados inválidos recebidos da API")
+      }
+      
+      console.log("[Relatórios] Dados recebidos:", {
+        totalConversations: data.insights.totalConversations,
+        conversionRate: data.insights.conversionRate,
+        appointments: data.insights.appointments,
+        avgMessagesToConvert: data.insights.avgMessagesToConvert,
+        avgTimeToConvert: data.insights.avgTimeToConvert
+      })
+      
       setInsights(data.insights)
-      toast.success("Análise concluída!")
+      toast.success(`Análise concluída! ${data.insights.totalConversations} conversas analisadas.`)
     } catch (error: any) {
       console.error("Erro ao buscar insights:", error)
       if (error.name === 'AbortError') {
@@ -127,23 +140,26 @@ export default function RelatoriosPage() {
       } else {
         toast.error(`Erro: ${error.message || "Falha ao carregar análise"}`)
       }
-      // Define insights vazios para não quebrar a UI
-      setInsights({
-        totalConversations: 0,
-        conversionRate: 0,
-        avgMessagesToConvert: 0,
-        avgTimeToConvert: 0,
-        bestPerformingHours: [],
-        bestPerformingDays: [],
-        conversionPatterns: [],
-        sentimentAnalysis: { positive: 0, neutral: 0, negative: 0 },
-        engagementMetrics: { highEngagement: 0, mediumEngagement: 0, lowEngagement: 0 },
-        topKeywords: [],
-        topContacts: [],
-        objectionAnalysis: [],
-        nonSchedulingReasons: [],
-        recommendations: ["Erro ao carregar dados. Tente novamente."]
-      })
+      // LEI INVIOLÁVEL: Mantém dados anteriores se houver erro, não zera tudo
+      if (!insights) {
+        setInsights({
+          totalConversations: 0,
+          conversionRate: 0,
+          appointments: 0,
+          avgMessagesToConvert: 0,
+          avgTimeToConvert: 0,
+          bestPerformingHours: [],
+          bestPerformingDays: [],
+          conversionPatterns: [],
+          sentimentAnalysis: { positive: 0, neutral: 0, negative: 0 },
+          engagementMetrics: { highEngagement: 0, mediumEngagement: 0, lowEngagement: 0 },
+          topKeywords: [],
+          topContacts: [],
+          objectionAnalysis: [],
+          nonSchedulingReasons: [],
+          recommendations: ["Erro ao carregar dados. Clique em 'Atualizar' para tentar novamente."]
+        })
+      }
     } finally {
       setLoading(false)
     }
@@ -215,15 +231,10 @@ export default function RelatoriosPage() {
     }
   }
 
-  useEffect(() => {
-    if (period !== 'custom') {
-      fetchInsights()
-    } else if (dateRange?.from && dateRange?.to) {
-      fetchInsights()
-    }
-  }, [period, dateRange])
+  // LEI INVIOLÁVEL: Remove useEffect automático - análise só acontece ao clicar no botão
+  // useEffect removido - fetchInsights só é chamado manualmente pelo botão
 
-  if (loading || !insights) {
+  if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
@@ -258,9 +269,23 @@ export default function RelatoriosPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button onClick={fetchInsights} disabled={loading} variant="outline">
-            <Activity className="w-4 h-4 mr-2" />
-            Atualizar
+          <Button 
+            onClick={fetchInsights} 
+            disabled={loading} 
+            variant="outline"
+            className="bg-accent-green/20 hover:bg-accent-green/30 text-accent-green border-accent-green/30"
+          >
+            {loading ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Analisando...
+              </>
+            ) : (
+              <>
+                <Activity className="w-4 h-4 mr-2" />
+                Executar Análise
+              </>
+            )}
           </Button>
           <Button onClick={exportToPDF} disabled={exportingPdf} className="bg-blue-600 hover:bg-blue-700">
             {exportingPdf ? (
