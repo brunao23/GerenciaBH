@@ -234,6 +234,27 @@ export default function RelatoriosPage() {
   // LEI INVIOLÁVEL: Remove useEffect automático - análise só acontece ao clicar no botão
   // useEffect removido - fetchInsights só é chamado manualmente pelo botão
 
+  // LEI INVIOLÁVEL: Inicializa insights com valores padrão para evitar erro de build
+  const defaultInsights: AnalyticsInsights = {
+    totalConversations: 0,
+    conversionRate: 0,
+    appointments: 0,
+    avgMessagesToConvert: 0,
+    avgTimeToConvert: 0,
+    bestPerformingHours: [],
+    bestPerformingDays: [],
+    conversionPatterns: [],
+    sentimentAnalysis: { positive: 0, neutral: 0, negative: 0 },
+    engagementMetrics: { highEngagement: 0, mediumEngagement: 0, lowEngagement: 0 },
+    topKeywords: [],
+    topContacts: [],
+    objectionAnalysis: [],
+    nonSchedulingReasons: [],
+    recommendations: ["Clique em 'Executar Análise' para ver os relatórios."]
+  }
+
+  const currentInsights = insights || defaultInsights
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -245,15 +266,15 @@ export default function RelatoriosPage() {
     )
   }
 
-  const sentimentTotal = insights.sentimentAnalysis.positive + insights.sentimentAnalysis.neutral + insights.sentimentAnalysis.negative
-  const sentimentPositivePercent = (insights.sentimentAnalysis.positive / sentimentTotal) * 100
-  const sentimentNeutralPercent = (insights.sentimentAnalysis.neutral / sentimentTotal) * 100
-  const sentimentNegativePercent = (insights.sentimentAnalysis.negative / sentimentTotal) * 100
+  const sentimentTotal = currentInsights.sentimentAnalysis.positive + currentInsights.sentimentAnalysis.neutral + currentInsights.sentimentAnalysis.negative
+  const sentimentPositivePercent = sentimentTotal > 0 ? (currentInsights.sentimentAnalysis.positive / sentimentTotal) * 100 : 0
+  const sentimentNeutralPercent = sentimentTotal > 0 ? (currentInsights.sentimentAnalysis.neutral / sentimentTotal) * 100 : 0
+  const sentimentNegativePercent = sentimentTotal > 0 ? (currentInsights.sentimentAnalysis.negative / sentimentTotal) * 100 : 0
 
-  const engagementTotal = insights.engagementMetrics.highEngagement + insights.engagementMetrics.mediumEngagement + insights.engagementMetrics.lowEngagement
-  const highEngagementPercent = (insights.engagementMetrics.highEngagement / engagementTotal) * 100
-  const mediumEngagementPercent = (insights.engagementMetrics.mediumEngagement / engagementTotal) * 100
-  const lowEngagementPercent = (insights.engagementMetrics.lowEngagement / engagementTotal) * 100
+  const engagementTotal = currentInsights.engagementMetrics.highEngagement + currentInsights.engagementMetrics.mediumEngagement + currentInsights.engagementMetrics.lowEngagement
+  const highEngagementPercent = engagementTotal > 0 ? (currentInsights.engagementMetrics.highEngagement / engagementTotal) * 100 : 0
+  const mediumEngagementPercent = engagementTotal > 0 ? (currentInsights.engagementMetrics.mediumEngagement / engagementTotal) * 100 : 0
+  const lowEngagementPercent = engagementTotal > 0 ? (currentInsights.engagementMetrics.lowEngagement / engagementTotal) * 100 : 0
 
   return (
     <div className="p-6 space-y-6">
@@ -414,7 +435,7 @@ export default function RelatoriosPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold text-pure-white">{insights.totalConversations}</div>
+            <div className="text-3xl font-bold text-pure-white">{currentInsights.totalConversations}</div>
             <p className="text-xs text-text-gray mt-1">Analisadas com ML</p>
           </CardContent>
         </Card>
@@ -427,7 +448,7 @@ export default function RelatoriosPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold text-emerald-400">{insights.conversionRate.toFixed(1)}%</div>
+            <div className="text-3xl font-bold text-emerald-400">{currentInsights.conversionRate.toFixed(1)}%</div>
             <p className="text-xs text-text-gray mt-1">Leads convertidos</p>
           </CardContent>
         </Card>
@@ -441,7 +462,7 @@ export default function RelatoriosPage() {
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold text-emerald-400">
-              {insights.appointments ?? Math.round((insights.totalConversations * insights.conversionRate) / 100)}
+              {currentInsights.appointments ?? Math.round((currentInsights.totalConversations * currentInsights.conversionRate) / 100)}
             </div>
             <p className="text-xs text-text-gray mt-1">Total realizado</p>
           </CardContent>
@@ -455,7 +476,7 @@ export default function RelatoriosPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold text-blue-400">{insights.avgMessagesToConvert.toFixed(1)}</div>
+            <div className="text-3xl font-bold text-blue-400">{currentInsights.avgMessagesToConvert.toFixed(1)}</div>
             <p className="text-xs text-text-gray mt-1">Média de mensagens</p>
           </CardContent>
         </Card>
@@ -468,7 +489,7 @@ export default function RelatoriosPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold text-purple-400">{formatDuration(insights.avgTimeToConvert)}</div>
+            <div className="text-3xl font-bold text-purple-400">{formatDuration(currentInsights.avgTimeToConvert)}</div>
             <p className="text-xs text-text-gray mt-1">Tempo médio</p>
           </CardContent>
         </Card>
@@ -498,12 +519,12 @@ export default function RelatoriosPage() {
                 Padrões de Conversão Identificados
               </CardTitle>
               <CardDescription>
-                Análise de ML identificou {insights.conversionPatterns.length} padrões principais
+                Análise de ML identificou {currentInsights.conversionPatterns.length} padrões principais
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {insights.conversionPatterns.map((pattern, idx) => (
+                {currentInsights.conversionPatterns.map((pattern, idx) => (
                   <div key={idx} className="p-4 bg-secondary-black rounded-lg border border-border-gray">
                     <div className="flex items-start justify-between mb-3">
                       <div>
@@ -566,7 +587,7 @@ export default function RelatoriosPage() {
                       <span className="font-medium text-pure-white">Positivo</span>
                     </div>
                     <span className="text-sm font-bold text-emerald-400">
-                      {insights.sentimentAnalysis.positive} ({sentimentPositivePercent.toFixed(1)}%)
+                      {currentInsights.sentimentAnalysis.positive} ({sentimentPositivePercent.toFixed(1)}%)
                     </span>
                   </div>
                   <div className="w-full bg-secondary-black rounded-full h-3">
@@ -584,7 +605,7 @@ export default function RelatoriosPage() {
                       <span className="font-medium text-pure-white">Neutro</span>
                     </div>
                     <span className="text-sm font-bold text-blue-400">
-                      {insights.sentimentAnalysis.neutral} ({sentimentNeutralPercent.toFixed(1)}%)
+                      {currentInsights.sentimentAnalysis.neutral} ({sentimentNeutralPercent.toFixed(1)}%)
                     </span>
                   </div>
                   <div className="w-full bg-secondary-black rounded-full h-3">
@@ -602,7 +623,7 @@ export default function RelatoriosPage() {
                       <span className="font-medium text-pure-white">Negativo</span>
                     </div>
                     <span className="text-sm font-bold text-red-400">
-                      {insights.sentimentAnalysis.negative} ({sentimentNegativePercent.toFixed(1)}%)
+                      {currentInsights.sentimentAnalysis.negative} ({sentimentNegativePercent.toFixed(1)}%)
                     </span>
                   </div>
                   <div className="w-full bg-secondary-black rounded-full h-3">
@@ -638,7 +659,7 @@ export default function RelatoriosPage() {
                       <span className="font-medium text-pure-white">Alto Engajamento</span>
                     </div>
                     <span className="text-sm font-bold text-emerald-400">
-                      {insights.engagementMetrics.highEngagement} ({highEngagementPercent.toFixed(1)}%)
+                      {currentInsights.engagementMetrics.highEngagement} ({highEngagementPercent.toFixed(1)}%)
                     </span>
                   </div>
                   <div className="w-full bg-secondary-black rounded-full h-3">
@@ -656,7 +677,7 @@ export default function RelatoriosPage() {
                       <span className="font-medium text-pure-white">Médio Engajamento</span>
                     </div>
                     <span className="text-sm font-bold text-yellow-400">
-                      {insights.engagementMetrics.mediumEngagement} ({mediumEngagementPercent.toFixed(1)}%)
+                      {currentInsights.engagementMetrics.mediumEngagement} ({mediumEngagementPercent.toFixed(1)}%)
                     </span>
                   </div>
                   <div className="w-full bg-secondary-black rounded-full h-3">
@@ -674,7 +695,7 @@ export default function RelatoriosPage() {
                       <span className="font-medium text-pure-white">Baixo Engajamento</span>
                     </div>
                     <span className="text-sm font-bold text-red-400">
-                      {insights.engagementMetrics.lowEngagement} ({lowEngagementPercent.toFixed(1)}%)
+                      {currentInsights.engagementMetrics.lowEngagement} ({lowEngagementPercent.toFixed(1)}%)
                     </span>
                   </div>
                   <div className="w-full bg-secondary-black rounded-full h-3">
@@ -702,7 +723,7 @@ export default function RelatoriosPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {insights.bestPerformingHours.map((hour, idx) => (
+                  {currentInsights.bestPerformingHours.map((hour, idx) => (
                     <div key={idx} className="flex items-center justify-between p-3 bg-secondary-black rounded-lg">
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-full bg-accent-green/20 flex items-center justify-center">
@@ -729,7 +750,7 @@ export default function RelatoriosPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {insights.bestPerformingDays.map((day, idx) => (
+                  {currentInsights.bestPerformingDays.map((day, idx) => (
                     <div key={idx} className="flex items-center justify-between p-3 bg-secondary-black rounded-lg">
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-full bg-accent-green/20 flex items-center justify-center">
@@ -762,7 +783,7 @@ export default function RelatoriosPage() {
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {insights.topKeywords.map((kw, idx) => (
+                {currentInsights.topKeywords.map((kw, idx) => (
                   <div key={idx} className="p-4 bg-secondary-black rounded-lg border border-border-gray">
                     <div className="flex items-center justify-between mb-2">
                       <span className="font-medium text-pure-white truncate">{kw.keyword}</span>
@@ -803,7 +824,7 @@ export default function RelatoriosPage() {
             <CardContent>
               <ScrollArea className="h-[500px]">
                 <div className="space-y-3">
-                  {insights.topContacts.map((contact, idx) => (
+                  {currentInsights.topContacts.map((contact, idx) => (
                     <div key={idx} className="p-4 bg-secondary-black rounded-lg border border-border-gray">
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-3">
@@ -865,7 +886,7 @@ export default function RelatoriosPage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {insights.objectionAnalysis.map((obj, idx) => (
+                {currentInsights.objectionAnalysis.map((obj, idx) => (
                   <div key={idx} className="p-4 bg-secondary-black rounded-lg border border-border-gray">
                     <div className="flex items-start justify-between mb-3">
                       <div>
@@ -914,7 +935,7 @@ export default function RelatoriosPage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {insights.nonSchedulingReasons.map((reason, idx) => (
+                {currentInsights.nonSchedulingReasons.map((reason, idx) => (
                   <div key={idx} className="p-4 bg-secondary-black rounded-lg border border-border-gray">
                     <div className="flex items-center justify-between mb-2">
                       <span className="font-medium text-pure-white">{reason.reason}</span>
@@ -926,11 +947,11 @@ export default function RelatoriosPage() {
                       <div className="flex-1 bg-primary-black rounded-full h-2">
                         <div
                           className="bg-red-500 h-2 rounded-full transition-all"
-                          style={{ width: `${(reason.frequency / insights.totalConversations) * 100}%` }}
+                          style={{ width: `${(reason.frequency / currentInsights.totalConversations) * 100}%` }}
                         />
                       </div>
                       <span className="text-xs font-bold text-red-400">
-                        {((reason.frequency / insights.totalConversations) * 100).toFixed(1)}%
+                        {((reason.frequency / currentInsights.totalConversations) * 100).toFixed(1)}%
                       </span>
                     </div>
                   </div>
@@ -1097,7 +1118,7 @@ export default function RelatoriosPage() {
         <CardContent>
           <ScrollArea className="h-[300px] pr-4">
             <div className="space-y-3">
-              {insights.recommendations.map((rec, idx) => (
+              {currentInsights.recommendations.map((rec, idx) => (
                 <div key={idx} className="p-4 bg-secondary-black rounded-lg border-l-4 border-accent-green">
                   <p className="text-sm text-pure-white leading-relaxed">{rec}</p>
                 </div>
