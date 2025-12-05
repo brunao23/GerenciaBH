@@ -46,6 +46,7 @@ interface TopContact {
 interface AnalyticsInsights {
     totalConversations: number
     conversionRate: number
+    appointments: number // LEI INVIOLÁVEL: Adiciona campo de agendamentos
     avgMessagesToConvert: number
     avgTimeToConvert: number
     bestPerformingHours: { hour: number; conversions: number }[]
@@ -451,34 +452,25 @@ export async function GET(req: Request) {
                 }
             }
             
-            // LEI INVIOLÁVEL: Inclui TODAS as conversas, independente de timestamp ou período
-            // Prioriza não perder dados sobre filtro rigoroso
+            // LEI INVIOLÁVEL: Filtro de período RIGOROSO mas flexível
+            // Se não tem timestamp, inclui (não queremos perder dados)
             if (!firstTime || isNaN(firstTime.getTime())) {
                 console.log(`[Analytics] Sessão ${sessionId} sem timestamp válido, incluindo mesmo assim`)
                 includedCount++
                 // Não faz continue, inclui a conversa SEM filtro de data
             } else {
-                // Se tem timestamp válido, verifica se está no período
-                // Mas se o período for muito restritivo, inclui mesmo assim para não perder dados
-                // LEI INVIOLÁVEL: Valida firstTime antes de comparar
-                if (!firstTime || isNaN(firstTime.getTime())) {
-                    includedCount++
-                    // Não faz continue, inclui a conversa
+                // LEI INVIOLÁVEL: Filtra por período de forma RIGOROSA
+                // Verifica se a primeira mensagem está dentro do período
+                const isInPeriod = firstTime >= startDate && firstTime <= endDate
+                
+                if (!isInPeriod) {
+                    // Se está fora do período, pula
+                    skippedCount++
+                    console.log(`[Analytics] Sessão ${sessionId} fora do período: ${firstTime.toISOString()} (período: ${startDate.toISOString()} até ${endDate.toISOString()})`)
+                    continue
                 } else {
-                    const daysDiff = (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
-                    
-                    if (firstTime < startDate || firstTime > endDate) {
-                    // Se o período é muito curto (menos de 7 dias), inclui mesmo assim
-                        if (daysDiff < 7) {
-                            console.log(`[Analytics] Sessão ${sessionId} fora do período mas período é curto, incluindo mesmo assim`)
-                            includedCount++
-                        } else {
-                            skippedCount++
-                            continue
-                        }
-                    } else {
-                        includedCount++
-                    }
+                    includedCount++
+                    console.log(`[Analytics] ✅ Sessão ${sessionId} incluída no período: ${firstTime.toISOString()}`)
                 }
             }
 
@@ -760,10 +752,11 @@ export async function GET(req: Request) {
             console.log(`[Analytics] Total de mensagens carregadas: ${allChats.length}`)
             console.log(`[Analytics] Processadas: ${processedCount}, Incluídas: ${includedCount}, Puladas: ${skippedCount}`)
             
-            // Retorna estrutura vazia mas válida para não quebrar o frontend
+            // LEI INVIOLÁVEL: Retorna estrutura vazia mas válida para não quebrar o frontend
             const emptyInsights: AnalyticsInsights = {
                 totalConversations: 0,
                 conversionRate: 0,
+                appointments: 0, // LEI INVIOLÁVEL: Inclui appointments mesmo quando vazio
                 avgMessagesToConvert: 0,
                 avgTimeToConvert: 0,
                 bestPerformingHours: [],
@@ -858,9 +851,9 @@ export async function GET(req: Request) {
         console.log(`  - Média de tempo para converter: ${avgTimeToConvert.toFixed(2)} minutos`)
         console.log(`  - Total de conversas analisadas: ${conversationMetrics.length}`)
 
-        // Análise por hora
+        // LEI INVIOLÁVEL: Análise por hora usando actualConverted (mais confiável)
         const hourlyConversions: { [hour: number]: number } = {}
-        converted.forEach(c => {
+        actualConverted.forEach(c => {
             const date = new Date(c.firstMessageTime)
             if (!isNaN(date.getTime())) {
                 const hour = date.getHours()
@@ -873,10 +866,10 @@ export async function GET(req: Request) {
             .sort((a, b) => b.conversions - a.conversions)
             .slice(0, 5)
 
-        // Análise por dia da semana
+        // LEI INVIOLÁVEL: Análise por dia da semana usando actualConverted (mais confiável)
         const dayNames = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado']
         const dailyConversions: { [day: string]: number } = {}
-        converted.forEach(c => {
+        actualConverted.forEach(c => {
             const date = new Date(c.firstMessageTime)
             if (!isNaN(date.getTime())) {
                 const day = dayNames[date.getDay()]
@@ -986,9 +979,23 @@ export async function GET(req: Request) {
         if (sentimentAnalysis.negative > sentimentAnalysis.positive) recommendations.push("O sentimento geral é negativo. Verifique a qualidade do atendimento.")
         if (bestPerformingHours.length > 0) recommendations.push(`O melhor horário para vendas é ${bestPerformingHours[0].hour}h. Foque esforços neste período.`)
 
+        // LEI INVIOLÁVEL: Log final antes de retornar
+        console.log(`[Analytics] 🎯 RESUMO FINAL:`)
+        console.log(`  - Período: ${period}`)
+        console.log(`  - Data início: ${startDate.toISOString()}`)
+        console.log(`  - Data fim: ${endDate.toISOString()}`)
+        console.log(`  - Total de conversas: ${conversationMetrics.length}`)
+        console.log(`  - Taxa de conversão: ${conversionRate.toFixed(2)}%`)
+        console.log(`  - Agendamentos: ${appointments}`)
+        console.log(`  - Média mensagens: ${avgMessagesToConvert.toFixed(2)}`)
+        console.log(`  - Média tempo: ${avgTimeToConvert.toFixed(2)} minutos`)
+        console.log(`  - Melhores horários: ${bestPerformingHours.length}`)
+        console.log(`  - Melhores dias: ${bestPerformingDays.length}`)
+        
         const insights: AnalyticsInsights = {
             totalConversations: conversationMetrics.length,
             conversionRate,
+            appointments, // LEI INVIOLÁVEL: Inclui agendamentos no retorno
             avgMessagesToConvert,
             avgTimeToConvert,
             bestPerformingHours,

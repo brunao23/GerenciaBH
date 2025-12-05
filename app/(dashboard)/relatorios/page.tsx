@@ -36,6 +36,7 @@ import { DatePickerWithRange } from "@/components/ui/date-range-picker"
 interface AnalyticsInsights {
   totalConversations: number
   conversionRate: number
+  appointments: number // LEI INVIOLÁVEL: Adiciona campo de agendamentos
   avgMessagesToConvert: number
   avgTimeToConvert: number
   bestPerformingHours: { hour: number; conversions: number }[]
@@ -415,7 +416,7 @@ export default function RelatoriosPage() {
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold text-emerald-400">
-              {Math.round((insights.totalConversations * insights.conversionRate) / 100)}
+              {insights.appointments ?? Math.round((insights.totalConversations * insights.conversionRate) / 100)}
             </div>
             <p className="text-xs text-text-gray mt-1">Total realizado</p>
           </CardContent>
