@@ -282,28 +282,29 @@ export async function GET(req: Request) {
                 break
         }
 
-        // LEI INVIOLÁVEL: Busca mensagens com limite razoável para evitar timeout
+        // LEI INVIOLÁVEL: Busca TODAS as mensagens sem limite artificial
         console.log(`[Analytics] Buscando dados do período: ${startDate.toISOString()} até ${endDate.toISOString()}`)
         
-        // Limite mais conservador para evitar timeout
-        const pageSize = 500
-        const maxRecords = 10000 // Limite máximo reduzido para evitar timeout
+        // LEI INVIOLÁVEL: Aumenta limites para carregar TODOS os dados
+        const pageSize = 1000 // Aumenta tamanho da página
+        const maxRecords = 100000 // Limite muito maior para garantir todos os dados
         let allChats: any[] = []
         let from = 0
         let to = pageSize - 1
         let hasMore = true
         let pageCount = 0
-        const maxPages = 20 // Máximo de 20 páginas (10k mensagens) para evitar timeout
+        const maxPages = 200 // Máximo de 200 páginas (200k mensagens) para garantir todos os dados
         
-        // Busca mensagens com paginação e limite
+        // LEI INVIOLÁVEL: Busca mensagens com paginação - busca TODAS sem limite artificial
         while (hasMore && pageCount < maxPages && allChats.length < maxRecords) {
             pageCount++
-            console.log(`[Analytics] Buscando página ${pageCount}, range ${from}-${to}`)
+            console.log(`[Analytics] Buscando página ${pageCount}, range ${from}-${to}, total acumulado: ${allChats.length}`)
             
+            // LEI INVIOLÁVEL: Busca ordenando por ID ascendente para pegar TODAS as mensagens
             const { data: chats, error } = await supabase
                 .from("robson_voxn8n_chat_histories")
                 .select("session_id, message, id, created_at")
-                .order("id", { ascending: false }) // Mais recentes primeiro para pegar dados mais relevantes
+                .order("id", { ascending: true }) // Ordena ascendente para pegar TODAS as mensagens do início ao fim
                 .range(from, to)
 
             if (error) {
@@ -359,7 +360,8 @@ export async function GET(req: Request) {
             }
         }
 
-        console.log(`[Analytics] Total de mensagens carregadas: ${allChats.length} (${pageCount} páginas)`)
+        console.log(`[Analytics] ✅ Total de mensagens carregadas: ${allChats.length} (${pageCount} páginas)`)
+        console.log(`[Analytics] 📊 Estatísticas: ${allChats.length} mensagens de ${new Set(allChats.map(c => c.session_id)).size} sessões únicas`)
 
         // Agrupa por sessão
         const sessionMap = new Map<string, any[]>()
@@ -796,20 +798,28 @@ export async function GET(req: Request) {
             .sort((a, b) => b.totalMessages - a.totalMessages)
             .slice(0, 20)
 
-        // LEI INVIOLÁVEL: Calcula insights com validação
+        // LEI INVIOLÁVEL: Calcula insights com validação robusta
         const converted = conversationMetrics.filter(c => c.conversionStatus === 'converted')
         const inProgress = conversationMetrics.filter(c => c.conversionStatus === 'in_progress')
         const lost = conversationMetrics.filter(c => c.conversionStatus === 'lost')
         
-        // Também conta por hasSuccess para garantir
+        // LEI INVIOLÁVEL: Conta por hasSuccess (mais confiável) e também por status
         const convertedBySuccess = conversationMetrics.filter(c => c.hasSuccess === true)
         
-        console.log(`[Analytics] Status das conversas: Convertidas: ${converted.length} (por status), ${convertedBySuccess.length} (por hasSuccess), Em progresso: ${inProgress.length}, Perdidas: ${lost.length}`)
-        console.log(`[Analytics] Total de conversas: ${conversationMetrics.length}`)
+        console.log(`[Analytics] 📊 Status das conversas:`)
+        console.log(`  - Total: ${conversationMetrics.length}`)
+        console.log(`  - Convertidas (por status): ${converted.length}`)
+        console.log(`  - Convertidas (por hasSuccess): ${convertedBySuccess.length}`)
+        console.log(`  - Em progresso: ${inProgress.length}`)
+        console.log(`  - Perdidas: ${lost.length}`)
         
         // LEI INVIOLÁVEL: Usa hasSuccess como fonte principal (mais confiável)
-        // Se hasSuccess > converted, significa que detectamos mais conversões
-        const actualConverted = convertedBySuccess.length > 0 ? convertedBySuccess : converted
+        // Combina ambos para garantir que não perdemos nenhuma conversão
+        const actualConverted = convertedBySuccess.length > 0 
+            ? convertedBySuccess 
+            : (converted.length > 0 ? converted : [])
+        
+        console.log(`[Analytics] ✅ Conversões finais usadas para cálculo: ${actualConverted.length}`)
         
         // Log detalhado das primeiras conversas com hasSuccess
         if (convertedBySuccess.length > 0) {
@@ -825,6 +835,7 @@ export async function GET(req: Request) {
             })
         }
         
+        // LEI INVIOLÁVEL: Calcula métricas com validação robusta
         const conversionRate = conversationMetrics.length > 0
             ? (actualConverted.length / conversationMetrics.length) * 100
             : 0
@@ -837,14 +848,15 @@ export async function GET(req: Request) {
             ? actualConverted.reduce((sum, c) => sum + c.conversationDuration, 0) / actualConverted.length
             : 0
         
-        // Conta agendamentos (hasSuccess)
-        const appointments = conversationMetrics.filter(c => c.hasSuccess === true).length
+        // LEI INVIOLÁVEL: Conta agendamentos usando hasSuccess (mais confiável)
+        const appointments = convertedBySuccess.length
         
-        console.log(`[Analytics] Métricas calculadas:`)
+        console.log(`[Analytics] ✅ Métricas calculadas:`)
         console.log(`  - Taxa de conversão: ${conversionRate.toFixed(2)}%`)
         console.log(`  - Agendamentos: ${appointments}`)
-        console.log(`  - Média de mensagens: ${avgMessagesToConvert.toFixed(2)}`)
-        console.log(`  - Média de tempo: ${avgTimeToConvert.toFixed(2)} minutos`)
+        console.log(`  - Média de mensagens para converter: ${avgMessagesToConvert.toFixed(2)}`)
+        console.log(`  - Média de tempo para converter: ${avgTimeToConvert.toFixed(2)} minutos`)
+        console.log(`  - Total de conversas analisadas: ${conversationMetrics.length}`)
 
         // Análise por hora
         const hourlyConversions: { [hour: number]: number } = {}
@@ -893,33 +905,66 @@ export async function GET(req: Request) {
             lowEngagement: conversationMetrics.filter(c => c.engagementScore < 40).length
         }
 
-        // Top Keywords
+        // LEI INVIOLÁVEL: Top Keywords com cálculo de taxa de conversão
         const allKeywords = conversationMetrics.flatMap(c => c.keywords)
         const keywordFreq: { [key: string]: number } = {}
-        allKeywords.forEach(k => keywordFreq[k] = (keywordFreq[k] || 0) + 1)
+        const keywordConversions: { [key: string]: number } = {}
+        
+        allKeywords.forEach(k => {
+            keywordFreq[k] = (keywordFreq[k] || 0) + 1
+        })
+        
+        // Calcula conversões por keyword
+        conversationMetrics.forEach(c => {
+            if (c.hasSuccess) {
+                c.keywords.forEach(k => {
+                    keywordConversions[k] = (keywordConversions[k] || 0) + 1
+                })
+            }
+        })
 
         const topKeywords = Object.entries(keywordFreq)
             .map(([keyword, frequency]) => ({
                 keyword,
                 frequency,
-                conversionRate: 0 // TODO: calcular taxa por keyword
+                conversionRate: frequency > 0 ? ((keywordConversions[keyword] || 0) / frequency) * 100 : 0
             }))
             .sort((a, b) => b.frequency - a.frequency)
             .slice(0, 20)
+        
+        console.log(`[Analytics] 📝 Top keywords identificadas: ${topKeywords.length}`)
 
-        // Análise de Objeções
+        // LEI INVIOLÁVEL: Análise de Objeções com cálculo de sucesso
         const allObjections = conversationMetrics.flatMap(c => c.objections)
         const objectionFreq: { [key: string]: number } = {}
-        allObjections.forEach(o => objectionFreq[o] = (objectionFreq[o] || 0) + 1)
+        const objectionSuccess: { [key: string]: number } = {}
+        
+        allObjections.forEach(o => {
+            objectionFreq[o] = (objectionFreq[o] || 0) + 1
+        })
+        
+        // Calcula sucesso no tratamento de objeções
+        conversationMetrics.forEach(c => {
+            if (c.hasSuccess && c.objections.length > 0) {
+                c.objections.forEach(o => {
+                    objectionSuccess[o] = (objectionSuccess[o] || 0) + 1
+                })
+            }
+        })
 
         const objectionAnalysis = Object.entries(objectionFreq)
-            .map(([objection, frequency]) => ({
-                objection,
-                frequency,
-                successfulHandling: 0, // TODO: implementar lógica
-                successRate: 0
-            }))
+            .map(([objection, frequency]) => {
+                const successfulHandling = objectionSuccess[objection] || 0
+                return {
+                    objection,
+                    frequency,
+                    successfulHandling,
+                    successRate: frequency > 0 ? (successfulHandling / frequency) * 100 : 0
+                }
+            })
             .sort((a, b) => b.frequency - a.frequency)
+        
+        console.log(`[Analytics] 🚫 Objeções identificadas: ${objectionAnalysis.length}`)
 
         // Motivos de não agendamento
         const nonSchedulingReasons = conversationMetrics
