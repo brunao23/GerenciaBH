@@ -351,7 +351,7 @@ async function getDirectChatsData(tenant: string) {
 
 async function getDirectFollowupsData(tenant: string) {
   try {
-    const followNormalTable = `${tenant}_follow_normal`
+    const followNormalTable = `${tenant}_folow_normal`
     console.log(`[v0] Buscando dados diretamente da tabela ${followNormalTable}...`)
 
     const supabase = createBiaSupabaseServerClient()
