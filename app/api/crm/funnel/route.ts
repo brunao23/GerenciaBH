@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
+import { getTenantFromSession, isValidTenant } from "@/lib/auth/tenant"
 
 interface FunnelColumn {
   id: string
@@ -11,11 +12,11 @@ interface FunnelColumn {
 // GET - Buscar configuração do funil
 export async function GET(req: Request) {
   try {
-    // Identificar Unidade (Tenant)
-    const tenant = req.headers.get('x-tenant-prefix') || 'vox_bh'
+    // Identificar Unidade (Tenant) da sessão JWT
+    const tenant = await getTenantFromSession('vox_bh')
 
     // Validar tenant
-    if (!/^[a-z0-9_]+$/.test(tenant)) {
+    if (!isValidTenant(tenant)) {
       return NextResponse.json({ error: 'Tenant inválido' }, { status: 400 })
     }
 
@@ -79,12 +80,12 @@ export async function POST(req: Request) {
       )
     }
 
-    // Identificar Unidade (Tenant)
-    const tenant = req.headers.get('x-tenant-prefix') || 'vox_bh'
+    // Identificar Unidade (Tenant) da sessão JWT
+    const tenant = await getTenantFromSession('vox_bh')
     console.log(`[CRM Funnel] Salvando configuração... Unidade: ${tenant}`)
 
     // Validar tenant
-    if (!/^[a-z0-9_]+$/.test(tenant)) {
+    if (!isValidTenant(tenant)) {
       return NextResponse.json({ error: 'Tenant inválido' }, { status: 400 })
     }
 

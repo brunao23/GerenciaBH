@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { notifyGanho } from "@/lib/services/notifications"
+import { getTenantFromSession, isValidTenant } from "@/lib/auth/tenant"
 
 // PUT - Atualizar status de um lead
 export async function PUT(req: Request) {
@@ -15,12 +16,12 @@ export async function PUT(req: Request) {
       )
     }
 
-    // 1. Identificar Unidade (Tenant)
-    const tenant = req.headers.get('x-tenant-prefix') || 'vox_bh'
+    // 1. Identificar Unidade (Tenant) da sessão JWT
+    const tenant = await getTenantFromSession('vox_bh')
     console.log(`[CRM Status] Atualizando status para lead ${leadId}... Unidade: ${tenant}`)
 
     // Validar tenant
-    if (!/^[a-z0-9_]+$/.test(tenant)) {
+    if (!isValidTenant(tenant)) {
       return NextResponse.json({ error: 'Tenant inválido' }, { status: 400 })
     }
 
@@ -195,11 +196,11 @@ export async function GET(req: Request) {
       )
     }
 
-    // Identificar Unidade (Tenant)
-    const tenant = req.headers.get('x-tenant-prefix') || 'vox_bh'
+    // Identificar Unidade (Tenant) da sessão JWT
+    const tenant = await getTenantFromSession('vox_bh')
 
     // Validar tenant
-    if (!/^[a-z0-9_]+$/.test(tenant)) {
+    if (!isValidTenant(tenant)) {
       return NextResponse.json({ error: 'Tenant inválido' }, { status: 400 })
     }
 

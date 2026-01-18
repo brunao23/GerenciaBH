@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { createNotification } from "@/lib/services/notifications"
+import { cookies } from "next/headers"
+import { verifyToken } from "@/lib/auth/utils"
 
 // DDDs por região
 const DDD_BH = ['31', '32', '33', '34', '35', '37', '38'] // Minas Gerais
@@ -457,8 +459,31 @@ export async function GET(req: Request) {
     console.log(`[Overview] Data início: ${startDate.toISOString()}`)
     console.log(`[Overview] Data fim: ${now.toISOString()}`)
 
-    // Identificar Unidade (Tenant)
-    const tenant = req.headers.get('x-tenant-prefix') || 'vox_bh'
+    // BUSCAR TENANT DA SESSÃO JWT (CORRIGIDO!)
+    const cookieStore = await cookies()
+    const token = cookieStore.get('auth-token')?.value
+
+    let tenant = 'vox_bh' // fallback
+
+    if (token) {
+      const session = await verifyToken(token)
+      if (session && session.unitPrefix) {
+        tenant = session.unitPrefix
+        console.log(`[Overview] Tenant obtido da sessão JWT: ${tenant}`)
+      } else {
+        console.log(`[Overview] ATENÇÃO: Sessão inválida, usando tenant padrão`)
+      }
+    } else {
+      // Fallback para header (compatibilidade)
+      const headerTenant = req.headers.get('x-tenant-prefix')
+      if (headerTenant) {
+        tenant = headerTenant
+        console.log(`[Overview] Tenant obtido do header: ${tenant}`)
+      } else {
+        console.log(`[Overview] ATENÇÃO: Sem token e sem header, usando tenant padrão: ${tenant}`)
+      }
+    }
+
     console.log(`[v0] Iniciando consulta de overview... Unidade: ${tenant}`)
 
     // Validar tenant

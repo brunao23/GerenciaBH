@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
+import { getTenantFromSession, isValidTenant } from "@/lib/auth/tenant"
 
 interface CRMCard {
     id: string
@@ -477,12 +478,12 @@ export async function GET(req: Request) {
     try {
         const supabase = createBiaSupabaseServerClient()
 
-        // 1. Identificar Unidade (Tenant)
-        const tenant = req.headers.get('x-tenant-prefix') || 'vox_bh'
+        // 1. Identificar Unidade (Tenant) da sessão JWT
+        const tenant = await getTenantFromSession('vox_bh')
         console.log(`[CRM] Iniciando busca de TODOS os leads... Unidade: ${tenant}`)
 
         // Validar tenant
-        if (!/^[a-z0-9_]+$/.test(tenant)) return NextResponse.json({ error: 'Tenant inválido' }, { status: 400 })
+        if (!isValidTenant(tenant)) return NextResponse.json({ error: 'Tenant inválido' }, { status: 400 })
 
         const chatTable = `${tenant}n8n_chat_histories`
         const statusTable = `${tenant}_crm_lead_status`
