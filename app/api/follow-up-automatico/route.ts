@@ -1,7 +1,20 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { createServerClient } from "@supabase/ssr"
-import { cookies } from "next/headers"
+import { createClient } from "@supabase/supabase-js"
 import { getRandomTemplate, getContextTemplate, type CONTEXT_TEMPLATES } from "@/lib/templates/follow-up-messages"
+
+// Cliente Supabase com Service Role para acesso administrativo
+function createServiceRoleClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+
+  return createClient(supabaseUrl, supabaseServiceKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false
+    }
+  })
+}
 
 interface FollowUpJob {
   id?: number
@@ -15,18 +28,6 @@ interface FollowUpJob {
   status: "pendente" | "enviado" | "erro"
   mensagem?: string
   created_at?: string
-}
-
-function createSupabaseClient() {
-  const cookieStore = cookies()
-
-  return createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
-    cookies: {
-      get(name: string) {
-        return cookieStore.get(name)?.value
-      },
-    },
-  })
 }
 
 function detectarContextoAgendamento(observacoes: string): keyof typeof CONTEXT_TEMPLATES | null {
@@ -80,18 +81,19 @@ function calcularDataEnvio(dataAgendamento: string, horaAgendamento: string, tip
   }
 }
 
-async function criarFollowUpJobs(agendamento: any) {
-  const supabase = createSupabaseClient()
+async function criarFollowUpJobs(agendamento: any, tenant: string) {
+  const supabase = createServiceRoleClient()
+  const lembretesTable = `${tenant}_lembretes`
 
   try {
-    const { error: tableCheckError } = await supabase.from("robson_vox_lembretes").select("id").limit(1)
+    const { error: tableCheckError } = await supabase.from(lembretesTable).select("id").limit(1)
 
     if (tableCheckError && tableCheckError.message.includes("does not exist")) {
-      console.log("[v0] Tabela robson_vox_lembretes não existe, pulando criação de lembretes")
+      console.log(`[FollowUpAuto] [${tenant}] Tabela ${lembretesTable} não existe, pulando criação de lembretes`)
       return []
     }
   } catch (tableError) {
-    console.log("[v0] Tabela de lembretes não disponível, pulando criação de jobs")
+    console.log(`[FollowUpAuto] [${tenant}] Tabela de lembretes não disponível, pulando criação de jobs`)
     return []
   }
 
@@ -129,34 +131,36 @@ async function criarFollowUpJobs(agendamento: any) {
   }
 
   if (jobs.length > 0) {
-    const { error } = await supabase.from("robson_vox_lembretes").insert(jobs)
+    const { error } = await supabase.from(lembretesTable).insert(jobs)
 
     if (error) {
-      console.error("[v0] Erro ao criar lembretes:", error)
+      console.error(`[FollowUpAuto] [${tenant}] Erro ao criar lembretes:`, error)
       return []
     }
 
-    console.log(`[v0] Criados ${jobs.length} lembretes para agendamento ${agendamento.id}`)
+    console.log(`[FollowUpAuto] [${tenant}] Criados ${jobs.length} lembretes para agendamento ${agendamento.id}`)
   }
 
   return jobs
 }
 
-async function verificarECriarLembretesAutomaticos() {
-  const supabase = createSupabaseClient()
+async function verificarECriarLembretesAutomaticos(tenant: string) {
+  const supabase = createServiceRoleClient()
+  const agendamentosTable = `${tenant}_agendamentos`
+  const lembretesTable = `${tenant}_lembretes`
 
   try {
     // Verificar se a tabela de lembretes existe
-    const { error: tableCheckError } = await supabase.from("robson_vox_lembretes").select("id").limit(1)
+    const { error: tableCheckError } = await supabase.from(lembretesTable).select("id").limit(1)
 
     if (tableCheckError && tableCheckError.message.includes("does not exist")) {
-      console.log("[v0] Tabela robson_vox_lembretes não existe, não é possível criar lembretes")
+      console.log(`[FollowUpAuto] [${tenant}] Tabela ${lembretesTable} não existe, não é possível criar lembretes`)
       return { success: false, message: "Tabela de lembretes não existe" }
     }
 
     // Buscar todos os agendamentos que ainda não têm lembretes criados
     const { data: agendamentos, error: agendamentosError } = await supabase
-      .from("robson_vox_agendamentos")
+      .from(agendamentosTable)
       .select("*")
       .order("created_at", { ascending: false })
 
@@ -170,22 +174,22 @@ async function verificarECriarLembretesAutomaticos() {
     for (const agendamento of agendamentos || []) {
       // Verificar se já existem lembretes para este agendamento
       const { data: lembretesExistentes, error: lembretesError } = await supabase
-        .from("robson_vox_lembretes")
+        .from(lembretesTable)
         .select("id")
         .eq("agendamento_id", agendamento.id)
 
       if (lembretesError) {
-        console.error(`[v0] Erro ao verificar lembretes existentes para agendamento ${agendamento.id}:`, lembretesError)
+        console.error(`[FollowUpAuto] [${tenant}] Erro ao verificar lembretes existentes para agendamento ${agendamento.id}:`, lembretesError)
         continue
       }
 
       // Se não há lembretes existentes, criar novos
       if (!lembretesExistentes || lembretesExistentes.length === 0) {
-        const jobs = await criarFollowUpJobs(agendamento)
+        const jobs = await criarFollowUpJobs(agendamento, tenant)
         lembretesCreated += jobs.length
         agendamentosProcessados++
 
-        console.log(`[v0] Criados ${jobs.length} lembretes para agendamento ${agendamento.id} - ${agendamento.nome}`)
+        console.log(`[FollowUpAuto] [${tenant}] Criados ${jobs.length} lembretes para agendamento ${agendamento.id} - ${agendamento.nome}`)
       }
     }
 
@@ -195,7 +199,7 @@ async function verificarECriarLembretesAutomaticos() {
       data: { agendamentosProcessados, lembretesCreated },
     }
   } catch (error) {
-    console.error("[v0] Erro ao verificar e criar lembretes automáticos:", error)
+    console.error(`[FollowUpAuto] [${tenant}] Erro ao verificar e criar lembretes automáticos:`, error)
     return {
       success: false,
       message: error instanceof Error ? error.message : "Erro interno",
@@ -208,12 +212,26 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { action, agendamento_id } = body
 
-    const supabase = createSupabaseClient()
+    // ✅ OBTER TENANT DO HEADER OU BODY
+    let tenant = request.headers.get('x-tenant-prefix')
+    if (!tenant && body.tenant) {
+      tenant = body.tenant
+    }
+
+    // Fallback para vox_bh se não especificado
+    if (!tenant) {
+      console.warn("⚠️ Tenant não especificado em follow-up-automatico. Usando 'vox_bh' como fallback.")
+      tenant = 'vox_bh'
+    }
+
+    const supabase = createServiceRoleClient()
+    const agendamentosTable = `${tenant}_agendamentos`
+    const lembretesTable = `${tenant}_lembretes`
 
     if (action === "criar_jobs") {
       // Buscar o agendamento
       const { data: agendamento, error: agendamentoError } = await supabase
-        .from("robson_vox_agendamentos")
+        .from(agendamentosTable)
         .select("*")
         .eq("id", agendamento_id)
         .single()
@@ -222,7 +240,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: false, message: "Agendamento não encontrado" }, { status: 404 })
       }
 
-      const jobs = await criarFollowUpJobs(agendamento)
+      const jobs = await criarFollowUpJobs(agendamento, tenant)
 
       return NextResponse.json({
         success: true,
@@ -232,16 +250,16 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "verificar_agendamentos") {
-      const resultado = await verificarECriarLembretesAutomaticos()
+      const resultado = await verificarECriarLembretesAutomaticos(tenant)
       return NextResponse.json(resultado)
     }
 
     if (action === "processar_pendentes") {
       try {
-        const { error: tableCheckError } = await supabase.from("robson_vox_lembretes").select("id").limit(1)
+        const { error: tableCheckError } = await supabase.from(lembretesTable).select("id").limit(1)
 
         if (tableCheckError && tableCheckError.message.includes("does not exist")) {
-          console.log("[v0] Tabela robson_vox_lembretes não existe, retornando sem processar")
+          console.log(`[FollowUpAuto] [${tenant}] Tabela ${lembretesTable} não existe, retornando sem processar`)
           return NextResponse.json({
             success: true,
             message: "Tabela de lembretes não existe, nenhum lembrete processado",
@@ -249,7 +267,7 @@ export async function POST(request: NextRequest) {
           })
         }
       } catch (tableError) {
-        console.log("[v0] Tabela de lembretes não disponível, retornando sem processar")
+        console.log(`[FollowUpAuto] [${tenant}] Tabela de lembretes não disponível, retornando sem processar`)
         return NextResponse.json({
           success: true,
           message: "Tabela de lembretes não disponível, nenhum lembrete processado",
@@ -261,7 +279,7 @@ export async function POST(request: NextRequest) {
       const agora = new Date().toISOString()
 
       const { data: jobsPendentes, error: jobsError } = await supabase
-        .from("robson_vox_lembretes")
+        .from(lembretesTable)
         .select("*")
         .eq("status", "pendente")
         .lte("data_envio", agora)
@@ -277,35 +295,41 @@ export async function POST(request: NextRequest) {
       for (const job of jobsPendentes || []) {
         try {
           // Enviar mensagem via Evolution API
+          // TODO: Evolution API precisa ser capaz de receber o tenant, ou usar uma instancia global
+          // Se a instance da Evolution for vinculada ao tenant, precisamos passar o tenant no header
+          // No momento, vou apenas passar o parâmetro, assumindo que a API de Evolution vai lidar com isso.
+
           const response = await fetch(`${request.nextUrl.origin}/api/evolution-whatsapp`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
+              "x-tenant-prefix": tenant
             },
             body: JSON.stringify({
               number: job.contato,
               message: job.mensagem,
+              tenant // Passando tenant explicitamente
             }),
           })
 
           const result = await response.json()
 
           if (result.success) {
-            await supabase.from("robson_vox_lembretes").update({ status: "enviado" }).eq("id", job.id)
+            await supabase.from(lembretesTable).update({ status: "enviado" }).eq("id", job.id)
 
             enviados++
-            console.log(`[v0] Lembrete ${job.tipo_lembrete} enviado para ${job.nome} (${job.contato})`)
+            console.log(`[FollowUpAuto] [${tenant}] Lembrete ${job.tipo_lembrete} enviado para ${job.nome} (${job.contato})`)
           } else {
-            await supabase.from("robson_vox_lembretes").update({ status: "erro" }).eq("id", job.id)
+            await supabase.from(lembretesTable).update({ status: "erro" }).eq("id", job.id)
 
             erros++
-            console.error(`[v0] Erro ao enviar lembrete para ${job.contato}:`, result.message)
+            console.error(`[FollowUpAuto] [${tenant}] Erro ao enviar lembrete para ${job.contato}:`, result.message)
           }
         } catch (error) {
-          await supabase.from("robson_vox_lembretes").update({ status: "erro" }).eq("id", job.id)
+          await supabase.from(lembretesTable).update({ status: "erro" }).eq("id", job.id)
 
           erros++
-          console.error(`[v0] Erro ao processar lembrete ${job.id}:`, error)
+          console.error(`[FollowUpAuto] [${tenant}] Erro ao processar lembrete ${job.id}:`, error)
         }
       }
 
@@ -318,7 +342,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: false, message: "Ação não reconhecida" }, { status: 400 })
   } catch (error) {
-    console.error("[v0] Erro na API de lembretes automáticos:", error)
+    console.error("[FollowUpAuto] Erro na API de lembretes automáticos:", error)
     return NextResponse.json(
       {
         success: false,
@@ -331,16 +355,28 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
+    // ✅ OBTER TENANT DO HEADER OU QUERY
     const { searchParams } = new URL(request.url)
     const action = searchParams.get("action") || "listar"
 
-    const supabase = createSupabaseClient()
+    let tenant = request.headers.get('x-tenant-prefix')
+    if (!tenant) {
+      tenant = searchParams.get("tenant")
+    }
+
+    // Fallback
+    if (!tenant) {
+      tenant = 'vox_bh'
+    }
+
+    const supabase = createServiceRoleClient()
+    const lembretesTable = `${tenant}_lembretes`
 
     try {
-      const { error: tableCheckError } = await supabase.from("robson_vox_lembretes").select("id").limit(1)
+      const { error: tableCheckError } = await supabase.from(lembretesTable).select("id").limit(1)
 
       if (tableCheckError && tableCheckError.message.includes("does not exist")) {
-        console.log("[v0] Tabela robson_vox_lembretes não existe, retornando dados vazios")
+        console.log(`[FollowUpAuto] [${tenant}] Tabela ${lembretesTable} não existe, retornando dados vazios`)
 
         if (action === "listar") {
           return NextResponse.json({
@@ -362,7 +398,7 @@ export async function GET(request: NextRequest) {
         }
       }
     } catch (tableError) {
-      console.log("[v0] Tabela de lembretes não disponível, retornando dados vazios")
+      console.log(`[FollowUpAuto] [${tenant}] Tabela de lembretes não disponível, retornando dados vazios`)
 
       if (action === "listar") {
         return NextResponse.json({
@@ -386,7 +422,7 @@ export async function GET(request: NextRequest) {
 
     if (action === "listar") {
       const { data: jobs, error } = await supabase
-        .from("robson_vox_lembretes")
+        .from(lembretesTable)
         .select("*")
         .order("data_envio", { ascending: true })
         .limit(50)
@@ -402,7 +438,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (action === "estatisticas") {
-      const { data: stats, error } = await supabase.from("robson_vox_lembretes").select("status")
+      const { data: stats, error } = await supabase.from(lembretesTable).select("status")
 
       if (error) {
         throw error
@@ -423,7 +459,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ success: false, message: "Ação não reconhecida" }, { status: 400 })
   } catch (error) {
-    console.error("[v0] Erro na API de lembretes automáticos:", error)
+    console.error("[FollowUpAuto] Erro na API de lembretes automáticos:", error)
     return NextResponse.json(
       {
         success: false,

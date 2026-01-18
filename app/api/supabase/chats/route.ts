@@ -1,22 +1,23 @@
 import { NextResponse } from "next/server"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
+import { getTenantTables } from "@/lib/helpers/tenant"
 
 type Row = { session_id: string; message: any; id: number; created_at?: string | null } // LEI INVIOLÁVEL: Inclui created_at da tabela
 
 // LEI INVIOLÁVEL: Normaliza role de forma consistente e robusta
 function normalizeRole(msg: any): "user" | "bot" {
   if (!msg) return "bot"
-  
+
   // Verifica type primeiro (mais comum)
   const type = String(msg.type ?? "").toLowerCase()
   if (type === "human" || type === "user") return "user"
   if (type === "ai" || type === "bot" || type === "assistant" || type === "system") return "bot"
-  
+
   // Verifica role como fallback
   const role = String(msg.role ?? "").toLowerCase()
   if (role === "user" || role === "human") return "user"
   if (role === "bot" || role === "ai" || role === "assistant" || role === "system") return "bot"
-  
+
   // Se não conseguir determinar, assume bot (mais seguro)
   return "bot"
 }
@@ -32,39 +33,39 @@ function extractFormData(text: string): {
   comparecimento?: string
 } | null {
   if (!text) return null
-  
+
   const formData: any = {}
-  
+
   // Tenta extrair do JSON completo
   try {
     // Procura por objeto JSON com "variaveis"
     const jsonMatch = text.match(/"variaveis"\s*:\s*\{([^}]+)\}/i)
     if (jsonMatch) {
       const varsText = jsonMatch[1]
-      
+
       // Extrai cada variável
       const nomeMatch = varsText.match(/"Nome"\s*:\s*"([^"]+)"/i)
       if (nomeMatch) formData.nome = nomeMatch[1]
-      
+
       const primeiroNomeMatch = varsText.match(/"PrimeiroNome"\s*:\s*"([^"]+)"/i)
       if (primeiroNomeMatch) formData.primeiroNome = primeiroNomeMatch[1]
-      
+
       const dificuldadeMatch = varsText.match(/"Dificuldade"\s*:\s*"([^"]+)"/i)
       if (dificuldadeMatch) formData.dificuldade = dificuldadeMatch[1]
-      
+
       const motivoMatch = varsText.match(/"Motivo"\s*:\s*"([^"]+)"/i)
       if (motivoMatch) formData.motivo = motivoMatch[1]
-      
+
       const profissaoMatch = varsText.match(/"Profissao"\s*:\s*"([^"]+)"/i)
       if (profissaoMatch) formData.profissao = profissaoMatch[1]
-      
+
       const tempoDecisaoMatch = varsText.match(/"TempoDecisao"\s*:\s*"([^"]+)"/i)
       if (tempoDecisaoMatch) formData.tempoDecisao = tempoDecisaoMatch[1]
-      
+
       const comparecimentoMatch = varsText.match(/"Comparecimento"\s*:\s*"([^"]+)"/i)
       if (comparecimentoMatch) formData.comparecimento = comparecimentoMatch[1]
     }
-    
+
     // Se encontrou pelo menos uma variável, retorna
     if (Object.keys(formData).length > 0) {
       return formData
@@ -72,7 +73,7 @@ function extractFormData(text: string): {
   } catch (e) {
     // Ignora erros de parsing
   }
-  
+
   return null
 }
 
@@ -128,7 +129,7 @@ function cleanHumanMessage(text: string) {
     s = s.replace(/\{[\s\S]{0,50000}?"contexto"[\s\S]{0,50000}?\}/gi, "")
     s = s.replace(/\{[\s\S]{0,50000}?"geracao_de_mensagem"[\s\S]{0,50000}?\}/gi, "")
     s = s.replace(/\{[\s\S]{0,50000}?"modelos_de_saida"[\s\S]{0,50000}?\}/gi, "")
-    
+
     // Remove seções específicas
     s = s.replace(/"rules"\s*:\s*\{[\s\S]{0,50000}?\}/gi, "")
     s = s.replace(/"inviolaveis"\s*:\s*\[[\s\S]{0,50000}?\]/gi, "")
@@ -137,16 +138,16 @@ function cleanHumanMessage(text: string) {
     s = s.replace(/"contexto"\s*:\s*\{[\s\S]{0,50000}?\}/gi, "")
     s = s.replace(/"geracao_de_mensagem"\s*:\s*\{[\s\S]{0,50000}?\}/gi, "")
     s = s.replace(/"modelos_de_saida"\s*:\s*\{[\s\S]{0,50000}?\}/gi, "")
-    
+
     // Remove qualquer linha que contenha essas palavras-chave
     s = s.replace(/^.*?(?:rules|inviolaveis|prompt|variaveis|contexto|geracao_de_mensagem|modelos_de_saida).*$/gim, "")
-    
+
     // Se não conseguiu remover mais nada, quebra o loop
     if (!s.includes('"rules"') && !s.includes('"inviolaveis"') && !s.includes('"prompt"') && !s.includes('"variaveis"')) {
       break
     }
   }
-  
+
   // Remove TODAS as seções de regras e prompts em texto (ultra-agressivo)
   s = s.replace(/inviolaveis[\s\S]{0,10000}?\]/gi, "")
   s = s.replace(/Sempre chame o lead[\s\S]{0,5000}?Jamais[\s\S]{0,5000}?/gi, "")
@@ -160,7 +161,7 @@ function cleanHumanMessage(text: string) {
   s = s.replace(/Sempre utilize as variáveis[\s\S]{0,500}?/gi, "")
   s = s.replace(/Jamais explique[\s\S]{0,500}?/gi, "")
   s = s.replace(/Nunca use os valores[\s\S]{0,500}?/gi, "")
-  
+
   // Remove blocos que começam com "}" e contêm regras
   s = s.replace(/\}[\s\S]{0,5000}?"rules"[\s\S]{0,5000}?\{/gi, "")
   s = s.replace(/\}[\s\S]{0,5000}?"inviolaveis"[\s\S]{0,5000}?\[/gi, "")
@@ -174,7 +175,7 @@ function cleanHumanMessage(text: string) {
   s = s.replace(/,\s*\}\s*$/g, "") // Remove ", }" no final
   s = s.replace(/\}\s*$/g, "") // Remove "}" no final
   s = s.replace(/^[^a-zA-ZáàâãéêíóôõúçÁÀÂÃÉÊÍÓÔÕÚÇ]*$/gm, "") // Remove linhas sem letras
-  
+
   // 4. Primeiro, procura especificamente por "Mensagem do cliente/lead:" e extrai só essa parte
   const messageMatch = s.match(
     /Mensagem do cliente\/lead:\s*(.*?)(?:\s+Para \d{4}|\s+Sua mem[óo]ria|\s+Hor[áa]rio|\s+Dia da semana|\s+lembre-se|\s+\{|\s+"rules"|por\s+mensagem|[-]{2,}|$)/is,
@@ -197,11 +198,11 @@ function cleanHumanMessage(text: string) {
         .replace(/\n{3,}/g, "\n\n")
         .replace(/\s{2,}/g, " ")
         .trim()
-      
+
       // Validação final: se ainda tem resquícios, retorna vazio
       if (cleaned.match(/^[-\s,\.\}]+$/)) return ""
       if (cleaned.length < 3) return ""
-      
+
       return cleaned
     }
   }
@@ -226,11 +227,11 @@ function cleanHumanMessage(text: string) {
         .replace(/\n{3,}/g, "\n\n")
         .replace(/\s{2,}/g, " ")
         .trim()
-      
+
       // Validação final
       if (cleaned.match(/^[-\s,\.\}]+$/)) return ""
       if (cleaned.length < 3) return ""
-      
+
       return cleaned
     }
   }
@@ -241,7 +242,7 @@ function cleanHumanMessage(text: string) {
     /(?:Oi|Olá|Opa|Bom dia|Boa tarde|Boa noite|Oi|Olá)[\s\S]*?(?:\{|\"rules\"|inviolaveis|Sempre chame|$)/i,
     /^[^{"]*?(?:Oi|Olá|Opa|Sim|Não|Ok|Quero|Gostaria|Tenho interesse)[\s\S]*?(?:\{|\"rules\"|inviolaveis|$)/i,
   ]
-  
+
   for (const pattern of realMessagePatterns) {
     const match = s.match(pattern)
     if (match && match[0]) {
@@ -250,7 +251,7 @@ function cleanHumanMessage(text: string) {
         .replace(/inviolaveis[\s\S]*?\]/gi, "")
         .replace(/Sempre chame[\s\S]*?/gi, "")
         .trim()
-      
+
       if (extracted.length > 5 && !extracted.match(/^(rules|inviolaveis)/i)) {
         return extracted
           .replace(/^Sua mem[óo]ria:\s*/gi, "")
@@ -269,11 +270,11 @@ function cleanHumanMessage(text: string) {
   // Remove blocos JSON completos
   s = s.replace(/\{[\s\S]*?"rules"[\s\S]*?\}/gi, "")
   s = s.replace(/\{[\s\S]*?"inviolaveis"[\s\S]*?\}/gi, "")
-  
+
   // Remove linhas que começam com regras conhecidas
   s = s.replace(/^.*?(?:Sempre chame|Sempre diga|Sempre utilize|Nunca use|Sempre finalize|Use emojis|Use vícios|Jamais).*$/gim, "")
   s = s.replace(/^.*?(?:maior escola de oratória|América Latina).*$/gim, "")
-  
+
   // Remove timestamps e informações de sistema
   s = s.replace(/\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?[+-]\d{2}:\d{2}\b/g, "")
   s = s.replace(/,\s*(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s*\.?/gi, "")
@@ -284,14 +285,14 @@ function cleanHumanMessage(text: string) {
   s = s.replace(/lembre-se\s*dessa\s*informação:.*$/gim, "")
 
   // 8. Se ainda contém muito texto de prompt, retorna vazio (não é mensagem real)
-  if (s.match(/(rules|inviolaveis|Sempre chame|Sempre diga|Sempre utilize|Nunca use|Sempre finalize)/i) && 
-      s.length > 200) {
+  if (s.match(/(rules|inviolaveis|Sempre chame|Sempre diga|Sempre utilize|Nunca use|Sempre finalize)/i) &&
+    s.length > 200) {
     // Tenta extrair apenas a última parte que pode ser a mensagem real
-    const lastPart = s.split(/\n/).filter(line => 
+    const lastPart = s.split(/\n/).filter(line =>
       !line.match(/(rules|inviolaveis|Sempre|Nunca|Use|Jamais|maior escola)/i) &&
       line.trim().length > 0
     ).slice(-3).join(" ").trim()
-    
+
     if (lastPart.length > 5 && lastPart.length < 500) {
       return lastPart
     }
@@ -304,7 +305,7 @@ function cleanHumanMessage(text: string) {
   s = s.replace(/,\s*\}\s*$/g, "")
   s = s.replace(/\}\s*$/g, "")
   s = s.replace(/^[-\s,\.\}]+$/gm, "") // Remove linhas só com caracteres especiais
-  
+
   // Normalização final de espaços
   s = s
     .replace(/[ \t]+\n/g, "\n")
@@ -321,22 +322,22 @@ function cleanHumanMessage(text: string) {
     /\{[^}]*rules/i, /\{[^}]*inviolaveis/i, /\{[^}]*prompt/i,
     /por\s+mensagem/i, /^[-\s,\.\}]+$/ // Resquícios de formulários
   ]
-  
+
   // Se encontrar QUALQUER indicador de prompt, retorna VAZIO
   for (const indicator of promptIndicators) {
     if (indicator.test(s)) {
       return "" // LEI INVIOLÁVEL: Retorna vazio se tiver QUALQUER prompt
     }
   }
-  
+
   // Se o texto é muito longo e contém palavras-chave de prompt, retorna vazio
   if (s.length > 200 && (
-    s.includes("Sempre") || s.includes("Nunca") || s.includes("Use") || 
+    s.includes("Sempre") || s.includes("Nunca") || s.includes("Use") ||
     s.includes("Jamais") || s.includes("regras") || s.includes("inviol")
   )) {
     return ""
   }
-  
+
   // LEI INVIOLÁVEL: Remove resquícios de arrays e estruturas de dados
   // Remove "])" e variações que podem aparecer no final de mensagens
   s = s.replace(/\]\s*\)\s*$/g, "").trim() // Remove "])" no final
@@ -350,7 +351,7 @@ function cleanHumanMessage(text: string) {
   s = s.replace(/,\s*\]\s*\)/g, "").trim() // Remove ",])"
   s = s.replace(/,\s*\]/g, "").trim() // Remove ",]"
   s = s.replace(/,\s*\)/g, "").trim() // Remove ",)"
-  
+
   // Remove linhas que são só caracteres especiais ou estruturas de dados
   s = s.replace(/^[,\s\[\]\(\)\-\.\}]+$/gm, "").trim()
   s = s.replace(/\n[,\s\[\]\(\)\-\.]+\n/g, "\n").trim()
@@ -367,7 +368,7 @@ function cleanHumanMessage(text: string) {
 function cleanAnyMessage(text: string) {
   if (!text) return text
   let s = String(text).replace(/\r/g, "")
-  
+
   // LEI INVIOLÁVEL: Remove TODAS as chamadas de ferramentas/tools da IA
   // Remove blocos [Used tools: ...]
   s = s.replace(/\[Used\s+tools?[\s\S]{0,50000}?\]/gi, "")
@@ -375,7 +376,7 @@ function cleanAnyMessage(text: string) {
   s = s.replace(/Tool:\s*[^\]]+/gi, "")
   s = s.replace(/Input:\s*\{[^}]*\}/gi, "")
   s = s.replace(/Result:\s*\[[\s\S]{0,10000}?\]/gi, "")
-  
+
   // Remove estruturas JSON de resultados de ferramentas
   s = s.replace(/\{"disponiveis"[\s\S]{0,50000}?\}/gi, "")
   s = s.replace(/"disponiveis"[\s\S]{0,50000}?\}/gi, "")
@@ -385,15 +386,15 @@ function cleanAnyMessage(text: string) {
   s = s.replace(/Segunda\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
   s = s.replace(/Terça\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
   s = s.replace(/Quarta\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
-  
+
   // Remove arrays de horários
   s = s.replace(/\["[\d:]+"(?:,"[\d:]+")*\]/g, "")
-  
+
   // Remove blocos de ferramentas com nomes específicos
   s = s.replace(/buscar_horarios_disponiveis[\s\S]{0,50000}?\]/gi, "")
   s = s.replace(/consultar_agenda[\s\S]{0,50000}?\]/gi, "")
   s = s.replace(/agendar_visita[\s\S]{0,50000}?\]/gi, "")
-  
+
   // Remove qualquer estrutura que comece com [ e contenha Tool, Input, Result
   while (s.includes('[Used tools') || s.includes('[Tool:') || s.includes('Input:') || s.includes('Result:')) {
     s = s.replace(/\[[\s\S]{0,50000}?Used\s+tools?[\s\S]{0,50000}?\]/gi, "")
@@ -403,7 +404,7 @@ function cleanAnyMessage(text: string) {
       break
     }
   }
-  
+
   // 1) se houver bloco "Mensagem:", mantém só o conteúdo principal
   s = stripMensagemBlock(s)
   // 2) remove linhas de metadados
@@ -414,18 +415,18 @@ function cleanAnyMessage(text: string) {
   s = s.replace(/Dia da semana:\s*[^.]+\./gi, "")
   s = s.replace(/,\s*\./g, ".")
   s = s.replace(/\.{2,}/g, ".")
-  
+
   // Remove qualquer resquício de estruturas JSON de ferramentas
   s = s.replace(/\{[^}]*"disponiveis"[^}]*\}/gi, "")
   s = s.replace(/\[[^\]]*"[\d:]+"[^\]]*\]/g, "")
-  
+
   // 4) normaliza espaços vazios múltiplos
   s = s
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .replace(/\s{2,}/g, " ")
     .trim()
-    
+
   // Validação final: se ainda contém estruturas de ferramentas, tenta extrair mensagem real
   if (s.match(/\[Used\s+tools?|\[Tool:|Input:|Result:|"disponiveis"/i)) {
     // Divide por linhas e filtra apenas linhas conversacionais
@@ -433,28 +434,28 @@ function cleanAnyMessage(text: string) {
     const conversationalLines = lines.filter(line => {
       const lineTrimmed = line.trim()
       if (lineTrimmed.length < 5) return false
-      
+
       const lineLower = lineTrimmed.toLowerCase()
       // Remove linhas que são claramente de ferramentas
-      if (lineLower.includes('[used tools') || 
-          lineLower.includes('[tool:') || 
-          lineLower.includes('input:') || 
-          lineLower.includes('result:') ||
-          lineLower.includes('"disponiveis"') ||
-          lineLower.match(/^[\d:,\[\]\s"]+$/) || // Só arrays de horários
-          lineLower.match(/^\{.*\}$/) || // Só JSON
-          lineLower.match(/^\[.*\]$/)) { // Só arrays
+      if (lineLower.includes('[used tools') ||
+        lineLower.includes('[tool:') ||
+        lineLower.includes('input:') ||
+        lineLower.includes('result:') ||
+        lineLower.includes('"disponiveis"') ||
+        lineLower.match(/^[\d:,\[\]\s"]+$/) || // Só arrays de horários
+        lineLower.match(/^\{.*\}$/) || // Só JSON
+        lineLower.match(/^\[.*\]$/)) { // Só arrays
         return false
       }
-      
+
       // Mantém linhas que parecem conversacionais
-      return lineTrimmed.length > 10 && 
-             !lineTrimmed.startsWith('[') && 
-             !lineTrimmed.startsWith('{') &&
-             !lineTrimmed.endsWith(']') &&
-             !lineTrimmed.endsWith('}')
+      return lineTrimmed.length > 10 &&
+        !lineTrimmed.startsWith('[') &&
+        !lineTrimmed.startsWith('{') &&
+        !lineTrimmed.endsWith(']') &&
+        !lineTrimmed.endsWith('}')
     })
-    
+
     if (conversationalLines.length > 0) {
       s = conversationalLines.join(" ").trim()
     } else {
@@ -469,7 +470,7 @@ function cleanAnyMessage(text: string) {
       }
     }
   }
-  
+
   // Validação final: se a mensagem é muito curta ou só contém caracteres especiais, retorna vazio
   // LEI INVIOLÁVEL: Remove resquícios de arrays e estruturas de dados
   // Remove "])" e variações que podem aparecer no final de mensagens
@@ -484,15 +485,15 @@ function cleanAnyMessage(text: string) {
   s = s.replace(/,\s*\]\s*\)/g, "").trim() // Remove ",])"
   s = s.replace(/,\s*\]/g, "").trim() // Remove ",]"
   s = s.replace(/,\s*\)/g, "").trim() // Remove ",)"
-  
+
   // Remove linhas que são só caracteres especiais ou estruturas de dados
   s = s.replace(/^[,\s\[\]\(\)\-\.]+$/gm, "").trim()
   s = s.replace(/\n[,\s\[\]\(\)\-\.]+\n/g, "\n").trim()
-  
+
   const cleaned = s.trim()
   if (cleaned.length < 3) return ""
   if (cleaned.match(/^[\d\s:,\[\]\{\}"]+$/)) return "" // Só números, espaços e caracteres especiais
-  
+
   return cleaned
 }
 
@@ -627,7 +628,7 @@ function extractNameFromMessage(text: string, role: string): string | null {
 function extractTimestampFromText(text: string): string | null {
   if (!text) return null
   const t = String(text)
-  
+
   // Remove timestamps de prompts para não pegar data errada
   if (t.match(/(rules|inviolaveis|Sempre chame|por\s+mensagem)/i)) {
     // Só procura timestamps se não for claramente um prompt
@@ -638,7 +639,7 @@ function extractTimestampFromText(text: string): string | null {
       if (cleanText.length < 10) return null // Se sobrou muito pouco, não confia
     }
   }
-  
+
   // 1) "Horário mensagem: 2025-08-05T08:30:39.578-03:00" (mais específico e confiável)
   const m1 = t.match(/Hor[áa]rio(?:\s+da)?\s+mensagem:\s*([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,3})?(?:[+-][0-9]{2}:[0-9]{2}|Z)?)/i)
   if (m1?.[1]) {
@@ -648,7 +649,7 @@ function extractTimestampFromText(text: string): string | null {
       return date.toISOString() // Sempre retorna ISO para consistência
     }
   }
-  
+
   // 2) "Hoje é: 2025-08-05T08:30:39.578-03:00"
   const m2 = t.match(/Hoje\s*[ée]:\s*([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,3})?(?:[+-][0-9]{2}:[0-9]{2}|Z)?)/i)
   if (m2?.[1]) {
@@ -658,7 +659,7 @@ function extractTimestampFromText(text: string): string | null {
       return date.toISOString()
     }
   }
-  
+
   // 3) Formato brasileiro: "02/12/2025, 08:45:01" ou "29/11/2020, 12:56:55"
   const m3 = t.match(/(\d{2})\/(\d{2})\/(\d{4})(?:,\s*(\d{2}):(\d{2}):(\d{2}))?/i)
   if (m3) {
@@ -668,21 +669,21 @@ function extractTimestampFromText(text: string): string | null {
     const hours = m3[4] ? parseInt(m3[4], 10) : 0
     const minutes = m3[5] ? parseInt(m3[5], 10) : 0
     const seconds = m3[6] ? parseInt(m3[6], 10) : 0
-    
+
     // Validação básica
     if (day >= 1 && day <= 31 && month >= 0 && month <= 11 && year >= 2020 && year <= 2100 &&
-        hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59 && seconds >= 0 && seconds <= 59) {
+      hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59 && seconds >= 0 && seconds <= 59) {
       // Cria data no timezone de São Paulo (UTC-3)
       const date = new Date(Date.UTC(year, month, day, hours, minutes, seconds))
       // Ajusta para UTC-3 (Brasil)
       date.setHours(date.getHours() - 3)
-      
+
       if (!isNaN(date.getTime())) {
         return date.toISOString()
       }
     }
   }
-  
+
   // 4) ISO solto (fallback) - mas só se não estiver dentro de um bloco de prompt
   if (!t.match(/(rules|inviolaveis|Sempre chame|por\s+mensagem)/i)) {
     const m4 = t.match(/([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,3})?(?:[+-][0-9]{2}:[0-9]{2}|Z)?)/)
@@ -694,7 +695,7 @@ function extractTimestampFromText(text: string): string | null {
       }
     }
   }
-  
+
   return null
 }
 
@@ -805,6 +806,7 @@ function areAIMessagesSimilar(msg1: any, msg2: any, threshold = 0.6): boolean {
 export async function GET(req: Request) {
   try {
     console.log("[v0] ChatsAPI: Iniciando busca de conversas...")
+    const { chatHistories } = getTenantTables(req)
     const supabase = createBiaSupabaseServerClient()
 
     const { searchParams } = new URL(req.url)
@@ -828,9 +830,9 @@ export async function GET(req: Request) {
     let totalCount = 0
     try {
       const countRes = await supabase
-        .from("robson_voxn8n_chat_histories")
+        .from(chatHistories)
         .select("id", { count: "exact", head: true })
-      
+
       if (!countRes.error && countRes.count !== null) {
         totalCount = countRes.count
         console.log("[v0] ChatsAPI: Total de registros no banco:", totalCount)
@@ -848,7 +850,7 @@ export async function GET(req: Request) {
       try {
         // Tenta buscar created_at, mas se não existir, busca sem ele
         let res = await supabase
-          .from("robson_voxn8n_chat_histories")
+          .from(chatHistories)
           .select("session_id, message, id, created_at", { count: "planned" }) // LEI INVIOLÁVEL: Busca created_at da tabela
           .order("id", { ascending: true }) // LEI INVIOLÁVEL: Ordena ASCENDENTE para garantir ordem cronológica correta
           .range(from, to)
@@ -857,7 +859,7 @@ export async function GET(req: Request) {
         if (res.error && res.error.message?.includes("created_at")) {
           console.log("[v0] ChatsAPI: Coluna created_at não encontrada, buscando sem ela:", res.error.message)
           res = await supabase
-            .from("robson_voxn8n_chat_histories")
+            .from(chatHistories)
             .select("session_id, message, id", { count: "planned" })
             .order("id", { ascending: true }) // LEI INVIOLÁVEL: Ordena ASCENDENTE
             .range(from, to)
@@ -919,7 +921,7 @@ export async function GET(req: Request) {
     }
 
     console.log("[v0] ChatsAPI: Agrupado em", bySession.size, "sessões")
-    
+
     // Log para debug: mostra quantas mensagens cada sessão tem
     bySession.forEach((messages, sessionId) => {
       console.log(`[v0] ChatsAPI: Sessão ${sessionId}: ${messages.length} mensagens`)
@@ -948,12 +950,12 @@ export async function GET(req: Request) {
           if (!r || !r.message) {
             return null // Ignora mensagens inválidas
           }
-          
+
           const msg = r.message ?? {}
           const type = String(msg.type ?? "").toLowerCase()
           const role = normalizeRole(msg) // LEI INVIOLÁVEL: Normalização robusta
           const raw = String(msg.content ?? msg.text ?? "").trim()
-          
+
           // Se não tem conteúdo válido, ignora
           if (!raw || raw.length < 1) {
             return null
@@ -992,16 +994,16 @@ export async function GET(req: Request) {
           // LEI INVIOLÁVEL: Prioridade CORRETA para timestamp (100% preciso)
           // 1) PRIMEIRO: created_at da TABELA (mais confiável)
           let ts: string | null = r.created_at ?? null
-          
+
           // 2) SEGUNDO: created_at dentro do JSON message (se não tiver da tabela)
           if (!ts) ts = msg.created_at ?? null
-          
+
           // 3) TERCEIRO: Extrai do texto da mensagem (apenas se não tiver nenhum dos anteriores)
           if (!ts) {
             const extracted = extractTimestampFromText(raw)
             if (extracted) ts = extracted
           }
-          
+
           // 4) ÚLTIMO RECURSO: Se ainda não tem, usa o timestamp da mensagem anterior (apenas para manter ordem)
           // MAS marca como não confiável para não exibir data errada
           if (!ts) {
@@ -1017,7 +1019,7 @@ export async function GET(req: Request) {
               ts = new Date().toISOString()
             }
           }
-          
+
           // Atualiza lastTs apenas se conseguiu um timestamp válido
           if (ts) {
             const date = new Date(ts)
@@ -1028,7 +1030,7 @@ export async function GET(req: Request) {
 
           // LEI INVIOLÁVEL: Limpa a mensagem baseado no role com tratamento robusto
           let content = ""
-          
+
           if (role === "user") {
             // Mensagem do usuário: limpeza ultra-agressiva
             content = cleanHumanMessage(raw)
@@ -1043,7 +1045,7 @@ export async function GET(req: Request) {
                 /"profissional_\d+"\s*:\s*"([^"]{10,500})"/i,
                 /"comparecimento_sim"\s*:\s*"([^"]{10,500})"/i,
               ]
-              
+
               for (const pattern of messagePatterns) {
                 const match = raw.match(pattern)
                 if (match && match[1] && match[1].trim().length > 10) {
@@ -1053,7 +1055,7 @@ export async function GET(req: Request) {
                   break
                 }
               }
-              
+
               // Se não encontrou nos padrões, tenta pegar a última mensagem antes de "saida_final"
               if (!content || content.length < 10) {
                 const lastMessageMatch = raw.match(/"([^"]{20,500})"\s*,\s*"saida_final"/i)
@@ -1063,27 +1065,27 @@ export async function GET(req: Request) {
                 }
               }
             }
-            
+
             // Se não conseguiu extrair de modelos_de_saida ou não tinha, limpa normalmente
             if (!content || content.length < 10) {
               content = cleanAnyMessage(raw)
             }
-            
+
             // Validação final: se ainda contém tools/prompts, tenta extrair apenas a parte conversacional
             if (content && (content.includes('[Used tools') || content.includes('[Tool:') || content.includes('Input:') || content.includes('Result:'))) {
               // Divide por linhas e pega apenas as que parecem conversacionais
               const lines = content.split(/\n/)
               const conversationalLines = lines.filter(line => {
                 const lineLower = line.toLowerCase().trim()
-                return !lineLower.includes('[used tools') && 
-                       !lineLower.includes('[tool:') && 
-                       !lineLower.includes('input:') && 
-                       !lineLower.includes('result:') &&
-                       !lineLower.includes('"disponiveis"') &&
-                       !lineLower.match(/^[\d:,\[\]]+$/) && // Não é só arrays de horários
-                       line.trim().length > 5
+                return !lineLower.includes('[used tools') &&
+                  !lineLower.includes('[tool:') &&
+                  !lineLower.includes('input:') &&
+                  !lineLower.includes('result:') &&
+                  !lineLower.includes('"disponiveis"') &&
+                  !lineLower.match(/^[\d:,\[\]]+$/) && // Não é só arrays de horários
+                  line.trim().length > 5
               })
-              
+
               if (conversationalLines.length > 0) {
                 content = conversationalLines.join(" ").trim()
               } else {
@@ -1095,7 +1097,7 @@ export async function GET(req: Request) {
               }
             }
           }
-          
+
           // LEI INVIOLÁVEL: Filtro adicional ultra-agressivo para mensagens de usuário
           if (role === "user" && content) {
             // Lista completa de indicadores de prompt
@@ -1106,7 +1108,7 @@ export async function GET(req: Request) {
               /Use no maximo/i, /caracteres por mensagem/i, /Tereza.*Vox2You/i,
               /\{[^}]*rules/i, /\{[^}]*inviolaveis/i, /\{[^}]*prompt/i
             ]
-            
+
             // Se encontrar QUALQUER indicador, marca como vazia
             for (const indicator of promptIndicators) {
               if (indicator.test(content)) {
@@ -1114,24 +1116,24 @@ export async function GET(req: Request) {
                 break
               }
             }
-            
+
             // Se ainda tem conteúdo mas é suspeito (muito longo com palavras-chave), tenta limpar mais
             if (content && content.length > 100 && (
-              content.includes("Sempre") || content.includes("Nunca") || 
-              content.includes("Use") || content.includes("Jamais") || 
+              content.includes("Sempre") || content.includes("Nunca") ||
+              content.includes("Use") || content.includes("Jamais") ||
               content.includes("regras") || content.includes("inviol")
             )) {
               // Tenta extrair apenas linhas que NÃO são prompts
               const lines = content.split(/\n/)
               const realLines = lines.filter(line => {
                 const lineLower = line.toLowerCase()
-                return !lineLower.includes("sempre") && !lineLower.includes("nunca") && 
-                       !lineLower.includes("use") && !lineLower.includes("jamais") &&
-                       !lineLower.includes("rules") && !lineLower.includes("inviol") &&
-                       !lineLower.includes("prompt") && !lineLower.includes("variaveis") &&
-                       line.trim().length > 0
+                return !lineLower.includes("sempre") && !lineLower.includes("nunca") &&
+                  !lineLower.includes("use") && !lineLower.includes("jamais") &&
+                  !lineLower.includes("rules") && !lineLower.includes("inviol") &&
+                  !lineLower.includes("prompt") && !lineLower.includes("variaveis") &&
+                  line.trim().length > 0
               })
-              
+
               if (realLines.length > 0) {
                 content = realLines.join(" ").trim()
               } else {
@@ -1139,7 +1141,7 @@ export async function GET(req: Request) {
               }
             }
           }
-          
+
           const created_at: string = ts ?? ""
 
           return { role, content, created_at, isError, isSuccess, message_id: r.id }
@@ -1147,17 +1149,17 @@ export async function GET(req: Request) {
         .filter((m): m is NonNullable<typeof m> => {
           // Remove mensagens null/undefined
           if (!m) return false
-          
+
           return true
         })
         .filter((m) => {
           // LEI INVIOLÁVEL: Remove mensagens vazias ou muito curtas (menos de 3 caracteres)
           if (!m.content || m.content.trim().length < 3) return false
-          
+
           // Remove mensagens que são só caracteres especiais/números
           const trimmed = m.content.trim()
           if (trimmed.match(/^[\d\s:,\[\]\{\}"]+$/)) return false
-          
+
           // LEI INVIOLÁVEL: Remove mensagens de usuário que ainda contêm QUALQUER resquício de prompt
           if (m.role === "user") {
             const promptIndicators = [
@@ -1167,43 +1169,43 @@ export async function GET(req: Request) {
               /Use no maximo/i, /caracteres por mensagem/i, /Tereza.*Vox2You/i,
               /\{[^}]*rules/i, /\{[^}]*inviolaveis/i, /\{[^}]*prompt/i
             ]
-            
+
             // Se encontrar QUALQUER indicador, remove a mensagem
             for (const indicator of promptIndicators) {
               if (indicator.test(m.content)) {
                 return false // LEI INVIOLÁVEL: Remove se tiver QUALQUER prompt
               }
             }
-            
+
             // Se é muito longo e contém palavras-chave de prompt, remove
             if (m.content.length > 100 && (
-              m.content.includes("Sempre") || m.content.includes("Nunca") || 
-              m.content.includes("Use") || m.content.includes("Jamais") || 
+              m.content.includes("Sempre") || m.content.includes("Nunca") ||
+              m.content.includes("Use") || m.content.includes("Jamais") ||
               m.content.includes("regras") || m.content.includes("inviol")
             )) {
               return false
             }
           }
-          
+
           // LEI INVIOLÁVEL: Remove mensagens da IA que ainda contêm tools/prompts
           if (m.role === "bot") {
             const toolIndicators = [
               /\[Used\s+tools?/i, /\[Tool:/i, /Input:/i, /Result:/i,
               /"disponiveis"/i, /buscar_horarios/i, /consultar_agenda/i
             ]
-            
+
             for (const indicator of toolIndicators) {
               if (indicator.test(m.content)) {
                 return false // Remove se ainda tiver tools
               }
             }
-            
+
             // Se é muito longo e parece ser só dados técnicos, remove
             if (m.content.length > 500 && m.content.match(/^[\d\s:,\[\]\{\}"]+$/)) {
               return false
             }
           }
-          
+
           return true
         })
         .sort((a, b) => {
@@ -1222,11 +1224,11 @@ export async function GET(req: Request) {
               return a.message_id - b.message_id
             }
           }
-          
+
           // 2) SEGUNDO: Se um tem timestamp e outro não, o com timestamp vem primeiro
           if (a.created_at && !b.created_at) return -1
           if (!a.created_at && b.created_at) return 1
-          
+
           // 3) TERCEIRO: Fallback para ordenação por message_id ASCENDENTE (mais antigas primeiro)
           // Isso garante ordem cronológica correta mesmo sem timestamp
           return a.message_id - b.message_id
@@ -1302,7 +1304,7 @@ export async function GET(req: Request) {
         if (end && dt > new Date(end)) return false
         return true
       })
-      
+
       // LEI INVIOLÁVEL: Reordena após filtro para garantir ordem correta
       // Isso é crítico porque o filtro pode ter removido mensagens e a ordem pode ter sido afetada
       finalMessages.sort((a, b) => {

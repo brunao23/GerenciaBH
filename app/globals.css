@@ -7,8 +7,8 @@
   --primary-black: #000000;
   --secondary-black: #1a1a1a;
   --card-black: #111111;
-  --accent-green: #00ff88;
-  --dark-green: #00cc6a;
+  --accent-yellow: #FFD700;
+  --dark-yellow: #FFA500;
   --pure-white: #ffffff;
   --border-gray: #333333;
   --text-gray: #cccccc;
@@ -20,33 +20,33 @@
   --card-foreground: #ffffff;
   --popover: #111111;
   --popover-foreground: #ffffff;
-  --primary: #00ff88;
+  --primary: #FFD700;
   --primary-foreground: #000000;
   --secondary: #1a1a1a;
   --secondary-foreground: #ffffff;
   --muted: #1a1a1a;
   --muted-foreground: #cccccc;
-  --accent: #00ff88;
+  --accent: #FFD700;
   --accent-foreground: #000000;
   --destructive: #ff4757;
   --destructive-foreground: #ffffff;
   --border: #333333;
   --input: #1a1a1a;
-  --ring: #00ff88;
-  --chart-1: #00ff88;
-  --chart-2: #00cc6a;
-  --chart-3: #00aa55;
-  --chart-4: #00dd77;
-  --chart-5: #00bb66;
+  --ring: #FFD700;
+  --chart-1: #FFD700;
+  --chart-2: #FFA500;
+  --chart-3: #FF8C00;
+  --chart-4: #FFB700;
+  --chart-5: #FFAA00;
   --radius: 0.75rem;
   --sidebar: #111111;
   --sidebar-foreground: #ffffff;
-  --sidebar-primary: #00ff88;
+  --sidebar-primary: #FFD700;
   --sidebar-primary-foreground: #000000;
   --sidebar-accent: #1a1a1a;
   --sidebar-accent-foreground: #ffffff;
   --sidebar-border: #333333;
-  --sidebar-ring: #00ff88;
+  --sidebar-ring: #FFD700;
 }
 
 .dark {
@@ -56,32 +56,32 @@
   --card-foreground: #ffffff;
   --popover: #111111;
   --popover-foreground: #ffffff;
-  --primary: #00ff88;
+  --primary: #FFD700;
   --primary-foreground: #000000;
   --secondary: #1a1a1a;
   --secondary-foreground: #ffffff;
   --muted: #1a1a1a;
   --muted-foreground: #cccccc;
-  --accent: #00ff88;
+  --accent: #FFD700;
   --accent-foreground: #000000;
   --destructive: #ff4757;
   --destructive-foreground: #ffffff;
   --border: #333333;
   --input: #1a1a1a;
-  --ring: #00ff88;
-  --chart-1: #00ff88;
-  --chart-2: #00cc6a;
-  --chart-3: #00aa55;
-  --chart-4: #00dd77;
-  --chart-5: #00bb66;
+  --ring: #FFD700;
+  --chart-1: #FFD700;
+  --chart-2: #FFA500;
+  --chart-3: #FF8C00;
+  --chart-4: #FFB700;
+  --chart-5: #FFAA00;
   --sidebar: #111111;
   --sidebar-foreground: #ffffff;
-  --sidebar-primary: #00ff88;
+  --sidebar-primary: #FFD700;
   --sidebar-primary-foreground: #000000;
   --sidebar-accent: #1a1a1a;
   --sidebar-accent-foreground: #ffffff;
   --sidebar-border: #333333;
-  --sidebar-ring: #00ff88;
+  --sidebar-ring: #FFD700;
 }
 
 @theme inline {
@@ -147,8 +147,8 @@
     left: 0;
     width: 100%;
     height: 100%;
-    background: radial-gradient(circle at 20% 80%, rgba(0, 255, 136, 0.1) 0%, transparent 50%),
-      radial-gradient(circle at 80% 20%, rgba(0, 255, 136, 0.05) 0%, transparent 50%);
+    background: radial-gradient(circle at 20% 80%, rgba(255, 215, 0, 0.1) 0%, transparent 50%),
+      radial-gradient(circle at 80% 20%, rgba(255, 215, 0, 0.05) 0%, transparent 50%);
     pointer-events: none;
     z-index: -1;
   }
@@ -160,7 +160,7 @@
     border: 1px solid #333333;
     border-radius: 20px;
     backdrop-filter: blur(10px);
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8), 0 0 30px rgba(0, 255, 136, 0.1);
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8), 0 0 30px rgba(255, 215, 0, 0.1);
     position: relative;
     overflow: hidden;
   }
@@ -172,11 +172,11 @@
     left: 0;
     right: 0;
     height: 1px;
-    background: linear-gradient(90deg, transparent, #00ff88, transparent);
+    background: linear-gradient(90deg, transparent, #FFD700, transparent);
   }
 
   .genial-button {
-    background: linear-gradient(135deg, #00ff88, #00cc6a);
+    background: linear-gradient(135deg, #FFD700, #FFA500);
     border: none;
     color: #000000;
     font-weight: 600;
@@ -184,13 +184,13 @@
     border-radius: 12px;
     font-size: 1.1rem;
     transition: all 0.3s ease;
-    box-shadow: 0 8px 25px rgba(0, 255, 136, 0.3);
+    box-shadow: 0 8px 25px rgba(255, 215, 0, 0.3);
   }
 
   .genial-button:hover {
     transform: translateY(-2px);
-    box-shadow: 0 12px 35px rgba(0, 255, 136, 0.4);
-    background: linear-gradient(135deg, #00cc6a, #00ff88);
+    box-shadow: 0 12px 35px rgba(255, 215, 0, 0.4);
+    background: linear-gradient(135deg, #FFA500, #FFD700);
   }
 
   .genial-input {
@@ -205,8 +205,8 @@
 
   .genial-input:focus {
     background: #1a1a1a;
-    border-color: #00ff88;
-    box-shadow: 0 0 0 0.2rem rgba(0, 255, 136, 0.15);
+    border-color: #FFD700;
+    box-shadow: 0 0 0 0.2rem rgba(255, 215, 0, 0.15);
     color: #ffffff;
   }
 
@@ -219,7 +219,7 @@
 @layer utilities {
   .genial-scrollbar {
     scrollbar-width: thin;
-    scrollbar-color: #00ff88 #1a1a1a;
+    scrollbar-color: #FFD700 #1a1a1a;
   }
 
   .genial-scrollbar::-webkit-scrollbar {
@@ -232,38 +232,67 @@
   }
 
   .genial-scrollbar::-webkit-scrollbar-thumb {
-    background: #00ff88;
+    background: #FFD700;
     border-radius: 10px;
   }
 
   .genial-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: #00cc6a;
+    background: #FFA500;
   }
 
   .text-pure-white {
     color: #ffffff;
   }
 
+  .text-accent-yellow {
+    color: #FFD700;
+  }
+
+  /* Compatibilidade com código antigo */
   .text-accent-green {
-    color: #00ff88;
+    color: #FFD700;
   }
 
   .text-text-gray {
     color: #cccccc;
   }
 
+  .text-dark-yellow {
+    color: #FFA500;
+  }
+
+  /* Compatibilidade com código antigo */
   .text-dark-green {
-    color: #00cc6a;
+    color: #FFA500;
+  }
+
+  /* Classes adicionais de amarelo */
+  .bg-accent-yellow {
+    background-color: #FFD700;
+  }
+
+  .border-accent-yellow {
+    border-color: #FFD700;
+  }
+
+  .hover\:bg-accent-yellow:hover {
+    background-color: #FFD700;
+  }
+
+  .hover\:border-accent-yellow:hover {
+    border-color: #FFD700;
   }
 }
 
 @keyframes genial-glow {
+
   0%,
   100% {
-    box-shadow: 0 0 20px rgba(0, 255, 136, 0.3);
+    box-shadow: 0 0 20px rgba(255, 215, 0, 0.3);
   }
+
   50% {
-    box-shadow: 0 0 30px rgba(0, 255, 136, 0.5);
+    box-shadow: 0 0 30px rgba(255, 215, 0, 0.5);
   }
 }
 
@@ -277,5 +306,5 @@
 
 .genial-hover:hover {
   transform: translateY(-2px);
-  box-shadow: 0 10px 30px rgba(0, 255, 136, 0.2);
+  box-shadow: 0 10px 30px rgba(255, 215, 0, 0.2);
 }

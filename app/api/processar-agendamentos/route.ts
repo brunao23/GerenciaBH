@@ -1,5 +1,20 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
+import { createClient } from "@supabase/supabase-js"
+import { notifyAgendamentoCreated } from "@/lib/services/notifications"
+
+// Cliente Supabase com Service Role para acesso administrativo
+function createServiceRoleClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+
+  return createClient(supabaseUrl, supabaseServiceKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false
+    }
+  })
+}
 
 interface AgendamentoDetectado {
   session_id: string
@@ -11,71 +26,144 @@ interface AgendamentoDetectado {
   timestamp: string
 }
 
-export async function POST(request: NextRequest) {
+// Função para validar se o agendamento é explícito
+function isAgendamentoExplicito(conversa: any, agendamento: AgendamentoDetectado): boolean {
   try {
-    console.log("[v0] Iniciando processamento de agendamentos da Bia...")
+    // Verifica se há menção EXATA a "Diagnóstico Estratégico da Comunicação"
+    const diagnosticoPatterns = [
+      /diagn[oó]stico\s+estrat[ée]gico\s+da\s+comunica[çc][ãa]o/i, // Nome completo (prioridade)
+      /diagn[oó]stico\s+estrat[ée]gico\s+comunica[çc][ãa]o/i, // Variação próxima
+    ]
 
-    const body = await request.json().catch(() => ({}))
-    const openaiApiKey = body.openaiApiKey || process.env.OPENAI_API_KEY
+    // Verifica nas mensagens da conversa
+    const todasMensagens = conversa.messages?.map((m: any) =>
+      String(m.content || '').toLowerCase()
+    ).join(' ') || ''
 
-    let supabase
-    try {
-      supabase = createBiaSupabaseServerClient()
-      console.log("[v0] Cliente Supabase da Bia criado com sucesso")
-    } catch (error) {
-      console.error("[v0] Erro ao criar cliente Supabase da Bia:", error)
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Configuração do banco de dados da Bia não encontrada",
-        },
-        { status: 500 },
-      )
+    const observacoesLower = (agendamento.observacoes || '').toLowerCase()
+    const textoCompleto = `${todasMensagens} ${observacoesLower}`
+
+    // Verifica se tem o nome completo (mais rigoroso)
+    const temDiagnostico = diagnosticoPatterns.some(pattern =>
+      pattern.test(textoCompleto)
+    )
+
+    // Verifica se é realmente marcado (não apenas "A definir")
+    const temDataDefinida = agendamento.dia &&
+      agendamento.dia !== "A definir" &&
+      agendamento.dia.trim() !== "" &&
+      !agendamento.dia.toLowerCase().includes("definir")
+
+    const temHorarioDefinido = agendamento.horario &&
+      agendamento.horario !== "A definir" &&
+      agendamento.horario.trim() !== "" &&
+      !agendamento.horario.toLowerCase().includes("definir")
+
+    const realmenteMarcado = temDataDefinida && temHorarioDefinido
+
+    // Verifica se há confirmação explícita (não apenas pedido/solicitação)
+    const temConfirmacao = /(?:agendad|marcad|confirmad|combinad|vou.*ir|estarei|comparecerei)/i.test(textoCompleto)
+
+    // Exclui pedidos/solicitações
+    const apenasPedido = /(?:solicit|pedi|quer.*saber|gostaria|informa[çc]|preciso.*saber)/i.test(textoCompleto) &&
+      !temConfirmacao
+
+    // Agendamento é explícito se:
+    // 1. Tem menção EXATA a Diagnóstico Estratégico da Comunicação E confirmação
+    // 2. OU é realmente marcado (com data e horário definidos) E tem confirmação
+    const isExplicito = (temDiagnostico && temConfirmacao) ||
+      (realmenteMarcado && temConfirmacao && !apenasPedido)
+
+    if (!isExplicito) {
+      console.log(`[v0] Agendamento não explícito rejeitado:`, {
+        temDiagnostico,
+        temDataDefinida,
+        temHorarioDefinido,
+        temConfirmacao,
+        apenasPedido,
+        dia: agendamento.dia,
+        horario: agendamento.horario,
+      })
     }
 
+    return isExplicito
+  } catch (error) {
+    console.error("[v0] Erro ao validar agendamento explícito:", error)
+    return false
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json().catch(() => ({}))
+
+    // ✅ OBTER TENANT DO HEADER OU BODY
+    let tenant = request.headers.get('x-tenant-prefix')
+    if (!tenant && body.tenant) {
+      tenant = body.tenant
+    }
+
+    // Fallback para vox_bh se não especificado (compatibilidade temporária)
+    // Mas idealmente deveria ser obrigatório. Vou deixar um log de aviso.
+    if (!tenant) {
+      console.warn("⚠️ Tenant não especificado em processar-agendamentos. Usando 'vox_bh' como fallback.")
+      tenant = 'vox_bh'
+    }
+
+    console.log(`[ProcessarAgendamentos] [${tenant}] Iniciando processamento...`)
+
+    const openaiApiKey = body.openaiApiKey || process.env.OPENAI_API_KEY
+    const supabase = createServiceRoleClient()
+
+    // ✅ USAR TABELAS DINÂMICAS
+    const agendamentosTable = `${tenant}_agendamentos`
+    const chatHistoriesTable = `${tenant}n8n_chat_histories`
+
+    console.log(`[ProcessarAgendamentos] [${tenant}] Tabelas: ${agendamentosTable}, ${chatHistoriesTable}`)
+
     const { data: agendamentosExistentes, error: existentesError } = await supabase
-      .from("robson_vox_agendamentos")
+      .from(agendamentosTable)
       .select("contato")
 
     if (existentesError) {
-      console.error("[v0] Erro ao buscar agendamentos existentes da Bia:", existentesError)
+      console.error(`[ProcessarAgendamentos] [${tenant}] Erro ao buscar agendamentos existentes:`, existentesError)
     }
 
     const contatosExistentes = new Set(agendamentosExistentes?.map((a) => a.contato) || [])
-    console.log(`[v0] Encontrados ${contatosExistentes.size} agendamentos existentes da Bia`)
+    console.log(`[ProcessarAgendamentos] [${tenant}] Encontrados ${contatosExistentes.size} agendamentos existentes`)
 
-    // Buscar conversas da Bia diretamente do banco de dados
-    console.log("[v0] Buscando conversas da Bia com vitórias...")
+    // Buscar conversas diretamente do banco de dados
+    console.log(`[ProcessarAgendamentos] [${tenant}] Buscando conversas...`)
 
     const { data: conversasRaw, error: conversasError } = await supabase
-      .from("robson_voxn8n_chat_histories")
+      .from(chatHistoriesTable)
       .select("*")
       .limit(500)
       .order("id", { ascending: false })
 
     if (conversasError) {
-      console.error("[v0] Erro ao buscar conversas da Bia:", conversasError)
+      console.error(`[ProcessarAgendamentos] [${tenant}] Erro ao buscar conversas:`, conversasError)
       return NextResponse.json(
         {
           success: false,
-          error: "Erro ao buscar conversas da Bia do banco de dados",
+          error: `Erro ao buscar conversas da tabela ${chatHistoriesTable}`,
         },
         { status: 500 },
       )
     }
 
     if (!conversasRaw || conversasRaw.length === 0) {
-      console.log("[v0] Nenhuma conversa da Bia encontrada no banco")
+      console.log(`[ProcessarAgendamentos] [${tenant}] Nenhuma conversa encontrada na tabela ${chatHistoriesTable}`)
       return NextResponse.json({
         success: true,
-        message: "Nenhuma conversa da Bia encontrada para processar agendamentos",
+        message: "Nenhuma conversa encontrada para processar agendamentos",
         agendamentosDetectados: 0,
         agendamentosInseridos: 0,
         agendamentos: [],
       })
     }
 
-    console.log(`[v0] Encontradas ${conversasRaw.length} conversas da Bia no banco`)
+    console.log(`[ProcessarAgendamentos] [${tenant}] Encontradas ${conversasRaw.length} conversas no banco`)
 
     // Processar conversas e agrupar por sessão
     const sessoesPorId = new Map()
@@ -185,7 +273,7 @@ export async function POST(request: NextRequest) {
           }
         }
       } catch (error) {
-        console.error("[v0] Erro ao processar registro da Bia:", error)
+        console.error(`[ProcessarAgendamentos] [${tenant}] Erro ao processar registro:`, error)
         continue
       }
     }
@@ -194,14 +282,14 @@ export async function POST(request: NextRequest) {
     const conversasComVitorias = todasConversas.filter((conversa) => conversa.hasVictory)
 
     console.log(
-      `[v0] Encontradas ${conversasComVitorias.length} conversas da Bia com vitórias de ${todasConversas.length} total`,
+      `[ProcessarAgendamentos] [${tenant}] Encontradas ${conversasComVitorias.length} conversas com vitórias de ${todasConversas.length} total`,
     )
 
     if (conversasComVitorias.length === 0) {
-      console.log("[v0] Nenhuma conversa da Bia com vitória encontrada")
+      console.log(`[ProcessarAgendamentos] [${tenant}] Nenhuma conversa com vitória encontrada`)
       return NextResponse.json({
         success: true,
-        message: "Nenhuma conversa da Bia com vitória encontrada para processar agendamentos",
+        message: "Nenhuma conversa com vitória encontrada para processar agendamentos",
         agendamentosDetectados: 0,
         agendamentosInseridos: 0,
         agendamentos: [],
@@ -211,14 +299,14 @@ export async function POST(request: NextRequest) {
     const agendamentosDetectados: AgendamentoDetectado[] = []
     const maxConversas = conversasComVitorias.length // Processar todas as conversas com vitórias
 
-    console.log(`[v0] Processando ${maxConversas} conversas da Bia com vitórias...`)
+    console.log(`[ProcessarAgendamentos] [${tenant}] Processando ${maxConversas} conversas com vitórias...`)
 
     for (let i = 0; i < maxConversas; i++) {
       try {
         const conversa = conversasComVitorias[i]
 
         if (!conversa?.session_id || !conversa?.messages) {
-          console.warn(`[v0] Conversa da Bia ${i} sem session_id ou mensagens, pulando...`)
+          console.warn(`[ProcessarAgendamentos] [${tenant}] Conversa ${i} sem session_id ou mensagens, pulando...`)
           continue
         }
 
@@ -228,7 +316,7 @@ export async function POST(request: NextRequest) {
         }
 
         if (contatosExistentes.has(contato)) {
-          console.log(`[v0] Agendamento da Bia já existe para contato ${contato}, pulando...`)
+          console.log(`[ProcessarAgendamentos] [${tenant}] Agendamento já existe para contato ${contato}, pulando...`)
           continue
         }
 
@@ -236,31 +324,77 @@ export async function POST(request: NextRequest) {
           ? await analisarConversaComIA(conversa, openaiApiKey)
           : await analisarConversaParaAgendamento(conversa)
 
-        if (agendamento) {
+        // VALIDAÇÃO: Apenas aceita agendamentos explícitos
+        // Deve ter menção a "Diagnostico Estrategico da Comunicação" OU ser realmente marcado
+        if (agendamento && isAgendamentoExplicito(conversa, agendamento)) {
           agendamentosDetectados.push(agendamento)
-          console.log(`[v0] Agendamento da Bia detectado para sessão ${conversa.session_id}`)
+          console.log(`[ProcessarAgendamentos] [${tenant}] Agendamento EXPLÍCITO detectado para sessão ${conversa.session_id}`)
+        } else if (agendamento) {
+          console.log(`[ProcessarAgendamentos] [${tenant}] Agendamento NÃO EXPLÍCITO ignorado para sessão ${conversa.session_id}`)
         }
       } catch (error) {
-        console.error(`[v0] Erro ao processar conversa da Bia ${i}:`, error)
+        console.error(`[ProcessarAgendamentos] [${tenant}] Erro ao processar conversa ${i}:`, error)
         continue
       }
     }
 
-    console.log(`[v0] Detectados ${agendamentosDetectados.length} agendamentos da Bia`)
+    console.log(`[ProcessarAgendamentos] [${tenant}] Detectados ${agendamentosDetectados.length} agendamentos`)
+
+    // Função para buscar nome real de uma conversa pelo contato
+    const buscarNomeRealPorContato = (contato: string): string => {
+      try {
+        // Buscar a conversa correspondente
+        const conversa = todasConversas.find(c => {
+          let numConversa = c.numero || c.session_id
+          if (numConversa.includes("@")) {
+            numConversa = numConversa.replace("@s.whatsapp.net", "")
+          }
+          return numConversa === contato || numConversa.endsWith(contato) || contato.endsWith(numConversa)
+        })
+
+        if (conversa && conversa.messages) {
+          // Tentar extrair do formulário primeiro
+          const formData = extractFormDataFromMessages(conversa.messages)
+          if (formData?.primeiroNome) return formData.primeiroNome
+          if (formData?.nome) return formData.nome.split(' ')[0]
+
+          // Tentar extrair das mensagens
+          const nomeExtraido = extractContactNameFromMessages(conversa.messages)
+          if (nomeExtraido) return nomeExtraido
+
+          // Usar contact_name se válido
+          if (conversa.contact_name && conversa.contact_name !== "Nome não identificado" && conversa.contact_name.length >= 3) {
+            return conversa.contact_name
+          }
+        }
+      } catch (e) {
+        console.warn(`[ProcessarAgendamentos] [${tenant}] Erro ao buscar nome real para contato ${contato}:`, e)
+      }
+      return ""
+    }
 
     const agendamentosInseridos = []
     for (const agendamento of agendamentosDetectados) {
       try {
         if (!agendamento.contato || agendamento.contato.length < 8) {
-          console.warn(`[v0] Contato inválido da Bia, pulando agendamento:`, agendamento.contato)
+          console.warn(`[ProcessarAgendamentos] [${tenant}] Contato inválido, pulando:`, agendamento.contato)
           continue
+        }
+
+        // Se o nome ainda é genérico, tentar buscar o nome real
+        if (!agendamento.nome || agendamento.nome.startsWith("Cliente ") || agendamento.nome === "Nome não identificado") {
+          const nomeReal = buscarNomeRealPorContato(agendamento.contato)
+          if (nomeReal) {
+            agendamento.nome = nomeReal
+            console.log(`[ProcessarAgendamentos] [${tenant}] Nome real encontrado para ${agendamento.contato}: ${nomeReal}`)
+          }
         }
 
         let diaFinal = agendamento.dia || "A definir"
         let horarioFinal = agendamento.horario || "A definir"
 
         if (diaFinal.toLowerCase().includes("domingo")) {
-          console.log(`[v0] Pulando agendamento da Bia em domingo: ${diaFinal}`)
+          console.log(`[ProcessarAgendamentos] [${tenant}] Pulando agendamento em domingo: ${diaFinal}`)
           continue
         }
 
@@ -284,21 +418,29 @@ export async function POST(request: NextRequest) {
           const [hora] = horarioFinal.split(":")
           const horaNum = Number.parseInt(hora)
           if (horaNum < 7 || horaNum > 19) {
-            console.log(`[v0] Horário fora do comercial da Bia (${horarioFinal}), definindo como 'A definir'`)
+            console.log(`[ProcessarAgendamentos] [${tenant}] Horário fora do comercial (${horarioFinal}), definindo como 'A definir'`)
             horarioFinal = "A definir"
           }
         }
 
+        // Garantir que o nome seja válido
+        let nomeFinal = agendamento.nome || ""
+        if (!nomeFinal || nomeFinal.trim() === "" || nomeFinal === "Nome não identificado") {
+          // Tentar extrair do formulário novamente se disponível
+          const ultimosDigitos = String(agendamento.contato).slice(-4)
+          nomeFinal = `Cliente ${ultimosDigitos}`
+        }
+
         const dadosAgendamento = {
           contato: String(agendamento.contato).substring(0, 20),
-          nome: String(agendamento.nome || "Nome não identificado").substring(0, 100),
+          nome: String(nomeFinal).trim().substring(0, 100),
           horario: horarioFinal,
           dia: diaFinal,
           observacoes: String(agendamento.observacoes || "").substring(0, 500),
           status: "agendado",
         }
 
-        console.log(`[v0] Tentando inserir agendamento da Bia:`, {
+        console.log(`[ProcessarAgendamentos] [${tenant}] Tentando inserir agendamento:`, {
           contato: dadosAgendamento.contato,
           nome: dadosAgendamento.nome,
           horario: dadosAgendamento.horario,
@@ -306,31 +448,42 @@ export async function POST(request: NextRequest) {
         })
 
         const { data: novoAgendamento, error: insertError } = await supabase
-          .from("robson_vox_agendamentos")
+          .from(agendamentosTable)
           .insert(dadosAgendamento)
           .select()
           .maybeSingle()
 
         if (insertError) {
-          console.error(`[v0] Erro ao inserir agendamento da Bia:`, insertError)
+          console.error(`[ProcessarAgendamentos] [${tenant}] Erro ao inserir agendamento:`, insertError)
           continue
         }
 
         if (novoAgendamento) {
           agendamentosInseridos.push(novoAgendamento)
           contatosExistentes.add(dadosAgendamento.contato) // Adicionar à lista para evitar duplicatas
-          console.log(`[v0] Agendamento da Bia inserido com sucesso para contato: ${agendamento.contato}`)
+          console.log(`[ProcessarAgendamentos] [${tenant}] Agendamento inserido com sucesso para contato: ${agendamento.contato}`)
+
+          // Criar notificação de agendamento criado
+          await notifyAgendamentoCreated(
+            dadosAgendamento.contato,
+            dadosAgendamento.nome || "Cliente",
+            dadosAgendamento.dia || "A definir",
+            dadosAgendamento.horario || "A definir"
+          ).catch(err => console.error(`[ProcessarAgendamentos] [${tenant}] Erro ao criar notificação de agendamento:`, err))
 
           try {
             if (dadosAgendamento.dia !== "A definir" && dadosAgendamento.horario !== "A definir") {
+              // Passar tenant no header da chamada recursiva ou externa
               const followUpResponse = await fetch(`${request.nextUrl.origin}/api/follow-up-automatico`, {
                 method: "POST",
                 headers: {
                   "Content-Type": "application/json",
+                  "x-tenant-prefix": tenant
                 },
                 body: JSON.stringify({
                   action: "criar_jobs",
                   agendamento_id: novoAgendamento.id,
+                  tenant // Também passar no body por garantia
                 }),
               })
 
@@ -339,47 +492,47 @@ export async function POST(request: NextRequest) {
 
                 if (followUpResult.success) {
                   console.log(
-                    `[v0] Jobs de follow-up da Bia criados para agendamento ${novoAgendamento.id}: ${followUpResult.message}`,
+                    `[ProcessarAgendamentos] [${tenant}] Jobs de follow-up criados para agendamento ${novoAgendamento.id}: ${followUpResult.message}`,
                   )
                 } else {
                   console.log(
-                    `[v0] Follow-up da Bia não criado para agendamento ${novoAgendamento.id}: ${followUpResult.message}`,
+                    `[ProcessarAgendamentos] [${tenant}] Follow-up não criado para agendamento ${novoAgendamento.id}: ${followUpResult.message}`,
                   )
                 }
               } else {
                 console.log(
-                  `[v0] Erro HTTP ao criar follow-up da Bia para agendamento ${novoAgendamento.id}: ${followUpResponse.status}`,
+                  `[ProcessarAgendamentos] [${tenant}] Erro HTTP ao criar follow-up para agendamento ${novoAgendamento.id}: ${followUpResponse.status}`,
                 )
               }
             } else {
               console.log(
-                `[v0] Jobs de follow-up da Bia criados para agendamento ${novoAgendamento.id}: 0 jobs de follow-up criados`,
+                `[ProcessarAgendamentos] [${tenant}] Jobs de follow-up criados para agendamento ${novoAgendamento.id}: 0 jobs de follow-up criados`,
               )
             }
           } catch (followUpError) {
             console.log(
-              `[v0] Erro ao criar jobs de follow-up da Bia para agendamento ${novoAgendamento.id}: Erro interno do servidor`,
+              `[ProcessarAgendamentos] [${tenant}] Erro ao criar jobs de follow-up para agendamento ${novoAgendamento.id}: Erro interno do servidor`,
             )
           }
         }
       } catch (error) {
-        console.error(`[v0] Erro ao processar agendamento da Bia para ${agendamento.contato}:`, error)
+        console.error(`[ProcessarAgendamentos] [${tenant}] Erro ao processar agendamento para ${agendamento.contato}:`, error)
         continue
       }
     }
 
-    console.log(`[v0] Processamento da Bia concluído. ${agendamentosInseridos.length} agendamentos inseridos`)
+    console.log(`[ProcessarAgendamentos] [${tenant}] Processamento concluído. ${agendamentosInseridos.length} agendamentos inseridos`)
 
     return NextResponse.json({
       success: true,
-      message: `Processamento da Bia concluído. ${agendamentosInseridos.length} novos agendamentos detectados e inseridos de ${conversasComVitorias.length} conversas com vitórias.`,
+      message: `Processamento concluído. ${agendamentosInseridos.length} novos agendamentos detectados e inseridos de ${conversasComVitorias.length} conversas com vitórias.`,
       agendamentosDetectados: agendamentosDetectados.length,
       agendamentosInseridos: agendamentosInseridos.length,
       agendamentos: agendamentosInseridos,
       conversasComVitorias: conversasComVitorias.length,
     })
   } catch (error) {
-    console.error("[v0] Erro no processamento da Bia:", error)
+    console.error(`[ProcessarAgendamentos] Erro crítico no processamento:`, error)
     const errorMessage = error instanceof Error ? error.message : "Erro interno do servidor"
     return NextResponse.json(
       {
@@ -433,8 +586,14 @@ REGRAS CRÍTICAS:
 - IMPORTANTE: Analise QUANDO a visita foi AGENDADA PARA acontecer, não quando a conversa aconteceu
 - Procure por referências como "amanhã", "segunda-feira", "dia 25", "próxima semana", etc.
 - EXCLUIR: Não detecte agendamentos PARA domingo (mas a conversa pode ter acontecido no domingo)
-- Se há qualquer menção de agendamento/marcação/horário/data FUTURA, considere como agendamento
-- Seja mais inclusivo na detecção - se há contexto de agendamento, marque como true
+- REGRA DE VALIDAÇÃO RIGOROSA: Apenas marque temAgendamento=true se:
+  * Houver menção EXATA a "Diagnóstico Estratégico da Comunicação" (nome completo) E confirmação de agendamento
+  * OU se houver agendamento REALMENTE confirmado com data e horário específicos (não apenas "A definir")
+- NÃO marque como agendamento se for:
+  * Apenas pedido/solicitação ("solicitou", "pediu", "quer saber", "gostaria de")
+  * Apenas interesse sem confirmação ("tenho interesse", "estou interessado")
+  * Apenas pedido de informações sem agendamento confirmado
+  * Sem confirmação explícita de agendamento ("agendado", "marcado", "confirmado", "combinado")
 - NUNCA use formatos como "9h", "14h30", "às 15h" - SEMPRE HH:MM:SS
 - Foque na DATA DO AGENDAMENTO mencionada na conversa, não na data da mensagem
 `
@@ -493,14 +652,42 @@ REGRAS CRÍTICAS:
         }
       }
 
-      return {
+      // Tentar extrair nome do formulário primeiro (prioridade)
+      const formData = extractFormDataFromMessages(messages)
+      let nomeFinal = formData?.primeiroNome || formData?.nome?.split(' ')[0] || ""
+
+      // Se não encontrou no formulário, usar o nome da IA
+      if (!nomeFinal && resultado.nome && resultado.nome !== "Nome não identificado" && resultado.nome.length >= 3) {
+        nomeFinal = resultado.nome
+      }
+
+      // Se ainda não tem nome, tentar extrair das mensagens
+      if (!nomeFinal) {
+        nomeFinal = extractContactNameFromMessages(messages)
+      }
+
+      // Fallback final
+      if (!nomeFinal) {
+        const ultimosDigitos = contato.slice(-4)
+        nomeFinal = `Cliente ${ultimosDigitos}`
+      }
+
+      const agendamento = {
         session_id,
         contato,
-        nome: resultado.nome || "Nome não identificado",
+        nome: nomeFinal,
         horario: horarioPadronizado,
         dia: diaFormatado,
         observacoes: resultado.observacoes || "Agendamento detectado via IA",
         timestamp: new Date().toISOString(),
+      }
+
+      // Validar se é explícito antes de retornar
+      if (isAgendamentoExplicito(conversa, agendamento)) {
+        return agendamento
+      } else {
+        console.log(`[v0] Agendamento detectado pela IA mas não é explícito, ignorando`)
+        return null
       }
     }
 
@@ -617,6 +804,125 @@ function formatarDataPortugues(dataTexto: string): string {
   }
 }
 
+// Função auxiliar para extrair dados do formulário
+function extractFormDataFromMessages(messages: any[]): {
+  nome?: string
+  primeiroNome?: string
+} | null {
+  if (!messages || messages.length === 0) return null
+
+  const formData: any = {}
+
+  try {
+    // Procurar em todas as mensagens por dados do formulário
+    for (const msg of messages) {
+      const rawContent = String(msg.content || msg.message?.content || msg.message?.text || '')
+      if (rawContent && rawContent.includes('"variaveis"')) {
+        const jsonMatch = rawContent.match(/"variaveis"\s*:\s*\{([^}]+)\}/i)
+        if (jsonMatch) {
+          const varsText = jsonMatch[1]
+
+          const nomeMatch = varsText.match(/"Nome"\s*:\s*"([^"]+)"/i)
+          if (nomeMatch) formData.nome = nomeMatch[1]
+
+          const primeiroNomeMatch = varsText.match(/"PrimeiroNome"\s*:\s*"([^"]+)"/i)
+          if (primeiroNomeMatch) formData.primeiroNome = primeiroNomeMatch[1]
+
+          if (Object.keys(formData).length > 0) {
+            return formData
+          }
+        }
+      }
+    }
+  } catch (e) {
+    // Ignora erros
+  }
+
+  return null
+}
+
+// Função auxiliar para extrair nome das mensagens (versão melhorada)
+function extractContactNameFromMessages(messages: any[]): string {
+  if (!messages || messages.length === 0) return ''
+
+  const nomesEncontrados: string[] = []
+
+  for (const msg of messages) {
+    if (!msg) continue
+
+    try {
+      const content = String(msg.content || msg.message?.content || msg.message?.text || '')
+      if (!content || content.trim().length < 3) continue
+
+      // Padrões mais abrangentes para encontrar nomes
+      const patterns = [
+        // Padrões diretos de apresentação
+        /(?:meu\s+nome\s+é|me\s+chamo|sou\s+(?:a|o)|eu\s+sou)\s+([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Ú][a-zà-ú]+)?)/i,
+        /nome\s+(?:do\s+)?(?:cliente|lead|usuário|contato|da\s+pessoa):\s*([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Ú][a-zà-ú]+)?)/i,
+        /(?:oi|olá|bom\s+dia|boa\s+(?:tarde|noite)),?\s+([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Ú][a-zà-ú]+)?)/i,
+        /^([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Ú][a-zà-ú]+)?)\s*[,:]?\s*(?:aqui|falando|oi|olá|bom\s+dia|boa\s+(?:tarde|noite))/i,
+
+        // Padrões contextuais
+        /(?:para|pro|do|da|de)\s+([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Ú][a-zà-ú]+)?)\s*(?:,|\.|!|\?|$)/,
+        /([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Ú][a-zà-ú]+)?)\s+(?:quer|precisa|vai|está|gostaria|tem\s+interesse)/i,
+        /(?:alun[ao]|estudante|filho|filha|responsável|mãe|pai)\s+(?:é|:)?\s*([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Ú][a-zà-ú]+)?)/i,
+
+        // Padrões de contexto familiar
+        /(?:o|a)\s+([A-ZÀ-Ú][a-zà-ú]+)\s+(?:tem|precisa|quer|vai)/i,
+        /([A-ZÀ-Ú][a-zà-ú]+)\s+(?:aqui|falando|ligando|interessad[ao]|gostaria)/i,
+      ]
+
+      for (const pattern of patterns) {
+        const match = content.match(pattern)
+        if (match && match[1]) {
+          const nome = match[1].trim()
+
+          // Validar que não é uma palavra comum ou inválida
+          const palavrasInvalidas = [
+            'oi', 'olá', 'bom', 'boa', 'dia', 'tarde', 'noite', 'obrigado', 'obrigada',
+            'tchau', 'até', 'logo', 'sim', 'não', 'ok', 'certo', 'claro', 'perfeito',
+            'legal', 'show', 'massa', 'top', 'sua', 'memoria', 'memória', 'vox',
+            'escola', 'curso', 'aula', 'horário', 'agendamento', 'disponível',
+            'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado', 'domingo'
+          ]
+
+          const nomeLower = nome.toLowerCase()
+          const isInvalido = palavrasInvalidas.some(palavra => nomeLower === palavra || nomeLower.startsWith(palavra + ' '))
+
+          if (nome.length >= 3 &&
+            nome.length <= 50 &&
+            !isInvalido &&
+            !nome.match(/^\d+$/) &&
+            !nome.match(/^[^a-zA-ZÀ-ÿ]+$/) && // Não é só caracteres especiais
+            nome.match(/^[A-ZÀ-Ú]/)) { // Começa com maiúscula
+            // Adicionar à lista de nomes encontrados
+            if (!nomesEncontrados.includes(nome)) {
+              nomesEncontrados.push(nome)
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[extractContactNameFromMessages] Erro ao processar mensagem:', e)
+      continue
+    }
+  }
+
+  // Retornar o primeiro nome válido encontrado (ou o mais frequente)
+  if (nomesEncontrados.length > 0) {
+    // Se houver múltiplos nomes, preferir o mais curto (geralmente o primeiro nome)
+    const nomesOrdenados = nomesEncontrados.sort((a, b) => {
+      const aPalavras = a.split(' ').length
+      const bPalavras = b.split(' ').length
+      if (aPalavras !== bPalavras) return aPalavras - bPalavras
+      return a.length - b.length
+    })
+    return nomesOrdenados[0]
+  }
+
+  return ''
+}
+
 async function analisarConversaParaAgendamento(conversa: any): Promise<AgendamentoDetectado | null> {
   try {
     if (!conversa?.messages || conversa.messages.length === 0) {
@@ -631,7 +937,26 @@ async function analisarConversaParaAgendamento(conversa: any): Promise<Agendamen
       contato = contato.replace("@s.whatsapp.net", "")
     }
 
-    let nomeDetectado = ""
+    // PRIORIDADE 1: Extrair nome do formulário (se disponível)
+    const formData = extractFormDataFromMessages(messages)
+    let nomeDetectado = formData?.primeiroNome || formData?.nome?.split(' ')[0] || ""
+
+    // PRIORIDADE 2: Extrair nome das mensagens (se não encontrou no formulário)
+    if (!nomeDetectado) {
+      nomeDetectado = extractContactNameFromMessages(messages)
+    }
+
+    // PRIORIDADE 3: Usar contact_name (se disponível e válido)
+    if (!nomeDetectado && contact_name && contact_name !== "Nome não identificado" && contact_name.length >= 3) {
+      nomeDetectado = contact_name
+    }
+
+    // PRIORIDADE 4: Fallback para identificador do contato
+    if (!nomeDetectado) {
+      const ultimosDigitos = contato.slice(-4)
+      nomeDetectado = `Cliente ${ultimosDigitos}`
+    }
+
     let horario = ""
     let dia = ""
     let observacoes = ""
@@ -704,44 +1029,9 @@ async function analisarConversaParaAgendamento(conversa: any): Promise<Agendamen
       "ocupado",
     ]
 
-    const padrõesNome = [
-      /(?:meu nome é|me chamo|sou (?:a|o)|eu sou)\s+([A-Za-zÀ-ÿ\s]{2,30})/i,
-      /^([A-Za-zÀ-ÿ]{3,20})\s*[,:]?\s*(?:aqui|falando|oi|olá|bom dia|boa tarde|boa noite)/i,
-      /(?:nome|chamam)\s*(?:é|:)?\s*([A-Za-zÀ-ÿ\s]{2,30})/i,
-      /^([A-Za-zÀ-ÿ\s]{3,25})(?:\s*-\s*|\s*,\s*|\s+)(?:interessad[ao]|gostaria|quero|preciso)/i,
-      /(?:alun[ao]|estudante|filho|filha)\s*(?:é|:)?\s*([A-Za-zÀ-ÿ\s]{2,30})/i,
-      /(?:para|pro)\s+([A-Za-zÀ-ÿ\s]{3,25})(?:\s*,|\s*\.|\s+(?:de|da|do))/i,
-      /([A-Za-zÀ-ÿ\s]{3,20})\s+(?:quer|precisa|vai|está)/i,
-      /(?:da|do|de)\s+([A-Z][a-zÀ-ÿ]+(?:\s+[A-Z][a-zÀ-ÿ]+)*)\s*(?:,|\.|!|\?|$)/,
-      /(?:responsável|mãe|pai|tia|avó|avô)\s+(?:é|:)?\s*([A-Za-zÀ-ÿ\s]{2,30})/i,
-      /([A-Za-zÀ-ÿ\s]{3,20})\s+(?:aqui|falando|ligando|interessad[ao])/i,
-    ]
-
     // Analisar todas as mensagens para extrair informações contextuais
     for (const mensagem of messages) {
       const texto = mensagem.content || ""
-
-      if (!nomeDetectado) {
-        for (const padrão of padrõesNome) {
-          const match = texto.match(padrão)
-          if (match && match[1]) {
-            const nomeCandidate = match[1].trim()
-            if (
-              !nomeCandidate.match(
-                /^(oi|olá|bom|boa|dia|tarde|noite|obrigad[ao]|tchau|até|logo|sim|não|ok|certo|claro|perfeito|legal|show|massa|top|sua|memoria|memória)$/i,
-              ) &&
-              nomeCandidate.length >= 3 &&
-              nomeCandidate.length <= 30 &&
-              !nomeCandidate.match(/^\d+$/) && // Não é só números
-              !nomeCandidate.toLowerCase().includes("memoria") &&
-              !nomeCandidate.toLowerCase().includes("memória")
-            ) {
-              nomeDetectado = nomeCandidate
-              break
-            }
-          }
-        }
-      }
 
       // Detectar agendamentos com contexto mais amplo
       const textoLower = texto.toLowerCase()
@@ -858,16 +1148,6 @@ async function analisarConversaParaAgendamento(conversa: any): Promise<Agendamen
       if (!timestamp && mensagem.timestamp) {
         timestamp = mensagem.timestamp
       }
-    }
-
-    if (!nomeDetectado && contact_name && contact_name !== "Nome não identificado") {
-      nomeDetectado = contact_name
-    }
-
-    if (!nomeDetectado) {
-      // Tentar extrair nome do número de telefone ou criar identificador mais útil
-      const ultimosDigitos = contato.slice(-4)
-      nomeDetectado = `Cliente ${ultimosDigitos}`
     }
 
     if (!horario && agendamentoDetectado) {

@@ -46,13 +46,13 @@ export function AppSidebar() {
     <Sidebar className="bg-[var(--card-black)] border-[var(--border-gray)] backdrop-blur-sm">
       <SidebarHeader className="px-4 py-6 border-b border-[var(--border-gray)]">
         <div className="flex items-center gap-4 px-2">
-          <div className="w-12 h-12 bg-gradient-to-br from-[var(--accent-green)] to-[var(--dark-green)] rounded-2xl flex items-center justify-center shadow-lg shadow-[var(--accent-green)]/30 animate-pulse">
+          <div className="w-12 h-12 bg-gradient-to-br from-[var(--accent-yellow)] to-[var(--dark-yellow)] rounded-2xl flex items-center justify-center shadow-lg shadow-[var(--accent-yellow)]/30 animate-pulse">
             <Zap className="h-6 w-6 text-[var(--primary-black)] font-bold" />
           </div>
           <div>
             <span className="font-bold text-[var(--pure-white)] text-lg tracking-wide">GerencIA</span>
             <div className="text-xs text-[var(--text-gray)] uppercase tracking-[0.2em] font-light">
-              Agentes IA Mensuráveis
+              By CORE LION AI
             </div>
           </div>
         </div>

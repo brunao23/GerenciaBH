@@ -1,5 +1,19 @@
 import { NextResponse } from "next/server"
-import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
+import { createClient } from "@supabase/supabase-js"
+
+// Cliente Supabase com Service Role para acesso administrativo
+function createServiceRoleClient() {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+
+    return createClient(supabaseUrl, supabaseServiceKey, {
+        auth: {
+            persistSession: false,
+            autoRefreshToken: false,
+            detectSessionInUrl: false
+        }
+    })
+}
 
 // Tipos
 interface ConversationMetrics {
@@ -255,7 +269,43 @@ export async function GET(req: Request) {
         const customEnd = searchParams.get('endDate')
 
         console.log(`[Analytics] Iniciando análise para período: ${period}`)
-        const supabase = createBiaSupabaseServerClient()
+
+        // ✅ OBTER TENANT DO HEADER
+        let tenant = req.headers.get('x-tenant-prefix')
+
+        // Se não vier no header, tenta pegar da URL se existir parametro, ou fallback
+        if (!tenant) {
+            tenant = searchParams.get("tenant")
+        }
+
+        if (!tenant) {
+            console.warn("⚠️ Tenant não especificado em analytics/insights. Usando 'vox_bh' como fallback.")
+            tenant = 'vox_bh'
+        }
+
+        const supabase = createServiceRoleClient()
+        const chatHistoriesTable = `${tenant}n8n_chat_histories`
+        const agendamentosTable = `${tenant}_agendamentos`
+
+        console.log(`[Analytics] [${tenant}] Usando tabelas: ${chatHistoriesTable}, ${agendamentosTable}`)
+
+        // ✅ BUSCAR AGENDAMENTOS DIRETAMENTE DA TABELA
+        let agendamentosCount = 0
+        let agendamentosDoPeríodo: any[] = []
+        try {
+            const { data: agendamentos, error: agError } = await supabase
+                .from(agendamentosTable)
+                .select('*')
+
+            if (!agError && agendamentos) {
+                agendamentosDoPeríodo = agendamentos
+                console.log(`[Analytics] ✅ Encontrados ${agendamentos.length} agendamentos na tabela ${agendamentosTable}`)
+            } else {
+                console.warn(`[Analytics] ⚠️ Erro ao buscar agendamentos: ${agError?.message || 'Tabela não encontrada'}`)
+            }
+        } catch (e: any) {
+            console.warn(`[Analytics] ⚠️ Tabela de agendamentos não acessível: ${e.message}`)
+        }
 
         // Calcula data de início baseado no período
         const now = new Date()
@@ -285,7 +335,7 @@ export async function GET(req: Request) {
 
         // LEI INVIOLÁVEL: Busca TODAS as mensagens sem limite artificial
         console.log(`[Analytics] Buscando dados do período: ${startDate.toISOString()} até ${endDate.toISOString()}`)
-        
+
         // LEI INVIOLÁVEL: Aumenta limites para carregar TODOS os dados
         const pageSize = 1000 // Aumenta tamanho da página
         const maxRecords = 100000 // Limite muito maior para garantir todos os dados
@@ -295,15 +345,15 @@ export async function GET(req: Request) {
         let hasMore = true
         let pageCount = 0
         const maxPages = 200 // Máximo de 200 páginas (200k mensagens) para garantir todos os dados
-        
+
         // LEI INVIOLÁVEL: Busca mensagens com paginação - busca TODAS sem limite artificial
         while (hasMore && pageCount < maxPages && allChats.length < maxRecords) {
             pageCount++
             console.log(`[Analytics] Buscando página ${pageCount}, range ${from}-${to}, total acumulado: ${allChats.length}`)
-            
+
             // LEI INVIOLÁVEL: Busca ordenando por ID ascendente para pegar TODAS as mensagens
             const { data: chats, error } = await supabase
-                .from("robson_voxn8n_chat_histories")
+                .from(chatHistoriesTable)
                 .select("session_id, message, id, created_at")
                 .order("id", { ascending: true }) // Ordena ascendente para pegar TODAS as mensagens do início ao fim
                 .range(from, to)
@@ -313,18 +363,18 @@ export async function GET(req: Request) {
                 // Se der erro por created_at não existir, tenta sem ele
                 if (error.message?.includes("created_at")) {
                     const { data: chatsWithoutDate, error: error2 } = await supabase
-                        .from("robson_voxn8n_chat_histories")
+                        .from(chatHistoriesTable)
                         .select("session_id, message, id")
                         .order("id", { ascending: false })
                         .range(from, to)
-                    
+
                     if (error2) {
                         console.error("[Analytics] Erro ao buscar sem created_at:", error2)
                         // Continua com o que já tem
                         hasMore = false
                         break
                     }
-                    
+
                     if (chatsWithoutDate && chatsWithoutDate.length > 0) {
                         allChats.push(...chatsWithoutDate)
                         if (chatsWithoutDate.length < pageSize || allChats.length >= maxRecords) {
@@ -349,7 +399,7 @@ export async function GET(req: Request) {
             if (chats && chats.length > 0) {
                 allChats.push(...chats)
                 console.log(`[Analytics] Página ${pageCount}: ${chats.length} mensagens, total: ${allChats.length}`)
-                
+
                 if (chats.length < pageSize || allChats.length >= maxRecords) {
                     hasMore = false
                 } else {
@@ -379,7 +429,7 @@ export async function GET(req: Request) {
         // Analisa cada conversa
         const conversationMetrics: ConversationMetrics[] = []
         const contactMap = new Map<string, { messages: number; conversations: number; lastTime: string; name: string; status: string }>()
-        
+
         let processedCount = 0
         let skippedCount = 0
         let includedCount = 0
@@ -392,7 +442,7 @@ export async function GET(req: Request) {
             // LEI INVIOLÁVEL: Parse robusto de mensagens
             const parsedMessages = sortedMessages.map(m => {
                 let messageData = m.message
-                
+
                 // Se message é string, tenta fazer parse
                 if (typeof messageData === 'string') {
                     try {
@@ -402,16 +452,16 @@ export async function GET(req: Request) {
                         messageData = { content: messageData, type: 'unknown' }
                     }
                 }
-                
+
                 // Se message é null/undefined, cria estrutura básica
                 if (!messageData) {
                     messageData = { content: '', type: 'unknown' }
                 }
-                
+
                 // Normaliza type/role
                 const type = messageData.type || messageData.role || 'unknown'
                 const normalizedType = type.toLowerCase() === 'human' || type.toLowerCase() === 'user' ? 'human' : 'ai'
-                
+
                 return {
                     ...m,
                     message: {
@@ -436,14 +486,14 @@ export async function GET(req: Request) {
 
             // LEI INVIOLÁVEL: Tenta extrair timestamp de múltiplas fontes
             let firstTime: Date | null = null
-            
+
             if (firstTimeStr) {
                 firstTime = new Date(firstTimeStr)
                 if (isNaN(firstTime.getTime())) {
                     firstTime = null
                 }
             }
-            
+
             // Se não conseguiu extrair timestamp válido, tenta usar created_at da tabela
             if (!firstTime && firstMsg.created_at) {
                 firstTime = new Date(firstMsg.created_at)
@@ -451,7 +501,7 @@ export async function GET(req: Request) {
                     firstTime = null
                 }
             }
-            
+
             // LEI INVIOLÁVEL: Filtro de período RIGOROSO mas flexível
             // Se não tem timestamp, inclui (não queremos perder dados)
             if (!firstTime || isNaN(firstTime.getTime())) {
@@ -462,7 +512,7 @@ export async function GET(req: Request) {
                 // LEI INVIOLÁVEL: Filtra por período de forma RIGOROSA
                 // Verifica se a primeira mensagem está dentro do período
                 const isInPeriod = firstTime >= startDate && firstTime <= endDate
-                
+
                 if (!isInPeriod) {
                     // Se está fora do período, pula
                     skippedCount++
@@ -479,32 +529,68 @@ export async function GET(req: Request) {
 
             // LEI INVIOLÁVEL: Identifica momento da conversão com padrões RIGOROSOS
             // Apenas detecta conversão se houver confirmação clara de agendamento
+            // REGRA: Apenas agendamentos explícitos com "Diagnostico Estrategico da Comunicação" OU realmente marcados
             let successTime: Date | null = null
             const messageContents: string[] = []
             let foundSuccessPattern = false
             let matchedPattern = ''
+            let temDiagnosticoEstrategico = false
+            let temAgendamentoReal = false
 
             for (const m of parsedMessages) {
                 const content = String(m.message?.content || m.message?.text || '').toLowerCase()
                 messageContents.push(content)
 
+                // Verifica se há menção EXATA a "Diagnóstico Estratégico da Comunicação"
+                // Apenas aceita o nome completo ou muito próximo
+                const diagnosticoPatterns = [
+                    /diagn[oó]stico\s+estrat[ée]gico\s+da\s+comunica[çc][ãa]o/i, // Nome completo (prioridade)
+                    /diagn[oó]stico\s+estrat[ée]gico\s+comunica[çc][ãa]o/i, // Variação próxima
+                ]
+
+                // Verifica se tem o nome completo (mais rigoroso)
+                const temNomeCompleto = diagnosticoPatterns.some(pattern => pattern.test(content))
+
+                if (temNomeCompleto) {
+                    temDiagnosticoEstrategico = true
+                }
+
+                // Verifica se há agendamento REAL (com confirmação explícita e data/horário definidos)
+                // Precisa ter confirmação clara, não apenas menção
+                const agendamentoRealPatterns = [
+                    // Confirmações explícitas com data e horário
+                    /(?:agendad|marcad|confirmad|combinad).*(?:para|no|dia|em).*(?:\d{1,2}\/\d{1,2}\/\d{4}|\d{1,2}\/\d{1,2}).*(?:às|as|para|pro).*(?:\d{1,2}:\d{2}|\d{1,2}h)/i,
+                    /(?:agendad|marcad|confirmad|combinad).*(?:para|no|dia|em).*(?:segunda|terça|quarta|quinta|sexta).*(?:às|as|para|pro).*(?:\d{1,2}:\d{2}|\d{1,2}h)/i,
+                    /(?:confirmo|confirmar|combinamos|marcamos).*(?:agendamento|hor[áa]rio|data|dia|consulta).*(?:para|no|dia|em).*(?:\d{1,2}\/\d{1,2}|\d{1,2}h)/i,
+                    // Confirmações de comparecimento
+                    /(?:vou|irei|estarei|comparecerei).*(?:no|na|dia|em|para).*(?:\d{1,2}\/\d{1,2}\/\d{4}|\d{1,2}\/\d{1,2}).*(?:às|as).*(?:\d{1,2}:\d{2}|\d{1,2}h)/i,
+                ]
+
+                // Verifica se tem confirmação REAL (não apenas interesse)
+                const temConfirmacaoReal = agendamentoRealPatterns.some(pattern => pattern.test(content))
+
+                // Exclui se for apenas interesse/pedido sem confirmação
+                const apenasInteresse = /(?:quer|queria|gostaria|tenho.*interesse|estou.*interessad)/i.test(content) &&
+                    !/(?:agendad|marcad|confirmad|combinad|vou.*ir|estarei)/i.test(content)
+
+                if (temConfirmacaoReal && !apenasInteresse) {
+                    temAgendamentoReal = true
+                }
+
                 // LEI INVIOLÁVEL: Padrões RIGOROSOS - apenas confirmações claras de agendamento
                 // Remove padrões genéricos que causam falsos positivos
                 const successPatterns = [
-                    // Confirmações explícitas de agendamento
-                    { pattern: /(?:agendad|marcad|confirmad).*(?:hor[áa]rio|data|dia|consulta|avalia[çc][ãa]o)/i, name: 'agendamento confirmado' },
-                    { pattern: /(?:confirmo|confirmar).*(?:agendamento|hor[áa]rio|data|dia)/i, name: 'confirmo agendamento' },
-                    { pattern: /(?:perfeito|ótimo|ok).*(?:agendad|marcad|confirmad)/i, name: 'perfeito agendado' },
-                    { pattern: /(?:vou|irei|estarei).*(?:comparecer|ir|participar)/i, name: 'vou comparecer' },
-                    { pattern: /(?:aceit|aceito|aceitar).*(?:agendamento|hor[áa]rio)/i, name: 'aceito agendamento' },
-                    // Padrões com contexto de data/horário
-                    { pattern: /(?:agendad|marcad).*(?:para|no|dia|em).*(?:\d{1,2}\/\d{1,2}|\d{1,2}h)/i, name: 'agendado com data' },
-                    { pattern: /(?:confirmad|confirmo).*(?:para|no|dia|em).*(?:\d{1,2}\/\d{1,2}|\d{1,2}h)/i, name: 'confirmado com data' },
+                    // Confirmações explícitas de agendamento COM contexto de Diagnostico Estrategico
+                    { pattern: /(?:agendad|marcad|confirmad).*(?:diagn[oó]stico|estrat[ée]gico|comunica[çc][ãa]o)/i, name: 'agendamento com diagnostico' },
+                    { pattern: /(?:diagn[oó]stico|estrat[ée]gico|comunica[çc][ãa]o).*(?:agendad|marcad|confirmad)/i, name: 'diagnostico agendado' },
+                    // Confirmações explícitas de agendamento COM data e horário definidos
+                    { pattern: /(?:agendad|marcad|confirmad).*(?:para|no|dia|em).*(?:\d{1,2}\/\d{1,2}\/\d{4}|\d{1,2}\/\d{1,2}).*(?:às|as|para|pro).*(?:\d{1,2}:\d{2}|\d{1,2}h)/i, name: 'agendado com data e horario' },
+                    { pattern: /(?:confirmo|confirmar).*(?:agendamento|hor[áa]rio|data|dia).*(?:para|no|dia|em).*(?:\d{1,2}\/\d{1,2}|\d{1,2}h)/i, name: 'confirmado com data' },
                     // Confirmações de fechamento/contrato
                     { pattern: /(?:fechad|contrat|fechar|contratar).*(?:neg[óo]cio|servi[çc]o|curso)/i, name: 'fechado/contratado' }
                 ]
 
-                // LEI INVIOLÁVEL: Exclui falsos positivos
+                // LEI INVIOLÁVEL: Exclui falsos positivos - pedidos, solicitações, interesses sem confirmação
                 const falsePositivePatterns = [
                     /n[ãa]o.*agend/i,
                     /ainda.*n[ãa]o/i,
@@ -513,18 +599,43 @@ export async function GET(req: Request) {
                     /depois.*vejo/i,
                     /n[ãa]o.*quero/i,
                     /cancelar/i,
-                    /desistir/i
+                    /desistir/i,
+                    // Padrões de solicitação/pedido (NÃO são agendamentos)
+                    /solicit[oua]|solicitar/i,
+                    /pedi[duo]|pedir/i,
+                    /quer.*saber|queria.*saber|gostaria.*saber/i,
+                    /gostaria.*de|queria.*de|quer.*de/i,
+                    /tem.*interesse|tenho.*interesse/i,
+                    /informa[çc][õo]es|informa[çc][ãa]o/i,
+                    /preciso.*saber|preciso.*informa/i,
+                    /pode.*me.*enviar|pode.*mandar/i,
+                    /quanto.*custa|qual.*o.*pre[çc]o/i,
+                    /quero.*conhecer|queria.*conhecer/i,
+                    /apenas.*quer|s[óo].*quer|s[óo].*queria/i,
+                    /estou.*interessad|tenho.*interesse/i,
+                    /me.*envie|me.*mande|me.*passe/i,
                 ]
 
                 // Verifica se não é falso positivo primeiro
                 const isFalsePositive = falsePositivePatterns.some(pattern => pattern.test(content))
-                
+
+                // Se for apenas pedido/solicitação, não considera como agendamento
+                if (isFalsePositive) {
+                    // Verifica se é APENAS pedido (sem confirmação de agendamento)
+                    const apenasPedido = /(?:solicit|pedi|quer.*saber|gostaria|informa[çc]|preciso.*saber)/i.test(content) &&
+                        !/(?:agendad|marcad|confirmad|vou.*ir|estarei|comparecer)/i.test(content)
+
+                    if (apenasPedido) {
+                        continue // Pula esta mensagem, não é agendamento
+                    }
+                }
+
                 if (!successTime && !isFalsePositive) {
                     for (const { pattern, name } of successPatterns) {
                         if (pattern.test(content)) {
                             // LEI INVIOLÁVEL: Valida que é mensagem do CLIENTE, não da IA
                             const isUserMessage = m.message?.type === 'human' || m.message?.type === 'user'
-                            
+
                             if (isUserMessage) {
                                 foundSuccessPattern = true
                                 matchedPattern = name
@@ -550,11 +661,14 @@ export async function GET(req: Request) {
                     }
                 }
             }
-            
-            // LEI INVIOLÁVEL: Define hasSuccess APENAS se tiver timestamp válido OU padrão muito claro
-            // Não marca como sucesso apenas por palavras soltas
-            const hasSuccess = !!successTime || (foundSuccessPattern && parsedMessages.length >= 3)
-            
+
+            // LEI INVIOLÁVEL: Define hasSuccess APENAS se:
+            // 1. Tiver menção EXATA a "Diagnóstico Estratégico da Comunicação" E padrão de agendamento encontrado
+            // 2. OU tiver agendamento REAL confirmado (com data e horário definidos E confirmação explícita)
+            // NÃO marca como sucesso apenas por palavras soltas, pedidos, solicitações ou interesses sem confirmação
+            const hasSuccess = (temDiagnosticoEstrategico && foundSuccessPattern && !!successTime) ||
+                (temAgendamentoReal && foundSuccessPattern && !!successTime)
+
             // Log para debug
             if (foundSuccessPattern && !successTime) {
                 console.log(`[Analytics] Sessão ${sessionId}: Padrão encontrado (${matchedPattern}) mas sem timestamp - Mensagens: ${parsedMessages.length}`)
@@ -570,7 +684,7 @@ export async function GET(req: Request) {
                 const dateMatch = content.match(/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.[0-9]{1,3})?(?:[+-][0-9]{2}:[0-9]{2}|Z)?)/)
                 if (dateMatch) lastTimeStr = dateMatch[1]
             }
-            
+
             // LEI INVIOLÁVEL: Valida lastTime antes de usar
             let lastTime: Date
             if (lastTimeStr) {
@@ -606,11 +720,11 @@ export async function GET(req: Request) {
             for (let i = 1; i < parsedMessages.length; i++) {
                 const prevTimeStr = parsedMessages[i - 1].message?.created_at || parsedMessages[i - 1].created_at
                 const currTimeStr = parsedMessages[i].message?.created_at || parsedMessages[i].created_at
-                
+
                 // LEI INVIOLÁVEL: Valida firstTime antes de usar
                 let prev: Date
                 let curr: Date
-                
+
                 if (prevTimeStr) {
                     prev = new Date(prevTimeStr)
                 } else if (firstTime && !isNaN(firstTime.getTime())) {
@@ -619,7 +733,7 @@ export async function GET(req: Request) {
                     // Se não tem timestamp, usa timestamp atual como base
                     prev = new Date(Date.now() - (parsedMessages.length - i) * 60000)
                 }
-                
+
                 if (currTimeStr) {
                     curr = new Date(currTimeStr)
                 } else if (firstTime && !isNaN(firstTime.getTime())) {
@@ -628,7 +742,7 @@ export async function GET(req: Request) {
                     // Se não tem timestamp, usa timestamp atual como base
                     curr = new Date(Date.now() - (parsedMessages.length - i - 1) * 60000)
                 }
-                
+
                 if (!isNaN(prev.getTime()) && !isNaN(curr.getTime())) {
                     responseTimes.push((curr.getTime() - prev.getTime()) / 1000)
                 }
@@ -640,7 +754,7 @@ export async function GET(req: Request) {
 
             // LEI INVIOLÁVEL: Detecção melhorada de conversão
             let conversionStatus: 'converted' | 'in_progress' | 'lost' = 'in_progress'
-            
+
             // Verifica se há sucesso (agendamento/confirmação)
             if (hasSuccess) {
                 conversionStatus = 'converted'
@@ -680,7 +794,7 @@ export async function GET(req: Request) {
             // LEI INVIOLÁVEL: Garante que firstTime e lastTime sejam válidos antes de usar toISOString()
             const safeFirstTime = (firstTime && !isNaN(firstTime.getTime())) ? firstTime : new Date(Date.now())
             const safeLastTime = (lastTime && !isNaN(lastTime.getTime())) ? lastTime : new Date(Date.now())
-            
+
             conversationMetrics.push({
                 sessionId,
                 numero,
@@ -706,7 +820,7 @@ export async function GET(req: Request) {
             // Atualiza mapa de contatos
             // LEI INVIOLÁVEL: Garante que lastTime seja válido antes de usar toISOString()
             const safeLastTimeForContact = (lastTime && !isNaN(lastTime.getTime())) ? lastTime : new Date(Date.now())
-            
+
             if (!contactMap.has(numero)) {
                 contactMap.set(numero, {
                     messages: 0,
@@ -728,7 +842,7 @@ export async function GET(req: Request) {
 
         console.log(`[Analytics] Processadas: ${processedCount}, Incluídas: ${includedCount}, Puladas: ${skippedCount}`)
         console.log(`[Analytics] ${conversationMetrics.length} conversas analisadas após filtro de data`)
-        
+
         // LEI INVIOLÁVEL: Log detalhado para debug
         if (conversationMetrics.length > 0) {
             const sample = conversationMetrics[0]
@@ -743,7 +857,7 @@ export async function GET(req: Request) {
                 engagementScore: sample.engagementScore
             })
         }
-        
+
         // LEI INVIOLÁVEL: Se não encontrou conversas, retorna estrutura vazia mas válida
         if (conversationMetrics.length === 0) {
             console.log(`[Analytics] AVISO: Nenhuma conversa encontrada no período. Retornando estrutura vazia.`)
@@ -751,7 +865,7 @@ export async function GET(req: Request) {
             console.log(`[Analytics] Total de sessões no banco: ${sessionMap.size}`)
             console.log(`[Analytics] Total de mensagens carregadas: ${allChats.length}`)
             console.log(`[Analytics] Processadas: ${processedCount}, Incluídas: ${includedCount}, Puladas: ${skippedCount}`)
-            
+
             // LEI INVIOLÁVEL: Retorna estrutura vazia mas válida para não quebrar o frontend
             const emptyInsights: AnalyticsInsights = {
                 totalConversations: 0,
@@ -770,7 +884,7 @@ export async function GET(req: Request) {
                 nonSchedulingReasons: [],
                 recommendations: ["Nenhum dado encontrado no período selecionado. Tente selecionar um período diferente."]
             }
-            
+
             return NextResponse.json({
                 success: true,
                 period,
@@ -795,25 +909,25 @@ export async function GET(req: Request) {
         const converted = conversationMetrics.filter(c => c.conversionStatus === 'converted')
         const inProgress = conversationMetrics.filter(c => c.conversionStatus === 'in_progress')
         const lost = conversationMetrics.filter(c => c.conversionStatus === 'lost')
-        
+
         // LEI INVIOLÁVEL: Conta por hasSuccess (mais confiável) e também por status
         const convertedBySuccess = conversationMetrics.filter(c => c.hasSuccess === true)
-        
+
         console.log(`[Analytics] 📊 Status das conversas:`)
         console.log(`  - Total: ${conversationMetrics.length}`)
         console.log(`  - Convertidas (por status): ${converted.length}`)
         console.log(`  - Convertidas (por hasSuccess): ${convertedBySuccess.length}`)
         console.log(`  - Em progresso: ${inProgress.length}`)
         console.log(`  - Perdidas: ${lost.length}`)
-        
+
         // LEI INVIOLÁVEL: Usa hasSuccess como fonte principal (mais confiável)
         // Combina ambos para garantir que não perdemos nenhuma conversão
-        const actualConverted = convertedBySuccess.length > 0 
-            ? convertedBySuccess 
+        const actualConverted = convertedBySuccess.length > 0
+            ? convertedBySuccess
             : (converted.length > 0 ? converted : [])
-        
+
         console.log(`[Analytics] ✅ Conversões finais usadas para cálculo: ${actualConverted.length}`)
-        
+
         // Log detalhado das primeiras conversas com hasSuccess
         if (convertedBySuccess.length > 0) {
             console.log(`[Analytics] Primeiras 3 conversas com hasSuccess=true:`)
@@ -827,7 +941,7 @@ export async function GET(req: Request) {
                 console.log(`  ${idx + 1}. Sessão: ${c.sessionId}, hasSuccess: ${c.hasSuccess}, Status: ${c.conversionStatus}, Mensagens: ${c.totalMessages}`)
             })
         }
-        
+
         // LEI INVIOLÁVEL: Calcula métricas com validação robusta
         const conversionRate = conversationMetrics.length > 0
             ? (actualConverted.length / conversationMetrics.length) * 100
@@ -840,13 +954,25 @@ export async function GET(req: Request) {
         const avgTimeToConvert = actualConverted.length > 0
             ? actualConverted.reduce((sum, c) => sum + c.conversationDuration, 0) / actualConverted.length
             : 0
-        
-        // LEI INVIOLÁVEL: Conta agendamentos usando hasSuccess (mais confiável)
-        const appointments = convertedBySuccess.length
-        
+
+        // ✅ USAR AGENDAMENTOS DA TABELA (FONTE PRINCIPAL) + análise de conversas (backup)
+        // Prioriza dados da tabela de agendamentos, mas se estiver vazia, usa análise de conversas
+        const agendamentosDaTabela = agendamentosDoPeríodo.length
+        const agendamentosDasConversas = convertedBySuccess.length
+        const appointments = agendamentosDaTabela > 0
+            ? agendamentosDaTabela
+            : agendamentosDasConversas
+
+        // Recalcula taxa de conversão se tiver agendamentos na tabela
+        const taxaConversaoReal = agendamentosDaTabela > 0 && conversationMetrics.length > 0
+            ? (agendamentosDaTabela / conversationMetrics.length) * 100
+            : conversionRate
+
         console.log(`[Analytics] ✅ Métricas calculadas:`)
-        console.log(`  - Taxa de conversão: ${conversionRate.toFixed(2)}%`)
-        console.log(`  - Agendamentos: ${appointments}`)
+        console.log(`  - Agendamentos na tabela: ${agendamentosDaTabela}`)
+        console.log(`  - Agendamentos por análise de conversas: ${agendamentosDasConversas}`)
+        console.log(`  - Total de agendamentos utilizados: ${appointments}`)
+        console.log(`  - Taxa de conversão: ${taxaConversaoReal.toFixed(2)}%`)
         console.log(`  - Média de mensagens para converter: ${avgMessagesToConvert.toFixed(2)}`)
         console.log(`  - Média de tempo para converter: ${avgTimeToConvert.toFixed(2)} minutos`)
         console.log(`  - Total de conversas analisadas: ${conversationMetrics.length}`)
@@ -902,11 +1028,11 @@ export async function GET(req: Request) {
         const allKeywords = conversationMetrics.flatMap(c => c.keywords)
         const keywordFreq: { [key: string]: number } = {}
         const keywordConversions: { [key: string]: number } = {}
-        
+
         allKeywords.forEach(k => {
             keywordFreq[k] = (keywordFreq[k] || 0) + 1
         })
-        
+
         // Calcula conversões por keyword
         conversationMetrics.forEach(c => {
             if (c.hasSuccess) {
@@ -924,18 +1050,18 @@ export async function GET(req: Request) {
             }))
             .sort((a, b) => b.frequency - a.frequency)
             .slice(0, 20)
-        
+
         console.log(`[Analytics] 📝 Top keywords identificadas: ${topKeywords.length}`)
 
         // LEI INVIOLÁVEL: Análise de Objeções com cálculo de sucesso
         const allObjections = conversationMetrics.flatMap(c => c.objections)
         const objectionFreq: { [key: string]: number } = {}
         const objectionSuccess: { [key: string]: number } = {}
-        
+
         allObjections.forEach(o => {
             objectionFreq[o] = (objectionFreq[o] || 0) + 1
         })
-        
+
         // Calcula sucesso no tratamento de objeções
         conversationMetrics.forEach(c => {
             if (c.hasSuccess && c.objections.length > 0) {
@@ -956,7 +1082,7 @@ export async function GET(req: Request) {
                 }
             })
             .sort((a, b) => b.frequency - a.frequency)
-        
+
         console.log(`[Analytics] 🚫 Objeções identificadas: ${objectionAnalysis.length}`)
 
         // Motivos de não agendamento
@@ -991,13 +1117,13 @@ export async function GET(req: Request) {
         console.log(`  - Média tempo: ${avgTimeToConvert.toFixed(2)} minutos`)
         console.log(`  - Melhores horários: ${bestPerformingHours.length}`)
         console.log(`  - Melhores dias: ${bestPerformingDays.length}`)
-        
+
         // LEI INVIOLÁVEL: Valida valores antes de retornar
-        const validatedConversionRate = isNaN(conversionRate) ? 0 : Math.max(0, Math.min(100, conversionRate))
+        const validatedConversionRate = isNaN(taxaConversaoReal) ? 0 : Math.max(0, Math.min(100, taxaConversaoReal))
         const validatedAvgMessages = isNaN(avgMessagesToConvert) ? 0 : Math.max(0, avgMessagesToConvert)
         const validatedAvgTime = isNaN(avgTimeToConvert) ? 0 : Math.max(0, avgTimeToConvert)
         const validatedAppointments = isNaN(appointments) ? 0 : Math.max(0, appointments)
-        
+
         const insights: AnalyticsInsights = {
             totalConversations: conversationMetrics.length,
             conversionRate: validatedConversionRate,
@@ -1015,7 +1141,7 @@ export async function GET(req: Request) {
             nonSchedulingReasons: nonSchedulingAnalysis,
             recommendations
         }
-        
+
         // LEI INVIOLÁVEL: Log de validação final
         console.log(`[Analytics] ✅ Dados validados antes de retornar:`)
         console.log(`  - Total conversas: ${insights.totalConversations}`)

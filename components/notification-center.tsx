@@ -7,6 +7,7 @@ import { initAudioOnUserGesture, playSound } from "@/lib/notifications/sounds"
 import { useToast } from "@/hooks/use-toast"
 import { Button } from "./ui/button"
 import { Bell, BellOff } from "lucide-react"
+import { useTenant } from "@/lib/contexts/TenantContext"
 
 type PostgresChangePayload<T> = {
   schema: string
@@ -18,6 +19,7 @@ type PostgresChangePayload<T> = {
 
 export default function NotificationCenter() {
   const { toast } = useToast()
+  const { tenant } = useTenant()
   const [supa, setSupa] = useState<ReturnType<typeof supabaseClient> | null>(null)
   const [muted, setMuted] = useState(false)
   const mounted = useRef(false)
@@ -38,14 +40,19 @@ export default function NotificationCenter() {
   }, [])
 
   useEffect(() => {
-    if (!supa) return
+    if (!supa || !tenant) return
+
+    // ✅ Nomes de tabelas dinâmicos baseados no tenant
+    const chatHistoriesTable = `${tenant.prefix}n8n_chat_histories`
+    const agendamentosTable = `${tenant.prefix}_agendamentos`
+    const followNormalTable = `${tenant.prefix}_follow_normal`
 
     // Novas mensagens
     const chChats = supa
-      .channel("realtime:robson_voxn8n_chat_histories")
+      .channel(`realtime:${chatHistoriesTable}`)
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "robson_voxn8n_chat_histories" },
+        { event: "INSERT", schema: "public", table: chatHistoriesTable },
         (payload: PostgresChangePayload<any>) => {
           const row = payload.new
           const message = row?.message ?? {}
@@ -80,10 +87,10 @@ export default function NotificationCenter() {
 
     // Novos agendamentos
     const chAg = supa
-      .channel("realtime:robson_vox_agendamentos")
+      .channel(`realtime:${agendamentosTable}`)
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "robson_vox_agendamentos" },
+        { event: "INSERT", schema: "public", table: agendamentosTable },
         (payload: PostgresChangePayload<any>) => {
           const r = payload.new
           const nome = r?.nome_aluno ?? r?.nome_responsavel ?? "Novo agendamento"
@@ -103,10 +110,10 @@ export default function NotificationCenter() {
 
     // Follow-ups
     const chFollow = supa
-      .channel("realtime:robson_vox_folow_normal")
+      .channel(`realtime:${followNormalTable}`)
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "robson_vox_folow_normal" },
+        { event: "INSERT", schema: "public", table: followNormalTable },
         (payload: PostgresChangePayload<any>) => {
           const r = payload.new
           const numero = r?.numero ?? "sem número"
@@ -128,7 +135,7 @@ export default function NotificationCenter() {
       supa.removeChannel(chAg)
       supa.removeChannel(chFollow)
     }
-  }, [supa, toast, muted])
+  }, [supa, toast, muted, tenant])
 
   return (
     <div className="fixed bottom-4 right-4 z-[60]">

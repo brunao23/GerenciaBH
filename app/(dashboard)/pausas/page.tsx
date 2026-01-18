@@ -11,6 +11,7 @@ import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
 import { Trash2, Plus, Phone, Pause, Play } from "lucide-react"
 import { toast } from "sonner"
+import { useTenant } from "@/lib/contexts/TenantContext"
 
 interface PausaRecord {
   id: number
@@ -23,6 +24,7 @@ interface PausaRecord {
 }
 
 export default function PausasPage() {
+  const { tenant } = useTenant()
   const [pausas, setPausas] = useState<PausaRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [novoNumero, setNovoNumero] = useState("")
@@ -34,9 +36,12 @@ export default function PausasPage() {
 
   // Carregar pausas existentes
   const carregarPausas = async () => {
+    if (!tenant) return
     try {
       console.log("[v0] Pausas: Iniciando carregamento de pausas...")
-      const response = await fetch("/api/pausar")
+      const response = await fetch("/api/pausar", {
+        headers: { 'x-tenant-prefix': tenant.prefix }
+      })
       console.log("[v0] Pausas: Resposta recebida, status:", response.status)
 
       if (response.ok) {
@@ -66,7 +71,10 @@ export default function PausasPage() {
     try {
       const response = await fetch("/api/pausar", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-tenant-prefix": tenant?.prefix || ""
+        },
         body: JSON.stringify({
           numero: novoNumero.trim(),
           ...novaPausa,
@@ -101,7 +109,10 @@ export default function PausasPage() {
 
       const response = await fetch("/api/pausar", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-tenant-prefix": tenant?.prefix || ""
+        },
         body: JSON.stringify({
           id,
           numero: pausaAtual.numero, // Incluindo o número obrigatório
@@ -130,7 +141,10 @@ export default function PausasPage() {
     try {
       const response = await fetch("/api/pausar", {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-tenant-prefix": tenant?.prefix || ""
+        },
         body: JSON.stringify({ id }),
       })
 

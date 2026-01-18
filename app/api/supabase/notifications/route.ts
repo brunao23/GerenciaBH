@@ -1,16 +1,18 @@
 import { NextResponse } from "next/server"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
+import { getTenantTables } from "@/lib/helpers/tenant"
 
 export async function GET(req: Request) {
   try {
+    const { notifications } = getTenantTables(req)
     const supabase = createBiaSupabaseServerClient()
 
     const { searchParams } = new URL(req.url)
     const limit = Number(searchParams.get("limit") ?? 20)
 
     const [list, unread] = await Promise.all([
-      supabase.from("robson_vox_notifications").select("*").order("created_at", { ascending: false }).limit(limit),
-      supabase.from("robson_vox_notifications").select("*", { count: "exact", head: true }).eq("read", false),
+      supabase.from(notifications).select("*").order("created_at", { ascending: false }).limit(limit),
+      supabase.from(notifications).select("*", { count: "exact", head: true }).eq("read", false),
     ])
 
     if (list.error) throw list.error
@@ -27,6 +29,7 @@ export async function GET(req: Request) {
 
 export async function PATCH(req: Request) {
   try {
+    const { notifications } = getTenantTables(req)
     const supabase = createBiaSupabaseServerClient()
 
     const body = await req.json().catch(() => ({}))
@@ -43,10 +46,10 @@ export async function PATCH(req: Request) {
     let res
     if (all) {
       console.log("[v0] Marcando todas as notificações não lidas como lidas...")
-      res = await supabase.from("robson_vox_notifications").update({ read: true }).eq("read", false)
+      res = await supabase.from(notifications).update({ read: true }).eq("read", false)
     } else {
       console.log("[v0] Marcando notificações específicas como lidas:", ids)
-      res = await supabase.from("robson_vox_notifications").update({ read: true }).in("id", ids!)
+      res = await supabase.from(notifications).update({ read: true }).in("id", ids!)
     }
 
     console.log("[v0] Resultado da query Supabase:", { error: res.error, count: res.count })
@@ -68,6 +71,7 @@ export async function PATCH(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
+    const { notifications } = getTenantTables(req)
     const supabase = createBiaSupabaseServerClient()
 
     const body = await req.json().catch(() => ({}))
@@ -84,7 +88,7 @@ export async function DELETE(req: Request) {
     }
 
     console.log("[v0] Removendo todas as notificações...")
-    const res = await supabase.from("robson_vox_notifications").delete().neq("id", "00000000-0000-0000-0000-000000000000")
+    const res = await supabase.from(notifications).delete().neq("id", "00000000-0000-0000-0000-000000000000")
 
     console.log("[v0] Resultado da query DELETE Supabase:", { error: res.error, count: res.count })
 

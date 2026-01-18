@@ -1,23 +1,43 @@
-import { createServerClient } from "@supabase/ssr"
-import { cookies } from "next/headers"
+import { createClient } from "@supabase/supabase-js"
 import { type NextRequest, NextResponse } from "next/server"
+
+// Cliente Supabase com Service Role para acesso administrativo
+function createServiceRoleClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+
+  return createClient(supabaseUrl, supabaseServiceKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false
+    }
+  })
+}
 
 export async function POST(request: NextRequest) {
   try {
-    console.log("[v0] Iniciando processamento de follow-up automático...")
+    const body = await request.json().catch(() => ({}))
 
-    const cookieStore = cookies()
-    const supabase = createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
-      cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value
-        },
-      },
-    })
+    // ✅ OBTER TENANT DO HEADER OU BODY
+    let tenant = request.headers.get('x-tenant-prefix')
+    if (!tenant && body.tenant) {
+      tenant = body.tenant
+    }
+
+    if (!tenant) {
+      console.warn("⚠️ Tenant não especificado em followup-automatico (legacy). Usando 'vox_bh' como fallback.")
+      tenant = 'vox_bh'
+    }
+
+    console.log(`[FollowUp Legacy] [${tenant}] Iniciando processamento de follow-up automático...`)
+
+    const supabase = createServiceRoleClient()
+    const agendamentosTable = `${tenant}_agendamentos`
 
     const agora = new Date()
     const { data: agendamentos, error } = await supabase
-      .from("robson_vox_agendamentos")
+      .from(agendamentosTable)
       .select("*")
       .eq("status", "agendado")
       .not("dia", "is", null)

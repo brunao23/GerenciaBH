@@ -16,6 +16,7 @@ import { supabaseClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
 import { useRouter } from "next/navigation"
 import { useToast } from "@/hooks/use-toast"
+import { useTenantFetch } from "@/lib/hooks/useTenantFetch"
 
 type Notification = {
   id: string
@@ -49,6 +50,7 @@ function fmtBR(iso: string | undefined | null) {
 const onlyDigits = (s: string) => s.replace(/\D+/g, "")
 
 export default function NotificationsMenu() {
+  const tenantFetch = useTenantFetch()
   const [items, setItems] = useState<Notification[]>([])
   const [unread, setUnread] = useState<number>(0)
   const [markingAllRead, setMarkingAllRead] = useState(false)
@@ -59,7 +61,7 @@ export default function NotificationsMenu() {
 
   const refresh = async () => {
     console.log("[v0] NotificationsMenu: Iniciando refresh...")
-    const res = await fetch("/api/supabase/notifications?limit=30")
+    const res = await tenantFetch("/api/supabase/notifications?limit=30")
     const data = await res.json()
     console.log("[v0] NotificationsMenu: Dados recebidos:", {
       itemsCount: Array.isArray(data.items) ? data.items.length : 0,
@@ -109,7 +111,7 @@ export default function NotificationsMenu() {
     console.log("[v0] Marcando todas as notificações como lidas...")
 
     try {
-      const response = await fetch("/api/supabase/notifications", {
+      const response = await tenantFetch("/api/supabase/notifications", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ all: true }),
@@ -159,7 +161,7 @@ export default function NotificationsMenu() {
     console.log("[v0] Limpando todas as notificações...")
 
     try {
-      const response = await fetch("/api/supabase/notifications", {
+      const response = await tenantFetch("/api/supabase/notifications", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ all: true }),
@@ -198,7 +200,7 @@ export default function NotificationsMenu() {
   }
 
   const clickNotification = async (n: Notification) => {
-    await fetch("/api/supabase/notifications", {
+    await tenantFetch("/api/supabase/notifications", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ids: [n.id] }),

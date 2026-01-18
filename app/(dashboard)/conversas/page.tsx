@@ -10,7 +10,8 @@ import { ScrollArea } from "../../../components/ui/scroll-area"
 import { Avatar, AvatarFallback } from "../../../components/ui/avatar"
 import { Badge } from "../../../components/ui/badge"
 import { Button } from "../../../components/ui/button"
-import { Search, MessageSquare, Phone, User, Clock, AlertCircle, CheckCircle2, PauseCircle, PlayCircle, Calendar, UserMinus, Loader2, Briefcase, Target, Clock3 } from "lucide-react"
+import { Search, MessageSquare, Phone, User, Clock, AlertCircle, CheckCircle2, PauseCircle, PlayCircle, Calendar, UserMinus, Loader2, Briefcase, Target, Clock3, Sparkles, Zap } from "lucide-react"
+import { useTenant } from "@/lib/contexts/TenantContext"
 
 type ChatMessage = {
   role: "user" | "bot"
@@ -137,6 +138,7 @@ function searchInSession(
 }
 
 export default function ConversasPage() {
+  const { tenant } = useTenant()
   const [sessions, setSessions] = useState<ChatSession[]>([])
   const [query, setQuery] = useState("")
   const [active, setActive] = useState<string | null>(null)
@@ -144,6 +146,8 @@ export default function ConversasPage() {
 
   const [pauseStatus, setPauseStatus] = useState<PauseStatus | null>(null)
   const [pauseLoading, setPauseLoading] = useState(false)
+  const [followupAIEnabled, setFollowupAIEnabled] = useState<boolean>(false)
+  const [followupAILoading, setFollowupAILoading] = useState(false)
 
   const params = useSearchParams()
   const router = useRouter()
@@ -156,9 +160,12 @@ export default function ConversasPage() {
   }, [sessions, active])
 
   const fetchData = useCallback(() => {
+    if (!tenant) return
     setLoading(true)
 
-    fetch(`/api/supabase/chats`)
+    fetch(`/api/supabase/chats`, {
+      headers: { 'x-tenant-prefix': tenant.prefix }
+    })
       .then((r) => r.json())
       .then((d) => {
         const arr = Array.isArray(d) ? (d as ChatSession[]) : []
@@ -186,12 +193,14 @@ export default function ConversasPage() {
         setActive(null)
         setLoading(false)
       })
-  }, [params, active])
+  }, [params, active, tenant])
 
   const fetchPauseStatus = useCallback(async (numero: string) => {
-    if (!numero) return
+    if (!numero || !tenant) return
     try {
-      const response = await fetch(`/api/pausar?numero=${encodeURIComponent(numero)}`)
+      const response = await fetch(`/api/pausar?numero=${encodeURIComponent(numero)}`, {
+        headers: { 'x-tenant-prefix': tenant.prefix }
+      })
       if (response.ok) {
         const data = await response.json()
         setPauseStatus(data || { pausar: false, vaga: true, agendamento: true })
@@ -204,6 +213,83 @@ export default function ConversasPage() {
     }
   }, [])
 
+  const fetchFollowupAIStatus = useCallback(async (numero: string, sessionId?: string) => {
+    if (!numero) {
+      setFollowupAIEnabled(false)
+      return
+    }
+    try {
+      const params = new URLSearchParams({
+        phoneNumber: numero,
+      })
+      if (sessionId) {
+        params.append("sessionId", sessionId)
+      }
+
+      console.log(`[Conversas] Buscando status do follow-up AI para: ${numero}`)
+      const response = await fetch(`/api/followup-intelligent/toggle-contact?${params.toString()}`)
+
+      if (response.ok) {
+        const result = await response.json()
+        const isActive = result?.data?.isActive ?? false
+        console.log(`[Conversas] Status do follow-up AI: ${isActive ? 'Ativo' : 'Inativo'}`)
+        setFollowupAIEnabled(isActive)
+      } else {
+        const errorData = await response.json().catch(() => ({}))
+        console.warn(`[Conversas] Erro ao buscar status (${response.status}):`, errorData)
+        // Se não encontrar registro, assume que está desativado
+        setFollowupAIEnabled(false)
+      }
+    } catch (error) {
+      console.error("[Conversas] Erro ao buscar status do follow-up AI:", error)
+      // Em caso de erro, assume que está desativado para não bloquear o botão
+      setFollowupAIEnabled(false)
+    }
+  }, [])
+
+  const toggleFollowupAI = useCallback(async () => {
+    if (!current?.numero || followupAILoading) {
+      console.log(`[Conversas] Toggle bloqueado - numero: ${current?.numero}, loading: ${followupAILoading}`)
+      return
+    }
+
+    const currentValue = followupAIEnabled ?? false
+    const newValue = !currentValue
+
+    console.log(`[Conversas] Alternando follow-up AI de ${currentValue ? 'Ativo' : 'Inativo'} para ${newValue ? 'Ativo' : 'Inativo'}`)
+
+    setFollowupAILoading(true)
+    try {
+      const response = await fetch("/api/followup-intelligent/toggle-contact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phoneNumber: current.numero,
+          sessionId: current.session_id,
+          isActive: newValue,
+        }),
+      })
+
+      const result = await response.json()
+
+      console.log(`[Conversas] Resposta da API:`, { status: response.status, success: result.success, error: result.error })
+
+      if (response.ok && result.success) {
+        console.log(`[Conversas] Follow-up AI atualizado com sucesso para: ${newValue ? 'Ativo' : 'Inativo'}`)
+        setFollowupAIEnabled(newValue)
+      } else {
+        const errorMsg = result?.error || result?.message || 'Erro desconhecido'
+        console.error("[Conversas] Erro ao alternar follow-up AI:", errorMsg)
+        alert(`Erro ao ${newValue ? 'ativar' : 'desativar'} follow-up AI: ${errorMsg}`)
+      }
+    } catch (error: any) {
+      console.error("[Conversas] Erro ao alternar follow-up AI:", error)
+      alert(`Erro de conexão ao alterar follow-up AI: ${error?.message || 'Erro desconhecido'}`)
+    } finally {
+      setFollowupAILoading(false)
+    }
+  }, [current, followupAIEnabled, followupAILoading])
+
   const togglePauseParam = useCallback(
     async (param: keyof PauseStatus) => {
       if (!current?.numero || pauseLoading) return
@@ -213,7 +299,10 @@ export default function ConversasPage() {
         const newValue = !pauseStatus?.[param]
         const response = await fetch("/api/pausar", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "x-tenant-prefix": tenant?.prefix || ""
+          },
           body: JSON.stringify({
             numero: current.numero,
             pausar: param === "pausar" ? newValue : (pauseStatus?.pausar ?? false),
@@ -245,10 +334,12 @@ export default function ConversasPage() {
   useEffect(() => {
     if (current?.numero) {
       fetchPauseStatus(current.numero)
+      fetchFollowupAIStatus(current.numero, current.session_id)
     } else {
       setPauseStatus(null)
+      setFollowupAIEnabled(false)
     }
-  }, [current?.numero, fetchPauseStatus])
+  }, [current?.numero, current?.session_id, fetchPauseStatus, fetchFollowupAIStatus])
 
   useEffect(() => {
     if (focusAppliedRef.current) return
@@ -403,50 +494,73 @@ export default function ConversasPage() {
                   </div>
                 </div>
 
-                {/* Controles de Pausa */}
-                {pauseStatus && (
-                  <div className="flex flex-wrap gap-2">
+                {/* Controles de Pausa e Follow-up AI */}
+                <div className="flex flex-wrap gap-2">
+                  {pauseStatus && (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => togglePauseParam("pausar")}
+                        disabled={pauseLoading}
+                        className={`text-xs ${pauseStatus.pausar
+                          ? "bg-red-500/20 text-red-400 border-red-500/30"
+                          : "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
+                          }`}
+                      >
+                        {pauseStatus.pausar ? <PauseCircle className="w-3 h-3 mr-1" /> : <PlayCircle className="w-3 h-3 mr-1" />}
+                        {pauseStatus.pausar ? "Pausado" : "Ativo"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => togglePauseParam("vaga")}
+                        disabled={pauseLoading}
+                        className={`text-xs ${pauseStatus.vaga
+                          ? "bg-blue-500/20 text-blue-400 border-blue-500/30"
+                          : "bg-gray-500/20 text-gray-400 border-gray-500/30"
+                          }`}
+                      >
+                        <UserMinus className="w-3 h-3 mr-1" />
+                        Vaga
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => togglePauseParam("agendamento")}
+                        disabled={pauseLoading}
+                        className={`text-xs ${pauseStatus.agendamento
+                          ? "bg-purple-500/20 text-purple-400 border-purple-500/30"
+                          : "bg-gray-500/20 text-gray-400 border-gray-500/30"
+                          }`}
+                      >
+                        <Calendar className="w-3 h-3 mr-1" />
+                        Agenda
+                      </Button>
+                    </>
+                  )}
+                  {current?.numero && (
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => togglePauseParam("pausar")}
-                      disabled={pauseLoading}
-                      className={`text-xs ${pauseStatus.pausar
-                        ? "bg-red-500/20 text-red-400 border-red-500/30"
-                        : "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
-                        }`}
-                    >
-                      {pauseStatus.pausar ? <PauseCircle className="w-3 h-3 mr-1" /> : <PlayCircle className="w-3 h-3 mr-1" />}
-                      {pauseStatus.pausar ? "Pausado" : "Ativo"}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => togglePauseParam("vaga")}
-                      disabled={pauseLoading}
-                      className={`text-xs ${pauseStatus.vaga
-                        ? "bg-blue-500/20 text-blue-400 border-blue-500/30"
+                      onClick={toggleFollowupAI}
+                      disabled={followupAILoading}
+                      className={`text-xs ${followupAIEnabled
+                        ? "bg-gradient-to-r from-blue-500/20 to-purple-500/20 text-blue-400 border-blue-500/30"
                         : "bg-gray-500/20 text-gray-400 border-gray-500/30"
                         }`}
                     >
-                      <UserMinus className="w-3 h-3 mr-1" />
-                      Vaga
+                      {followupAILoading ? (
+                        <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                      ) : followupAIEnabled ? (
+                        <Sparkles className="w-3 h-3 mr-1" />
+                      ) : (
+                        <Zap className="w-3 h-3 mr-1" />
+                      )}
+                      {followupAILoading ? "Processando..." : followupAIEnabled ? "Follow-up AI Ativo" : "Follow-up AI Inativo"}
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => togglePauseParam("agendamento")}
-                      disabled={pauseLoading}
-                      className={`text-xs ${pauseStatus.agendamento
-                        ? "bg-purple-500/20 text-purple-400 border-purple-500/30"
-                        : "bg-gray-500/20 text-gray-400 border-gray-500/30"
-                        }`}
-                    >
-                      <Calendar className="w-3 h-3 mr-1" />
-                      Agenda
-                    </Button>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             </CardHeader>
 
@@ -526,12 +640,12 @@ export default function ConversasPage() {
                     >
                       <div
                         className={`max-w-[90%] sm:max-w-[80%] rounded-2xl px-4 py-3 shadow-lg ${msg.role === "user"
-                            ? "bg-[#00ff88] text-black border border-[#00cc6a]"
-                            : msg.isError
-                              ? "bg-red-900/40 text-red-50 border-2 border-red-500/50"
-                              : msg.isSuccess
-                                ? "bg-emerald-900/40 text-emerald-50 border-2 border-emerald-500/50"
-                                : "bg-gray-800/90 text-white border border-gray-600/50"
+                          ? "bg-[#00ff88] text-black border border-[#00cc6a]"
+                          : msg.isError
+                            ? "bg-red-900/40 text-red-50 border-2 border-red-500/50"
+                            : msg.isSuccess
+                              ? "bg-emerald-900/40 text-emerald-50 border-2 border-emerald-500/50"
+                              : "bg-gray-800/90 text-white border border-gray-600/50"
                           }`}
                       >
                         <div className="flex items-center gap-2 mb-2">

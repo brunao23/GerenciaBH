@@ -1,6 +1,20 @@
 import { NextResponse } from "next/server"
-import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
+import { createClient } from "@supabase/supabase-js"
 import OpenAI from "openai"
+
+// Cliente Supabase com Service Role para acesso administrativo
+function createServiceRoleClient() {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+
+    return createClient(supabaseUrl, supabaseServiceKey, {
+        auth: {
+            persistSession: false,
+            autoRefreshToken: false,
+            detectSessionInUrl: false
+        }
+    })
+}
 
 // Tipos
 interface ConversationData {
@@ -178,13 +192,25 @@ export async function POST(req: Request) {
         const body = await req.json()
         const { openaiApiKey } = body
 
-        console.log("[ML Advanced] Iniciando análise avançada com ML...")
+        // ✅ OBTER TENANT DO HEADER OU BODY
+        let tenant = req.headers.get('x-tenant-prefix')
+        if (!tenant && body.tenant) {
+            tenant = body.tenant
+        }
 
-        const supabase = createBiaSupabaseServerClient()
+        if (!tenant) {
+            console.warn("⚠️ Tenant não especificado em ML Advanced. Usando 'vox_bh' como fallback.")
+            tenant = 'vox_bh'
+        }
+
+        console.log(`[ML Advanced] [${tenant}] Iniciando análise avançada com ML...`)
+
+        const supabase = createServiceRoleClient()
+        const chatHistoriesTable = `${tenant}n8n_chat_histories`
 
         // Busca dados
         const { data: chats, error } = await supabase
-            .from("robson_voxn8n_chat_histories")
+            .from(chatHistoriesTable)
             .select("*")
             .order("id", { ascending: true })
             .limit(5000)

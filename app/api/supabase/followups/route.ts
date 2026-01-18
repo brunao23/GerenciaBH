@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
+import { getTenantTables } from "@/lib/helpers/tenant"
 
 function normalizePhoneNumber(numero: string): string {
   if (!numero) return ""
@@ -45,6 +46,7 @@ function extractNameFromMessage(text: string, role: string): string | null {
 
 export async function GET(request: NextRequest) {
   try {
+    const { followNormal, chatHistories: chatHistoriesTable } = getTenantTables(request)
     const { searchParams } = new URL(request.url)
     const limit = Number.parseInt(searchParams.get("limit") || "50")
     const offset = Number.parseInt(searchParams.get("offset") || "0")
@@ -52,7 +54,7 @@ export async function GET(request: NextRequest) {
     const supabase = createBiaSupabaseServerClient()
 
     const { data: followups, error } = await supabase
-      .from("robson_vox_folow_normal")
+      .from(followNormal)
       .select("*")
       .not("last_mensager", "is", null)
       .order("last_mensager", { ascending: false })
@@ -64,7 +66,7 @@ export async function GET(request: NextRequest) {
     }
 
     const { data: chatHistories, error: chatError } = await supabase
-      .from("robson_voxn8n_chat_histories")
+      .from(chatHistoriesTable)
       .select("session_id, message")
       .order("id", { ascending: true })
 

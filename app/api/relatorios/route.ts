@@ -1,298 +1,301 @@
 import { type NextRequest, NextResponse } from "next/server"
+import { subDays, subWeeks, subMonths, subYears, startOfDay, endOfDay } from "date-fns"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
-import { format, subWeeks, subMonths, startOfDay, endOfDay, isWithinInterval } from "date-fns"
+import { getTenantTables } from "@/lib/helpers/tenant"
 
-function detectError(content: string): boolean {
-  if (!content || typeof content !== "string") return false
-
-  const errorPatterns = [
-    /erro/i,
-    /error/i,
-    /falha/i,
-    /problema/i,
-    /não foi possível/i,
-    /unable to/i,
-    /failed/i,
-    /invalid/i,
-    /timeout/i,
-    /connection/i,
-    /desculpe/i,
-    /sorry/i,
-  ]
-
-  return errorPatterns.some((pattern) => pattern.test(content))
-}
-
-function cleanHumanMessage(raw: string): string {
-  if (!raw || typeof raw !== "string") return ""
-
-  let cleaned = raw.trim()
-
-  // Extrair apenas o conteúdo da mensagem do cliente
-  const messagePatterns = [
-    /Mensagem do cliente\/lead:\s*(.+?)(?:\s+Para\s+|$)/i,
-    /Mensagem do cliente:\s*(.+?)(?:\s+Para\s+|$)/i,
-    /Mensagem:\s*(.+?)(?:\s+Para\s+|$)/i,
-  ]
-
-  for (const pattern of messagePatterns) {
-    const match = cleaned.match(pattern)
-    if (match && match[1]) {
-      cleaned = match[1].trim()
-      break
-    }
+// Tipos para o relatório
+interface RelatorioData {
+  periodo: string
+  dataInicio: string
+  dataFim: string
+  tenant: string
+  metricas: {
+    totalConversas: number
+    totalLeads: number
+    totalAgendamentos: number
+    taxaAgendamento: number
+    followUpsEnviados: number
+    leadTimeHoras: number
+    conversasAtivas: number
+    conversasFinalizadas: number
   }
-
-  // Remover metadados técnicos
-  cleaned = cleaned.replace(/\{"type":\s*"[^"]*"[^}]*\}/g, "")
-  cleaned = cleaned.replace(/tool_calls?[^}]*\}/g, "")
-  cleaned = cleaned.replace(/response_metadata[^}]*\}/g, "")
-  cleaned = cleaned.replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[^,\s]*/g, "")
-  cleaned = cleaned.replace(/Horário mensagem[^.]*\./g, "")
-  cleaned = cleaned.replace(/Dia da semana[^.]*\./g, "")
-  cleaned = cleaned.replace(/lembre-se[^.]*\./g, "")
-
-  return cleaned.replace(/\s+/g, " ").trim()
+  porDia: {
+    data: string
+    conversas: number
+    agendamentos: number
+    followups: number
+  }[]
 }
 
 export async function GET(request: NextRequest) {
   try {
+    // ✅ OBTER TENANT DO HEADER
+    const tenant = request.headers.get('x-tenant-prefix')
+
+    if (!tenant) {
+      return NextResponse.json(
+        { error: '❌ Header x-tenant-prefix não foi enviado!' },
+        { status: 400 }
+      )
+    }
+
     const { searchParams } = new URL(request.url)
     const periodo = searchParams.get("periodo") || "semana"
 
     // Calcular datas baseado no período
     let dataInicio: Date
-    let dataFim = new Date()
+    let dataFim = endOfDay(new Date())
     let periodoTexto: string
 
     switch (periodo) {
-      case "quinzena":
-        dataInicio = subWeeks(new Date(), 2)
-        periodoTexto = "Últimas 2 Semanas"
+      case "dia":
+        dataInicio = startOfDay(new Date())
+        periodoTexto = "Hoje"
+        break
+      case "semana":
+        dataInicio = startOfDay(subWeeks(new Date(), 1))
+        periodoTexto = "Última Semana"
         break
       case "mes":
-        dataInicio = subMonths(new Date(), 1)
+        dataInicio = startOfDay(subMonths(new Date(), 1))
         periodoTexto = "Último Mês"
         break
+      case "ano":
+        dataInicio = startOfDay(subYears(new Date(), 1))
+        periodoTexto = "Último Ano"
+        break
       default:
-        dataInicio = subWeeks(new Date(), 1)
+        dataInicio = startOfDay(subWeeks(new Date(), 1))
         periodoTexto = "Última Semana"
     }
 
-    dataInicio = startOfDay(dataInicio)
-    dataFim = endOfDay(dataFim)
-
     const supabase = createBiaSupabaseServerClient()
+    const tenantTables = getTenantTables(request)
+    const { chatHistories, agendamentos, followNormal, tenant: tenantName } = tenantTables
 
-    const { data: chats, error: chatsError } = await supabase
-      .from("robson_voxn8n_chat_histories")
-      .select("session_id, message, id")
-      .order("id", { ascending: true })
+    // Usar nomes das tabelas do helper
+    const chatHistoriesTable = chatHistories
+    const agendamentosTable = agendamentos
+    const followupsTable = followNormal
 
-    if (chatsError) throw chatsError
+    console.log(`📊 [Relatórios] Tenant: ${tenantName} | Período: ${periodoTexto}`)
+    console.log(`📋 Tabelas: ${chatHistoriesTable}, ${agendamentosTable}, ${followupsTable}`)
 
-    const { data: agendamentos, error: agendamentosError } = await supabase.from("robson_vox_agendamentos").select("*")
+    // 1. BUSCAR CONVERSAS (Chat Histories)
+    let totalConversas = 0
+    let totalLeads = 0
+    let conversasAtivas = 0
+    let conversasFinalizadas = 0
+    const leadsUnicos = new Set<string>()
+    const conversasPorDia = new Map<string, number>()
 
-    if (agendamentosError) throw agendamentosError
+    try {
+      console.log(`🔍 Buscando na tabela: ${chatHistoriesTable}`)
 
-    const { data: followups, error: followupsError } = await supabase.from("robson_vox_folow_normal").select("*")
+      // 1. Tenta buscar com created_at
+      let query = supabase
+        .from(chatHistoriesTable)
+        .select('id, session_id, created_at, message')
+        .order('id', { ascending: false })
+        .limit(2000)
 
-    if (followupsError) throw followupsError
+      let { data: chats, error: chatsError } = await query
 
-    const sessoes = new Map()
-    const mensagensPorNumero = new Map()
-    const conversasPorDia = new Map()
-    const mensagensNoPeríodo: any[] = []
+      // 2. Se falhar, busca sem created_at e tenta extrair data da mensagem
+      if (chatsError) {
+        console.log(`⚠️ Erro com created_at (${chatsError.message}), tentando fallback...`)
+        const fallback = await supabase
+          .from(chatHistoriesTable)
+          .select('id, session_id, message')
+          .order('id', { ascending: false })
+          .limit(2000)
 
-    let totalMensagensHumanas = 0
-    let totalMensagensIA = 0
-    let mensagensComErro = 0
-    let mensagensComSucesso = 0
-    const temposResposta: number[] = []
+        chats = fallback.data as any[]
+        chatsError = fallback.error
+      }
 
-    chats?.forEach((chat) => {
-      try {
-        let messageData
-        if (typeof chat.message === "string") {
-          const trimmedMessage = chat.message.trim()
-          if (!trimmedMessage) return
-          messageData = JSON.parse(trimmedMessage)
+      if (!chatsError && chats) {
+        totalConversas = chats.length
+
+        chats.forEach((chat: any) => {
+          if (chat.session_id) leadsUnicos.add(chat.session_id)
+
+          // Lógica de extração de data
+          let dateStr = chat.created_at
+          if (!dateStr && chat.message) {
+            const raw = typeof chat.message === 'string' ? chat.message : JSON.stringify(chat.message)
+            // Tenta achar timestamp no JSON ou texto
+            const match = raw.match(/Hor[áa]rio(?:\s+da)?\s+mensagem:\s*([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})/i) ||
+              raw.match(/"timestamp"\s*:\s*"([^"]+)"/) ||
+              raw.match(/"created_at"\s*:\s*"([^"]+)"/)
+            if (match && match[1]) dateStr = match[1]
+          }
+
+          if (dateStr) {
+            try {
+              const d = new Date(dateStr)
+              if (!isNaN(d.getTime()) && d >= dataInicio && d <= dataFim) {
+                const dia = d.toISOString().split('T')[0]
+                conversasPorDia.set(dia, (conversasPorDia.get(dia) || 0) + 1)
+              }
+            } catch (e) { }
+          }
+        })
+
+        totalLeads = leadsUnicos.size
+        console.log(`✅ Conversas: ${totalConversas}, Leads: ${totalLeads}`)
+      } else {
+        console.error(`❌ Erro final buscar chats: ${chatsError?.message}`)
+      }
+    } catch (e: any) {
+      console.error(`❌ Exceção ao buscar chats: ${e.message}`)
+      console.error(e)
+    }
+
+    // 2. BUSCAR AGENDAMENTOS
+    let totalAgendamentos = 0
+    const agendamentosPorDia = new Map<string, number>()
+
+    try {
+      const { data: agendamentos, error: agError } = await supabase
+        .from(agendamentosTable)
+        .select('id, created_at, status, dia')
+        .order('created_at', { ascending: false })
+
+      if (!agError && agendamentos) {
+        // Filtrar por data se created_at existir
+        const agendamentosFiltrados = agendamentos.filter((ag: any) => {
+          if (ag.created_at) {
+            const dataAg = new Date(ag.created_at)
+            return dataAg >= dataInicio && dataAg <= dataFim
+          }
+          return true // Se não tiver created_at, incluir
+        })
+
+        totalAgendamentos = agendamentosFiltrados.length
+
+        // Contar por dia
+        agendamentosFiltrados.forEach((ag: any) => {
+          if (ag.created_at) {
+            const dia = ag.created_at.split('T')[0]
+            agendamentosPorDia.set(dia, (agendamentosPorDia.get(dia) || 0) + 1)
+          } else if (ag.dia) {
+            // Tenta usar o campo dia se existir
+            agendamentosPorDia.set(ag.dia, (agendamentosPorDia.get(ag.dia) || 0) + 1)
+          }
+        })
+
+        console.log(`✅ Agendamentos: ${totalAgendamentos}`)
+      } else {
+        console.warn(`⚠️ Erro ao buscar agendamentos: ${agError?.message}`)
+      }
+    } catch (e: any) {
+      console.warn(`⚠️ Tabela de agendamentos não acessível: ${e.message}`)
+    }
+
+    // 3. BUSCAR FOLLOW-UPS ENVIADOS
+    let followUpsEnviados = 0
+    const followupsPorDia = new Map<string, number>()
+
+    try {
+      const { data: followups, error: followError } = await supabase
+        .from(followupsTable)
+        .select('id, created_at, status')
+        .gte('created_at', dataInicio.toISOString())
+        .lte('created_at', dataFim.toISOString())
+        .order('created_at', { ascending: false })
+
+      if (!followError && followups) {
+        followUpsEnviados = followups.length
+
+        // Contar por dia
+        followups.forEach((f: any) => {
+          if (f.created_at) {
+            const dia = f.created_at.split('T')[0]
+            followupsPorDia.set(dia, (followupsPorDia.get(dia) || 0) + 1)
+          }
+        })
+
+        console.log(`✅ Follow-ups: ${followUpsEnviados}`)
+      } else {
+        // Tentar tabela alternativa de follow-up
+        const { data: followups2, error: followError2 } = await supabase
+          .from('followup_schedule')
+          .select('id, created_at, is_active')
+          .gte('created_at', dataInicio.toISOString())
+          .lte('created_at', dataFim.toISOString())
+
+        if (!followError2 && followups2) {
+          followUpsEnviados = followups2.length
+          console.log(`✅ Follow-ups (tabela alternativa): ${followUpsEnviados}`)
         } else {
-          messageData = chat.message
+          console.warn(`⚠️ Follow-ups não acessíveis`)
         }
-
-        if (!messageData) return
-
-        // Extrair timestamp da mensagem
-        let messageTimestamp: Date | null = null
-        if (messageData.created_at) {
-          messageTimestamp = new Date(messageData.created_at)
-        } else if (messageData.timestamp) {
-          messageTimestamp = new Date(messageData.timestamp)
-        } else if (Array.isArray(messageData)) {
-          // Se for array, pegar timestamp da primeira mensagem
-          const firstMsg = messageData[0]
-          if (firstMsg?.created_at) {
-            messageTimestamp = new Date(firstMsg.created_at)
-          } else if (firstMsg?.timestamp) {
-            messageTimestamp = new Date(firstMsg.timestamp)
-          }
-        } else if (messageData.messages && Array.isArray(messageData.messages)) {
-          // Se tiver array de mensagens, pegar da primeira
-          const firstMsg = messageData.messages[0]
-          if (firstMsg?.created_at) {
-            messageTimestamp = new Date(firstMsg.created_at)
-          } else if (firstMsg?.timestamp) {
-            messageTimestamp = new Date(firstMsg.timestamp)
-          }
-        }
-
-        // Se não conseguiu extrair timestamp, pular
-        if (!messageTimestamp || isNaN(messageTimestamp.getTime())) return
-
-        // Filtrar por período
-        if (!isWithinInterval(messageTimestamp, { start: dataInicio, end: dataFim })) return
-
-        mensagensNoPeríodo.push({ ...chat, messageTimestamp })
-
-        if (Array.isArray(messageData)) {
-          messageData.forEach((msg) => {
-            if (msg.type === "human") {
-              totalMensagensHumanas++
-            } else if (msg.type === "ai") {
-              totalMensagensIA++
-              const content = msg.content || ""
-              if (detectError(content)) {
-                mensagensComErro++
-              } else {
-                mensagensComSucesso++
-              }
-            }
-          })
-        } else if (messageData.messages && Array.isArray(messageData.messages)) {
-          messageData.messages.forEach((msg: any) => {
-            if (msg.role === "user") {
-              totalMensagensHumanas++
-            } else if (msg.role === "bot" || msg.role === "assistant") {
-              totalMensagensIA++
-              const content = msg.content || ""
-              if (detectError(content)) {
-                mensagensComErro++
-              } else {
-                mensagensComSucesso++
-              }
-            }
-          })
-        }
-
-        const sessionId = chat.session_id
-        const numero = chat.session_id?.split("_")[0] || "Desconhecido"
-        const data = format(messageTimestamp, "yyyy-MM-dd")
-
-        // Agrupar por sessão
-        if (!sessoes.has(sessionId)) {
-          sessoes.set(sessionId, {
-            numero,
-            mensagens: 0,
-            nome: "Sem nome",
-          })
-        }
-        sessoes.get(sessionId).mensagens++
-
-        // Contar mensagens por número
-        if (!mensagensPorNumero.has(numero)) {
-          mensagensPorNumero.set(numero, { numero, nome: "Sem nome", mensagens: 0 })
-        }
-        mensagensPorNumero.get(numero).mensagens++
-
-        // Contar conversas por dia
-        if (!conversasPorDia.has(data)) {
-          conversasPorDia.set(data, 0)
-        }
-        conversasPorDia.set(data, conversasPorDia.get(data) + 1)
-      } catch (e) {
-        // Ignorar mensagens com JSON malformado
-        return
       }
-    })
+    } catch (e: any) {
+      console.warn(`⚠️ Tabela de follow-ups não acessível: ${e.message}`)
+    }
 
-    const agendamentosNoPeríodo =
-      agendamentos?.filter((agendamento) => {
-        if (!agendamento.created_at) return false
-        try {
-          const agendamentoDate = new Date(agendamento.created_at)
-          return isWithinInterval(agendamentoDate, { start: dataInicio, end: dataFim })
-        } catch (e) {
-          return false
-        }
-      }) || []
+    // 4. CALCULAR MÉTRICAS
+    const taxaAgendamento = totalLeads > 0
+      ? Math.round((totalAgendamentos / totalLeads) * 100 * 100) / 100
+      : 0
 
-    const followupsNoPeríodo =
-      followups?.filter((followup) => {
-        if (!followup.created_at) return false
-        try {
-          const followupDate = new Date(followup.created_at)
-          return isWithinInterval(followupDate, { start: dataInicio, end: dataFim })
-        } catch (e) {
-          return false
-        }
-      }) || []
+    // Lead time estimado (baseado no tempo médio entre primeira conversa e agendamento)
+    // Por simplicidade, estimamos baseado na quantidade de mensagens por lead
+    const leadTimeHoras = totalLeads > 0 && totalAgendamentos > 0
+      ? Math.round((totalConversas / totalLeads) * 2) // Estimativa: 2h por interação média
+      : 0
 
-    // Preparar dados para resposta
-    const totalConversas = sessoes.size
-    const totalMensagens = mensagensNoPeríodo.length
-    const totalAgendamentos = agendamentosNoPeríodo.length
-    const totalFollowups = followupsNoPeríodo.length
+    // 5. MONTAR DADOS POR DIA
+    const diasSet = new Set<string>()
+    conversasPorDia.forEach((_, dia) => diasSet.add(dia))
+    agendamentosPorDia.forEach((_, dia) => diasSet.add(dia))
+    followupsPorDia.forEach((_, dia) => diasSet.add(dia))
 
-    const taxaAssertividade = totalMensagensIA > 0 ? (mensagensComSucesso / totalMensagensIA) * 100 : 0
-    const taxaErro = totalMensagensIA > 0 ? (mensagensComErro / totalMensagensIA) * 100 : 0
-    const tempoMedioResposta =
-      temposResposta.length > 0 ? temposResposta.reduce((a, b) => a + b, 0) / temposResposta.length : 1.0
+    const porDia = Array.from(diasSet)
+      .sort((a, b) => a.localeCompare(b))
+      .map(data => ({
+        data,
+        conversas: conversasPorDia.get(data) || 0,
+        agendamentos: agendamentosPorDia.get(data) || 0,
+        followups: followupsPorDia.get(data) || 0
+      }))
 
-    const topNumeros = Array.from(mensagensPorNumero.values())
-      .sort((a, b) => b.mensagens - a.mensagens)
-      .slice(0, 10)
-
-    const conversasPorDiaArray = Array.from(conversasPorDia.entries())
-      .map(([data, quantidade]) => ({ data, quantidade }))
-      .sort((a, b) => a.data.localeCompare(b.data))
-
-    const agendamentosPorDiaMap = new Map()
-    agendamentosNoPeríodo.forEach((agendamento) => {
-      try {
-        const data = format(new Date(agendamento.created_at), "yyyy-MM-dd")
-        agendamentosPorDiaMap.set(data, (agendamentosPorDiaMap.get(data) || 0) + 1)
-      } catch (e) {
-        // Ignorar agendamentos com data inválida
-      }
-    })
-
-    const agendamentosPorDiaArray = Array.from(agendamentosPorDiaMap.entries())
-      .map(([data, quantidade]) => ({ data, quantidade }))
-      .sort((a, b) => a.data.localeCompare(b.data))
-
-    const relatorioData = {
+    // 6. MONTAR RESPOSTA
+    const relatorio: RelatorioData = {
       periodo: periodoTexto,
       dataInicio: dataInicio.toISOString(),
       dataFim: dataFim.toISOString(),
-      totalConversas,
-      totalMensagens,
-      totalAgendamentos,
-      totalFollowups,
-      taxaAssertividade,
-      taxaErro,
-      mensagensComErro,
-      mensagensComSucesso,
-      mensagensHumanas: totalMensagensHumanas,
-      tempoMedioResposta,
-      conversasPorDia: conversasPorDiaArray,
-      agendamentosPorDia: agendamentosPorDiaArray,
-      topNumeros,
+      tenant: tenantName,
+      metricas: {
+        totalConversas,
+        totalLeads,
+        totalAgendamentos,
+        taxaAgendamento,
+        followUpsEnviados,
+        leadTimeHoras,
+        conversasAtivas: 0, // TODO: implementar lógica de ativos
+        conversasFinalizadas: 0 // TODO: implementar lógica de finalizados
+      },
+      porDia
     }
 
-    return NextResponse.json(relatorioData)
-  } catch (error) {
-    console.error("Erro ao gerar relatório:", error)
-    return NextResponse.json({ error: "Erro interno do servidor" }, { status: 500 })
+    console.log(`📊 Relatório gerado para ${tenant}:`, {
+      conversas: totalConversas,
+      leads: totalLeads,
+      agendamentos: totalAgendamentos,
+      taxa: taxaAgendamento + '%',
+      followups: followUpsEnviados
+    })
+
+    return NextResponse.json(relatorio)
+
+  } catch (error: any) {
+    console.error('❌ Erro ao gerar relatório:', error)
+    return NextResponse.json(
+      { error: error.message || 'Erro interno ao gerar relatório' },
+      { status: 500 }
+    )
   }
 }
