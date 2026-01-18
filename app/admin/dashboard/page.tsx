@@ -44,6 +44,8 @@ export default function AdminDashboard() {
 
     const handleAccessUnit = async (unitPrefix: string) => {
         try {
+            console.log('[Admin] Trocando para unidade:', unitPrefix)
+
             // Chamar API para trocar contexto
             const res = await fetch("/api/admin/switch-unit", {
                 method: "POST",
@@ -57,12 +59,12 @@ export default function AdminDashboard() {
             }
 
             const data = await res.json()
+            console.log('[Admin] Switch bem-sucedido:', data.unit.prefix)
             toast.success(`Acessando ${data.unit.name}...`)
 
-            // Redirecionar para dashboard
+            // Forçar reload completo para garantir que o contexto seja atualizado
             setTimeout(() => {
-                router.push("/dashboard")
-                router.refresh()
+                window.location.href = "/dashboard"
             }, 500)
         } catch (error) {
             console.error("Erro:", error)
