@@ -32,19 +32,14 @@ export function TenantSelector() {
 
     const handleLogout = async () => {
         try {
-            // Chamar API de logout
             const res = await fetch('/api/auth/logout', {
                 method: 'POST',
             })
 
             if (res.ok) {
                 toast.success('Saindo...')
-
-                // Redirecionar para login apropriado
-                setTimeout(() => {
-                    router.push(isAdmin ? '/admin/login' : '/login')
-                    router.refresh()
-                }, 500)
+                // Forçar reload completo
+                window.location.href = isAdmin ? '/admin/login' : '/login'
             } else {
                 toast.error('Erro ao sair')
             }
@@ -55,7 +50,8 @@ export function TenantSelector() {
     }
 
     const handleBackToAdmin = () => {
-        router.push('/admin/dashboard')
+        // Forçar reload completo para voltar ao admin
+        window.location.href = '/admin/dashboard'
     }
 
     return (

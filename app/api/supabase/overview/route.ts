@@ -427,6 +427,9 @@ function calculateAverageResponseTime(sessions: any[]): number {
   return 0
 }
 
+// Cache de 60 segundos para melhorar performance
+export const revalidate = 60
+
 export async function GET(req: Request) {
   try {
     // Obter período da query string
