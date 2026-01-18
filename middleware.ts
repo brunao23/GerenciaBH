@@ -4,12 +4,6 @@ import { verifyToken } from './lib/auth/utils'
 
 export async function middleware(request: NextRequest) {
     const { pathname } = request.nextUrl
-    const hostname = request.headers.get('host') || ''
-
-    // Redirect automático para admin se acessar domínio admin na raiz
-    if (hostname.includes('gerencia.vox.geniallabs.com.br') && pathname === '/') {
-        return NextResponse.redirect(new URL('/admin/login', request.url))
-    }
 
     // Rotas públicas (não precisam de autenticação)
     const publicRoutes = ['/login', '/register', '/admin/login']
