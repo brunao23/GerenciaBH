@@ -7,7 +7,7 @@ export async function middleware(request: NextRequest) {
     const hostname = request.headers.get('host') || ''
 
     // Redirect automático para admin se acessar domínio admin na raiz
-    if (hostname.includes('gerencia.admin.geniallabs.com.br') && pathname === '/') {
+    if (hostname.includes('gerencia.vox.geniallabs.com.br') && pathname === '/') {
         return NextResponse.redirect(new URL('/admin/login', request.url))
     }
 
