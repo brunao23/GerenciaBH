@@ -1,16 +1,7 @@
 import bcrypt from 'bcryptjs'
-import { SignJWT, jwtVerify } from 'jose'
 
-const JWT_SECRET = new TextEncoder().encode(
-    process.env.JWT_SECRET || 'your-secret-key-change-in-production'
-)
-
-export interface SessionData {
-    unitName: string
-    unitPrefix: string
-    isAdmin: boolean
-    userId: string
-}
+// Re-exportar funções JWT do arquivo separado (compatível com Edge Runtime)
+export { createToken, verifyToken, type SessionData } from './jwt'
 
 // Hash de senha
 export async function hashPassword(password: string): Promise<string> {
@@ -20,25 +11,6 @@ export async function hashPassword(password: string): Promise<string> {
 // Verificar senha
 export async function verifyPassword(password: string, hash: string): Promise<boolean> {
     return bcrypt.compare(password, hash)
-}
-
-// Criar JWT
-export async function createToken(data: SessionData): Promise<string> {
-    return new SignJWT(data)
-        .setProtectedHeader({ alg: 'HS256' })
-        .setIssuedAt()
-        .setExpirationTime('7d')
-        .sign(JWT_SECRET)
-}
-
-// Verificar JWT
-export async function verifyToken(token: string): Promise<SessionData | null> {
-    try {
-        const { payload } = await jwtVerify(token, JWT_SECRET)
-        return payload as unknown as SessionData
-    } catch {
-        return null
-    }
 }
 
 // Gerar prefix a partir do nome
