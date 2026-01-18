@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { createNotification } from "@/lib/services/notifications"
 import { cookies } from "next/headers"
-import { verifyToken } from "@/lib/auth/utils"
+import { verifyToken } from "@/lib/auth/jwt"
 
 // DDDs por região
 const DDD_BH = ['31', '32', '33', '34', '35', '37', '38'] // Minas Gerais
@@ -426,9 +426,6 @@ function calculateAverageResponseTime(sessions: any[]): number {
 
   return 0
 }
-
-// Cache de 60 segundos para melhorar performance
-export const revalidate = 60
 
 export async function GET(req: Request) {
   try {

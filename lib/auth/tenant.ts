@@ -1,5 +1,5 @@
 import { cookies } from 'next/headers'
-import { verifyToken } from '@/lib/auth/utils'
+import { verifyToken } from '@/lib/auth/jwt'
 
 /**
  * Obtém o tenant (unidade) da sessão JWT do usuário
