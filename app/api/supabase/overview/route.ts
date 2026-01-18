@@ -887,11 +887,16 @@ export async function GET(req: Request) {
     console.log("[v0] Dados reais calculados:", realData)
     return NextResponse.json(realData)
   } catch (e: any) {
-    console.error("Erro na API overview:", e)
+    console.error("❌ ERRO NA API OVERVIEW:")
+    console.error("Mensagem:", e.message)
+    console.error("Stack:", e.stack)
+    console.error("Erro completo:", JSON.stringify(e, null, 2))
+
     return NextResponse.json(
       {
         error: "Falha ao carregar dados reais do banco",
         details: e.message,
+        stack: e.stack,
       },
       { status: 500 },
     )
