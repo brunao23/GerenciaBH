@@ -351,12 +351,23 @@ async function getDirectChatsData(tenant: string) {
 
 async function getDirectFollowupsData(tenant: string) {
   try {
-    const followNormalTable = `${tenant}_folow_normal`
-    console.log(`[v0] Buscando dados diretamente da tabela ${followNormalTable}...`)
-
     const supabase = createBiaSupabaseServerClient()
 
-    const { data, error } = await supabase.from(followNormalTable).select("*").limit(5000)
+    // Tentar primeiro com folow_normal (Bia Vox)
+    const folowNormalTable = `${tenant}_folow_normal`
+    console.log(`[v0] Tentando buscar de ${folowNormalTable}...`)
+
+    let { data, error } = await supabase.from(folowNormalTable).select("*").limit(5000)
+
+    // Se der erro (tabela não existe), tentar com follow_normal (Vox*, Colégio)
+    if (error && error.message.includes('does not exist')) {
+      const followNormalTable = `${tenant}_follow_normal`
+      console.log(`[v0] Tabela ${folowNormalTable} não existe, tentando ${followNormalTable}...`)
+
+      const result = await supabase.from(followNormalTable).select("*").limit(5000)
+      data = result.data
+      error = result.error
+    }
 
     if (error) {
       console.error("[v0] Erro ao buscar dados de follow-ups:", error)
