@@ -189,7 +189,19 @@ async function getDirectChatsData(tenant: string) {
         .order("id", { ascending: true })
         .range(from, to)
 
-      if (result1.error && result1.error.message.includes('created_at')) {
+      // Se tabela não existe, tentar com underscore: vox_maceio_n8n_chat_histories
+      if (result1.error && result1.error.message.includes('does not exist')) {
+        const chatTableWithUnderscore = `${tenant}_n8n_chat_histories`
+        console.log(`[v0] Tabela ${chatTable} não existe, tentando ${chatTableWithUnderscore}...`)
+        const result3 = await supabase
+          .from(chatTableWithUnderscore)
+          .select("session_id, message, id, created_at")
+          .order("id", { ascending: true })
+          .range(from, to)
+
+        chunk = result3.data || []
+        queryError = result3.error
+      } else if (result1.error && result1.error.message.includes('created_at')) {
         // Coluna não existe, buscar sem ela
         console.log(`[v0] Tabela ${chatTable} não tem created_at, buscando sem...`)
         const result2 = await supabase
