@@ -193,9 +193,10 @@ async function getDirectChatsData(tenant: string) {
       if (result1.error && result1.error.message.includes('does not exist')) {
         const chatTableWithUnderscore = `${tenant}_n8n_chat_histories`
         console.log(`[v0] Tabela ${chatTable} não existe, tentando ${chatTableWithUnderscore}...`)
+        // Tabela com underscore NÃO tem created_at
         const result3 = await supabase
           .from(chatTableWithUnderscore)
-          .select("session_id, message, id, created_at")
+          .select("session_id, message, id")
           .order("id", { ascending: true })
           .range(from, to)
 
