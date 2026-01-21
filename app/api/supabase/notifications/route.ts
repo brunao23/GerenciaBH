@@ -4,7 +4,19 @@ import { getTenantTables } from "@/lib/helpers/tenant"
 
 export async function GET(req: Request) {
   try {
+    // Validar tenant
+    const tenantHeader = req.headers.get('x-tenant-prefix')
+    if (!tenantHeader) {
+      console.error('[Notifications] Tenant não especificado')
+      return NextResponse.json(
+        { error: 'Tenant não especificado' },
+        { status: 400 }
+      )
+    }
+
     const { notifications } = getTenantTables(req)
+    console.log(`[Notifications] Usando tabela: ${notifications}`)
+
     const supabase = createBiaSupabaseServerClient()
 
     const { searchParams } = new URL(req.url)
@@ -15,15 +27,28 @@ export async function GET(req: Request) {
       supabase.from(notifications).select("*", { count: "exact", head: true }).eq("read", false),
     ])
 
-    if (list.error) throw list.error
-    if (unread.error) throw unread.error
+    if (list.error) {
+      console.error('[Notifications] Erro ao buscar lista:', list.error)
+      throw list.error
+    }
+    if (unread.error) {
+      console.error('[Notifications] Erro ao buscar não lidas:', unread.error)
+      throw unread.error
+    }
 
     return NextResponse.json({
       items: list.data ?? [],
       unread: unread.count ?? 0,
     })
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? "Erro ao consultar notificações" }, { status: 500 })
+    console.error('[Notifications] Erro:', e)
+    return NextResponse.json(
+      {
+        error: e?.message ?? "Erro ao consultar notificações",
+        details: e?.details || e?.hint || undefined
+      },
+      { status: 500 }
+    )
   }
 }
 
