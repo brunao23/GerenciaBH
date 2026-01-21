@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils"
 import { useRouter } from "next/navigation"
 import { useToast } from "@/hooks/use-toast"
 import { useTenantFetch } from "@/lib/hooks/useTenantFetch"
+import { useTenant } from "@/lib/contexts/TenantContext"
 
 type Notification = {
   id: string
@@ -51,6 +52,7 @@ const onlyDigits = (s: string) => s.replace(/\D+/g, "")
 
 export default function NotificationsMenu() {
   const tenantFetch = useTenantFetch()
+  const { tenant, loading } = useTenant() // Adicionar tenant e loading
   const [items, setItems] = useState<Notification[]>([])
   const [unread, setUnread] = useState<number>(0)
   const [markingAllRead, setMarkingAllRead] = useState(false)
@@ -60,6 +62,12 @@ export default function NotificationsMenu() {
   const { toast } = useToast()
 
   const refresh = async () => {
+    // Não buscar se tenant ainda está carregando
+    if (loading || !tenant) {
+      console.log("[v0] NotificationsMenu: Aguardando tenant carregar...")
+      return
+    }
+
     console.log("[v0] NotificationsMenu: Iniciando refresh...")
     const res = await tenantFetch("/api/supabase/notifications?limit=30")
     const data = await res.json()
@@ -83,7 +91,11 @@ export default function NotificationsMenu() {
   }, [])
 
   useEffect(() => {
-    if (!supa) return
+    // Aguardar tenant e supabase estarem prontos
+    if (!supa || loading || !tenant) {
+      console.log("[v0] NotificationsMenu: Aguardando inicialização...", { supa: !!supa, loading, tenant: !!tenant })
+      return
+    }
 
     refresh()
     const ch = supa
@@ -95,7 +107,7 @@ export default function NotificationsMenu() {
     return () => {
       supa.removeChannel(ch)
     }
-  }, [supa])
+  }, [supa, loading, tenant])
 
   const markAllRead = async () => {
     console.log("[v0] markAllRead: BOTÃO CLICADO! unread:", unread, "markingAllRead:", markingAllRead)
