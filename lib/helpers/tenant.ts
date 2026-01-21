@@ -25,6 +25,22 @@ export interface TenantTables {
 }
 
 /**
+ * Obtém o nome correto da tabela de chat histories
+ * Suporta ambos os formatos: vox_bhn8n_chat_histories E vox_maceio_n8n_chat_histories
+ */
+function getChatHistoriesTableName(tenant: string): string {
+    // Tenants que usam underscore antes de n8n
+    const tenantsWithUnderscore = ['vox_maceio']
+
+    if (tenantsWithUnderscore.includes(tenant)) {
+        return `${tenant}_n8n_chat_histories`
+    }
+
+    // Padrão: sem underscore
+    return `${tenant}n8n_chat_histories`
+}
+
+/**
  * Obtém o tenant do header da requisição e retorna os nomes de todas as tabelas
  * NUNCA usa valor padrão para evitar vazamento de dados entre unidades!
  */
@@ -33,7 +49,7 @@ export function getTenantTables(req: NextRequest | Request): TenantTables {
 
     return {
         tenant,
-        chatHistories: `${tenant}n8n_chat_histories`,
+        chatHistories: getChatHistoriesTableName(tenant),
         agendamentos: `${tenant}_agendamentos`,
         lembretes: `${tenant}_lembretes`,
         followNormal: `${tenant}_follow_normal`,
@@ -77,7 +93,7 @@ export function getTablesForTenant(tenant: string): Omit<TenantTables, 'tenant'>
     }
 
     return {
-        chatHistories: `${tenant}n8n_chat_histories`,
+        chatHistories: getChatHistoriesTableName(tenant),
         agendamentos: `${tenant}_agendamentos`,
         lembretes: `${tenant}_lembretes`,
         followNormal: `${tenant}_follow_normal`,
