@@ -485,7 +485,16 @@ export async function GET(req: Request) {
         // Validar tenant
         if (!isValidTenant(tenant)) return NextResponse.json({ error: 'Tenant inválido' }, { status: 400 })
 
-        const chatTable = `${tenant}n8n_chat_histories`
+        // Detectar automaticamente o nome correto da tabela de chat
+        // Suporta: vox_bhn8n_chat_histories E vox_maceio_n8n_chat_histories
+        let chatTable = `${tenant}n8n_chat_histories`
+        const testResult = await supabase.from(chatTable).select("id").limit(1)
+
+        if (testResult.error && testResult.error.message.includes('does not exist')) {
+            chatTable = `${tenant}_n8n_chat_histories`
+            console.log(`[CRM] Usando tabela com underscore: ${chatTable}`)
+        }
+
         const statusTable = `${tenant}_crm_lead_status`
         // Follow-up Schedule é genérica (tabela pública não particionada ainda OU a migration não foi pedida).
         // Manter fallback para 'followup_schedule' para evitar quebras se a tabela tenant não existir.
