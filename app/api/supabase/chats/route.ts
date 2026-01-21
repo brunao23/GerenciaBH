@@ -395,6 +395,19 @@ function cleanAnyMessage(text: string) {
   s = s.replace(/consultar_agenda[\s\S]{0,50000}?\]/gi, "")
   s = s.replace(/agendar_visita[\s\S]{0,50000}?\]/gi, "")
 
+  // LEI INVIOLÁVEL: Remove mensagens internas de follow-up
+  // Remove "SEM AÇÃO" e variações
+  s = s.replace(/^SEM\s*A[ÇC][ÃA]O\s*$/gim, "")
+  s = s.replace(/^SEM\s*ACAO\s*$/gim, "")
+  // Remove linhas que são apenas "SEM AÇÃO"
+  s = s.split('\n').filter(line => {
+    const trimmed = line.trim().toUpperCase()
+    return trimmed !== 'SEM AÇÃO' &&
+      trimmed !== 'SEM ACAO' &&
+      trimmed !== 'SEMAÇÃO' &&
+      trimmed !== 'SEMACAO'
+  }).join('\n')
+
   // Remove qualquer estrutura que comece com [ e contenha Tool, Input, Result
   while (s.includes('[Used tools') || s.includes('[Tool:') || s.includes('Input:') || s.includes('Result:')) {
     s = s.replace(/\[[\s\S]{0,50000}?Used\s+tools?[\s\S]{0,50000}?\]/gi, "")
