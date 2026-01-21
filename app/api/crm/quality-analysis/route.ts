@@ -319,16 +319,29 @@ export async function GET(req: Request) {
         const { searchParams } = new URL(req.url)
         const minSimilarity = parseFloat(searchParams.get('minSimilarity') || '0.85')
 
-        // ✅ OBTER TENANT DO HEADER
-        let tenant = req.headers.get('x-tenant-prefix')
+        // ✅ OBTER TENANT DO HEADER - SEM FALLBACK!
+        const tenant = req.headers.get('x-tenant-prefix')
 
         if (!tenant) {
-            console.warn("⚠️ Tenant não especificado em analytics/insights. Usando 'vox_bh' como fallback.")
-            tenant = 'vox_bh'
+            console.error("❌ ERRO CRÍTICO: Tenant não especificado em quality-analysis!")
+            return NextResponse.json(
+                { error: 'Tenant não especificado. Isso causaria vazamento de dados!' },
+                { status: 400 }
+            )
         }
 
         const supabase = createServiceRoleClient()
-        const chatHistoriesTable = `${tenant}n8n_chat_histories`
+
+        // Detectar automaticamente o nome correto da tabela de chat
+        // Suporta: vox_bhn8n_chat_histories E vox_maceio_n8n_chat_histories
+        let chatHistoriesTable = `${tenant}n8n_chat_histories`
+        const testResult = await supabase.from(chatHistoriesTable).select("id").limit(1)
+
+        if (testResult.error && testResult.error.message.includes('does not exist')) {
+            chatHistoriesTable = `${tenant}_n8n_chat_histories`
+            console.log(`[Quality Analysis] Usando tabela com underscore: ${chatHistoriesTable}`)
+        }
+
         const crmLeadStatusTable = `${tenant}_crm_lead_status`
 
         console.log(`[Quality Analysis] [${tenant}] Iniciando análise de qualidade de dados usando tabelas: ${chatHistoriesTable}, ${crmLeadStatusTable}`)
