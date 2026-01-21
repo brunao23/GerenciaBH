@@ -4,14 +4,14 @@ import { getTenantTables } from "@/lib/helpers/tenant"
 
 export async function GET(req: Request) {
   try {
-    // Validar tenant
+    // Validar tenant - retorna dados vazios se não disponível
     const tenantHeader = req.headers.get('x-tenant-prefix')
     if (!tenantHeader) {
-      console.error('[Notifications] Tenant não especificado')
-      return NextResponse.json(
-        { error: 'Tenant não especificado' },
-        { status: 400 }
-      )
+      console.warn('[Notifications] Tenant não especificado, retornando dados vazios')
+      return NextResponse.json({
+        items: [],
+        unread: 0,
+      })
     }
 
     const { notifications } = getTenantTables(req)
