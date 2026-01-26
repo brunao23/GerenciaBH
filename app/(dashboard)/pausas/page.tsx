@@ -222,7 +222,7 @@ export default function PausasPage() {
           </div>
           <Button
             onClick={adicionarPausa}
-            className="bg-[var(--accent-green)] hover:bg-[var(--dark-green)] text-[var(--primary-black)]"
+            className="bg-[var(--accent-yellow)] hover:bg-yellow-500 text-[var(--primary-black)] font-semibold"
           >
             <Plus className="h-4 w-4 mr-2" />
             Adicionar Pausa
