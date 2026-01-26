@@ -36,11 +36,13 @@ COMMENT ON COLUMN units_registry.created_by IS 'self (auto-registro) ou admin';
 INSERT INTO units_registry (unit_name, unit_prefix, password_hash, created_by) VALUES
   ('Vox BH', 'vox_bh', '$2b$10$6xRT.d6ggFrPyyQZImXfSe.NVS1lWDKJBDPfRaQj/.67x2NYOE.Z.', 'admin'),
   ('Vox SP', 'vox_sp', '$2b$10$6xRT.d6ggFrPyyQZImXfSe.NVS1lWDKJBDPfRaQj/.67x2NYOE.Z.', 'admin'),
-  ('Vox Maceió', 'vox_maceio', '$2b$10$6xRT.d6ggFrPyyQZImXfSe.NVS1lWDKJBDPfRaQj/.67x2NYOE.Z.', 'admin'),
-  ('Bia Vox', 'bia_vox', '$2b$10$6xRT.d6ggFrPyyQZImXfSe.NVS1lWDKJBDPfRaQj/.67x2NYOE.Z.', 'admin'),
-  ('Colégio Progresso', 'colegio_progresso', '$2b$10$6xRT.d6ggFrPyyQZImXfSe.NVS1lWDKJBDPfRaQj/.67x2NYOE.Z.', 'admin'),
+  ('Vox Rio', 'vox_rio', '$2b$10$6xRT.d6ggFrPyyQZImXfSe.NVS1lWDKJBDPfRaQj/.67x2NYOE.Z.', 'admin'),
   ('Vox ES', 'vox_es', '$2b$10$6xRT.d6ggFrPyyQZImXfSe.NVS1lWDKJBDPfRaQj/.67x2NYOE.Z.', 'admin'),
-  ('Vox Rio', 'vox_rio', '$2b$10$6xRT.d6ggFrPyyQZImXfSe.NVS1lWDKJBDPfRaQj/.67x2NYOE.Z.', 'admin')
+  ('Vox Maceió', 'vox_maceio', '$2b$10$6xRT.d6ggFrPyyQZImXfSe.NVS1lWDKJBDPfRaQj/.67x2NYOE.Z.', 'admin'),
+  ('Vox Marília', 'vox_marilia', '$2b$10$6xRT.d6ggFrPyyQZImXfSe.NVS1lWDKJBDPfRaQj/.67x2NYOE.Z.', 'admin'),
+  ('Vox Piauí', 'vox_piaui', '$2b$10$6xRT.d6ggFrPyyQZImXfSe.NVS1lWDKJBDPfRaQj/.67x2NYOE.Z.', 'admin'),
+  ('Bia Vox', 'bia_vox', '$2b$10$6xRT.d6ggFrPyyQZImXfSe.NVS1lWDKJBDPfRaQj/.67x2NYOE.Z.', 'admin'),
+  ('Colégio Progresso', 'colegio_progresso', '$2b$10$6xRT.d6ggFrPyyQZImXfSe.NVS1lWDKJBDPfRaQj/.67x2NYOE.Z.', 'admin')
 ON CONFLICT (unit_prefix) DO NOTHING;
 
 -- Verificar
