@@ -28,7 +28,7 @@ import {
   Users,
 } from "lucide-react"
 import Link from "next/link"
-import { useSession } from "@/lib/auth/session-provider"
+import { useEffect, useState } from "react"
 
 const items = [
   { title: "Visão Geral", url: "/", icon: BarChart3 },
@@ -43,7 +43,22 @@ const items = [
 export function AppSidebar() {
   const pathname = usePathname()
   const router = useRouter()
-  const { session } = useSession()
+  const [sessionData, setSessionData] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    // Buscar sessão
+    fetch('/api/auth/session')
+      .then(res => res.json())
+      .then(data => {
+        setSessionData(data)
+        setLoading(false)
+      })
+      .catch(err => {
+        console.error('Erro ao buscar sessão:', err)
+        setLoading(false)
+      })
+  }, [])
 
   const handleLogout = async () => {
     try {
@@ -59,7 +74,7 @@ export function AppSidebar() {
   }
 
   // Verifica se é admin
-  const isAdmin = session?.role === 'admin' || session?.email === 'admin@geniallabs.com.br'
+  const isAdmin = sessionData?.role === 'admin' || sessionData?.email === 'admin@geniallabs.com.br'
 
   return (
     <Sidebar className="bg-[var(--card-black)] border-[var(--border-gray)] backdrop-blur-sm">
@@ -124,7 +139,7 @@ export function AppSidebar() {
       <SidebarFooter className="px-4 py-6 border-t border-[var(--border-gray)]">
         <div className="space-y-3">
           {/* Botão Trocar de Cliente (apenas admin) */}
-          {isAdmin && (
+          {!loading && isAdmin && (
             <button
               onClick={handleSwitchClient}
               className="flex items-center gap-3 w-full p-3 rounded-lg bg-gradient-to-r from-[var(--accent-blue)]/20 to-[var(--accent-blue)]/10 border border-[var(--accent-blue)]/30 hover:border-[var(--accent-blue)]/50 transition-all duration-300 hover:shadow-lg hover:shadow-[var(--accent-blue)]/20 group"
@@ -145,7 +160,9 @@ export function AppSidebar() {
             <LogOut className="w-5 h-5 text-[var(--accent-red)] group-hover:scale-110 transition-transform duration-300" />
             <div className="flex-1 text-left">
               <span className="font-medium text-[var(--pure-white)] text-sm">Sair</span>
-              <div className="text-xs text-[var(--text-gray)]">{session?.email || 'Desconectar'}</div>
+              <div className="text-xs text-[var(--text-gray)]">
+                {loading ? 'Carregando...' : (sessionData?.email || 'Desconectar')}
+              </div>
             </div>
           </button>
 
