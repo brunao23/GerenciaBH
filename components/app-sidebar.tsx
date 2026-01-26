@@ -14,20 +14,21 @@ import {
   SidebarSeparator,
   SidebarRail,
 } from "@/components/ui/sidebar"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import {
   BarChart3,
   MessageCircle,
   Calendar,
   Zap,
   Workflow,
-  HelpCircle,
-  ExternalLink,
   PauseCircle,
   FileText,
   LayoutTemplate,
+  LogOut,
+  Users,
 } from "lucide-react"
 import Link from "next/link"
+import { useSession } from "@/lib/auth/session-provider"
 
 const items = [
   { title: "Visão Geral", url: "/", icon: BarChart3 },
@@ -41,6 +42,24 @@ const items = [
 
 export function AppSidebar() {
   const pathname = usePathname()
+  const router = useRouter()
+  const { session } = useSession()
+
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' })
+      router.push('/login')
+    } catch (error) {
+      console.error('Erro ao fazer logout:', error)
+    }
+  }
+
+  const handleSwitchClient = () => {
+    router.push('/admin/switch-client')
+  }
+
+  // Verifica se é admin
+  const isAdmin = session?.role === 'admin' || session?.email === 'admin@geniallabs.com.br'
 
   return (
     <Sidebar className="bg-[var(--card-black)] border-[var(--border-gray)] backdrop-blur-sm">
@@ -101,24 +120,36 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
+
       <SidebarFooter className="px-4 py-6 border-t border-[var(--border-gray)]">
         <div className="space-y-3">
-          <a
-            href="https://suporte.cliente.geniallabs.com.br/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-3 p-3 rounded-lg bg-gradient-to-r from-[var(--accent-green)]/20 to-[var(--dark-green)]/10 border border-[var(--accent-green)]/30 hover:border-[var(--accent-green)]/50 transition-all duration-300 hover:shadow-lg hover:shadow-[var(--accent-green)]/20 group"
-          >
-            <div className="relative">
-              <HelpCircle className="w-5 h-5 text-[var(--accent-green)] group-hover:scale-110 transition-transform duration-300" />
-              <ExternalLink className="w-3 h-3 text-[var(--accent-green)] absolute -top-1 -right-1 opacity-60" />
-            </div>
-            <div className="flex-1">
-              <span className="font-medium text-[var(--pure-white)] text-sm">Suporte</span>
-              <div className="text-xs text-[var(--text-gray)]">Precisa de ajuda?</div>
-            </div>
-          </a>
+          {/* Botão Trocar de Cliente (apenas admin) */}
+          {isAdmin && (
+            <button
+              onClick={handleSwitchClient}
+              className="flex items-center gap-3 w-full p-3 rounded-lg bg-gradient-to-r from-[var(--accent-blue)]/20 to-[var(--accent-blue)]/10 border border-[var(--accent-blue)]/30 hover:border-[var(--accent-blue)]/50 transition-all duration-300 hover:shadow-lg hover:shadow-[var(--accent-blue)]/20 group"
+            >
+              <Users className="w-5 h-5 text-[var(--accent-blue)] group-hover:scale-110 transition-transform duration-300" />
+              <div className="flex-1 text-left">
+                <span className="font-medium text-[var(--pure-white)] text-sm">Trocar de Cliente</span>
+                <div className="text-xs text-[var(--text-gray)]">Modo Admin</div>
+              </div>
+            </button>
+          )}
 
+          {/* Botão Sair */}
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-3 w-full p-3 rounded-lg bg-gradient-to-r from-[var(--accent-red)]/20 to-[var(--accent-red)]/10 border border-[var(--accent-red)]/30 hover:border-[var(--accent-red)]/50 transition-all duration-300 hover:shadow-lg hover:shadow-[var(--accent-red)]/20 group"
+          >
+            <LogOut className="w-5 h-5 text-[var(--accent-red)] group-hover:scale-110 transition-transform duration-300" />
+            <div className="flex-1 text-left">
+              <span className="font-medium text-[var(--pure-white)] text-sm">Sair</span>
+              <div className="text-xs text-[var(--text-gray)]">{session?.email || 'Desconectar'}</div>
+            </div>
+          </button>
+
+          {/* Status Dashboard */}
           <div className="text-xs text-[var(--text-gray)] px-2">
             <div className="flex items-center gap-3 p-3 rounded-lg bg-[var(--secondary-black)] border border-[var(--border-gray)]">
               <div className="relative">
