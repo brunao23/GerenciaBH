@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
-import { getTenantTables } from "@/lib/helpers/tenant"
+import { getTenantTables, getTablesForTenant } from "@/lib/helpers/tenant"
+import { cookies } from "next/headers"
+import { verifyToken } from "@/lib/auth/jwt"
 
 type Row = { session_id: string; message: any; id: number; created_at?: string | null } // LEI INVIOLÁVEL: Inclui created_at da tabela
 
@@ -819,7 +821,38 @@ function areAIMessagesSimilar(msg1: any, msg2: any, threshold = 0.6): boolean {
 export async function GET(req: Request) {
   try {
     console.log("[v0] ChatsAPI: Iniciando busca de conversas...")
-    const { chatHistories } = getTenantTables(req)
+
+    // BUSCAR TENANT DA SESSÃO JWT (CORRIGIDO!)
+    const cookieStore = await cookies()
+    const token = cookieStore.get('auth-token')?.value
+
+    let tenant = 'vox_bh' // fallback
+
+    if (token) {
+      const session = await verifyToken(token)
+      if (session && session.unitPrefix) {
+        tenant = session.unitPrefix
+        console.log(`[ChatsAPI] Tenant obtido da sessão JWT: ${tenant}`)
+      } else {
+        console.log(`[ChatsAPI] ATENÇÃO: Sessão inválida, usando tenant padrão`)
+      }
+    } else {
+      // Fallback para header (compatibilidade)
+      const headerTenant = req.headers.get('x-tenant-prefix')
+      if (headerTenant) {
+        tenant = headerTenant
+        console.log(`[ChatsAPI] Tenant obtido do header: ${tenant}`)
+      } else {
+        console.log(`[ChatsAPI] ATENÇÃO: Sem token e sem header, usando tenant padrão: ${tenant}`)
+      }
+    }
+
+    // Validar tenant
+    if (!/^[a-z0-9_]+$/.test(tenant)) {
+      return NextResponse.json({ error: 'Tenant inválido' }, { status: 400 })
+    }
+
+    const { chatHistories, agendamentos, lembretes } = getTablesForTenant(tenant)
     const supabase = createBiaSupabaseServerClient()
 
     const { searchParams } = new URL(req.url)
@@ -838,6 +871,7 @@ export async function GET(req: Request) {
     let totalFetched = 0
 
     console.log("[v0] ChatsAPI: Iniciando paginação com pageSize:", pageSize, "maxRecords:", maxRecords)
+
 
     // Primeiro, busca o total de registros para saber quantas páginas buscar
     let totalCount = 0
