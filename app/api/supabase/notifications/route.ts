@@ -1,20 +1,12 @@
 import { NextResponse } from "next/server"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
-import { getTenantTables } from "@/lib/helpers/tenant"
+import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
 
 export async function GET(req: Request) {
   try {
-    // Validar tenant - retorna dados vazios se não disponível
-    const tenantHeader = req.headers.get('x-tenant-prefix')
-    if (!tenantHeader) {
-      console.warn('[Notifications] Tenant não especificado, retornando dados vazios')
-      return NextResponse.json({
-        items: [],
-        unread: 0,
-      })
-    }
+    const { tables } = await getTenantFromRequest('vox_bh')
+    const { notifications } = tables
 
-    const { notifications } = getTenantTables(req)
     console.log(`[Notifications] Usando tabela: ${notifications}`)
 
     const supabase = createBiaSupabaseServerClient()
@@ -54,7 +46,8 @@ export async function GET(req: Request) {
 
 export async function PATCH(req: Request) {
   try {
-    const { notifications } = getTenantTables(req)
+    const { tables } = await getTenantFromRequest('vox_bh')
+    const { notifications } = tables
     const supabase = createBiaSupabaseServerClient()
 
     const body = await req.json().catch(() => ({}))
@@ -96,7 +89,8 @@ export async function PATCH(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    const { notifications } = getTenantTables(req)
+    const { tables } = await getTenantFromRequest('vox_bh')
+    const { notifications } = tables
     const supabase = createBiaSupabaseServerClient()
 
     const body = await req.json().catch(() => ({}))

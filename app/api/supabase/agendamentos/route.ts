@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { notifyAgendamentoCreated } from "@/lib/services/notifications"
-import { getTenantTables } from "@/lib/helpers/tenant"
+import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
 
 type Row = Record<string, any>
 
@@ -191,7 +191,8 @@ function extractFormDataFromMessages(messages: any[]): { nome?: string; primeiro
 
 export async function GET(req: Request) {
   try {
-    const { agendamentos, chatHistories } = getTenantTables(req)
+    const { tables } = await getTenantFromRequest('vox_bh')
+    const { agendamentos, chatHistories } = tables
     const supabase = createBiaSupabaseServerClient()
 
     const { searchParams } = new URL(req.url)
@@ -325,7 +326,8 @@ export async function GET(req: Request) {
 
 export async function PUT(req: Request) {
   try {
-    const { agendamentos } = getTenantTables(req)
+    const { tables } = await getTenantFromRequest('vox_bh')
+    const { agendamentos } = tables
     const supabase = createBiaSupabaseServerClient()
     const body = await req.json()
 
@@ -363,7 +365,8 @@ export async function PUT(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    const { agendamentos } = getTenantTables(req)
+    const { tables } = await getTenantFromRequest('vox_bh')
+    const { agendamentos } = tables
     const supabase = createBiaSupabaseServerClient()
     const { searchParams } = new URL(req.url)
     const id = searchParams.get("id")
