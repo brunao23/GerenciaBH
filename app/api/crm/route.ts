@@ -522,12 +522,14 @@ export async function GET(req: Request) {
         let allChats: any[] = []
         let page = 0
         const pageSize = 1000
+        const maxRecords = 50000 // Limite alto para mostrar tudo
         let hasMore = true
 
-        while (hasMore) {
+        while (hasMore && allChats.length < maxRecords) {
+            // Buscar apenas campos necessários para melhor performance
             const { data: chats, error } = await supabase
                 .from(chatTable)
-                .select("*")
+                .select("session_id, message, id, created_at")
                 .order("id", { ascending: false })
                 .range(page * pageSize, (page + 1) * pageSize - 1)
 
@@ -545,9 +547,9 @@ export async function GET(req: Request) {
 
             if (chats && chats.length > 0) {
                 allChats = allChats.concat(chats)
-                console.log(`[CRM] Página ${page + 1}: ${chats.length} registros (Total acumulado: ${allChats.length})`)
+                console.log(`[CRM] Página ${page + 1}: ${chats.length} registros (Total: ${allChats.length}/${maxRecords})`)
                 page++
-                hasMore = chats.length === pageSize
+                hasMore = chats.length === pageSize && allChats.length < maxRecords
             } else {
                 hasMore = false
             }

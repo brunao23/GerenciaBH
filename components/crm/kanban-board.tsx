@@ -449,7 +449,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                                                                                 {card.name}
                                                                                             </p>
                                                                                             {card.isPaused && (
-                                                                                                <Badge variant="outline" className="text-[10px] h-5 px-1.5 border-red-500/50 text-red-400 bg-red-500/10">
+                                                                                                <Badge variant="outline" className="text-[10px] h-5 px-1.5 border-yellow-500/50 text-yellow-400 bg-yellow-500/10">
                                                                                                     <PauseCircle className="w-3 h-3 mr-0.5" />
                                                                                                     Pausado
                                                                                                 </Badge>

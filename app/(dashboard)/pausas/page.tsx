@@ -254,7 +254,7 @@ export default function PausasPage() {
                       <span className="font-mono text-[var(--pure-white)]">{pausa.numero}</span>
                     </div>
                     <div className="flex gap-2">
-                      <Badge variant={pausa.pausar ? "destructive" : "secondary"}>
+                      <Badge variant={pausa.pausar ? "outline" : "secondary"} className={pausa.pausar ? "border-yellow-500/50 text-yellow-400 bg-yellow-500/10" : ""}>
                         {pausa.pausar ? (
                           <>
                             <Pause className="h-3 w-3 mr-1" />
@@ -289,7 +289,7 @@ export default function PausasPage() {
                             console.log("[v0] Pausas: Switch pausar clicado", pausa.id, checked)
                             atualizarPausa(pausa.id, { pausar: checked })
                           }}
-                          className="data-[state=checked]:bg-red-500"
+                          className="data-[state=checked]:bg-yellow-500"
                         />
                       </div>
                       <div className="flex flex-col items-center gap-1">
