@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { subDays, subWeeks, subMonths, subYears, startOfDay, endOfDay } from "date-fns"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
-import { getTenantTables } from "@/lib/helpers/tenant"
+import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
 
 // Tipos para o relatório
 interface RelatorioData {
@@ -29,15 +29,8 @@ interface RelatorioData {
 
 export async function GET(request: NextRequest) {
   try {
-    // ✅ OBTER TENANT DO HEADER
-    const tenant = request.headers.get('x-tenant-prefix')
-
-    if (!tenant) {
-      return NextResponse.json(
-        { error: '❌ Header x-tenant-prefix não foi enviado!' },
-        { status: 400 }
-      )
-    }
+    const { tenant, tables } = await getTenantFromRequest('vox_bh')
+    const { chatHistories, agendamentos, followNormal } = tables
 
     const { searchParams } = new URL(request.url)
     const periodo = searchParams.get("periodo") || "semana"
@@ -70,15 +63,11 @@ export async function GET(request: NextRequest) {
     }
 
     const supabase = createBiaSupabaseServerClient()
-    const tenantTables = getTenantTables(request)
-    const { chatHistories, agendamentos, followNormal, tenant: tenantName } = tenantTables
-
-    // Usar nomes das tabelas do helper
     const chatHistoriesTable = chatHistories
     const agendamentosTable = agendamentos
     const followupsTable = followNormal
 
-    console.log(`📊 [Relatórios] Tenant: ${tenantName} | Período: ${periodoTexto}`)
+    console.log(`📊 [Relatórios] Tenant: ${tenant} | Período: ${periodoTexto}`)
     console.log(`📋 Tabelas: ${chatHistoriesTable}, ${agendamentosTable}, ${followupsTable}`)
 
     // 1. BUSCAR CONVERSAS (Chat Histories)
@@ -267,7 +256,7 @@ export async function GET(request: NextRequest) {
       periodo: periodoTexto,
       dataInicio: dataInicio.toISOString(),
       dataFim: dataFim.toISOString(),
-      tenant: tenantName,
+      tenant,
       metricas: {
         totalConversas,
         totalLeads,

@@ -1,6 +1,6 @@
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { type NextRequest, NextResponse } from "next/server"
-import { getTenantTables } from "@/lib/helpers/tenant"
+import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
 
 /**
  * Normaliza número de telefone removendo caracteres não numéricos
@@ -30,7 +30,8 @@ function validatePhoneNumber(numero: string): { valid: boolean; error?: string }
 // GET - Listar todos os registros de pausa ou buscar por número específico
 export async function GET(request: NextRequest) {
   try {
-    const { pausar } = getTenantTables(request)
+    const { tables } = await getTenantFromRequest('vox_bh')
+    const { pausar } = tables
     const { searchParams } = new URL(request.url)
     const numero = searchParams.get("numero")
 
@@ -92,7 +93,8 @@ export async function GET(request: NextRequest) {
 // POST - Criar novo registro de pausa ou atualizar existente (upsert)
 export async function POST(request: NextRequest) {
   try {
-    const { pausar: pausarTable } = getTenantTables(request)
+    const { tables } = await getTenantFromRequest('vox_bh')
+    const { pausar: pausarTable } = tables
     const body = await request.json()
     const { numero, pausar, vaga, agendamento } = body
 
@@ -180,7 +182,8 @@ export async function POST(request: NextRequest) {
 // PUT - Atualizar registro existente
 export async function PUT(request: NextRequest) {
   try {
-    const { pausar: pausarTable } = getTenantTables(request)
+    const { tables } = await getTenantFromRequest('vox_bh')
+    const { pausar: pausarTable } = tables
     const body = await request.json()
     const { numero, pausar, vaga, agendamento } = body
 
@@ -284,7 +287,8 @@ export async function DELETE(request: NextRequest) {
 
     const supabase = createBiaSupabaseServerClient()
 
-    const { pausar: pausarTable } = getTenantTables(request)
+    const { tables } = await getTenantFromRequest('vox_bh')
+    const { pausar: pausarTable } = tables
 
     console.log(`[Pausar API DELETE] Removendo registro para ${normalizedNumero}`)
 
