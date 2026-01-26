@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
-import { Trash2, Plus, Phone, Pause, Play } from "lucide-react"
+import { Trash2, Plus, Phone, Pause, Play, Search, X } from "lucide-react"
 import { toast } from "sonner"
 import { useTenant } from "@/lib/contexts/TenantContext"
 
@@ -27,6 +27,7 @@ export default function PausasPage() {
   const { tenant } = useTenant()
   const [pausas, setPausas] = useState<PausaRecord[]>([])
   const [loading, setLoading] = useState(true)
+  const [searchTerm, setSearchTerm] = useState("") // NOVO: Estado de busca
   const [novoNumero, setNovoNumero] = useState("")
   const [novaPausa, setNovaPausa] = useState({
     pausar: false,
@@ -164,6 +165,11 @@ export default function PausasPage() {
     carregarPausas()
   }, [])
 
+  // NOVO: Filtrar pausas baseado na busca
+  const pausasFiltradas = pausas.filter(pausa =>
+    pausa.numero.toLowerCase().includes(searchTerm.toLowerCase())
+  )
+
   return (
     <div className="flex-1 space-y-6 p-6">
       <div>
@@ -230,20 +236,48 @@ export default function PausasPage() {
         </CardContent>
       </Card>
 
-      {/* Lista de pausas existentes */}
+      {/* NOVO: Campo de Busca + Lista de pausas existentes */}
       <Card className="bg-[var(--card-black)] border-[var(--border-gray)]">
         <CardHeader>
-          <CardTitle className="text-[var(--pure-white)]">Pausas Ativas ({pausas.length})</CardTitle>
-          <CardDescription className="text-[var(--text-gray)]">Números com automação pausada</CardDescription>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <CardTitle className="text-[var(--pure-white)]">
+                Pausas Ativas ({pausasFiltradas.length}{searchTerm ? ` de ${pausas.length}` : ''})
+              </CardTitle>
+              <CardDescription className="text-[var(--text-gray)]">
+                Números com automação pausada
+              </CardDescription>
+            </div>
+            {/* Campo de Busca */}
+            <div className="relative w-64">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-[var(--text-gray)]" />
+              <Input
+                placeholder="Buscar número..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10 pr-10 bg-[var(--secondary-black)] border-[var(--border-gray)] text-[var(--pure-white)]"
+              />
+              {searchTerm && (
+                <button
+                  onClick={() => setSearchTerm("")}
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-[var(--text-gray)] hover:text-[var(--pure-white)]"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           {loading ? (
             <div className="text-center py-8 text-[var(--text-gray)]">Carregando pausas...</div>
-          ) : pausas.length === 0 ? (
-            <div className="text-center py-8 text-[var(--text-gray)]">Nenhuma pausa configurada</div>
+          ) : pausasFiltradas.length === 0 ? (
+            <div className="text-center py-8 text-[var(--text-gray)]">
+              {searchTerm ? `Nenhum número encontrado para "${searchTerm}"` : 'Nenhuma pausa configurada'}
+            </div>
           ) : (
             <div className="space-y-4">
-              {pausas.map((pausa) => (
+              {pausasFiltradas.map((pausa) => (
                 <div
                   key={pausa.id}
                   className="flex items-center justify-between p-4 bg-[var(--secondary-black)] rounded-lg border border-[var(--border-gray)]"
