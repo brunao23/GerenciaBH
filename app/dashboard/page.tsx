@@ -43,11 +43,7 @@ export default function DashboardPage() {
     console.log(`[Dashboard] Buscando dados para período: ${period}`)
     setLoading(true)
 
-    fetch(`/api/supabase/overview?period=${period}`, {
-      headers: {
-        'x-tenant-prefix': tenant.prefix
-      }
-    })
+    fetch(`/api/supabase/overview?period=${period}`)
       .then((r) => {
         console.log("[Dashboard] Resposta da API recebida, status:", r.status)
         return r.json()

@@ -25,11 +25,7 @@ export default function CRMPage() {
         console.log('[CRM Page] Buscando dados para tenant:', tenant.prefix)
         setLoading(true)
         try {
-            const res = await fetch('/api/crm', {
-                headers: {
-                    'x-tenant-prefix': tenant.prefix
-                }
-            })
+            const res = await fetch('/api/crm')
             console.log('[CRM Page] Resposta recebida:', res.status)
             if (!res.ok) throw new Error('Falha ao carregar dados do CRM')
             const json = await res.json()

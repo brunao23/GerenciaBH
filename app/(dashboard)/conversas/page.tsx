@@ -163,9 +163,7 @@ export default function ConversasPage() {
     if (!tenant) return
     setLoading(true)
 
-    fetch(`/api/supabase/chats`, {
-      headers: { 'x-tenant-prefix': tenant.prefix }
-    })
+    fetch(`/api/supabase/chats`)
       .then((r) => r.json())
       .then((d) => {
         const arr = Array.isArray(d) ? (d as ChatSession[]) : []
@@ -198,9 +196,7 @@ export default function ConversasPage() {
   const fetchPauseStatus = useCallback(async (numero: string) => {
     if (!numero || !tenant) return
     try {
-      const response = await fetch(`/api/pausar?numero=${encodeURIComponent(numero)}`, {
-        headers: { 'x-tenant-prefix': tenant.prefix }
-      })
+      const response = await fetch(`/api/pausar?numero=${encodeURIComponent(numero)}`)
       if (response.ok) {
         const data = await response.json()
         setPauseStatus(data || { pausar: false, vaga: true, agendamento: true })
@@ -300,8 +296,7 @@ export default function ConversasPage() {
         const response = await fetch("/api/pausar", {
           method: "POST",
           headers: {
-            "Content-Type": "application/json",
-            "x-tenant-prefix": tenant?.prefix || ""
+            "Content-Type": "application/json"
           },
           body: JSON.stringify({
             numero: current.numero,
