@@ -529,8 +529,18 @@ export async function GET(req: Request) {
     console.log(`[v0] Carregados ${followupsData.length} follow-ups processados`)
     console.log(`[v0] Carregados ${disparosData.leads} leads de vox_disparos`)
 
-    // Usar dados originais (tabela não tem created_at, filtro desativado)
-    const sessionsToProcess = sessionsData
+    // APLICAR FILTRO DE DATA "REAL" (Server-side filtering in memory)
+    const startMs = startDate.getTime()
+    console.log(`[Overview] Aplicando filtro de data nos dados brutos: >= ${startDate.toISOString()}`)
+
+    // 1. Filtrar Sessões (apenas mensagens dentro do período)
+    const sessionsToProcess = sessionsData.map(s => ({
+      ...s,
+      messages: s.messages.filter((m: any) => {
+        const mDate = m.created_at ? new Date(m.created_at).getTime() : 0
+        return mDate >= startMs
+      })
+    })).filter(s => s.messages.length > 0)
 
     const supabase = createBiaSupabaseServerClient()
 
@@ -581,20 +591,47 @@ export async function GET(req: Request) {
       }
     }
 
+    // 2. Filtrar Agendamentos por data
+    const agendamentosNoPeriodo = (agRes.data || []).filter((a: any) => {
+      const aDate = a.created_at ? new Date(a.created_at).getTime() : 0
+      return aDate >= startMs
+    })
+
     // Filtrar apenas agendamentos explícitos
-    const agendamentosExplicitos = (agRes.data || []).filter(isAgendamentoExplicito)
+    const agendamentosExplicitos = agendamentosNoPeriodo.filter(isAgendamentoExplicito)
     const agendamentos = agendamentosExplicitos.length
-    const notifications = notificationsRes.data?.length || 0
 
-    console.log(`[v0] Agendamentos totais: ${agRes.data?.length || 0}, Agendamentos explícitos: ${agendamentos}`)
+    // Filtrar notificações por data
+    const notifications = (notificationsRes.data || []).filter((n: any) => {
+      const nDate = n.created_at ? new Date(n.created_at).getTime() : 0
+      return nDate >= startMs
+    }).length
 
-    const followupsEtapa1Plus = followupsData.filter((f: any) => f.etapa && f.etapa >= 1)
+    console.log(`[v0] Agendamentos no período: ${agendamentosNoPeriodo.length}, Explícitos: ${agendamentos}`)
+
+    // 3. Filtrar Follow-ups por data
+    const followupsFiltered = followupsData.filter((f: any) => {
+      const fDateStr = f.created_at || f.updated_at || f.last_contact
+      const fDate = fDateStr ? new Date(fDateStr).getTime() : 0
+      return fDate >= startMs
+    })
+
+    const followupsEtapa1Plus = followupsFiltered.filter((f: any) => f.etapa && f.etapa >= 1)
     const followups = followupsEtapa1Plus.length
-    console.log(`[v0] Follow-ups com etapa >= 1: ${followups} de ${followupsData.length} total`)
+    console.log(`[v0] Follow-ups no período: ${followupsFiltered.length} (Etapa >= 1: ${followups})`)
 
-    // Total de leads = sessões de chat + leads de vox_disparos
+    // 4. Filtrar Leads de Disparos por data
+    let leadsFromDisparos = 0
+    disparosData.dailyLeads.forEach((count, dateStr) => {
+      const dDate = new Date(dateStr)
+      dDate.setHours(0, 0, 0, 0)
+      if (dDate.getTime() >= startDate.getTime()) {
+        leadsFromDisparos += count
+      }
+    })
+
+    // Total de leads = sessões de chat no período + leads de vox_disparos no período
     const leadsFromChat = sessionsToProcess.length
-    const leadsFromDisparos = disparosData.leads
     const totalLeads = leadsFromChat + leadsFromDisparos
     console.log(`[v0] Total de Leads: ${totalLeads} (Chat: ${leadsFromChat}, Disparos: ${leadsFromDisparos})`)
 
