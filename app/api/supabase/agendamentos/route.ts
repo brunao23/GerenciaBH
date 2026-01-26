@@ -191,7 +191,7 @@ function extractFormDataFromMessages(messages: any[]): { nome?: string; primeiro
 
 export async function GET(req: Request) {
   try {
-    const { tables } = await getTenantFromRequest('vox_bh')
+    const { tables } = await getTenantFromRequest()
     const { agendamentos, chatHistories } = tables
     const supabase = createBiaSupabaseServerClient()
 
@@ -326,7 +326,7 @@ export async function GET(req: Request) {
 
 export async function PUT(req: Request) {
   try {
-    const { tables } = await getTenantFromRequest('vox_bh')
+    const { tables } = await getTenantFromRequest()
     const { agendamentos } = tables
     const supabase = createBiaSupabaseServerClient()
     const body = await req.json()
@@ -365,7 +365,7 @@ export async function PUT(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    const { tables } = await getTenantFromRequest('vox_bh')
+    const { tables } = await getTenantFromRequest()
     const { agendamentos } = tables
     const supabase = createBiaSupabaseServerClient()
     const { searchParams } = new URL(req.url)

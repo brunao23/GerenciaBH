@@ -29,7 +29,7 @@ interface RelatorioData {
 
 export async function GET(request: NextRequest) {
   try {
-    const { tenant, tables } = await getTenantFromRequest('vox_bh')
+    const { tenant, tables } = await getTenantFromRequest()
     const { chatHistories, agendamentos, followNormal } = tables
 
     const { searchParams } = new URL(request.url)

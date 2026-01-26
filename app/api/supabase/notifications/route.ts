@@ -4,7 +4,7 @@ import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
 
 export async function GET(req: Request) {
   try {
-    const { tables } = await getTenantFromRequest('vox_bh')
+    const { tables } = await getTenantFromRequest()
     const { notifications } = tables
 
     console.log(`[Notifications] Usando tabela: ${notifications}`)
@@ -46,7 +46,7 @@ export async function GET(req: Request) {
 
 export async function PATCH(req: Request) {
   try {
-    const { tables } = await getTenantFromRequest('vox_bh')
+    const { tables } = await getTenantFromRequest()
     const { notifications } = tables
     const supabase = createBiaSupabaseServerClient()
 
@@ -89,7 +89,7 @@ export async function PATCH(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    const { tables } = await getTenantFromRequest('vox_bh')
+    const { tables } = await getTenantFromRequest()
     const { notifications } = tables
     const supabase = createBiaSupabaseServerClient()
 
