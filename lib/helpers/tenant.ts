@@ -1,80 +1,132 @@
 /**
- * Helper para Multi-Tenancy
- * Centraliza a lógica de obtenção do tenant e nomes de tabelas
+ * Helper DEFINITIVO para Multi-Tenancy
+ * BASEADO NA ESTRUTURA REAL DO BANCO DE DADOS
+ * 
+ * ESTRUTURA PADRÃO (todas as unidades seguem isso):
+ * ✅ {tenant}n8n_chat_histories (maioria sem underscore)
+ * ✅ {tenant}_n8n_chat_histories (vox_maceio, vox_es com underscore)
+ * ✅ {tenant}_agendamentos
+ * ✅ {tenant}_automation_keywords
+ * ✅ {tenant}_automation_logs
+ * ✅ {tenant}_crm_funnel_config
+ * ✅ {tenant}_crm_lead_status
+ * ✅ {tenant}_disparo
+ * ✅ {tenant}_follow_normal
+ * ✅ {tenant}_followup
+ * ✅ {tenant}_knowbase
+ * ✅ {tenant}_lembretes
+ * ✅ {tenant}_notifications
+ * ✅ {tenant}_pausar
+ * ✅ {tenant}_shared_reports
+ * ✅ {tenant}_users
  */
 
 import { NextRequest } from 'next/server'
 
 export interface TenantTables {
     tenant: string
-    chatHistories: string
-    agendamentos: string
-    lembretes: string
-    followNormal: string
-    followup: string
-    notifications: string
-    crmLeadStatus: string
-    crmFunnelConfig: string
-    pausar: string
-    knowbase: string
-    users: string
-    automationLogs: string
-    automationKeywords: string
-    sharedReports: string
-    disparo: string
+    // TABELAS PRINCIPAIS (alimentam o sistema)
+    chatHistories: string          // Conversas do WhatsApp via n8n
+    pausar: string                  // Controle de pausas
+    agendamentos: string            // Agendamentos marcados
+    followNormal: string            // Follow-up simples
+    followup: string                // Follow-up avançado
+    disparo: string                 // Campanhas de disparo
+    lembretes: string               // Lembretes automáticos
+
+    // TABELAS DO SISTEMA (alimentadas pelas principais)
+    crmLeadStatus: string           // Status dos leads no CRM
+    crmFunnelConfig: string         // Configuração do funil
+    notifications: string           // Notificações do sistema
+    automationKeywords: string      // Palavras-chave para automação
+    automationLogs: string          // Logs de automação
+
+    // TABELAS AUXILIARES
+    knowbase: string                // Base de conhecimento
+    users: string                   // Usuários da unidade
+    sharedReports: string           // Relatórios compartilhados
 }
 
 /**
- * Obtém o nome correto da tabela de chat histories
- * Suporta ambos os formatos: vox_bhn8n_chat_histories E vox_maceio_n8n_chat_histories
+ * DETECÇÃO AUTOMÁTICA do formato da tabela de chat histories
+ * Baseado no banco REAL:
+ * - Maioria: {tenant}n8n_chat_histories (SEM underscore)
+ * - Exceções: vox_maceio_n8n_chat_histories, vox_es_n8n_chat_histories (COM underscore)
  */
 function getChatHistoriesTableName(tenant: string): string {
-    // Tenants que usam underscore antes de n8n
-    const tenantsWithUnderscore = ['vox_maceio']
+    // Tenants que usam underscore (confirmado no banco)
+    const tenantsWithUnderscore = ['vox_maceio', 'vox_es']
 
     if (tenantsWithUnderscore.includes(tenant)) {
         return `${tenant}_n8n_chat_histories`
     }
 
-    // Padrão: sem underscore
+    // Padrão: SEM underscore
     return `${tenant}n8n_chat_histories`
 }
 
 /**
- * Obtém o tenant do header da requisição e retorna os nomes de todas as tabelas
- * NUNCA usa valor padrão para evitar vazamento de dados entre unidades!
+ * Obtém TODOS os nomes de tabelas para um tenant
+ * ESTRUTURA BASEADA NO BANCO REAL - NÃO MODIFIQUE!
  */
-export function getTenantTables(req: NextRequest | Request): TenantTables {
-    const tenant = getTenant(req) // Usa getTenant que já valida
+export function getTablesForTenant(tenant: string): Omit<TenantTables, 'tenant'> {
+    if (!tenant || !/^[a-z0-9_]+$/.test(tenant)) {
+        throw new Error(`Tenant inválido: ${tenant}`)
+    }
 
     return {
-        tenant,
+        // TABELAS PRINCIPAIS
         chatHistories: getChatHistoriesTableName(tenant),
+        pausar: `${tenant}_pausar`,
         agendamentos: `${tenant}_agendamentos`,
-        lembretes: `${tenant}_lembretes`,
         followNormal: `${tenant}_follow_normal`,
         followup: `${tenant}_followup`,
-        notifications: `${tenant}_notifications`,
+        disparo: `${tenant}_disparo`,
+        lembretes: `${tenant}_lembretes`,
+
+        // TABELAS DO SISTEMA
         crmLeadStatus: `${tenant}_crm_lead_status`,
         crmFunnelConfig: `${tenant}_crm_funnel_config`,
-        pausar: `${tenant}_pausar`,
+        notifications: `${tenant}_notifications`,
+        automationKeywords: `${tenant}_automation_keywords`,
+        automationLogs: `${tenant}_automation_logs`,
+
+        // TABELAS AUXILIARES
         knowbase: `${tenant}_knowbase`,
         users: `${tenant}_users`,
-        automationLogs: `${tenant}_automation_logs`,
-        automationKeywords: `${tenant}_automation_keywords`,
         sharedReports: `${tenant}_shared_reports`,
-        disparo: `${tenant}_disparo`,
     }
 }
 
 /**
- * Versão simplificada que retorna apenas o tenant
+ * ❌ DEPRECADO - NÃO USE MAIS!
+ * Use getTablesForTenant() com JWT em vez de headers
  */
-export function getTenant(req: NextRequest | Request): string {
+export function getTenantTables(req: NextRequest | Request): TenantTables {
+    console.warn('⚠️ getTenantTables() está DEPRECADO! Use getTablesForTenant() com JWT.')
+
     const tenant = req.headers.get('x-tenant-prefix')
 
     if (!tenant) {
-        throw new Error('❌ ERRO CRÍTICO: Header x-tenant-prefix não foi enviado! Isso causaria vazamento de dados entre unidades.')
+        throw new Error('❌ ERRO: Header x-tenant-prefix não encontrado! Use JWT.')
+    }
+
+    return {
+        tenant,
+        ...getTablesForTenant(tenant)
+    }
+}
+
+/**
+ * ❌ DEPRECADO - NÃO USE MAIS!
+ */
+export function getTenant(req: NextRequest | Request): string {
+    console.warn('⚠️ getTenant(req) está DEPRECADO! Use getTenantFromSession() com JWT.')
+
+    const tenant = req.headers.get('x-tenant-prefix')
+
+    if (!tenant) {
+        throw new Error('❌ ERRO: Header x-tenant-prefix não encontrado!')
     }
 
     if (!/^[a-z0-9_]+$/.test(tenant)) {
@@ -85,28 +137,81 @@ export function getTenant(req: NextRequest | Request): string {
 }
 
 /**
- * Obtém os nomes de tabelas para um tenant específico (sem requisição)
+ * TODAS as unidades registradas no sistema
+ * BASEADO NO BANCO REAL - mantenha atualizado ao adicionar novas unidades
  */
-export function getTablesForTenant(tenant: string): Omit<TenantTables, 'tenant'> {
-    if (!/^[a-z0-9_]+$/.test(tenant)) {
-        throw new Error('Tenant inválido')
+export const REGISTERED_TENANTS = [
+    // Vox (escolas de oratória)
+    'vox_bh',
+    'vox_es',
+    'vox_maceio',
+    'vox_marilia',
+    'vox_piaui',
+    'vox_sp',
+    'vox_rio',
+
+    // Outras marcas
+    'bia_vox',
+    'colegio_progresso',
+] as const
+
+export type RegisteredTenant = typeof REGISTERED_TENANTS[number]
+
+/**
+ * Valida se um tenant está registrado
+ */
+export function isRegisteredTenant(tenant: string): tenant is RegisteredTenant {
+    return REGISTERED_TENANTS.includes(tenant as RegisteredTenant)
+}
+
+/**
+ * Mapeamento de nomes amigáveis
+ */
+const TENANT_NAMES: Record<RegisteredTenant, string> = {
+    'vox_bh': 'Vox BH',
+    'vox_es': 'Vox ES',
+    'vox_maceio': 'Vox Maceió',
+    'vox_marilia': 'Vox Marília',
+    'vox_piaui': 'Vox Piauí',
+    'vox_sp': 'Vox SP',
+    'vox_rio': 'Vox Rio',
+    'bia_vox': 'Bia Vox',
+    'colegio_progresso': 'Colégio Progresso',
+}
+
+/**
+ * Obtém informações completas sobre um tenant
+ */
+export function getTenantInfo(tenant: RegisteredTenant) {
+    return {
+        prefix: tenant,
+        name: TENANT_NAMES[tenant],
+        tables: getTablesForTenant(tenant)
+    }
+}
+
+/**
+ * Lista todos os tenants com suas informações
+ */
+export function getAllTenants() {
+    return REGISTERED_TENANTS.map(tenant => getTenantInfo(tenant))
+}
+
+/**
+ * Valida se um tenant existe e retorna suas tabelas
+ * Lança erro se o tenant não existir
+ */
+export function validateAndGetTables(tenant: string) {
+    if (!isRegisteredTenant(tenant)) {
+        throw new Error(
+            `Tenant '${tenant}' não está registrado. ` +
+            `Tenants válidos: ${REGISTERED_TENANTS.join(', ')}`
+        )
     }
 
     return {
-        chatHistories: getChatHistoriesTableName(tenant),
-        agendamentos: `${tenant}_agendamentos`,
-        lembretes: `${tenant}_lembretes`,
-        followNormal: `${tenant}_follow_normal`,
-        followup: `${tenant}_followup`,
-        notifications: `${tenant}_notifications`,
-        crmLeadStatus: `${tenant}_crm_lead_status`,
-        crmFunnelConfig: `${tenant}_crm_funnel_config`,
-        pausar: `${tenant}_pausar`,
-        knowbase: `${tenant}_knowbase`,
-        users: `${tenant}_users`,
-        automationLogs: `${tenant}_automation_logs`,
-        automationKeywords: `${tenant}_automation_keywords`,
-        sharedReports: `${tenant}_shared_reports`,
-        disparo: `${tenant}_disparo`,
+        tenant,
+        info: getTenantInfo(tenant),
+        tables: getTablesForTenant(tenant)
     }
 }
