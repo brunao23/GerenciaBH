@@ -1,0 +1,571 @@
+/* =================================================================
+   SISTEMA RESPONSIVO MOBILE-FIRST - 100% APP-LIKE
+   ================================================================= */
+
+/* RESET E BASE */
+* {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+}
+
+html {
+    font-size: 16px;
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* =================================================================
+   MOBILE FIRST - DESIGN BASE (0-640px)
+   ================================================================= */
+
+/* Containers responsivos */
+.container {
+    width: 100%;
+    padding: 1rem;
+    margin: 0 auto;
+}
+
+/* Layout de Dashboard */
+.dashboard-layout {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+/* Header/Navigation */
+.dashboard-header {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    padding: 1rem;
+    background: white;
+    border-bottom: 1px solid #e5e7eb;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Sidebar Mobile */
+.dashboard-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 80%;
+    max-width: 320px;
+    height: 100vh;
+    background: white;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+    z-index: 100;
+    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.1);
+    overflow-y: auto;
+}
+
+.dashboard-sidebar.open {
+    transform: translateX(0);
+}
+
+/* Overlay do menu mobile */
+.sidebar-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.3s ease, visibility 0.3s ease;
+    z-index: 99;
+}
+
+.sidebar-overlay.active {
+    opacity: 1;
+    visibility: visible;
+}
+
+/* Main Content */
+.dashboard-main {
+    flex: 1;
+    padding: 1rem;
+    width: 100%;
+}
+
+/* Cards responsivos */
+.card {
+    background: white;
+    border-radius: 12px;
+    padding: 1.25rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    margin-bottom: 1rem;
+}
+
+/* Grid Responsivo */
+.grid {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: 1fr;
+}
+
+/* Botões Touch-Friendly */
+button,
+.btn {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 0.75rem 1.5rem;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    touch-action: manipulation;
+    user-select: none;
+}
+
+button:active,
+.btn:active {
+    transform: scale(0.98);
+}
+
+/* Inputs Touch-Friendly */
+input,
+textarea,
+select {
+    min-height: 44px;
+    padding: 0.75rem;
+    font-size: 16px;
+    /* Evita zoom no iOS */
+    border-radius: 8px;
+    border: 1px solid #d1d5db;
+    width: 100%;
+    transition: all 0.2s ease;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* Tabelas Responsivas */
+.table-container {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    margin-bottom: 1rem;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+thead {
+    background: #f9fafb;
+}
+
+th,
+td {
+    padding: 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid #e5e7eb;
+    white-space: nowrap;
+}
+
+/* Mobile Table - Stack em mobile */
+@media (max-width: 640px) {
+    table.stack-mobile {
+        display: block;
+    }
+
+    table.stack-mobile thead {
+        display: none;
+    }
+
+    table.stack-mobile tbody {
+        display: block;
+    }
+
+    table.stack-mobile tr {
+        display: block;
+        margin-bottom: 1rem;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 0.75rem;
+    }
+
+    table.stack-mobile td {
+        display: block;
+        text-align: right;
+        border: none;
+        padding: 0.5rem 0;
+        white-space: normal;
+    }
+
+    table.stack-mobile td::before {
+        content: attr(data-label);
+        float: left;
+        font-weight: 600;
+        color: #6b7280;
+    }
+}
+
+/* Loading & Skeleton */
+.loading-skeleton {
+    background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+    background-size: 200% 100%;
+    animation: loading 1.5s ease-in-out infinite;
+    border-radius: 4px;
+}
+
+@keyframes loading {
+    0% {
+        background-position: 200% 0;
+    }
+
+    100% {
+        background-position: -200% 0;
+    }
+}
+
+/* Bottom Navigation (App-like) */
+.bottom-nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: white;
+    border-top: 1px solid #e5e7eb;
+    padding: 0.5rem 0;
+    display: flex;
+    justify-content: space-around;
+    z-index: 50;
+    box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.bottom-nav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.5rem;
+    min-width: 70px;
+    font-size: 0.75rem;
+    color: #6b7280;
+    text-decoration: none;
+    transition: color 0.2s ease;
+}
+
+.bottom-nav-item.active {
+    color: #3b82f6;
+}
+
+/* Notification Badge */
+.badge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    background: #ef4444;
+    color: white;
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 0.15rem 0.4rem;
+    border-radius: 10px;
+    min-width: 18px;
+    text-align: center;
+}
+
+/* Pull to Refresh Indicator */
+.pull-refresh {
+    text-align: center;
+    padding: 1rem;
+    color: #6b7280;
+    font-size: 0.9rem;
+}
+
+/* =================================================================
+   TABLET (641px - 1024px)
+   ================================================================= */
+
+@media (min-width: 641px) {
+    .container {
+        padding: 1.5rem;
+        max-width: 768px;
+    }
+
+    .grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .dashboard-main {
+        padding: 1.5rem;
+    }
+
+    .card {
+        padding: 1.5rem;
+    }
+
+    /* Sidebar desktop */
+    .dashboard-sidebar {
+        position: static;
+        transform: translateX(0);
+        width: 240px;
+        max-width: none;
+        height: auto;
+        box-shadow: none;
+        border-right: 1px solid #e5e7eb;
+    }
+
+    .sidebar-overlay {
+        display: none;
+    }
+
+    .dashboard-layout {
+        flex-direction: row;
+    }
+
+    /* Hide bottom nav on tablet+ */
+    .bottom-nav {
+        display: none;
+    }
+
+    table {
+        font-size: 1rem;
+    }
+}
+
+/* =================================================================
+   DESKTOP (1025px+)
+   ================================================================= */
+
+@media (min-width: 1025px) {
+    .container {
+        max-width: 1200px;
+        padding: 2rem;
+    }
+
+    .grid {
+        grid-template-columns: repeat(3, 1fr);
+    }
+
+    .grid.grid-4 {
+        grid-template-columns: repeat(4, 1fr);
+    }
+
+    .dashboard-main {
+        padding: 2rem;
+    }
+
+    .dashboard-sidebar {
+        width: 280px;
+    }
+
+    .card {
+        padding: 2rem;
+    }
+
+    /* Hover effects on desktop */
+    button:hover,
+    .btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+
+    .card:hover {
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    }
+}
+
+/* =================================================================
+   UTILIDADES RESPONSIVAS
+   ================================================================= */
+
+/* Visibility */
+.mobile-only {
+    display: block;
+}
+
+.tablet-only,
+.desktop-only {
+    display: none;
+}
+
+@media (min-width: 641px) {
+    .mobile-only {
+        display: none;
+    }
+
+    .tablet-only {
+        display: block;
+    }
+}
+
+@media (min-width: 1025px) {
+    .tablet-only {
+        display: none;
+    }
+
+    .desktop-only {
+        display: block;
+    }
+}
+
+/* Text Sizes Responsivos */
+.text-xs {
+    font-size: 0.75rem;
+}
+
+.text-sm {
+    font-size: 0.875rem;
+}
+
+.text-base {
+    font-size: 1rem;
+}
+
+.text-lg {
+    font-size: 1.125rem;
+}
+
+.text-xl {
+    font-size: 1.25rem;
+}
+
+.text-2xl {
+    font-size: 1.5rem;
+}
+
+.text-3xl {
+    font-size: 1.875rem;
+}
+
+.text-4xl {
+    font-size: 2.25rem;
+}
+
+@media (min-width: 641px) {
+    .text-2xl {
+        font-size: 1.75rem;
+    }
+
+    .text-3xl {
+        font-size: 2.25rem;
+    }
+
+    .text-4xl {
+        font-size: 3rem;
+    }
+}
+
+/* Spacing Responsivo */
+.p-responsive {
+    padding: 1rem;
+}
+
+.m-responsive {
+    margin: 1rem;
+}
+
+@media (min-width: 641px) {
+    .p-responsive {
+        padding: 1.5rem;
+    }
+
+    .m-responsive {
+        margin: 1.5rem;
+    }
+}
+
+@media (min-width: 1025px) {
+    .p-responsive {
+        padding: 2rem;
+    }
+
+    .m-responsive {
+        margin: 2rem;
+    }
+}
+
+/* Safe Area (iPhone notch/home indicator) */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+    .safe-bottom {
+        padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+    }
+
+    .bottom-nav {
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+}
+
+/* =================================================================
+   PWA - APP-LIKE TOUCHES
+   ================================================================= */
+
+/* Remove seleção ao tocar (app-like) */
+.no-select {
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+}
+
+/* Smooth scrolling */
+.smooth-scroll {
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* Status bar safe area (iOS) */
+@supports (padding-top: env(safe-area-inset-top)) {
+    .dashboard-header {
+        padding-top: calc(1rem + env(safe-area-inset-top));
+    }
+}
+
+/* Installable PWA prompt */
+.install-prompt {
+    position: fixed;
+    bottom: 80px;
+    left: 1rem;
+    right: 1rem;
+    background: white;
+    padding: 1rem;
+    border-radius: 12px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    z-index: 60;
+    animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+    from {
+        transform: translateY(100%);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+/* =================================================================
+   DARK MODE SUPPORT (opcional)
+   ================================================================= */
+
+@media (prefers-color-scheme: dark) {
+    /* Adicione estilos dark mode aqui se desejar */
+}
