@@ -63,7 +63,13 @@ export function AppSidebar() {
   const handleLogout = async () => {
     try {
       await fetch('/api/auth/logout', { method: 'POST' })
-      router.push('/login')
+
+      // Se é admin, redirecionar para login de admin
+      // Se é usuário normal, redirecionar para login de usuário
+      const loginUrl = isAdmin ? '/admin/login' : '/login'
+
+      // Usar window.location.href para forçar navegação completa
+      window.location.href = loginUrl
     } catch (error) {
       console.error('Erro ao fazer logout:', error)
     }

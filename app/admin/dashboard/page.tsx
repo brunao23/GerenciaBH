@@ -76,10 +76,10 @@ export default function AdminDashboard() {
         try {
             await fetch("/api/auth/logout", { method: "POST" })
             toast.success("Saindo...")
+            // Usar window.location.href para forçar navegação completa e evitar interferência do middleware
             setTimeout(() => {
-                router.push("/admin/login")
-                router.refresh()
-            }, 500)
+                window.location.href = "/admin/login"
+            }, 300)
         } catch (error) {
             toast.error("Erro ao sair")
         }

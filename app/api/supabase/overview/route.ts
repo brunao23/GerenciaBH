@@ -4,11 +4,13 @@ import { createNotification } from "@/lib/services/notifications"
 import { cookies } from "next/headers"
 import { verifyToken } from "@/lib/auth/jwt"
 
-// DDDs por região
+// DDDs por região (vox_disparos é compartilhada entre BH e SP)
 const DDD_BH = ['31', '32', '33', '34', '35', '37', '38'] // Minas Gerais
 const DDD_SP = ['11', '12', '13', '14', '15', '16', '17', '18', '19'] // São Paulo
 
 // Função para buscar leads de vox_disparos filtrados por DDD
+// IMPORTANTE: vox_disparos é COMPARTILHADA entre BH e SP - precisa filtrar por DDD!
+// Outras unidades (ES, Rio, Maceió, etc.) NÃO usam vox_disparos
 async function getDisparosLeads(tenant: string) {
   try {
     const supabase = createBiaSupabaseServerClient()
@@ -20,24 +22,24 @@ async function getDisparosLeads(tenant: string) {
     } else if (tenant.includes('sp')) {
       allowedDDDs = DDD_SP
     } else {
-      // Outros tenants não usam vox_disparos
+      // ✅ Outras unidades (ES, Rio, Maceió, etc.) NÃO usam vox_disparos
+      console.log(`[Overview] Tenant ${tenant} não usa vox_disparos - retornando 0 leads`)
       return { leads: 0, dailyLeads: new Map<string, number>() }
     }
 
-    console.log(`[v0] Buscando leads de vox_disparos para ${tenant} (DDDs: ${allowedDDDs.join(', ')})`)
+    console.log(`[Overview] Buscando leads de vox_disparos para ${tenant} (DDDs: ${allowedDDDs.join(', ')})`)
 
     const { data, error } = await supabase
       .from('vox_disparos')
       .select('numero, created_at')
 
     if (error) {
-      console.log(`[v0] Erro ao buscar vox_disparos:`, error.message)
+      console.warn(`[Overview] Erro ao buscar vox_disparos:`, error.message)
       return { leads: 0, dailyLeads: new Map<string, number>() }
     }
 
     // Filtrar por DDD e contar
     const dailyLeads = new Map<string, number>()
-    let totalLeads = 0
     const processedNumbers = new Set<string>()
 
     for (const row of (data || [])) {
@@ -53,14 +55,12 @@ async function getDisparosLeads(tenant: string) {
         ddd = numero.substring(0, 2)
       }
 
-      // Verificar se o DDD está na lista permitida
+      // ✅ Verificar se o DDD está na lista permitida (filtro crítico!)
       if (!allowedDDDs.includes(ddd)) continue
 
       // Evitar duplicados por número
       if (processedNumbers.has(numero)) continue
       processedNumbers.add(numero)
-
-      totalLeads++
 
       // Contar por dia
       if (row.created_at) {
@@ -74,11 +74,13 @@ async function getDisparosLeads(tenant: string) {
       }
     }
 
-    console.log(`[v0] vox_disparos: ${totalLeads} leads para ${tenant}`)
+    const totalLeads = processedNumbers.size
+
+    console.log(`[Overview] vox_disparos: ${totalLeads} leads para ${tenant} (filtrado por DDD)`)
     return { leads: totalLeads, dailyLeads }
 
   } catch (error) {
-    console.log(`[v0] Erro ao processar vox_disparos:`, error)
+    console.error(`[Overview] Erro ao processar vox_disparos:`, error)
     return { leads: 0, dailyLeads: new Map<string, number>() }
   }
 }
@@ -524,10 +526,10 @@ export async function GET(req: Request) {
       getDisparosLeads(tenant)
     ])
 
-    console.log(`[v0] Carregadas ${sessionsData.length} sessões totais`)
-    console.log(`[v0] Período solicitado: ${daysToSubtract} dias`)
-    console.log(`[v0] Carregados ${followupsData.length} follow-ups processados`)
-    console.log(`[v0] Carregados ${disparosData.leads} leads de vox_disparos`)
+    console.log(`[Overview] Carregadas ${sessionsData.length} sessões totais`)
+    console.log(`[Overview] Período solicitado: ${daysToSubtract} dias`)
+    console.log(`[Overview] Carregados ${followupsData.length} follow-ups processados`)
+    console.log(`[Overview] Carregados ${disparosData.leads} leads de vox_disparos (filtrado por DDD para BH/SP)`)
 
     // APLICAR FILTRO DE DATA "REAL" (Server-side filtering in memory)
     const startMs = startDate.getTime()
@@ -630,7 +632,7 @@ export async function GET(req: Request) {
       }
     })
 
-    // Total de leads = sessões de chat no período + leads de vox_disparos no período
+    // Total de leads = sessões de chat no período + leads de vox_disparos (BH/SP) no período
     const leadsFromChat = sessionsToProcess.length
     const totalLeads = leadsFromChat + leadsFromDisparos
     console.log(`[v0] Total de Leads: ${totalLeads} (Chat: ${leadsFromChat}, Disparos: ${leadsFromDisparos})`)
@@ -860,8 +862,8 @@ export async function GET(req: Request) {
           }
         }
 
-        // Adicionar leads de vox_disparos ao gráfico
-        console.log(`[v0] Adicionando ${disparosData.leads} leads de vox_disparos ao gráfico...`)
+        // Adicionar leads de vox_disparos (compartilhada BH/SP) ao gráfico
+        console.log(`[Overview] Adicionando ${disparosData.leads} leads de vox_disparos ao gráfico (filtrado por DDD)...`)
         for (const [dateStr, count] of disparosData.dailyLeads.entries()) {
           if (!dailyStats.has(dateStr)) {
             dailyStats.set(dateStr, { date: dateStr, total: 0, success: 0, error: 0 })
