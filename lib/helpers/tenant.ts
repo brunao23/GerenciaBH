@@ -160,8 +160,11 @@ export type RegisteredTenant = typeof REGISTERED_TENANTS[number]
 /**
  * Valida se um tenant está registrado
  */
-export function isRegisteredTenant(tenant: string): tenant is RegisteredTenant {
-    return REGISTERED_TENANTS.includes(tenant as RegisteredTenant)
+export function isRegisteredTenant(tenant: string): boolean {
+    // Validação flexível para aceitar novos tenants criados dinamicamente
+    // Se está no formato correto (letras, números, underscore), aceitamos como válido.
+    // A segurança real é feita pelo JWT e RLS do banco.
+    return /^[a-z0-9_]+$/.test(tenant)
 }
 
 /**
@@ -182,10 +185,10 @@ const TENANT_NAMES: Record<RegisteredTenant, string> = {
 /**
  * Obtém informações completas sobre um tenant
  */
-export function getTenantInfo(tenant: RegisteredTenant) {
+export function getTenantInfo(tenant: string) {
     return {
         prefix: tenant,
-        name: TENANT_NAMES[tenant],
+        name: (TENANT_NAMES as any)[tenant] || tenant.replace(/_/g, ' ').toUpperCase(),
         tables: getTablesForTenant(tenant)
     }
 }
@@ -204,8 +207,7 @@ export function getAllTenants() {
 export function validateAndGetTables(tenant: string) {
     if (!isRegisteredTenant(tenant)) {
         throw new Error(
-            `Tenant '${tenant}' não está registrado. ` +
-            `Tenants válidos: ${REGISTERED_TENANTS.join(', ')}`
+            `Tenant formato inválido: '${tenant}'. Use apenas letras, números e underscore.`
         )
     }
 
