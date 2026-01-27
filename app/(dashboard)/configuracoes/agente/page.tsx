@@ -186,11 +186,24 @@ export default function ConfiguracaoAgentePage() {
 
     // Carregar configuração
     useEffect(() => {
-        if (tenantLoading || !tenant) return;
+        // Se ainda está carregando o hook, espera
+        if (tenantLoading) return;
+
+        // Se não tem tenant, para o loading local e avisa (ou redireciona)
+        if (!tenant) {
+            console.warn("Nenhum tenant identificado. O usuário pode ser admin global sem unidade selecionada.");
+            setLoading(false);
+            return;
+        }
 
         async function loadConfig() {
             try {
                 const response = await tenantFetch('/api/empresas/me/agente');
+
+                if (!response.ok) {
+                    throw new Error(`Erro API: ${response.status}`);
+                }
+
                 const data = await response.json();
 
                 if (data.config) {
@@ -200,13 +213,14 @@ export default function ConfiguracaoAgentePage() {
                 }
             } catch (error) {
                 console.error('Erro ao carregar config:', error);
+                setMessage({ type: 'error', text: 'Erro ao carregar configurações. Verifique se a empresa existe.' });
             } finally {
                 setLoading(false);
             }
         }
 
         loadConfig();
-    }, [tenantLoading, tenant]);
+    }, [tenantLoading, tenant, tenantFetch]);
 
     // Salvar configuração
     async function handleSave() {
@@ -330,6 +344,21 @@ export default function ConfiguracaoAgentePage() {
                     <div className="w-8 h-8 border-4 border-purple-500 border-t-transparent rounded-full animate-spin" />
                     <span className="text-white">Carregando configurações...</span>
                 </div>
+            </div>
+        );
+    }
+
+    if (!tenant) {
+        return (
+            <div className="min-h-screen bg-[#0f0f1a] flex flex-col items-center justify-center p-6 text-center">
+                <AlertCircle className="w-12 h-12 text-yellow-500 mb-4" />
+                <h2 className="text-xl font-bold text-white mb-2">Nenhuma empresa selecionada</h2>
+                <p className="text-gray-400 max-w-md">
+                    Selecione uma empresa no menu ou no painel de controle para configurar o agente.
+                </p>
+                <a href="/admin/agentes" className="mt-6 px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition">
+                    Voltar para Admin
+                </a>
             </div>
         );
     }
