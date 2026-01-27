@@ -1,0 +1,256 @@
+{
+    "name": "{{EMPRESA_NOME}} - NOTIFICAÇÃO DE AGENDAMENTO",
+    "active": true,
+    "nodes": [
+        {
+            "parameters": {
+                "workflowInputs": {
+                    "values": [
+                        {
+                            "name": "nome"
+                        },
+                        {
+                            "name": "numero"
+                        },
+                        {
+                            "name": "Dia"
+                        },
+                        {
+                            "name": "Horario"
+                        },
+                        {
+                            "name": "Observaçoes"
+                        }
+                    ]
+                }
+            },
+            "type": "n8n-nodes-base.executeWorkflowTrigger",
+            "typeVersion": 1.1,
+            "position": [
+                0,
+                0
+            ],
+            "id": "trigger-notificacao-agendamento",
+            "name": "When Executed by Another Workflow"
+        },
+        {
+            "parameters": {
+                "assignments": {
+                    "assignments": [
+                        {
+                            "id": "msg-agendamento",
+                            "name": "mensagem",
+                            "value": "=🎉 *NOVO AGENDAMENTO CONFIRMADO!*\n\n👤 *Nome:* {{ $json.nome }}\n📞 *Número:* {{ $json.numero }}\n📅 *Data:* {{ $json.Dia }}\n🕐 *Horário:* {{ $json.Horario }}\n\n📝 *Observações:*\n{{ $json.Observaçoes || 'Nenhuma' }}\n\n✅ Agendamento registrado com sucesso!",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 3.4,
+            "position": [
+                224,
+                0
+            ],
+            "id": "set-mensagem-agendamento",
+            "name": "SET | Formatar Mensagem"
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "={{$env.EVOLUTION_API_URL}}/message/sendText/{{EVOLUTION_INSTANCE}}",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "apikey",
+                            "value": "={{$env.EVOLUTION_API_KEY}}"
+                        },
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "sendBody": true,
+                "specifyBody": "json",
+                "jsonBody": "={\n  \"number\": \"{{NOTIFICATION_GROUP}}\",\n  \"text\": \"{{ $json.mensagem }}\"\n}",
+                "options": {}
+            },
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                448,
+                0
+            ],
+            "id": "http-enviar-notificacao",
+            "name": "EVOLUTION | Enviar para Grupo"
+        },
+        {
+            "parameters": {
+                "operation": "insert",
+                "tableId": "{{TABLE_PAUSAR}}",
+                "fieldsToSend": "defineBelow",
+                "fieldsUi": {
+                    "fieldValues": [
+                        {
+                            "fieldId": "numero",
+                            "fieldValue": "={{ $('When Executed by Another Workflow').item.json.numero }}"
+                        },
+                        {
+                            "fieldId": "motivo",
+                            "fieldValue": "Agendamento confirmado"
+                        },
+                        {
+                            "fieldId": "tipo",
+                            "fieldValue": "agendado"
+                        }
+                    ]
+                }
+            },
+            "type": "n8n-nodes-base.supabase",
+            "typeVersion": 1,
+            "position": [
+                672,
+                0
+            ],
+            "id": "supabase-pausar",
+            "name": "SUPABASE | Pausar Follow-up",
+            "credentials": {
+                "supabaseApi": {
+                    "id": "{{SUPABASE_API_ID}}",
+                    "name": "{{SUPABASE_API_NAME}}"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "assignments": {
+                    "assignments": [
+                        {
+                            "id": "sucesso-notif",
+                            "name": "sucesso",
+                            "value": true,
+                            "type": "boolean"
+                        },
+                        {
+                            "id": "msg-sucesso",
+                            "name": "mensagem",
+                            "value": "Notificação de agendamento enviada com sucesso!",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 3.4,
+            "position": [
+                896,
+                0
+            ],
+            "id": "set-sucesso-notif",
+            "name": "SET | Sucesso"
+        },
+        {
+            "parameters": {},
+            "type": "n8n-nodes-base.errorTrigger",
+            "typeVersion": 1,
+            "position": [
+                0,
+                192
+            ],
+            "id": "error-trigger-notif",
+            "name": "Error Trigger"
+        },
+        {
+            "parameters": {
+                "workflowId": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": "6JHakpNnCEIyiIPcLOYwT",
+                    "cachedResultName": "ERRO"
+                },
+                "workflowInputs": {
+                    "mappingMode": "defineBelow",
+                    "value": {},
+                    "matchingColumns": [],
+                    "schema": [],
+                    "attemptToConvertTypes": false,
+                    "convertFieldsToString": true
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.executeWorkflow",
+            "typeVersion": 1.3,
+            "position": [
+                224,
+                192
+            ],
+            "id": "call-erro-notif",
+            "name": "Call 'ERRO'"
+        }
+    ],
+    "connections": {
+        "When Executed by Another Workflow": {
+            "main": [
+                [
+                    {
+                        "node": "SET | Formatar Mensagem",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "SET | Formatar Mensagem": {
+            "main": [
+                [
+                    {
+                        "node": "EVOLUTION | Enviar para Grupo",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "EVOLUTION | Enviar para Grupo": {
+            "main": [
+                [
+                    {
+                        "node": "SUPABASE | Pausar Follow-up",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "SUPABASE | Pausar Follow-up": {
+            "main": [
+                [
+                    {
+                        "node": "SET | Sucesso",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Error Trigger": {
+            "main": [
+                [
+                    {
+                        "node": "Call 'ERRO'",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "meta": {
+        "templateCredsSetupCompleted": true,
+        "instanceId": "{{INSTANCE_ID}}"
+    }
+}

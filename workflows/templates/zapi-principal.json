@@ -1,0 +1,794 @@
+{
+    "name": "{{EMPRESA_NOME}} - ZAPI PRINCIPAL",
+    "active": true,
+    "nodes": [
+        {
+            "parameters": {
+                "path": "{{SCHEMA}}",
+                "responseMode": "responseNode",
+                "options": {}
+            },
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 2,
+            "position": [
+                0,
+                400
+            ],
+            "id": "webhook-principal",
+            "name": "Webhook ZAPI",
+            "webhookId": "{{SCHEMA}}-webhook"
+        },
+        {
+            "parameters": {
+                "respondWith": "json",
+                "responseBody": "={\"success\": true}",
+                "options": {}
+            },
+            "type": "n8n-nodes-base.respondToWebhook",
+            "typeVersion": 1.1,
+            "position": [
+                224,
+                400
+            ],
+            "id": "respond-webhook",
+            "name": "Respond to Webhook"
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": false,
+                        "leftValue": "",
+                        "typeValidation": "loose",
+                        "version": 2
+                    },
+                    "conditions": [
+                        {
+                            "id": "is-message",
+                            "leftValue": "={{ $json.body.isNewsletter }}",
+                            "rightValue": false,
+                            "operator": {
+                                "type": "boolean",
+                                "operation": "equals"
+                            }
+                        },
+                        {
+                            "id": "has-phone",
+                            "leftValue": "={{ $json.body.phone }}",
+                            "rightValue": "",
+                            "operator": {
+                                "type": "string",
+                                "operation": "notEmpty",
+                                "singleValue": true
+                            }
+                        },
+                        {
+                            "id": "not-from-me",
+                            "leftValue": "={{ $json.body.fromMe }}",
+                            "rightValue": false,
+                            "operator": {
+                                "type": "boolean",
+                                "operation": "equals"
+                            }
+                        },
+                        {
+                            "id": "has-text",
+                            "leftValue": "={{ $json.body.text?.message || $json.body.text || '' }}",
+                            "rightValue": "",
+                            "operator": {
+                                "type": "string",
+                                "operation": "notEmpty",
+                                "singleValue": true
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "looseTypeValidation": true,
+                "options": {
+                    "ignoreCase": true
+                }
+            },
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2.2,
+            "position": [
+                448,
+                400
+            ],
+            "id": "if-mensagem-valida",
+            "name": "IF | Mensagem Válida?"
+        },
+        {
+            "parameters": {
+                "assignments": {
+                    "assignments": [
+                        {
+                            "id": "phone",
+                            "name": "phone",
+                            "value": "={{ $json.body.phone }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "message",
+                            "name": "message",
+                            "value": "={{ $json.body.text?.message || $json.body.text || '' }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "nome",
+                            "name": "nome",
+                            "value": "={{ $json.body.senderName || $json.body.pushName || 'Cliente' }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "timestamp",
+                            "name": "timestamp",
+                            "value": "={{ $now.toISO() }}",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 3.4,
+            "position": [
+                672,
+                304
+            ],
+            "id": "set-dados-mensagem",
+            "name": "SET | Extrair Dados"
+        },
+        {
+            "parameters": {
+                "operation": "get",
+                "propertyName": "isPaused",
+                "key": "={{ $json.phone }}-PAUSADO",
+                "options": {}
+            },
+            "type": "n8n-nodes-base.redis",
+            "typeVersion": 1,
+            "position": [
+                896,
+                304
+            ],
+            "id": "redis-check-pausado",
+            "name": "REDIS | Verificar Pausado",
+            "credentials": {
+                "redis": {
+                    "id": "{{REDIS_ID}}",
+                    "name": "{{REDIS_NAME}}"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict",
+                        "version": 2
+                    },
+                    "conditions": [
+                        {
+                            "id": "not-paused",
+                            "leftValue": "={{ $json.isPaused }}",
+                            "rightValue": "",
+                            "operator": {
+                                "type": "string",
+                                "operation": "empty",
+                                "singleValue": true
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2.2,
+            "position": [
+                1120,
+                304
+            ],
+            "id": "if-nao-pausado",
+            "name": "IF | Não Pausado?"
+        },
+        {
+            "parameters": {
+                "promptType": "define",
+                "text": "={{ $('SET | Extrair Dados').item.json.message }}",
+                "options": {
+                    "systemMessage": "=Você é Vitória, atendente virtual da {{EMPRESA_NOME}}.\n\nSeu objetivo é:\n1. Qualificar leads interessados em oratória\n2. Agendar diagnósticos gratuitos\n3. Responder dúvidas sobre a empresa\n\nREGRAS:\n- Seja cordial, empática e profissional\n- Use mensagens curtas (máximo 200 caracteres)\n- Sempre termine com uma pergunta para manter conversa\n- Não mencione que é IA\n- Use emojis com moderação\n\nCONTEXTO DO LEAD:\n- Número: {{ $('SET | Extrair Dados').item.json.phone }}\n- Nome: {{ $('SET | Extrair Dados').item.json.nome }}\n\nTOOLS DISPONÍVEIS:\n- buscar_horarios: para ver horários disponíveis\n- criar_agendamento: para criar agendamento\n- chamar_atendente: quando precisar de humano\n\nIMPORTANTE:\n- Se o lead quiser agendar, use as tools\n- Se não entender ou precisar de ajuda, chame atendente\n- Sempre salve o contexto da conversa",
+                    "returnIntermediateSteps": true
+                }
+            },
+            "type": "@n8n/n8n-nodes-langchain.agent",
+            "typeVersion": 3.1,
+            "position": [
+                1344,
+                208
+            ],
+            "id": "ai-agent-principal",
+            "name": "AI Agent | Vitória"
+        },
+        {
+            "parameters": {
+                "modelName": "models/gemini-2.5-flash",
+                "options": {
+                    "temperature": 0.7,
+                    "topP": 0.9
+                }
+            },
+            "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+            "typeVersion": 1,
+            "position": [
+                1344,
+                432
+            ],
+            "id": "gemini-model-principal",
+            "name": "Google Gemini Chat Model",
+            "credentials": {
+                "googlePalmApi": {
+                    "id": "Z0AcWnyioLuEj2BP",
+                    "name": "Wesley"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "sessionIdType": "customKey",
+                "sessionKey": "={{ $('SET | Extrair Dados').item.json.phone }}",
+                "sessionTTL": 86400,
+                "contextWindowLength": 50
+            },
+            "type": "@n8n/n8n-nodes-langchain.memoryRedisChat",
+            "typeVersion": 1.5,
+            "position": [
+                1568,
+                432
+            ],
+            "id": "redis-memory-principal",
+            "name": "Redis Chat Memory",
+            "credentials": {
+                "redis": {
+                    "id": "{{REDIS_ID}}",
+                    "name": "{{REDIS_NAME}}"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "name": "buscar_horarios",
+                "description": "Busca os horários disponíveis para agendamento. Use quando o lead quiser saber os horários disponíveis.",
+                "workflowId": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": "{{WORKFLOW_BUSCAR_HORARIOS}}",
+                    "cachedResultName": "BUSCAR HORARIOS"
+                },
+                "workflowInputs": {
+                    "mappingMode": "defineBelow",
+                    "value": {
+                        "start": "={{ $now.toISO() }}",
+                        "end": "={{ $now.plus(7, 'days').toISO() }}"
+                    },
+                    "matchingColumns": [],
+                    "schema": [
+                        {
+                            "id": "start",
+                            "displayName": "start",
+                            "required": true,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "end",
+                            "displayName": "end",
+                            "required": true,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        }
+                    ],
+                    "attemptToConvertTypes": false,
+                    "convertFieldsToString": true
+                }
+            },
+            "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+            "typeVersion": 2.1,
+            "position": [
+                1792,
+                432
+            ],
+            "id": "tool-buscar-horarios",
+            "name": "Tool | Buscar Horários"
+        },
+        {
+            "parameters": {
+                "name": "criar_agendamento",
+                "description": "Cria um agendamento no calendário. Use quando o lead confirmar o horário desejado.",
+                "workflowId": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": "{{WORKFLOW_CRIAR_AGENDAMENTO}}",
+                    "cachedResultName": "CRIAR AGENDAMENTO"
+                },
+                "workflowInputs": {
+                    "mappingMode": "defineBelow",
+                    "value": {
+                        "Start": "={{$fromAI('dataHora', 'Data e hora do agendamento em formato ISO')}}",
+                        "End": "={{$fromAI('dataHora', 'Data e hora do agendamento em formato ISO').toDateTime().plus(1,'hour').toISO()}}",
+                        "Description": "={{$fromAI('observacoes', 'Observações do agendamento')}}",
+                        "Summary": "={{$fromAI('nomeCliente', 'Nome do cliente')}}",
+                        "numeroCliente": "={{ $('SET | Extrair Dados').item.json.phone }}",
+                        "nomeCliente": "={{ $('SET | Extrair Dados').item.json.nome }}"
+                    },
+                    "matchingColumns": [],
+                    "schema": [
+                        {
+                            "id": "Start",
+                            "displayName": "Start",
+                            "required": true,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "End",
+                            "displayName": "End",
+                            "required": true,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "Description",
+                            "displayName": "Description",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "Summary",
+                            "displayName": "Summary",
+                            "required": true,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "numeroCliente",
+                            "displayName": "numeroCliente",
+                            "required": true,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "nomeCliente",
+                            "displayName": "nomeCliente",
+                            "required": true,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        }
+                    ],
+                    "attemptToConvertTypes": false,
+                    "convertFieldsToString": true
+                }
+            },
+            "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+            "typeVersion": 2.1,
+            "position": [
+                2016,
+                432
+            ],
+            "id": "tool-criar-agendamento",
+            "name": "Tool | Criar Agendamento"
+        },
+        {
+            "parameters": {
+                "name": "chamar_atendente",
+                "description": "Chama um atendente humano. Use quando não souber responder ou quando o lead pedir para falar com humano.",
+                "workflowId": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": "{{WORKFLOW_NOTIFICACAO_ATENDENTE}}",
+                    "cachedResultName": "NOTIFICAÇÃO DE ATENDENTE"
+                },
+                "workflowInputs": {
+                    "mappingMode": "defineBelow",
+                    "value": {
+                        "numeroCliente": "={{ $('SET | Extrair Dados').item.json.phone }}",
+                        "nomeCliente": "={{ $('SET | Extrair Dados').item.json.nome }}",
+                        "mensagem": "={{ $('SET | Extrair Dados').item.json.message }}"
+                    },
+                    "matchingColumns": [],
+                    "schema": [
+                        {
+                            "id": "numeroCliente",
+                            "displayName": "numeroCliente",
+                            "required": true,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "nomeCliente",
+                            "displayName": "nomeCliente",
+                            "required": true,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "mensagem",
+                            "displayName": "mensagem",
+                            "required": true,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        }
+                    ],
+                    "attemptToConvertTypes": false,
+                    "convertFieldsToString": true
+                }
+            },
+            "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+            "typeVersion": 2.1,
+            "position": [
+                2240,
+                432
+            ],
+            "id": "tool-chamar-atendente",
+            "name": "Tool | Chamar Atendente"
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict",
+                        "version": 2
+                    },
+                    "conditions": [
+                        {
+                            "id": "has-output",
+                            "leftValue": "={{ $json.output }}",
+                            "rightValue": "",
+                            "operator": {
+                                "type": "string",
+                                "operation": "notEmpty",
+                                "singleValue": true
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2.2,
+            "position": [
+                1568,
+                208
+            ],
+            "id": "if-tem-resposta",
+            "name": "IF | Tem Resposta?"
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "={{$env.ZAPI_URL}}/send-text",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "Client-Token",
+                            "value": "={{$env.ZAPI_TOKEN}}"
+                        }
+                    ]
+                },
+                "sendBody": true,
+                "bodyParameters": {
+                    "parameters": [
+                        {
+                            "name": "phone",
+                            "value": "={{ $('SET | Extrair Dados').item.json.phone }}"
+                        },
+                        {
+                            "name": "message",
+                            "value": "={{ $json.output }}"
+                        },
+                        {
+                            "name": "delayTyping",
+                            "value": "5"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                1792,
+                112
+            ],
+            "id": "http-enviar-resposta",
+            "name": "ZAPI | Enviar Resposta"
+        },
+        {
+            "parameters": {
+                "operation": "upsert",
+                "tableId": "{{TABLE_FOLLOW_NORMAL}}",
+                "filters": {
+                    "conditions": [
+                        {
+                            "keyName": "numero",
+                            "condition": "eq",
+                            "keyValue": "={{ $('SET | Extrair Dados').item.json.phone }}"
+                        }
+                    ]
+                },
+                "fieldsToSend": "defineBelow",
+                "fieldsUi": {
+                    "fieldValues": [
+                        {
+                            "fieldId": "numero",
+                            "fieldValue": "={{ $('SET | Extrair Dados').item.json.phone }}"
+                        },
+                        {
+                            "fieldId": "nome",
+                            "fieldValue": "={{ $('SET | Extrair Dados').item.json.nome }}"
+                        },
+                        {
+                            "fieldId": "last_mensager",
+                            "fieldValue": "={{ $now.toISO() }}"
+                        },
+                        {
+                            "fieldId": "tipo_de_contato",
+                            "fieldValue": "lead"
+                        },
+                        {
+                            "fieldId": "etapa",
+                            "fieldValue": "0"
+                        }
+                    ]
+                }
+            },
+            "type": "n8n-nodes-base.supabase",
+            "typeVersion": 1,
+            "position": [
+                2016,
+                112
+            ],
+            "id": "supabase-upsert-lead",
+            "name": "SUPABASE | Upsert Lead",
+            "credentials": {
+                "supabaseApi": {
+                    "id": "{{SUPABASE_API_ID}}",
+                    "name": "{{SUPABASE_API_NAME}}"
+                }
+            }
+        },
+        {
+            "parameters": {},
+            "type": "n8n-nodes-base.errorTrigger",
+            "typeVersion": 1,
+            "position": [
+                0,
+                592
+            ],
+            "id": "error-trigger-zapi",
+            "name": "Error Trigger"
+        },
+        {
+            "parameters": {
+                "workflowId": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": "6JHakpNnCEIyiIPcLOYwT",
+                    "cachedResultName": "ERRO"
+                },
+                "workflowInputs": {
+                    "mappingMode": "defineBelow",
+                    "value": {},
+                    "matchingColumns": [],
+                    "schema": [],
+                    "attemptToConvertTypes": false,
+                    "convertFieldsToString": true
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.executeWorkflow",
+            "typeVersion": 1.3,
+            "position": [
+                224,
+                592
+            ],
+            "id": "call-erro-zapi",
+            "name": "Call 'ERRO'"
+        }
+    ],
+    "connections": {
+        "Webhook ZAPI": {
+            "main": [
+                [
+                    {
+                        "node": "Respond to Webhook",
+                        "type": "main",
+                        "index": 0
+                    },
+                    {
+                        "node": "IF | Mensagem Válida?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "IF | Mensagem Válida?": {
+            "main": [
+                [
+                    {
+                        "node": "SET | Extrair Dados",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "SET | Extrair Dados": {
+            "main": [
+                [
+                    {
+                        "node": "REDIS | Verificar Pausado",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "REDIS | Verificar Pausado": {
+            "main": [
+                [
+                    {
+                        "node": "IF | Não Pausado?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "IF | Não Pausado?": {
+            "main": [
+                [
+                    {
+                        "node": "AI Agent | Vitória",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "AI Agent | Vitória": {
+            "main": [
+                [
+                    {
+                        "node": "IF | Tem Resposta?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "IF | Tem Resposta?": {
+            "main": [
+                [
+                    {
+                        "node": "ZAPI | Enviar Resposta",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "ZAPI | Enviar Resposta": {
+            "main": [
+                [
+                    {
+                        "node": "SUPABASE | Upsert Lead",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Google Gemini Chat Model": {
+            "ai_languageModel": [
+                [
+                    {
+                        "node": "AI Agent | Vitória",
+                        "type": "ai_languageModel",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Redis Chat Memory": {
+            "ai_memory": [
+                [
+                    {
+                        "node": "AI Agent | Vitória",
+                        "type": "ai_memory",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Tool | Buscar Horários": {
+            "ai_tool": [
+                [
+                    {
+                        "node": "AI Agent | Vitória",
+                        "type": "ai_tool",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Tool | Criar Agendamento": {
+            "ai_tool": [
+                [
+                    {
+                        "node": "AI Agent | Vitória",
+                        "type": "ai_tool",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Tool | Chamar Atendente": {
+            "ai_tool": [
+                [
+                    {
+                        "node": "AI Agent | Vitória",
+                        "type": "ai_tool",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Error Trigger": {
+            "main": [
+                [
+                    {
+                        "node": "Call 'ERRO'",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "meta": {
+        "templateCredsSetupCompleted": true,
+        "instanceId": "{{INSTANCE_ID}}"
+    }
+}

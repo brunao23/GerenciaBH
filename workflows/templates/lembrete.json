@@ -1,0 +1,759 @@
+{
+    "name": "{{EMPRESA_NOME}} - LEMBRETE",
+    "active": true,
+    "nodes": [
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict",
+                        "version": 3
+                    },
+                    "conditions": [
+                        {
+                            "id": "4fdb53ed-e26d-4797-b82b-276db9a5d542",
+                            "leftValue": "={{ $node['If'].json.faltam_horas }}",
+                            "rightValue": 2,
+                            "operator": {
+                                "type": "number",
+                                "operation": "lte"
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2.3,
+            "position": [
+                1184,
+                -32
+            ],
+            "id": "a3106f06-1c4f-484a-ace8-d2241d4dcfa7",
+            "name": "2"
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict",
+                        "version": 3
+                    },
+                    "conditions": [
+                        {
+                            "id": "5e425304-226a-4a0b-bb65-ebcc949c7172",
+                            "leftValue": "={{ $node['If'].json.faltam_horas }}",
+                            "rightValue": 2,
+                            "operator": {
+                                "type": "number",
+                                "operation": "gte"
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2.3,
+            "position": [
+                1184,
+                368
+            ],
+            "id": "5aee1390-610d-4398-8066-3e3a64e00086",
+            "name": "3"
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict",
+                        "version": 3
+                    },
+                    "conditions": [
+                        {
+                            "id": "5e425304-226a-4a0b-bb65-ebcc949c7172",
+                            "leftValue": "={{ $node['If'].json.faltam_horas }}",
+                            "rightValue": 4,
+                            "operator": {
+                                "type": "number",
+                                "operation": "lte"
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2.3,
+            "position": [
+                1184,
+                768
+            ],
+            "id": "bd31dcee-ba4d-4225-92f3-7b9aaf34b128",
+            "name": "4"
+        },
+        {
+            "parameters": {
+                "rule": {
+                    "interval": [
+                        {
+                            "field": "minutes",
+                            "minutesInterval": 10
+                        }
+                    ]
+                }
+            },
+            "type": "n8n-nodes-base.scheduleTrigger",
+            "typeVersion": 1.2,
+            "position": [
+                -1504,
+                368
+            ],
+            "id": "f567c6e0-8797-4dbe-8a47-32ae27d4cb73",
+            "name": "Schedule Trigger"
+        },
+        {
+            "parameters": {
+                "rules": {
+                    "values": [
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": true,
+                                    "leftValue": "",
+                                    "typeValidation": "strict",
+                                    "version": 2
+                                },
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{ $('Code1').item.json.faltam_dias }}",
+                                        "rightValue": 3,
+                                        "operator": {
+                                            "type": "number",
+                                            "operation": "equals"
+                                        },
+                                        "id": "0eae9a23-92c3-4e49-9769-a693bc9d1e0b"
+                                    }
+                                ],
+                                "combinator": "and"
+                            },
+                            "renameOutput": true,
+                            "outputKey": "3D"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": true,
+                                    "leftValue": "",
+                                    "typeValidation": "strict",
+                                    "version": 2
+                                },
+                                "conditions": [
+                                    {
+                                        "id": "e6a1fbb4-4b50-4ad7-aad0-6f83ae449a1a",
+                                        "leftValue": "={{ $('Code1').item.json.faltam_dias }}",
+                                        "rightValue": 1,
+                                        "operator": {
+                                            "type": "number",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ],
+                                "combinator": "and"
+                            },
+                            "renameOutput": true,
+                            "outputKey": "1D"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": true,
+                                    "leftValue": "",
+                                    "typeValidation": "strict",
+                                    "version": 2
+                                },
+                                "conditions": [
+                                    {
+                                        "id": "d6a71529-61c1-464c-b90d-01c0e848a6bb",
+                                        "leftValue": "={{ $('Code1').item.json.faltam_dias }}",
+                                        "rightValue": 0,
+                                        "operator": {
+                                            "type": "number",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ],
+                                "combinator": "and"
+                            },
+                            "renameOutput": true,
+                            "outputKey": "4 Horas"
+                        }
+                    ]
+                },
+                "options": {
+                    "fallbackOutput": "extra",
+                    "renameFallbackOutput": "Longe"
+                }
+            },
+            "type": "n8n-nodes-base.switch",
+            "typeVersion": 3.2,
+            "position": [
+                960,
+                336
+            ],
+            "id": "3d1571c7-160c-4d55-906a-7b46b486df8e",
+            "name": "Switch1"
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": false,
+                        "leftValue": "",
+                        "typeValidation": "loose",
+                        "version": 2
+                    },
+                    "conditions": [
+                        {
+                            "id": "11bdbc22-4af7-4bba-b8cb-7b010ccb2415",
+                            "leftValue": "={{ $json.status }}",
+                            "rightValue": "agendado",
+                            "operator": {
+                                "type": "string",
+                                "operation": "equals"
+                            }
+                        },
+                        {
+                            "id": "c2787b05-9199-46dd-a80c-e0e111519f09",
+                            "leftValue": "={{ $json.created_at }}",
+                            "rightValue": "2025",
+                            "operator": {
+                                "type": "string",
+                                "operation": "notStartsWith"
+                            }
+                        },
+                        {
+                            "id": "827ba737-6d10-4b56-9d92-bb9dfbdbf838",
+                            "leftValue": "={{ $json.horario }}",
+                            "rightValue": "",
+                            "operator": {
+                                "type": "string",
+                                "operation": "notEmpty",
+                                "singleValue": true
+                            }
+                        },
+                        {
+                            "id": "c4130976-01c6-4121-a28a-7b86c5887c2c",
+                            "leftValue": "={{ $json.dia }}",
+                            "rightValue": "",
+                            "operator": {
+                                "type": "string",
+                                "operation": "notEmpty",
+                                "singleValue": true
+                            }
+                        },
+                        {
+                            "id": "def8a5a6-2282-414c-89a5-b0b103145e04",
+                            "leftValue": "={{ $json.dia }}",
+                            "rightValue": "2025",
+                            "operator": {
+                                "type": "string",
+                                "operation": "notContains"
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "looseTypeValidation": true,
+                "options": {
+                    "ignoreCase": true
+                }
+            },
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2.2,
+            "position": [
+                -608,
+                368
+            ],
+            "id": "f7e1d815-daf4-4d30-afb1-d3e9808ff793",
+            "name": "If6"
+        },
+        {
+            "parameters": {
+                "jsCode": "/**\n * =========================\n * CONFIGURAÇÃO\n * =========================\n */\n\nconst WORKFLOW_INTERVAL_MS = 10 * 60 * 1000; // 10 minutos\nconst AGENDA_OFFSET = \"-03:00\"; // horário local (BRT)\n\nconst ALERTAS_ORDENADOS = [\n  { chave: \"alerta_72h\", horasAntes: 72 },\n  { chave: \"alerta_48h\", horasAntes: 48 },\n  { chave: \"alerta_1h\",  horasAntes: 1  },\n];\n\nconst BLOQUEAR_SE_APOS_AGENDAMENTO = true;\n\n\n/**\n * =========================\n * HELPERS DE PARSE\n * =========================\n */\n\nfunction limparTexto(s) {\n  return String(s ?? \"\")\n    .replace(/\\r\\n/g, \"\\n\")\n    .replace(/\\t/g, \" \")\n    .trim();\n}\n\nfunction semAcentoLower(s) {\n  return limparTexto(s)\n    .toLowerCase()\n    .normalize(\"NFD\")\n    .replace(/[\\u0300-\\u036f]/g, \"\");\n}\n\nfunction extrairDataProvavel(diaStr) {\n  if (!diaStr) return \"\";\n  let s = limparTexto(diaStr);\n\n  s = s.replace(/^(dia|data)\\s*:\\s*/i, \"\").trim();\n  s = s.replace(/\\s*\\n+\\s*/g, \" \").trim();\n\n  const sNorm = semAcentoLower(s);\n  const diasSemana = [\n    \"segunda-feira\", \"terca-feira\", \"quarta-feira\", \"quinta-feira\", \"sexta-feira\",\n    \"sabado\", \"domingo\",\n    \"segunda feira\", \"terca feira\", \"quarta feira\", \"quinta feira\", \"sexta feira\",\n  ];\n\n  for (const d of diasSemana) {\n    if (sNorm.startsWith(d)) {\n      const idxVirgula = s.indexOf(\",\");\n      if (idxVirgula >= 0) s = s.slice(idxVirgula + 1).trim();\n      else s = s.replace(/^[^\\d]+/, \"\").trim();\n      break;\n    }\n  }\n\n  return s;\n}\n\nfunction normalizarDia(diaStr) {\n  if (!diaStr) return null;\n  let s = extrairDataProvavel(diaStr);\n\n  const dentroBR = s.match(/(\\d{1,2}\\/\\d{1,2}\\/\\d{4})/);\n  if (dentroBR) s = dentroBR[1];\n\n  const iso = s.match(/^(\\d{4})-(\\d{1,2})-(\\d{1,2})$/);\n  if (iso) {\n    const yyyy = iso[1];\n    const mm = String(iso[2]).padStart(2, \"0\");\n    const dd = String(iso[3]).padStart(2, \"0\");\n    return `${yyyy}-${mm}-${dd}`;\n  }\n\n  const br = s.match(/^(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})$/);\n  if (br) {\n    const dd = String(br[1]).padStart(2, \"0\");\n    const mm = String(br[2]).padStart(2, \"0\");\n    const yyyy = br[3];\n    return `${yyyy}-${mm}-${dd}`;\n  }\n\n  const meses = {\n    janeiro: \"01\", fevereiro: \"02\", marco: \"03\", abril: \"04\",\n    maio: \"05\", junho: \"06\", julho: \"07\", agosto: \"08\",\n    setembro: \"09\", outubro: \"10\", novembro: \"11\", dezembro: \"12\",\n  };\n\n  const sNorm = semAcentoLower(s);\n  const mt = sNorm.match(/(\\d{1,2})\\s+de\\s+([a-z]+)\\s+de\\s+(\\d{4})/);\n  if (mt) {\n    const dd = String(mt[1]).padStart(2, \"0\");\n    const mesNome = mt[2];\n    const yyyy = mt[3];\n    const mm = meses[mesNome];\n    if (mm) return `${yyyy}-${mm}-${dd}`;\n  }\n\n  return null;\n}\n\nfunction normalizarHora(horaStr) {\n  if (!horaStr) return null;\n\n  let s = limparTexto(horaStr);\n  s = s.replace(/^(horario|hora)\\s*:\\s*/i, \"\").trim();\n  s = s.replace(/\\s*\\n+\\s*/g, \" \").trim().split(\" \")[0];\n\n  const m = s.match(/^(\\d{1,2}):(\\d{1,2})(?::(\\d{1,2}))?$/);\n  if (!m) return null;\n\n  const hh = String(m[1]).padStart(2, \"0\");\n  const mm = String(m[2]).padStart(2, \"0\");\n  const ss = String(m[3] ?? \"00\").padStart(2, \"0\");\n\n  const h = Number(hh), mi = Number(mm), se = Number(ss);\n  if (h > 23 || mi > 59 || se > 59) return null;\n\n  return `${hh}:${mm}:${ss}`;\n}\n\nfunction montarAgendamentoEpochMs(diaISO, horaNorm, offset) {\n  const dt = new Date(`${diaISO}T${horaNorm}${offset}`);\n  if (isNaN(dt.getTime())) return null;\n  return dt.getTime();\n}\n\nfunction dentroDaJanela(alvoMs, agoraMs, janelaMs) {\n  return agoraMs >= alvoMs && agoraMs < (alvoMs + janelaMs);\n}\n\n/**\n * Converte ms restantes em (dias, horas, minutos) — para FUTURO.\n */\nfunction decomporTempo(ms) {\n  const totalMin = Math.floor(ms / 60000);\n  const dias = Math.floor(totalMin / (60 * 24));\n  const horas = Math.floor((totalMin - dias * 24 * 60) / 60);\n  const minutos = totalMin - (dias * 24 * 60) - (horas * 60);\n  return { dias, horas, minutos };\n}\n\n\n/**\n * =========================\n * PROCESSAMENTO\n * =========================\n */\n\nreturn $input.all().map(item => {\n  const dados = item.json;\n\n  const diaISO = normalizarDia(dados.dia);\n  const horaNorm = normalizarHora(dados.horario);\n\n  if (!diaISO) return { json: { ...dados, erro: `Data inválida: ${dados.dia}` } };\n  if (!horaNorm) return { json: { ...dados, erro: `Hora inválida: ${dados.horario}` } };\n\n  const agendamentoMs = montarAgendamentoEpochMs(diaISO, horaNorm, AGENDA_OFFSET);\n  if (agendamentoMs === null) {\n    return { json: { ...dados, erro: `Falha ao montar agendamento: ${diaISO} ${horaNorm} ${AGENDA_OFFSET}` } };\n  }\n\n  const agoraMs = Date.now();\n  const msParaConsulta = agendamentoMs - agoraMs;\n\n  const observacoesNormalizadas = dados.observacoes ?? dados[\"observações\"] ?? null;\n\n  const isFuturo = msParaConsulta > 0;\n  const classificacao = isFuturo ? \"AGENDAMENTO_FUTURO\" : \"AGENDAMENTO_PASSADO\";\n\n  // prepara flags e alvos\n  const flags = {};\n  const alvos = {};\n  for (const a of ALERTAS_ORDENADOS) {\n    flags[a.chave] = false;\n    const alvoMs = agendamentoMs - (a.horasAntes * 3600000);\n    alvos[`alvo_${a.chave}_ms`] = alvoMs;\n    alvos[`alvo_${a.chave}_iso`] = new Date(alvoMs).toISOString();\n  }\n\n  // se já passou e você quer bloquear, retorna já classificado\n  if (BLOQUEAR_SE_APOS_AGENDAMENTO && !isFuturo) {\n    return {\n      json: {\n        ...dados,\n        observacoes_normalizadas: observacoesNormalizadas,\n        dia_normalizado: diaISO,\n        horario_normalizado: horaNorm,\n\n        agora_iso: new Date(agoraMs).toISOString(),\n        agendamento_iso: new Date(agendamentoMs).toISOString(),\n\n        classificacao,\n        janela_disparo: \"FORA_JANELA\",\n        futuro_fora_janela: false,\n\n        ms_para_consulta: msParaConsulta,\n        horas_para_consulta: Number((msParaConsulta / 3600000).toFixed(6)),\n\n        faltam_dias: 0,\n        faltam_horas: 0,\n        faltam_minutos: 0,\n\n        ...alvos,\n        ...flags,\n        alerta_para_disparar: null,\n        motivo: \"Agendamento já passou\",\n      }\n    };\n  }\n\n  // Se futuro: calcula faltam dias/horas/minutos\n  let faltamDias = 0, faltamHoras = 0, faltamMinutos = 0;\n  if (isFuturo) {\n    const d = decomporTempo(msParaConsulta);\n    faltamDias = d.dias;\n    faltamHoras = d.horas;\n    faltamMinutos = d.minutos;\n  }\n\n  // decide disparo\n  let alertaParaDisparar = null;\n\n  for (const a of ALERTAS_ORDENADOS) {\n    const alvoMs = alvos[`alvo_${a.chave}_ms`];\n    const ok = dentroDaJanela(alvoMs, agoraMs, WORKFLOW_INTERVAL_MS);\n    flags[a.chave] = ok;\n    if (ok && !alertaParaDisparar) alertaParaDisparar = a.chave;\n  }\n\n  const janelaDisparo = alertaParaDisparar ? \"DENTRO_JANELA\" : \"FORA_JANELA\";\n\n  return {\n    json: {\n      ...dados,\n      observacoes_normalizadas: observacoesNormalizadas,\n      dia_normalizado: diaISO,\n      horario_normalizado: horaNorm,\n\n      agora_iso: new Date(agoraMs).toISOString(),\n      agendamento_iso: new Date(agendamentoMs).toISOString(),\n\n      classificacao,\n      janela_disparo: janelaDisparo,\n      futuro_fora_janela: (classificacao === \"AGENDAMENTO_FUTURO\" && janelaDisparo === \"FORA_JANELA\"),\n\n      ms_para_consulta: msParaConsulta,\n      horas_para_consulta: Number((msParaConsulta / 3600000).toFixed(6)),\n\n      faltam_dias: faltamDias,\n      faltam_horas: faltamHoras,\n      faltam_minutos: faltamMinutos,\n\n      ...alvos,\n      ...flags,\n      alerta_para_disparar: alertaParaDisparar,\n    }\n  };\n});\n"
+            },
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                -384,
+                368
+            ],
+            "id": "f027f7e6-17e6-4f81-af1c-b042fbb13233",
+            "name": "Code1"
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict",
+                        "version": 3
+                    },
+                    "conditions": [
+                        {
+                            "id": "5e425304-226a-4a0b-bb65-ebcc949c7172",
+                            "leftValue": "={{ $json.classificacao }}",
+                            "rightValue": "AGENDAMENTO_FUTURO",
+                            "operator": {
+                                "type": "string",
+                                "operation": "equals"
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2.3,
+            "position": [
+                -160,
+                368
+            ],
+            "id": "7cb9bd84-bf4a-4448-8809-0b5195ffd93a",
+            "name": "If"
+        },
+        {
+            "parameters": {
+                "promptType": "define",
+                "text": "={{ $('Loop Over Items4').item.json.observacoes }}",
+                "options": {
+                    "systemMessage": "=Você deve utilizar as informações abaixo para gerar uma **mensagem de lembrete de visita**.\n\nVocê é a Bia atendente responsável pelo contato do {{EMPRESA_NOME}}**.  \nA mensagem deve ser assinada com essas informações.\n\n### Variáveis disponíveis\n\n\n- **Aluno:**  \n  `{{ $('Loop Over Items4').item.json.nome_aluno }}`  \n  > Atenção: em alguns casos o nome do aluno pode estar incorreto. Caso isso ocorra, utilize o nome correto informado em **observações**.\n\n- **Observações do agendamento:**  \n  `{{ $('Loop Over Items4').item.json.observacoes }}`\n\nData: {{ $('Loop Over Items4').item.json.dia }}\nHorario: {{ $('Loop Over Items4').item.json.horario }}\n\n---\n\n### Validação obrigatória antes de gerar a mensagem\n\n1. Analise o **histórico de mensagens/conversas**.\n2. Se houver **qualquer mensagem anterior que indique alerta, cancelamento, pedido para não enviar mensagens ou qualquer impedimento**, **não gere a mensagem**.\n3. Nesse caso, **retorne apenas o código abaixo**, sem qualquer outro texto:\n\n```\n\n##08##\n\n```\n\n---\n\n### Diretrizes para a mensagem\n\n- Linguagem **simples, clara e direta**\n- Tom **cordial e objetivo**\n- Mensagem curta, sem repetição desnecessária\n- Utilizar **exclusivamente** as variáveis fornecidas\n- Não mencionar sistemas, históricos ou regras internas\n- Finalizar a mensagem com a assinatura da atendente\n\n**Assinatura obrigatória:**\nBia  \n{{EMPRESA_NOME}}\n\n---\n\n### Objetivo\n\nGerar **uma única mensagem de lembrete de visita**, confirmando **aluno, data e horário**, considerando possíveis correções do nome do aluno a partir das observações.\n\n---\n\n### Saída esperada\n\n- Caso exista impedimento:  \n```\n\n##08##\n\n```\n- Caso não exista impedimento:  \nUma mensagem de lembrete coerente e adequada ao contexto de **3 dias antes da visita**, assinada por **Bia do {{EMPRESA_NOME}}**.\n```\n",
+                    "returnIntermediateSteps": true
+                }
+            },
+            "type": "@n8n/n8n-nodes-langchain.agent",
+            "typeVersion": 3.1,
+            "position": [
+                2528,
+                -144
+            ],
+            "id": "bd2b2995-0b72-4e45-9203-cf132f978420",
+            "name": "AI Agent1"
+        },
+        {
+            "parameters": {
+                "modelName": "models/gemini-3-flash-preview",
+                "options": {
+                    "temperature": 0.1,
+                    "topP": 0.9
+                }
+            },
+            "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+            "typeVersion": 1,
+            "position": [
+                2544,
+                80
+            ],
+            "id": "f6531983-0981-453a-9c2f-e021c9ba4b74",
+            "name": "Google Gemini Chat Model",
+            "credentials": {
+                "googlePalmApi": {
+                    "id": "Z0AcWnyioLuEj2BP",
+                    "name": "Wesley"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "sessionIdType": "customKey",
+                "sessionKey": "={{ $json.contato }}",
+                "tableName": "{{TABLE_CHAT_HISTORIES}}",
+                "contextWindowLength": 50
+            },
+            "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
+            "typeVersion": 1.3,
+            "position": [
+                2672,
+                80
+            ],
+            "id": "6b73b245-5c6e-441e-9f81-02d08ed7a333",
+            "name": "Postgres Chat Memory",
+            "credentials": {
+                "postgres": {
+                    "id": "{{POSTGRES_ID}}",
+                    "name": "{{POSTGRES_NAME}}"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "=https://api.z-api.io/instances/3EADC8513F54729D85E27E2C1A39BB00/token/62109440ABBBF44BB1CF80BC/send-text",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "Client-Token",
+                            "value": "=Fdc56557f851f4b30ae6002462713fad6S"
+                        }
+                    ]
+                },
+                "sendBody": true,
+                "bodyParameters": {
+                    "parameters": [
+                        {
+                            "name": "phone",
+                            "value": "={{ $('Filter').item.json.contato }}"
+                        },
+                        {
+                            "name": "message",
+                            "value": "={{ $json.output }}"
+                        },
+                        {
+                            "name": "delayTyping",
+                            "value": "9"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                2880,
+                -32
+            ],
+            "id": "9d22f7ef-1ded-4aea-8473-e94b0fc9021b",
+            "name": "7D -ENVIA MENSAGEM"
+        },
+        {
+            "parameters": {
+                "options": {}
+            },
+            "type": "n8n-nodes-base.splitInBatches",
+            "typeVersion": 3,
+            "position": [
+                2304,
+                -32
+            ],
+            "id": "c86333cf-9e79-4fad-85e5-d30de9e73012",
+            "name": "Loop Over Items"
+        },
+        {
+            "parameters": {},
+            "type": "n8n-nodes-base.wait",
+            "typeVersion": 1.1,
+            "position": [
+                3104,
+                -32
+            ],
+            "id": "5efcae7a-b670-45ce-8ca4-e344b92586c2",
+            "name": "Wait"
+        },
+        {
+            "parameters": {
+                "operation": "getAll",
+                "tableId": "{{TABLE_AGENDAMENTOS}}",
+                "returnAll": true,
+                "filters": {
+                    "conditions": [
+                        {
+                            "keyName": "status",
+                            "condition": "eq",
+                            "keyValue": "agendado"
+                        }
+                    ]
+                }
+            },
+            "type": "n8n-nodes-base.supabase",
+            "typeVersion": 1,
+            "position": [
+                -832,
+                368
+            ],
+            "id": "supabase-agendados",
+            "name": "Busca Agendados",
+            "credentials": {
+                "supabaseApi": {
+                    "id": "{{SUPABASE_API_ID}}",
+                    "name": "{{SUPABASE_API_NAME}}"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "operation": "getAll",
+                "tableId": "lembretes_ia",
+                "returnAll": true,
+                "filters": {
+                    "conditions": [
+                        {
+                            "keyName": "empresa",
+                            "condition": "eq",
+                            "keyValue": "{{SCHEMA}}"
+                        }
+                    ]
+                }
+            },
+            "type": "n8n-nodes-base.supabase",
+            "typeVersion": 1,
+            "position": [
+                -1280,
+                368
+            ],
+            "id": "supabase-lembretes",
+            "name": "Busca Lembretes Config",
+            "credentials": {
+                "supabaseApi": {
+                    "id": "{{SUPABASE_API_ID}}",
+                    "name": "{{SUPABASE_API_NAME}}"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "options": {}
+            },
+            "type": "n8n-nodes-base.splitInBatches",
+            "typeVersion": 3,
+            "position": [
+                2304,
+                368
+            ],
+            "id": "loop-items-3d",
+            "name": "Loop Over Items3"
+        },
+        {
+            "parameters": {
+                "options": {}
+            },
+            "type": "n8n-nodes-base.splitInBatches",
+            "typeVersion": 3,
+            "position": [
+                2304,
+                768
+            ],
+            "id": "loop-items-4",
+            "name": "Loop Over Items4"
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict",
+                        "version": 2
+                    },
+                    "conditions": [
+                        {
+                            "id": "filter-output",
+                            "leftValue": "={{ $json.output }}",
+                            "rightValue": "##08##",
+                            "operator": {
+                                "type": "string",
+                                "operation": "notContains"
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2.2,
+            "position": [
+                2752,
+                -32
+            ],
+            "id": "filter-node",
+            "name": "Filter"
+        }
+    ],
+    "connections": {
+        "Schedule Trigger": {
+            "main": [
+                [
+                    {
+                        "node": "Busca Lembretes Config",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Busca Lembretes Config": {
+            "main": [
+                [
+                    {
+                        "node": "Busca Agendados",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Busca Agendados": {
+            "main": [
+                [
+                    {
+                        "node": "If6",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "If6": {
+            "main": [
+                [
+                    {
+                        "node": "Code1",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Code1": {
+            "main": [
+                [
+                    {
+                        "node": "If",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "If": {
+            "main": [
+                [
+                    {
+                        "node": "Switch1",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Switch1": {
+            "main": [
+                [
+                    {
+                        "node": "Loop Over Items",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Loop Over Items3",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Loop Over Items4",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Loop Over Items": {
+            "main": [
+                [],
+                [
+                    {
+                        "node": "AI Agent1",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "AI Agent1": {
+            "main": [
+                [
+                    {
+                        "node": "Filter",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Filter": {
+            "main": [
+                [
+                    {
+                        "node": "7D -ENVIA MENSAGEM",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "7D -ENVIA MENSAGEM": {
+            "main": [
+                [
+                    {
+                        "node": "Wait",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Wait": {
+            "main": [
+                [
+                    {
+                        "node": "Loop Over Items",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Google Gemini Chat Model": {
+            "ai_languageModel": [
+                [
+                    {
+                        "node": "AI Agent1",
+                        "type": "ai_languageModel",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Postgres Chat Memory": {
+            "ai_memory": [
+                [
+                    {
+                        "node": "AI Agent1",
+                        "type": "ai_memory",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "meta": {
+        "templateCredsSetupCompleted": true,
+        "instanceId": "{{INSTANCE_ID}}"
+    }
+}

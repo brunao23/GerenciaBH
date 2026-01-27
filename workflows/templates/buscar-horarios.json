@@ -1,0 +1,392 @@
+{
+    "name": "{{EMPRESA_NOME}} - BUSCAR HORARIOS",
+    "active": true,
+    "nodes": [
+        {
+            "parameters": {
+                "workflowInputs": {
+                    "values": [
+                        {
+                            "name": "start"
+                        },
+                        {
+                            "name": "end"
+                        }
+                    ]
+                }
+            },
+            "type": "n8n-nodes-base.executeWorkflowTrigger",
+            "typeVersion": 1.1,
+            "position": [
+                1440,
+                48
+            ],
+            "id": "70b15245-0ce1-472f-ab0b-b95f0ff6f6ca",
+            "name": "RECEBE DA IA"
+        },
+        {
+            "parameters": {
+                "mode": "raw",
+                "jsonOutput": "={\n    \"start\": \"{{ $json.start }}\",\n    \"end\": \"{{ $json.end }}\",\n    \"dataInicio\": \"{{ $json.start }}\",\n    \"dataFim\": \"{{ $json.end .toDateTime().plus('1','weeks').format('yyyy-MM-dd')}}T{{ $json.end .toDateTime().format('18:00:00')}}\",\n    \"diasPermitidos\": [1,2,3,4,5,6],\n    \"horaInicial\": \"09:30\",\n    \"horaFinal\": \"22:30\",\n    \"inicioAlmoco\": \"00:00\",\n    \"fimAlmoco\": \"00:00\",\n    \"slotMinutos\": 15,\n    \"maxPorDia\": 55,\n    \"maxDiasRetorno\": 4\n  }",
+                "options": {}
+            },
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 3.4,
+            "position": [
+                1664,
+                48
+            ],
+            "id": "e02320f3-cbd3-4d4f-8cd3-908962655492",
+            "name": "Edit Fields1"
+        },
+        {
+            "parameters": {
+                "operation": "getAll",
+                "calendar": {
+                    "__rl": true,
+                    "value": "{{CALENDAR_EMAIL}}",
+                    "mode": "list",
+                    "cachedResultName": "{{CALENDAR_EMAIL}}"
+                },
+                "returnAll": true,
+                "timeMin": "={{ $json.start }}",
+                "timeMax": "={{ $json.end .toDateTime().plus('1','weeks').format('yyyy-MM-dd')}}T{{ $json.end .toDateTime().format('22:00:00')}}",
+                "options": {}
+            },
+            "type": "n8n-nodes-base.googleCalendar",
+            "typeVersion": 1.3,
+            "position": [
+                1840,
+                48
+            ],
+            "id": "a2fc3872-abaa-4f58-84f0-2c3afb943496",
+            "name": "BUSCA OS HORARIOS SOLICITADOS",
+            "alwaysOutputData": true,
+            "credentials": {
+                "googleCalendarOAuth2Api": {
+                    "id": "{{GOOGLE_CALENDAR_ID}}",
+                    "name": "{{GOOGLE_CALENDAR_NAME}}"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict",
+                        "version": 2
+                    },
+                    "conditions": [
+                        {
+                            "id": "32ec3194-de0e-484b-9166-99780e429b97",
+                            "leftValue": "={{ $json.id }}",
+                            "rightValue": "",
+                            "operator": {
+                                "type": "string",
+                                "operation": "empty",
+                                "singleValue": true
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2.2,
+            "position": [
+                2016,
+                48
+            ],
+            "id": "3a64fb82-1f2d-40da-ae72-8798c16fc1a3",
+            "name": "VE SE TEM ALGUMA RESTRIÇÃO DE HORARIO"
+        },
+        {
+            "parameters": {
+                "assignments": {
+                    "assignments": [
+                        {
+                            "id": "4839572e-5252-49b3-8d33-b19e66605440",
+                            "name": "start.dateTime",
+                            "value": "={{ $json.start.dateTime .toDateTime().format('dd/MM/yyyy HH:mm')}}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "02c76ee2-f67a-4b13-9f55-3b9893242e5c",
+                            "name": "end.dateTime",
+                            "value": "={{ $json.end.dateTime .toDateTime().format('dd/MM/yyyy HH:mm')}}",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 3.4,
+            "position": [
+                2272,
+                144
+            ],
+            "id": "5a6db314-1ba0-4811-acd4-91e192aa46b6",
+            "name": "Edit Fields5",
+            "alwaysOutputData": false
+        },
+        {
+            "parameters": {
+                "sortFieldsUi": {
+                    "sortField": [
+                        {
+                            "fieldName": "start.dateTime"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.sort",
+            "typeVersion": 1,
+            "position": [
+                2432,
+                144
+            ],
+            "id": "10d2f579-a6b7-4026-a830-d83c65692117",
+            "name": "Sort2"
+        },
+        {
+            "parameters": {
+                "jsCode": "// Funções auxiliares\nfunction parseBR(dt) {\n  const [date, time] = dt.split(' ');\n  const [d, m, y] = date.split('/').map(Number);\n  const [hh, mm = 0] = time.split(':').map(Number);\n  return new Date(y, m - 1, d, hh, mm, 0, 0);\n}\nfunction pad(n){ return String(n).padStart(2, '0'); }\nfunction fmtKey(d){\n  return `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()} ${pad(d.getHours())}:00`;\n}\n\nconst busy = new Set();\nconst now = new Date();\n\nfor (const it of items) {\n  const startStr = it.json.start.dateTime;\n  const endStr   = it.json.end.dateTime;\n\n  const start = parseBR(startStr);\n  const end   = parseBR(endStr);\n\n  const curr = new Date(start);\n  curr.setMinutes(0,0,0,0);\n\n  const endBoundary = new Date(end);\n  if (end.getMinutes() || end.getSeconds() || end.getMilliseconds()) {\n    endBoundary.setHours(endBoundary.getHours() + 1, 0, 0, 0);\n  } else {\n    endBoundary.setMinutes(0,0,0,0);\n  }\n\n  while (curr < endBoundary) {\n    if (curr >= now) {\n      busy.add(fmtKey(curr));\n    }\n    curr.setHours(curr.getHours() + 1, 0, 0, 0);\n  }\n}\n\nconst duplicadas = Array.from(busy)\n  .sort()\n  .map(k => ({ json: { duplicado: k } }));\n\nreturn duplicadas.length\n  ? duplicadas\n  : [{ json: { mensagem: \"Não há horários indisponíveis.\" } }];\n"
+            },
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                2576,
+                144
+            ],
+            "id": "b516c30f-23c3-4964-b145-10f26e7a5ca0",
+            "name": "CONFERE OS HORARIOS INDISPONIVEIS"
+        },
+        {
+            "parameters": {},
+            "type": "n8n-nodes-base.limit",
+            "typeVersion": 1,
+            "position": [
+                2816,
+                368
+            ],
+            "id": "5294be20-32af-46ed-a573-799a6783fd12",
+            "name": "Limit"
+        },
+        {
+            "parameters": {
+                "mode": "raw",
+                "jsonOutput": "={\n    \"dataInicio\": \"{{ $('Edit Fields1').first().json.dataInicio .toDateTime().format('dd/MM/yyyy HH:mm')}}\",\n    \"dataFim\": \"{{ $('Edit Fields1').first().json.dataFim .toDateTime().format('dd/MM/yyyy HH:mm')}}\",\n    \"diasPermitidos\": {{ $('Edit Fields1').first().json.diasPermitidos }},\n    \"horaInicial\": \"{{ $('Edit Fields1').first().json.horaInicial }}\",\n    \"horaFinal\": \"{{ $('Edit Fields1').first().json.horaFinal }}\",\n    \"inicioAlmoco\": \"{{ $('Edit Fields1').first().json.inicioAlmoco }}\",\n    \"fimAlmoco\": \"{{ $('Edit Fields1').first().json.fimAlmoco }}\",\n    \"slotMinutos\": {{ $('Edit Fields1').first().json.slotMinutos }},\n    \"maxPorDia\": {{ $('Edit Fields1').first().json.maxPorDia }},\n    \"maxDiasRetorno\": {{ $('Edit Fields1').first().json.maxDiasRetorno }}\n  }",
+                "options": {}
+            },
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 3.4,
+            "position": [
+                2944,
+                368
+            ],
+            "id": "53fa0a3b-85f4-4493-aeb9-e93022024773",
+            "name": "Edit Fields7"
+        },
+        {
+            "parameters": {},
+            "type": "n8n-nodes-base.merge",
+            "typeVersion": 3.2,
+            "position": [
+                3072,
+                160
+            ],
+            "id": "d272e1c1-e28b-40c7-9edb-e3089b5b14be",
+            "name": "Merge"
+        },
+        {
+            "parameters": {
+                "jsCode": "// Helpers\nfunction pad(n) { return String(n).padStart(2, '0'); }\nfunction parseBR(s) {\n  const [d, t] = s.split(' ');\n  const [dd, mm, yyyy] = d.split('/').map(Number);\n  const [hh, mi] = t.split(':').map(Number);\n  return new Date(yyyy, mm - 1, dd, hh, mi);\n}\nfunction fmtBR(dt) {\n  return `${pad(dt.getDate())}/${pad(dt.getMonth()+1)}/${dt.getFullYear()} ${pad(dt.getHours())}:${pad(dt.getMinutes())}`;\n}\n\n// Configuração\nconst cfg = items[0].json;\nconst dataInicio     = parseBR(cfg.dataInicio);\nconst dataFim        = parseBR(cfg.dataFim);\nconst diasPermitidos = cfg.diasPermitidos;  // [1,2,3,4,5,6]\nconst horaInicial    = cfg.horaInicial;     // \"09:30\"\nconst horaFinal      = cfg.horaFinal;       // \"22:30\"\nconst inicioAlmoco   = cfg.inicioAlmoco;    // \"00:00\" desabilitado\nconst fimAlmoco      = cfg.fimAlmoco;       // \"00:00\"\nconst slotMinutos    = cfg.slotMinutos;     // 15\nconst maxPorDia      = cfg.maxPorDia;       // 55\nconst maxDiasRetorno = cfg.maxDiasRetorno;  // 4\n\n// Coleta ocupados (vêm do Merge como \"duplicado\" em dd/MM/yyyy HH:00)\nconst ocupados = new Set(\n  items.slice(1).map(it => it.json.duplicado).filter(Boolean)\n);\n\n// Helpers de horário\nfunction parseTime(str) {\n  const [h, m] = str.split(':').map(Number);\n  return h * 60 + m;\n}\nconst minInicio  = parseTime(horaInicial);\nconst minFinal   = parseTime(horaFinal);\nconst minAlmocoI = parseTime(inicioAlmoco);\nconst minAlmocoF = parseTime(fimAlmoco);\n\nfunction noAlmoco(h, m) {\n  if (minAlmocoI === 0 && minAlmocoF === 0) return false;\n  const t = h * 60 + m;\n  return t >= minAlmocoI && t < minAlmocoF;\n}\n\n// Geração\nconst result = [];\nlet diasRetornados = 0;\nlet cursor = new Date(dataInicio);\ncursor.setHours(0, 0, 0, 0);\n\nwhile (cursor <= dataFim && diasRetornados < maxDiasRetorno) {\n  const dow = cursor.getDay();\n  if (diasPermitidos.includes(dow)) {\n    let countDia = 0;\n    let h = Math.floor(minInicio / 60);\n    let m = minInicio % 60;\n    while (h * 60 + m < minFinal && countDia < maxPorDia) {\n      if (!noAlmoco(h, m)) {\n        const slot = new Date(cursor);\n        slot.setHours(h, m, 0, 0);\n        const key = `${pad(slot.getDate())}/${pad(slot.getMonth()+1)}/${slot.getFullYear()} ${pad(h)}:00`;\n        if (!ocupados.has(key) && slot >= dataInicio && slot <= dataFim) {\n          result.push({ json: { horario: fmtBR(slot) } });\n          countDia++;\n        }\n      }\n      m += slotMinutos;\n      if (m >= 60) { h++; m -= 60; }\n    }\n    if (countDia > 0) diasRetornados++;\n  }\n  cursor.setDate(cursor.getDate() + 1);\n}\n\nreturn result.length ? result : [{ json: { mensagem: 'Nenhum horário disponível.' } }];\n"
+            },
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                3232,
+                160
+            ],
+            "id": "d54eb58b-8f8b-4a51-94aa-c5f7dfb1b91c",
+            "name": "BUSCA OS PROXIMOS HORARIOS DISPONIVEIS1"
+        },
+        {
+            "parameters": {},
+            "type": "n8n-nodes-base.errorTrigger",
+            "typeVersion": 1,
+            "position": [
+                1440,
+                256
+            ],
+            "id": "388e7be6-81c3-40ef-a62d-a5f1413014b5",
+            "name": "Error Trigger"
+        },
+        {
+            "parameters": {
+                "workflowId": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": "6JHakpNnCEIyiIPcLOYwT",
+                    "cachedResultName": "ERRO"
+                },
+                "workflowInputs": {
+                    "mappingMode": "defineBelow",
+                    "value": {},
+                    "matchingColumns": [],
+                    "schema": [],
+                    "attemptToConvertTypes": false,
+                    "convertFieldsToString": true
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.executeWorkflow",
+            "typeVersion": 1.3,
+            "position": [
+                1664,
+                256
+            ],
+            "id": "2dad871f-dc73-4cbf-99da-e543b62608f5",
+            "name": "Call 'ERRO'"
+        }
+    ],
+    "connections": {
+        "RECEBE DA IA": {
+            "main": [
+                [
+                    {
+                        "node": "Edit Fields1",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Edit Fields1": {
+            "main": [
+                [
+                    {
+                        "node": "BUSCA OS HORARIOS SOLICITADOS",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "BUSCA OS HORARIOS SOLICITADOS": {
+            "main": [
+                [
+                    {
+                        "node": "VE SE TEM ALGUMA RESTRIÇÃO DE HORARIO",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "VE SE TEM ALGUMA RESTRIÇÃO DE HORARIO": {
+            "main": [
+                [
+                    {
+                        "node": "Limit",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Edit Fields5",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Edit Fields5": {
+            "main": [
+                [
+                    {
+                        "node": "Sort2",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Sort2": {
+            "main": [
+                [
+                    {
+                        "node": "CONFERE OS HORARIOS INDISPONIVEIS",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "CONFERE OS HORARIOS INDISPONIVEIS": {
+            "main": [
+                [
+                    {
+                        "node": "Merge",
+                        "type": "main",
+                        "index": 1
+                    }
+                ]
+            ]
+        },
+        "Limit": {
+            "main": [
+                [
+                    {
+                        "node": "Edit Fields7",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Edit Fields7": {
+            "main": [
+                [
+                    {
+                        "node": "Merge",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Merge": {
+            "main": [
+                [
+                    {
+                        "node": "BUSCA OS PROXIMOS HORARIOS DISPONIVEIS1",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Error Trigger": {
+            "main": [
+                [
+                    {
+                        "node": "Call 'ERRO'",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "meta": {
+        "templateCredsSetupCompleted": true,
+        "instanceId": "{{INSTANCE_ID}}"
+    }
+}

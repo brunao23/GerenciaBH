@@ -1,99 +1,43 @@
-# 🚨 PASSO CRÍTICO - EXECUTAR SQL NO SUPABASE
+# 🚨 SOLUÇÃO DEFINITIVA (SCRIPT ÚNICO)
 
-## ⚠️ VOCÊ EXECUTOU O SCRIPT SQL?
+Você teve problemas de dependência (tabela A precisa da tabela B que ainda não existe).
 
-**Se NÃO executou `disable_rls_all_tables.sql`, os dados NUNCA vão aparecer!**
-
-O RLS (Row Level Security) está **BLOQUEANDO** todo acesso aos dados!
+Eu criei um **MASTER SCRIPT** que resolve tudo de uma vez.
 
 ---
 
-## ⚡ EXECUTE AGORA (URGENTE!)
+## ⚡ COMO RESOLVER AGORA (1 MINUTO)
 
-### **1. Abrir Supabase**
-1. Acesse https://supabase.com
-2. Faça login
-3. Selecione seu projeto
-
-### **2. Abrir SQL Editor**
-1. No menu lateral, clique em **SQL Editor**
-2. Clique em **New Query**
-
-### **3. Copiar o Script**
-Abra o arquivo `disable_rls_all_tables.sql` e copie **TODO** o conteúdo
-
-### **4. Colar e Executar**
-1. Cole no SQL Editor
-2. Clique em **Run** (ou pressione `Ctrl+Enter`)
-3. **AGUARDE** 10-30 segundos
-
-### **5. Verificar Resultado**
-Você deve ver algo como:
-```
-status: RLS DESABILITADO EM TODAS AS TABELAS!
-total_tabelas: 115
-```
+1. **Abra o arquivo:** `sql/MASTER_STRUCTURE_FIX.sql`
+2. **Copie TODO o conteúdo.**
+3. **Vá no SQL Editor do Supabase.**
+4. **Cole e Execute (Run).**
 
 ---
 
-## 🧪 APÓS EXECUTAR O SQL
+## ✅ O QUE ESTE SCRIPT FAZ?
 
-### **1. Verificar Dados**
-Execute no SQL Editor:
+Ele cria TODAS as tabelas na ordem exata para não dar erro:
+
+1. 🟢 **Funções Utilitárias**: `updated_at` etc.
+2. 🟢 **Tabela USUARIOS**: Resolve o erro `relation "public.usuarios" does not exist`.
+3. 🟢 **Tabela EMPRESAS**: Resolve o erro `relation "public.empresas" does not exist`.
+4. 🟢 **Credenciais**: `empresa_credenciais`.
+5. 🟢 **Configuração AI**: `empresa_agente_config`.
+6. 🟢 **Controle Workflow**: `workflow_replications`, `empresa_workflows`.
+7. 🟢 **Funções Dinâmicas**: `criar_tabelas_empresa` que cria as 12 tabelas de cada cliente.
+
+---
+
+## 🧪 APÓS EXECUTAR
+
+Teste rodando este comando no Supabase para confirmar:
+
 ```sql
-SELECT COUNT(*) FROM vox_spn8n_chat_histories;
+SELECT table_name 
+FROM information_schema.tables 
+WHERE table_schema = 'public' 
+AND table_name IN ('usuarios', 'empresas', 'empresa_credenciais', 'empresa_agente_config');
 ```
 
-**Deve retornar:** 4194 (ou outro número > 0)
-
-### **2. Recarregar Frontend**
-```javascript
-// Console do navegador (F12):
-location.reload()
-```
-
-### **3. Testar Páginas**
-- `/conversas` - Deve mostrar conversas
-- `/agendamentos` - Deve mostrar agendamentos
-- `/followups` - Deve mostrar follow-ups
-- `/pausas` - Deve mostrar pausas
-
----
-
-## ❌ SE AINDA NÃO FUNCIONAR
-
-### **Verificar Logs do Navegador (F12):**
-
-**1. Abrir Console**
-Pressione `F12` → Aba **Console**
-
-**2. Procurar Erros**
-- Se aparecer "Header não enviado" → Problema no frontend
-- Se aparecer "Tabela não existe" → Problema no banco
-- Se aparecer "Permission denied" → RLS ainda ativo
-
-**3. Me Enviar os Logs**
-Copie e cole aqui TODOS os erros que aparecerem
-
----
-
-## 📊 CHECKLIST
-
-- [ ] Executou `disable_rls_all_tables.sql` no Supabase?
-- [ ] Viu mensagem de sucesso?
-- [ ] Verificou que tabelas têm dados?
-- [ ] Recarregou o frontend?
-- [ ] Ainda tem erro?
-
----
-
-## 🎯 RESPONDA
-
-**Você JÁ executou o script `disable_rls_all_tables.sql` no Supabase?**
-
-- ✅ **SIM** → Me envie os logs do console (F12)
-- ❌ **NÃO** → **EXECUTE AGORA!** É obrigatório!
-
----
-
-**SEM EXECUTAR O SQL, NADA VAI FUNCIONAR!** 🚨
+Deve retornar **4 linhas**. Se retornar, **PROBLEMA RESOLVIDO!** 🚀

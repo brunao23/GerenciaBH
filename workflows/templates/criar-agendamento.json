@@ -1,0 +1,747 @@
+{
+    "name": "{{EMPRESA_NOME}} - CRIAR AGENDAMENTO",
+    "active": true,
+    "nodes": [
+        {
+            "parameters": {
+                "workflowInputs": {
+                    "values": [
+                        {
+                            "name": "Start"
+                        },
+                        {
+                            "name": "End"
+                        },
+                        {
+                            "name": "Description"
+                        },
+                        {
+                            "name": "Summary"
+                        },
+                        {
+                            "name": "numeroCliente"
+                        },
+                        {
+                            "name": "nomeCliente"
+                        }
+                    ]
+                }
+            },
+            "type": "n8n-nodes-base.executeWorkflowTrigger",
+            "typeVersion": 1.1,
+            "position": [
+                -208,
+                1040
+            ],
+            "id": "1b15be39-6f46-4c0c-a58f-df938a50d8f6",
+            "name": "When Executed by Another Workflow"
+        },
+        {
+            "parameters": {
+                "operation": "get",
+                "propertyName": "messagesCount",
+                "key": "={{ $('When Executed by Another Workflow').item.json.numeroCliente .toString()}}-OK-AGD",
+                "options": {}
+            },
+            "type": "n8n-nodes-base.redis",
+            "typeVersion": 1,
+            "position": [
+                48,
+                1024
+            ],
+            "id": "1fae413b-f821-4d0d-bd38-6c02e05fa4d2",
+            "name": "REDIS | Checar Flag Duplicidade",
+            "credentials": {
+                "redis": {
+                    "id": "{{REDIS_ID}}",
+                    "name": "{{REDIS_NAME}}"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict",
+                        "version": 2
+                    },
+                    "conditions": [
+                        {
+                            "id": "duplicidade-check",
+                            "leftValue": "={{ $json.messagesCount }}",
+                            "rightValue": "",
+                            "operator": {
+                                "type": "string",
+                                "operation": "empty",
+                                "singleValue": true
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2.2,
+            "position": [
+                256,
+                1024
+            ],
+            "id": "if-duplicidade",
+            "name": "IF | Já Agendou Antes?"
+        },
+        {
+            "parameters": {
+                "operation": "getAll",
+                "calendar": {
+                    "__rl": true,
+                    "value": "{{CALENDAR_EMAIL}}",
+                    "mode": "list",
+                    "cachedResultName": "{{CALENDAR_EMAIL}}"
+                },
+                "returnAll": true,
+                "timeMin": "={{ $('When Executed by Another Workflow').item.json.Start }}",
+                "timeMax": "={{ $('When Executed by Another Workflow').item.json.End }}",
+                "options": {}
+            },
+            "type": "n8n-nodes-base.googleCalendar",
+            "typeVersion": 1.3,
+            "position": [
+                496,
+                928
+            ],
+            "id": "f2976099-5450-404c-a303-d1a475c7e75a",
+            "name": "GCAL | Buscar Eventos no Intervalo",
+            "alwaysOutputData": true,
+            "credentials": {
+                "googleCalendarOAuth2Api": {
+                    "id": "{{GOOGLE_CALENDAR_ID}}",
+                    "name": "{{GOOGLE_CALENDAR_NAME}}"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict",
+                        "version": 2
+                    },
+                    "conditions": [
+                        {
+                            "id": "conflito-check",
+                            "leftValue": "={{ $json.id }}",
+                            "rightValue": "",
+                            "operator": {
+                                "type": "string",
+                                "operation": "empty",
+                                "singleValue": true
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2.2,
+            "position": [
+                720,
+                928
+            ],
+            "id": "if-conflito",
+            "name": "IF | Há Conflito de Horário?"
+        },
+        {
+            "parameters": {
+                "jsCode": "// Validação de horário e expediente\nconst input = $('When Executed by Another Workflow').item.json;\nconst startDate = new Date(input.Start);\nconst endDate = new Date(input.End);\nconst now = new Date();\n\n// Verifica se é no passado\nconst noPassado = startDate < now;\n\n// Horário de expediente (9h às 22h)\nconst hora = startDate.getHours();\nconst foraExpediente = hora < 9 || hora >= 22;\n\n// Dia da semana (0 = domingo)\nconst diaSemana = startDate.getDay();\nconst finalDeSemana = diaSemana === 0; // domingo não atende\n\nreturn {\n  json: {\n    ...input,\n    validacoes: {\n      noPassado,\n      foraExpediente,\n      finalDeSemana,\n      valido: !noPassado && !foraExpediente && !finalDeSemana\n    }\n  }\n};\n"
+            },
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                944,
+                832
+            ],
+            "id": "code-validacao",
+            "name": "CODE | Validar Horário/Expediente"
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict",
+                        "version": 2
+                    },
+                    "conditions": [
+                        {
+                            "id": "valido-check",
+                            "leftValue": "={{ $json.validacoes.valido }}",
+                            "rightValue": true,
+                            "operator": {
+                                "type": "boolean",
+                                "operation": "equals"
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2.2,
+            "position": [
+                1168,
+                832
+            ],
+            "id": "if-valido",
+            "name": "IF | Horário Válido?"
+        },
+        {
+            "parameters": {
+                "calendar": {
+                    "__rl": true,
+                    "value": "{{CALENDAR_EMAIL}}",
+                    "mode": "list",
+                    "cachedResultName": "{{CALENDAR_EMAIL}}"
+                },
+                "start": "={{ $('When Executed by Another Workflow').item.json.Start .toDateTime().toLocal('pt-br')}}",
+                "end": "={{ $('When Executed by Another Workflow').item.json.End .toDateTime().toLocal('pt-br')}}",
+                "additionalFields": {
+                    "description": "={{ $('When Executed by Another Workflow').item.json.Description }}\nNumero do Cliente: ({{ $('When Executed by Another Workflow').item.json.numeroCliente }})",
+                    "summary": "={{ $('When Executed by Another Workflow').item.json.Summary }}"
+                }
+            },
+            "type": "n8n-nodes-base.googleCalendar",
+            "typeVersion": 1.3,
+            "position": [
+                1392,
+                736
+            ],
+            "id": "6b648ade-34be-4bc8-9b19-8db15b96eb56",
+            "name": "GCAL | Criar Evento",
+            "credentials": {
+                "googleCalendarOAuth2Api": {
+                    "id": "{{GOOGLE_CALENDAR_ID}}",
+                    "name": "{{GOOGLE_CALENDAR_NAME}}"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "sessionIdType": "customKey",
+                "sessionKey": "={{ $('When Executed by Another Workflow').item.json.numeroCliente .toString()}}-OK-AGD",
+                "sessionTTL": 432000,
+                "contextWindowLength": 10
+            },
+            "type": "@n8n/n8n-nodes-langchain.memoryRedisChat",
+            "typeVersion": 1.5,
+            "position": [
+                1616,
+                736
+            ],
+            "id": "07e0303e-c22c-43b7-9757-b28baae75daf",
+            "name": "MEM | Sessão Redis OK-AGD",
+            "credentials": {
+                "redis": {
+                    "id": "{{REDIS_ID}}",
+                    "name": "{{REDIS_NAME}}"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "operation": "insert",
+                "tableId": "{{TABLE_AGENDAMENTOS}}",
+                "fieldsToSend": "defineBelow",
+                "fieldsUi": {
+                    "fieldValues": [
+                        {
+                            "fieldId": "contato",
+                            "fieldValue": "={{ $('When Executed by Another Workflow').item.json.numeroCliente }}"
+                        },
+                        {
+                            "fieldId": "nome_aluno",
+                            "fieldValue": "={{ $('When Executed by Another Workflow').item.json.nomeCliente }}"
+                        },
+                        {
+                            "fieldId": "dia",
+                            "fieldValue": "={{ $('When Executed by Another Workflow').item.json.Start .toDateTime().format('dd/MM/yyyy')}}"
+                        },
+                        {
+                            "fieldId": "horario",
+                            "fieldValue": "={{ $('When Executed by Another Workflow').item.json.Start .toDateTime().format('HH:mm')}}"
+                        },
+                        {
+                            "fieldId": "status",
+                            "fieldValue": "agendado"
+                        },
+                        {
+                            "fieldId": "observacoes",
+                            "fieldValue": "={{ $('When Executed by Another Workflow').item.json.Description }}"
+                        }
+                    ]
+                }
+            },
+            "type": "n8n-nodes-base.supabase",
+            "typeVersion": 1,
+            "position": [
+                1840,
+                736
+            ],
+            "id": "supabase-insert",
+            "name": "SUPABASE | Salvar Agendamento",
+            "credentials": {
+                "supabaseApi": {
+                    "id": "{{SUPABASE_API_ID}}",
+                    "name": "{{SUPABASE_API_NAME}}"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "operation": "update",
+                "tableId": "{{TABLE_FOLLOW_NORMAL}}",
+                "filters": {
+                    "conditions": [
+                        {
+                            "keyName": "numero",
+                            "condition": "eq",
+                            "keyValue": "={{ $('When Executed by Another Workflow').item.json.numeroCliente }}"
+                        }
+                    ]
+                },
+                "fieldsUi": {
+                    "fieldValues": [
+                        {
+                            "fieldId": "tipo_de_contato",
+                            "fieldValue": "agendado"
+                        }
+                    ]
+                }
+            },
+            "type": "n8n-nodes-base.supabase",
+            "typeVersion": 1,
+            "position": [
+                2064,
+                736
+            ],
+            "id": "supabase-update-follow",
+            "name": "SUPABASE | Atualizar Follow",
+            "credentials": {
+                "supabaseApi": {
+                    "id": "{{SUPABASE_API_ID}}",
+                    "name": "{{SUPABASE_API_NAME}}"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "workflowId": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": "{{WORKFLOW_NOTIFICACAO_AGENDAMENTO}}",
+                    "cachedResultName": "NOTIFICAÇÃO DE AGENDAMENTO"
+                },
+                "workflowInputs": {
+                    "mappingMode": "defineBelow",
+                    "value": {
+                        "nome": "={{ $('When Executed by Another Workflow').item.json.nomeCliente }}",
+                        "numero": "={{ $('When Executed by Another Workflow').item.json.numeroCliente }}",
+                        "Dia": "={{ $('When Executed by Another Workflow').item.json.Start .toDateTime().format('dd/MM/yyyy')}}",
+                        "Horario": "={{ $('When Executed by Another Workflow').item.json.Start .toDateTime().format('HH:mm')}}",
+                        "Observaçoes": "={{ $('When Executed by Another Workflow').item.json.Description }}"
+                    },
+                    "matchingColumns": [],
+                    "schema": [
+                        {
+                            "id": "nome",
+                            "displayName": "nome",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "numero",
+                            "displayName": "numero",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "Dia",
+                            "displayName": "Dia",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "Horario",
+                            "displayName": "Horario",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "Observaçoes",
+                            "displayName": "Observaçoes",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        }
+                    ],
+                    "attemptToConvertTypes": false,
+                    "convertFieldsToString": true
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.executeWorkflow",
+            "typeVersion": 1.3,
+            "position": [
+                2288,
+                736
+            ],
+            "id": "call-notificacao",
+            "name": "CALL | Notificar Agendamento"
+        },
+        {
+            "parameters": {
+                "assignments": {
+                    "assignments": [
+                        {
+                            "id": "erro-duplicidade",
+                            "name": "erro",
+                            "value": "Já existe um agendamento para este cliente.",
+                            "type": "string"
+                        },
+                        {
+                            "id": "codigo-duplicidade",
+                            "name": "codigo",
+                            "value": "DUPLICIDADE",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 3.4,
+            "position": [
+                496,
+                1120
+            ],
+            "id": "set-erro-duplicidade",
+            "name": "SET | Erro Duplicidade"
+        },
+        {
+            "parameters": {
+                "assignments": {
+                    "assignments": [
+                        {
+                            "id": "erro-conflito",
+                            "name": "erro",
+                            "value": "Horário já ocupado no calendário.",
+                            "type": "string"
+                        },
+                        {
+                            "id": "codigo-conflito",
+                            "name": "codigo",
+                            "value": "CONFLITO",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 3.4,
+            "position": [
+                944,
+                1024
+            ],
+            "id": "set-erro-conflito",
+            "name": "SET | Erro Conflito"
+        },
+        {
+            "parameters": {
+                "assignments": {
+                    "assignments": [
+                        {
+                            "id": "erro-invalido",
+                            "name": "erro",
+                            "value": "={{ $json.validacoes.noPassado ? 'Horário no passado.' : $json.validacoes.foraExpediente ? 'Fora do horário de expediente (9h-22h).' : 'Não atendemos aos domingos.' }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "codigo-invalido",
+                            "name": "codigo",
+                            "value": "HORARIO_INVALIDO",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 3.4,
+            "position": [
+                1392,
+                928
+            ],
+            "id": "set-erro-invalido",
+            "name": "SET | Erro Horário Inválido"
+        },
+        {
+            "parameters": {
+                "assignments": {
+                    "assignments": [
+                        {
+                            "id": "sucesso-msg",
+                            "name": "sucesso",
+                            "value": true,
+                            "type": "boolean"
+                        },
+                        {
+                            "id": "mensagem-sucesso",
+                            "name": "mensagem",
+                            "value": "Agendamento criado com sucesso!",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 3.4,
+            "position": [
+                2512,
+                736
+            ],
+            "id": "set-sucesso",
+            "name": "SET | Sucesso"
+        },
+        {
+            "parameters": {},
+            "type": "n8n-nodes-base.errorTrigger",
+            "typeVersion": 1,
+            "position": [
+                -208,
+                1232
+            ],
+            "id": "error-trigger",
+            "name": "Error Trigger"
+        },
+        {
+            "parameters": {
+                "workflowId": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": "6JHakpNnCEIyiIPcLOYwT",
+                    "cachedResultName": "ERRO"
+                },
+                "workflowInputs": {
+                    "mappingMode": "defineBelow",
+                    "value": {},
+                    "matchingColumns": [],
+                    "schema": [],
+                    "attemptToConvertTypes": false,
+                    "convertFieldsToString": true
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.executeWorkflow",
+            "typeVersion": 1.3,
+            "position": [
+                48,
+                1232
+            ],
+            "id": "call-erro",
+            "name": "Call 'ERRO'"
+        }
+    ],
+    "connections": {
+        "When Executed by Another Workflow": {
+            "main": [
+                [
+                    {
+                        "node": "REDIS | Checar Flag Duplicidade",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "REDIS | Checar Flag Duplicidade": {
+            "main": [
+                [
+                    {
+                        "node": "IF | Já Agendou Antes?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "IF | Já Agendou Antes?": {
+            "main": [
+                [
+                    {
+                        "node": "GCAL | Buscar Eventos no Intervalo",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "SET | Erro Duplicidade",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "GCAL | Buscar Eventos no Intervalo": {
+            "main": [
+                [
+                    {
+                        "node": "IF | Há Conflito de Horário?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "IF | Há Conflito de Horário?": {
+            "main": [
+                [
+                    {
+                        "node": "CODE | Validar Horário/Expediente",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "SET | Erro Conflito",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "CODE | Validar Horário/Expediente": {
+            "main": [
+                [
+                    {
+                        "node": "IF | Horário Válido?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "IF | Horário Válido?": {
+            "main": [
+                [
+                    {
+                        "node": "GCAL | Criar Evento",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "SET | Erro Horário Inválido",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "GCAL | Criar Evento": {
+            "main": [
+                [
+                    {
+                        "node": "MEM | Sessão Redis OK-AGD",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "MEM | Sessão Redis OK-AGD": {
+            "main": [
+                [
+                    {
+                        "node": "SUPABASE | Salvar Agendamento",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "SUPABASE | Salvar Agendamento": {
+            "main": [
+                [
+                    {
+                        "node": "SUPABASE | Atualizar Follow",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "SUPABASE | Atualizar Follow": {
+            "main": [
+                [
+                    {
+                        "node": "CALL | Notificar Agendamento",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "CALL | Notificar Agendamento": {
+            "main": [
+                [
+                    {
+                        "node": "SET | Sucesso",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Error Trigger": {
+            "main": [
+                [
+                    {
+                        "node": "Call 'ERRO'",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "meta": {
+        "templateCredsSetupCompleted": true,
+        "instanceId": "{{INSTANCE_ID}}"
+    }
+}

@@ -1,0 +1,298 @@
+{
+    "name": "{{EMPRESA_NOME}} - NOTIFICAÇÃO DE ATENDENTE",
+    "active": true,
+    "nodes": [
+        {
+            "parameters": {
+                "workflowInputs": {
+                    "values": [
+                        {
+                            "name": "numeroCliente"
+                        },
+                        {
+                            "name": "nomeCliente"
+                        },
+                        {
+                            "name": "mensagem"
+                        }
+                    ]
+                }
+            },
+            "type": "n8n-nodes-base.executeWorkflowTrigger",
+            "typeVersion": 1.1,
+            "position": [
+                0,
+                0
+            ],
+            "id": "trigger-notificacao-atendente",
+            "name": "When Executed by Another Workflow"
+        },
+        {
+            "parameters": {
+                "assignments": {
+                    "assignments": [
+                        {
+                            "id": "msg-atendente",
+                            "name": "mensagemFormatada",
+                            "value": "=🚨 *ATENÇÃO: LEAD PRECISA DE AJUDA!*\n\n👤 *Nome:* {{ $json.nomeCliente || 'Não informado' }}\n📞 *Número:* {{ $json.numeroCliente }}\n\n💬 *Última mensagem:*\n{{ $json.mensagem }}\n\n⏰ *Horário:* {{ $now.format('dd/MM/yyyy HH:mm') }}\n\n📌 Por favor, verifique e responda o mais rápido possível!",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 3.4,
+            "position": [
+                224,
+                0
+            ],
+            "id": "set-mensagem-atendente",
+            "name": "SET | Formatar Mensagem"
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "={{$env.EVOLUTION_API_URL}}/message/sendText/{{EVOLUTION_INSTANCE}}",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "apikey",
+                            "value": "={{$env.EVOLUTION_API_KEY}}"
+                        },
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "sendBody": true,
+                "specifyBody": "json",
+                "jsonBody": "={\n  \"number\": \"{{NOTIFICATION_GROUP}}\",\n  \"text\": \"{{ $json.mensagemFormatada }}\"\n}",
+                "options": {}
+            },
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                448,
+                0
+            ],
+            "id": "http-enviar-atendente",
+            "name": "EVOLUTION | Enviar para Grupo"
+        },
+        {
+            "parameters": {
+                "operation": "insert",
+                "tableId": "{{TABLE_PAUSAR}}",
+                "fieldsToSend": "defineBelow",
+                "fieldsUi": {
+                    "fieldValues": [
+                        {
+                            "fieldId": "numero",
+                            "fieldValue": "={{ $('When Executed by Another Workflow').item.json.numeroCliente }}"
+                        },
+                        {
+                            "fieldId": "motivo",
+                            "fieldValue": "Precisa de atendente humano"
+                        },
+                        {
+                            "fieldId": "tipo",
+                            "fieldValue": "pausado"
+                        }
+                    ]
+                }
+            },
+            "type": "n8n-nodes-base.supabase",
+            "typeVersion": 1,
+            "position": [
+                672,
+                0
+            ],
+            "id": "supabase-pausar-atendente",
+            "name": "SUPABASE | Pausar Lead",
+            "credentials": {
+                "supabaseApi": {
+                    "id": "{{SUPABASE_API_ID}}",
+                    "name": "{{SUPABASE_API_NAME}}"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "operation": "update",
+                "tableId": "{{TABLE_FOLLOW_NORMAL}}",
+                "filters": {
+                    "conditions": [
+                        {
+                            "keyName": "numero",
+                            "condition": "eq",
+                            "keyValue": "={{ $('When Executed by Another Workflow').item.json.numeroCliente }}"
+                        }
+                    ]
+                },
+                "fieldsUi": {
+                    "fieldValues": [
+                        {
+                            "fieldId": "tipo_de_contato",
+                            "fieldValue": "pausado"
+                        }
+                    ]
+                }
+            },
+            "type": "n8n-nodes-base.supabase",
+            "typeVersion": 1,
+            "position": [
+                896,
+                0
+            ],
+            "id": "supabase-update-follow-atendente",
+            "name": "SUPABASE | Atualizar Follow",
+            "credentials": {
+                "supabaseApi": {
+                    "id": "{{SUPABASE_API_ID}}",
+                    "name": "{{SUPABASE_API_NAME}}"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "assignments": {
+                    "assignments": [
+                        {
+                            "id": "sucesso-atendente",
+                            "name": "sucesso",
+                            "value": true,
+                            "type": "boolean"
+                        },
+                        {
+                            "id": "msg-sucesso-atendente",
+                            "name": "mensagem",
+                            "value": "Notificação enviada ao atendente com sucesso!",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 3.4,
+            "position": [
+                1120,
+                0
+            ],
+            "id": "set-sucesso-atendente",
+            "name": "SET | Sucesso"
+        },
+        {
+            "parameters": {},
+            "type": "n8n-nodes-base.errorTrigger",
+            "typeVersion": 1,
+            "position": [
+                0,
+                192
+            ],
+            "id": "error-trigger-atendente",
+            "name": "Error Trigger"
+        },
+        {
+            "parameters": {
+                "workflowId": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": "6JHakpNnCEIyiIPcLOYwT",
+                    "cachedResultName": "ERRO"
+                },
+                "workflowInputs": {
+                    "mappingMode": "defineBelow",
+                    "value": {},
+                    "matchingColumns": [],
+                    "schema": [],
+                    "attemptToConvertTypes": false,
+                    "convertFieldsToString": true
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.executeWorkflow",
+            "typeVersion": 1.3,
+            "position": [
+                224,
+                192
+            ],
+            "id": "call-erro-atendente",
+            "name": "Call 'ERRO'"
+        }
+    ],
+    "connections": {
+        "When Executed by Another Workflow": {
+            "main": [
+                [
+                    {
+                        "node": "SET | Formatar Mensagem",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "SET | Formatar Mensagem": {
+            "main": [
+                [
+                    {
+                        "node": "EVOLUTION | Enviar para Grupo",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "EVOLUTION | Enviar para Grupo": {
+            "main": [
+                [
+                    {
+                        "node": "SUPABASE | Pausar Lead",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "SUPABASE | Pausar Lead": {
+            "main": [
+                [
+                    {
+                        "node": "SUPABASE | Atualizar Follow",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "SUPABASE | Atualizar Follow": {
+            "main": [
+                [
+                    {
+                        "node": "SET | Sucesso",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Error Trigger": {
+            "main": [
+                [
+                    {
+                        "node": "Call 'ERRO'",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "meta": {
+        "templateCredsSetupCompleted": true,
+        "instanceId": "{{INSTANCE_ID}}"
+    }
+}
