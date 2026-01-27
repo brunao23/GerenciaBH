@@ -1,5 +1,5 @@
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 
 /**
  * Hook para fazer requisições HTTP automáticas com o header do tenant
@@ -9,21 +9,46 @@ export function useTenantFetch() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    // Estado local do tenant para quando não está no localStorage inicial
+    const [tenant, setTenant] = useState<string | null>(typeof window !== 'undefined' ? localStorage.getItem('tenant_prefix') : null);
+
+    // Efeito para buscar tenant da sessão se não estiver no localStorage
+    useEffect(() => {
+        if (!tenant) {
+            // Tenta buscar da sessão do sidebar/auth
+            fetch('/api/auth/session')
+                .then(res => {
+                    if (res.ok) return res.json();
+                    throw new Error('Sem sessão');
+                })
+                .then(data => {
+                    if (data?.unitPrefix || data?.session?.unitPrefix) {
+                        const t = data.unitPrefix || data.session.unitPrefix;
+                        console.log('[useTenantFetch] Tenant recuperado da sessão:', t);
+                        setTenant(t);
+                        localStorage.setItem('tenant_prefix', t);
+                    }
+                })
+                .catch(err => {
+                    // Silencioso, pois pode ser página pública ou erro de rede
+                    console.log('[useTenantFetch] Não foi possível recuperar tenant da sessão:', err);
+                });
+        }
+    }, [tenant]);
+
     const fetchWithTenant = useCallback(async (url: string, options: RequestInit = {}) => {
         setLoading(true);
         setError(null);
 
         try {
-            // Tentar obter o tenant do localStorage (padrão do sistema de login)
-            // Ajuste conforme a chave que seu sistema de login usa. Geralmente 'tenant_prefix' ou 'user_tenant'.
-            // Se não achar, tenta inferir ou manda sem (a API deve tratar ou usar o token de Auth)
-            const storedTenant = typeof window !== 'undefined' ? localStorage.getItem('tenant_prefix') : null;
+            // Usa o estado local do tenant (que pode ter vindo da sessão agora)
+            const currentTenant = tenant || (typeof window !== 'undefined' ? localStorage.getItem('tenant_prefix') : null);
 
             const headers = new Headers(options.headers || {});
 
             // Adiciona o tenant se existir
-            if (storedTenant) {
-                headers.set('x-tenant-prefix', storedTenant);
+            if (currentTenant) {
+                headers.set('x-tenant-prefix', currentTenant);
             }
 
             // Se tiver autenticação (token), garanta que ele vai junto se estiver no localStorage
@@ -48,10 +73,11 @@ export function useTenantFetch() {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [tenant]);
 
     return {
         fetchWithTenant,
+        tenant, // Retorna o tenant para a página usar
         loading,
         error,
     };

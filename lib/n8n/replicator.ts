@@ -103,6 +103,31 @@ export class WorkflowReplicator {
                 config.empresaNome
             );
 
+            // 3.5 VERIFICAÇÃO: Checar se já existe um workflow com este nome
+            // Isso evita duplicação se rodar mais de uma vez ou se o cliente já criou manualmente
+            try {
+                console.log(`    🔍 Verificando se workflow já existe: "${workflowData.name}"...`);
+                const existingList = await this.n8nClient.listWorkflows();
+
+                if (existingList.success && existingList.data && Array.isArray(existingList.data.data)) {
+                    const existing = existingList.data.data.find(
+                        (w: any) => w.name === workflowData.name
+                    );
+
+                    if (existing) {
+                        console.log(`    ⚠️ Workflow já existe (ID: ${existing.id}). Pulando criação.`);
+                        return {
+                            workflowId: template.id,
+                            workflowName: template.name,
+                            success: true,
+                            n8nWorkflowId: existing.id,
+                        };
+                    }
+                }
+            } catch (checkErr) {
+                console.warn('    ⚠️ Falha ao verificar existência (tentando criar mesmo assim):', checkErr);
+            }
+
             // 4. Criar workflow no N8N
             const response = await this.n8nClient.createWorkflow(workflowData);
 
