@@ -133,7 +133,7 @@ export default function AdminWorkflowsPage() {
         if (searchQuery) {
             const search = searchQuery.toLowerCase()
             const matchName = workflow.name.toLowerCase().includes(search)
-            const matchTags = workflow.tags?.some(tag => tag.toLowerCase().includes(search))
+            const matchTags = normalizeTags(workflow.tags).some(tag => tag.toLowerCase().includes(search))
             if (!matchName && !matchTags) return false
         }
 
@@ -143,7 +143,7 @@ export default function AdminWorkflowsPage() {
 
         // Filtro de tags
         if (selectedTags.length > 0) {
-            const hasTags = workflow.tags?.some(tag => selectedTags.includes(tag))
+            const hasTags = normalizeTags(workflow.tags).some(tag => selectedTags.includes(tag))
             if (!hasTags) return false
         }
 
