@@ -112,16 +112,19 @@ export async function POST(request: Request) {
                 return NextResponse.json({ success: true, message: 'Workflow desativado' })
 
             case 'duplicate':
-                // Duplicar workflow
+                // Duplicar workflow - enviar apenas campos permitidos
                 const original = await n8nRequest(`/workflows/${workflowId}`)
+
+                // Criar novo workflow com apenas campos permitidos pelo n8n
                 const duplicated = {
-                    ...original,
                     name: `${original.name} (Cópia)`,
+                    nodes: original.nodes || [],
+                    connections: original.connections || {},
+                    settings: original.settings || {},
+                    staticData: original.staticData || null,
+                    tags: original.tags || [],
                     active: false,
                 }
-                delete duplicated.id
-                delete duplicated.createdAt
-                delete duplicated.updatedAt
 
                 const newWorkflow = await n8nRequest('/workflows', {
                     method: 'POST',

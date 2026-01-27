@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Building2, Users, LogOut, Plus } from "lucide-react"
+import { Building2, Users, LogOut, Plus, Workflow } from "lucide-react"
 import { toast } from "sonner"
 
 interface Unit {
@@ -98,8 +98,16 @@ export default function AdminDashboard() {
                     </div>
                     <div className="flex items-center gap-3">
                         <Button
-                            onClick={() => router.push("/admin/create-unit")}
+                            onClick={() => router.push("/admin/workflows")}
                             className="bg-gradient-to-r from-accent-yellow to-dark-yellow text-primary-black font-semibold hover:opacity-90"
+                        >
+                            <Workflow className="w-4 h-4 mr-2" />
+                            Workflows n8n
+                        </Button>
+                        <Button
+                            onClick={() => router.push("/admin/create-unit")}
+                            variant="outline"
+                            className="border-accent-yellow/50 text-accent-yellow hover:bg-accent-yellow/10"
                         >
                             <Plus className="w-4 h-4 mr-2" />
                             Nova Unidade
