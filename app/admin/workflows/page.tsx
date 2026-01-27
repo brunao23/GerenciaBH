@@ -150,8 +150,15 @@ export default function AdminWorkflowsPage() {
         return true
     })
 
-    // Extrair todas as tags únicas
-    const allTags = Array.from(new Set(workflows.flatMap(w => w.tags || [])))
+    // Extrair todas as tags únicas (garantir que sejam strings)
+    const allTags = Array.from(
+        new Set(
+            workflows
+                .flatMap(w => w.tags || [])
+                .filter(tag => typeof tag === 'string' && tag.trim().length > 0)
+                .map(tag => String(tag).trim())
+        )
+    ).sort()
 
     const formatDate = (dateStr: string) => {
         try {
@@ -311,8 +318,8 @@ export default function AdminWorkflowsPage() {
                                             key={tag}
                                             variant={selectedTags.includes(tag) ? "default" : "outline"}
                                             className={`cursor-pointer transition-all ${selectedTags.includes(tag)
-                                                    ? "bg-accent-yellow text-primary-black"
-                                                    : "border-border-gray text-text-gray hover:border-accent-yellow hover:text-accent-yellow"
+                                                ? "bg-accent-yellow text-primary-black"
+                                                : "border-border-gray text-text-gray hover:border-accent-yellow hover:text-accent-yellow"
                                                 }`}
                                             onClick={() => {
                                                 if (selectedTags.includes(tag)) {
@@ -380,8 +387,8 @@ export default function AdminWorkflowsPage() {
                             <Card
                                 key={workflow.id}
                                 className={`genial-card border-l-4 ${workflow.active
-                                        ? 'border-l-accent-yellow hover:border-accent-yellow/70'
-                                        : 'border-l-gray-600 hover:border-gray-500'
+                                    ? 'border-l-accent-yellow hover:border-accent-yellow/70'
+                                    : 'border-l-gray-600 hover:border-gray-500'
                                     } transition-all hover:shadow-lg hover:shadow-accent-yellow/10`}
                             >
                                 <CardHeader>
