@@ -631,23 +631,23 @@ export default function ConversasPage() {
                     <div
                       key={`${msg.message_id || idx}`}
                       id={`msg-${msg.message_id}`}
-                      className={`flex w-full ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                      className={`flex w-full mb-4 ${msg.role === "user" ? "justify-end" : "justify-start"}`}
                     >
                       <div
-                        className={`max-w-[90%] sm:max-w-[80%] rounded-2xl px-4 py-3 shadow-lg ${msg.role === "user"
-                          ? "bg-[#00ff88] text-black border border-[#00cc6a]"
-                          : msg.isError
-                            ? "bg-red-900/40 text-red-50 border-2 border-red-500/50"
-                            : msg.isSuccess
-                              ? "bg-emerald-900/40 text-emerald-50 border-2 border-emerald-500/50"
-                              : "bg-gray-800/90 text-white border border-gray-600/50"
+                        className={`max-w-[75%] md:max-w-[65%] lg:max-w-[55%] rounded-2xl px-5 py-4 shadow-lg transition-all hover:shadow-xl ${msg.role === "user"
+                            ? "bg-gradient-to-br from-[#00ff88] to-[#00cc6a] text-black border border-[#00cc6a]/30"
+                            : msg.isError
+                              ? "bg-gradient-to-br from-red-900/50 to-red-800/40 text-red-50 border-2 border-red-500/50"
+                              : msg.isSuccess
+                                ? "bg-gradient-to-br from-emerald-900/50 to-emerald-800/40 text-emerald-50 border-2 border-emerald-500/50"
+                                : "bg-gradient-to-br from-gray-800/95 to-gray-700/80 text-white border border-gray-600/50"
                           }`}
                       >
-                        <div className="flex items-center gap-2 mb-2">
+                        <div className="flex items-center gap-2 mb-3">
                           {msg.role === "user" ? (
-                            <User className="w-4 h-4" />
+                            <User className="w-4 h-4 flex-shrink-0" />
                           ) : (
-                            <MessageSquare className="w-4 h-4" />
+                            <MessageSquare className="w-4 h-4 flex-shrink-0" />
                           )}
                           <span className="text-xs font-semibold uppercase tracking-wide">
                             {msg.role === "user" ? "Cliente" : "IA"}
@@ -656,11 +656,11 @@ export default function ConversasPage() {
                         <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
                           {msg.content}
                         </p>
-                        <div className="flex items-center gap-2 mt-2 text-xs opacity-75">
-                          <Clock className="w-3 h-3" />
+                        <div className="flex items-center gap-2 mt-3 pt-2 border-t border-current/10 text-xs opacity-75">
+                          <Clock className="w-3 h-3 flex-shrink-0" />
                           <span>{fmtBR(msg.created_at)}</span>
-                          {msg.isError && <AlertCircle className="w-3 h-3 text-red-400" />}
-                          {msg.isSuccess && <CheckCircle2 className="w-3 h-3 text-emerald-400" />}
+                          {msg.isError && <AlertCircle className="w-3 h-3 text-red-400 flex-shrink-0" />}
+                          {msg.isSuccess && <CheckCircle2 className="w-3 h-3 text-emerald-400 flex-shrink-0" />}
                         </div>
                       </div>
                     </div>
