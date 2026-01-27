@@ -62,7 +62,7 @@ export function AppSidebar() {
   }, [])
 
   // Verifica se é admin - DEVE VIR ANTES de handleLogout!
-  const isAdmin = sessionData?.role === 'admin' || sessionData?.email === 'admin@geniallabs.com.br'
+  const isAdmin = sessionData?.session?.isAdmin || sessionData?.role === 'admin' || sessionData?.email === 'admin@geniallabs.com.br'
 
   const handleLogout = async () => {
     try {
@@ -101,13 +101,13 @@ export function AppSidebar() {
         </div>
 
         {/* Nome da Unidade - BEM VISÍVEL */}
-        {!loading && sessionData?.unitName && (
+        {!loading && sessionData?.session?.unitName && (
           <div className="mt-4 px-2">
             <div className="flex items-center gap-2 p-3 rounded-lg bg-gradient-to-r from-[var(--accent-green)]/20 to-[var(--dark-green)]/10 border border-[var(--accent-green)]/30">
               <Building2 className="w-5 h-5 text-[var(--accent-green)]" />
               <div className="flex-1">
                 <div className="text-xs text-[var(--text-gray)] uppercase tracking-wider">Unidade Ativa</div>
-                <div className="font-semibold text-[var(--accent-green)] text-sm">{sessionData.unitName}</div>
+                <div className="font-semibold text-[var(--accent-green)] text-sm">{sessionData.session.unitName}</div>
               </div>
             </div>
           </div>
