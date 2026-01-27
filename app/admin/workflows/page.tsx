@@ -150,13 +150,18 @@ export default function AdminWorkflowsPage() {
         return true
     })
 
+    // Helper para normalizar tags (garantir que sejam strings)
+    const normalizeTags = (tags: any[] | undefined): string[] => {
+        if (!tags || !Array.isArray(tags)) return []
+        return tags
+            .filter(tag => tag != null && typeof tag === 'string' && tag.trim().length > 0)
+            .map(tag => String(tag).trim())
+    }
+
     // Extrair todas as tags únicas (garantir que sejam strings)
     const allTags = Array.from(
         new Set(
-            workflows
-                .flatMap(w => w.tags || [])
-                .filter(tag => typeof tag === 'string' && tag.trim().length > 0)
-                .map(tag => String(tag).trim())
+            workflows.flatMap(w => normalizeTags(w.tags))
         )
     ).sort()
 
@@ -409,8 +414,8 @@ export default function AdminWorkflowsPage() {
                                                 >
                                                     {workflow.active ? '✅ Ativo' : '⏸️ Inativo'}
                                                 </Badge>
-                                                {workflow.tags?.map(tag => (
-                                                    <Badge key={tag} variant="outline" className="text-xs border-accent-yellow/30 text-accent-yellow/70">
+                                                {normalizeTags(workflow.tags).map((tag, index) => (
+                                                    <Badge key={`${workflow.id}-tag-${index}-${tag}`} variant="outline" className="text-xs border-accent-yellow/30 text-accent-yellow/70">
                                                         {tag}
                                                     </Badge>
                                                 ))}
