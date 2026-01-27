@@ -128,14 +128,13 @@ export async function POST(request: Request) {
                         const unitVars = UNIT_VARIABLES[unitPrefix] || {}
 
                         // Criar cópia com variáveis substituídas
-                        // NOTA: 'active' é read-only, não pode ser enviado na criação
+                        // NOTA: 'active' e 'tags' são read-only, não podem ser enviados na criação
                         let workflowCopy = {
                             name: `${original.name} - ${unitVars.unidade || unitPrefix}`,
                             nodes: original.nodes || [],
                             connections: original.connections || {},
                             settings: original.settings || {},
                             staticData: original.staticData || null,
-                            tags: [...(original.tags || []), unitPrefix],
                         }
 
                         // Substituir variáveis em todos os campos
