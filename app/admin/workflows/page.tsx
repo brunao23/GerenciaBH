@@ -127,6 +127,14 @@ export default function AdminWorkflowsPage() {
         }
     }
 
+    // Helper para normalizar tags (garantir que sejam strings)
+    const normalizeTags = (tags: any[] | undefined): string[] => {
+        if (!tags || !Array.isArray(tags)) return []
+        return tags
+            .filter(tag => tag != null && typeof tag === 'string' && tag.trim().length > 0)
+            .map(tag => String(tag).trim())
+    }
+
     // Filtrar workflows
     const filteredWorkflows = workflows.filter(workflow => {
         // Filtro de busca
@@ -150,13 +158,7 @@ export default function AdminWorkflowsPage() {
         return true
     })
 
-    // Helper para normalizar tags (garantir que sejam strings)
-    const normalizeTags = (tags: any[] | undefined): string[] => {
-        if (!tags || !Array.isArray(tags)) return []
-        return tags
-            .filter(tag => tag != null && typeof tag === 'string' && tag.trim().length > 0)
-            .map(tag => String(tag).trim())
-    }
+
 
     // Extrair todas as tags únicas (garantir que sejam strings)
     const allTags = Array.from(

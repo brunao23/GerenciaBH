@@ -116,6 +116,7 @@ export async function POST(request: Request) {
                 const original = await n8nRequest(`/workflows/${workflowId}`)
 
                 // Criar novo workflow com apenas campos permitidos pelo n8n
+                // NOTA: 'active' é read-only, não pode ser enviado na criação
                 const duplicated = {
                     name: `${original.name} (Cópia)`,
                     nodes: original.nodes || [],
@@ -123,7 +124,6 @@ export async function POST(request: Request) {
                     settings: original.settings || {},
                     staticData: original.staticData || null,
                     tags: original.tags || [],
-                    active: false,
                 }
 
                 const newWorkflow = await n8nRequest('/workflows', {
