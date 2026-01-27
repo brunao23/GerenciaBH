@@ -60,6 +60,9 @@ export function AppSidebar() {
       })
   }, [])
 
+  // Verifica se é admin - DEVE VIR ANTES de handleLogout!
+  const isAdmin = sessionData?.role === 'admin' || sessionData?.email === 'admin@geniallabs.com.br'
+
   const handleLogout = async () => {
     try {
       await fetch('/api/auth/logout', { method: 'POST' })
@@ -67,6 +70,8 @@ export function AppSidebar() {
       // Se é admin, redirecionar para login de admin
       // Se é usuário normal, redirecionar para login de usuário
       const loginUrl = isAdmin ? '/admin/login' : '/login'
+
+      console.log('[AppSidebar] Logout - isAdmin:', isAdmin, 'loginUrl:', loginUrl)
 
       // Usar window.location.href para forçar navegação completa
       window.location.href = loginUrl
@@ -78,9 +83,6 @@ export function AppSidebar() {
   const handleSwitchClient = () => {
     router.push('/admin/switch-client')
   }
-
-  // Verifica se é admin
-  const isAdmin = sessionData?.role === 'admin' || sessionData?.email === 'admin@geniallabs.com.br'
 
   return (
     <Sidebar className="bg-[var(--card-black)] border-[var(--border-gray)] backdrop-blur-sm">
