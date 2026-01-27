@@ -98,11 +98,11 @@ export default function AdminDashboard() {
                     </div>
                     <div className="flex items-center gap-3">
                         <Button
-                            onClick={() => router.push("/admin/workflows")}
+                            onClick={() => router.push("/admin/n8n/dashboard")}
                             className="bg-gradient-to-r from-accent-yellow to-dark-yellow text-primary-black font-semibold hover:opacity-90"
                         >
                             <Workflow className="w-4 h-4 mr-2" />
-                            Workflows n8n
+                            N8N Manager
                         </Button>
                         <Button
                             onClick={() => router.push("/admin/create-unit")}
