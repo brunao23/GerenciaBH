@@ -26,6 +26,7 @@ import {
   LayoutTemplate,
   LogOut,
   Users,
+  Building2,
 } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useState } from "react"
@@ -91,13 +92,41 @@ export function AppSidebar() {
           <div className="w-12 h-12 bg-gradient-to-br from-[var(--accent-yellow)] to-[var(--dark-yellow)] rounded-2xl flex items-center justify-center shadow-lg shadow-[var(--accent-yellow)]/30 animate-pulse">
             <Zap className="h-6 w-6 text-[var(--primary-black)] font-bold" />
           </div>
-          <div>
+          <div className="flex-1">
             <span className="font-bold text-[var(--pure-white)] text-lg tracking-wide">GerencIA</span>
             <div className="text-xs text-[var(--text-gray)] uppercase tracking-[0.2em] font-light">
               By CORE LION AI
             </div>
           </div>
         </div>
+
+        {/* Nome da Unidade - BEM VISÍVEL */}
+        {!loading && sessionData?.unitName && (
+          <div className="mt-4 px-2">
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-gradient-to-r from-[var(--accent-green)]/20 to-[var(--dark-green)]/10 border border-[var(--accent-green)]/30">
+              <Building2 className="w-5 h-5 text-[var(--accent-green)]" />
+              <div className="flex-1">
+                <div className="text-xs text-[var(--text-gray)] uppercase tracking-wider">Unidade Ativa</div>
+                <div className="font-semibold text-[var(--accent-green)] text-sm">{sessionData.unitName}</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Botão Trocar de Cliente - SEMPRE VISÍVEL para admin */}
+        {!loading && isAdmin && (
+          <div className="mt-3 px-2">
+            <button
+              onClick={handleSwitchClient}
+              className="flex items-center gap-2 w-full p-2.5 rounded-lg bg-gradient-to-r from-[var(--accent-yellow)]/20 to-[var(--dark-yellow)]/10 border border-[var(--accent-yellow)]/30 hover:border-[var(--accent-yellow)]/50 transition-all duration-300 hover:shadow-lg hover:shadow-[var(--accent-yellow)]/20 group"
+            >
+              <Users className="w-4 h-4 text-[var(--accent-yellow)] group-hover:scale-110 transition-transform duration-300" />
+              <div className="flex-1 text-left">
+                <span className="font-medium text-[var(--pure-white)] text-xs">Trocar de Cliente</span>
+              </div>
+            </button>
+          </div>
+        )}
       </SidebarHeader>
       <SidebarSeparator className="bg-gradient-to-r from-transparent via-[var(--border-gray)] to-transparent" />
       <SidebarContent className="px-2">
