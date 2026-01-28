@@ -259,24 +259,22 @@ export default function ConfiguracaoAgentePage() {
         setMessage(null);
 
         try {
-            const response = await tenantFetch('/api/empresas/me/agente', {
+            // tenantFetch retorna o JSON direto (ou lança erro se status != 2xx)
+            const data = await tenantFetch('/api/empresas/me/agente', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(config),
             });
 
-            const data = await response.json();
+            setMessage({ type: 'success', text: 'Configuração salva com sucesso!' });
 
-            if (response.ok) {
-                setMessage({ type: 'success', text: 'Configuração salva com sucesso!' });
-                if (data.prompt_preview) {
-                    setPreviewPrompt(data.prompt_preview);
-                }
-            } else {
-                setMessage({ type: 'error', text: data.error || 'Erro ao salvar' });
+            if (data.prompt_preview) {
+                setPreviewPrompt(data.prompt_preview);
             }
-        } catch (error) {
-            setMessage({ type: 'error', text: 'Erro de conexão' });
+
+        } catch (error: any) {
+            console.error('Erro ao salvar:', error);
+            setMessage({ type: 'error', text: error.message || 'Erro ao salvar configuração' });
         } finally {
             setSaving(false);
         }
@@ -288,21 +286,18 @@ export default function ConfiguracaoAgentePage() {
         setMessage(null);
 
         try {
-            const response = await tenantFetch('/api/empresas/me/agente', {
+            // tenantFetch retorna o JSON direto (ou lança erro se status != 2xx)
+            const data = await tenantFetch('/api/empresas/me/agente', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action: 'sync' }),
             });
 
-            const data = await response.json();
+            setMessage({ type: 'success', text: data.message || '✅ Agente sincronizado com sucesso!' });
 
-            if (response.ok) {
-                setMessage({ type: 'success', text: '✅ Agente sincronizado com sucesso! As mudanças já estão ativas.' });
-            } else {
-                setMessage({ type: 'error', text: data.error || 'Erro ao sincronizar' });
-            }
-        } catch (error) {
-            setMessage({ type: 'error', text: 'Erro de conexão' });
+        } catch (error: any) {
+            console.error('Erro ao sincronizar:', error);
+            setMessage({ type: 'error', text: error.message || 'Erro ao sincronizar com N8N' });
         } finally {
             setSyncing(false);
         }
