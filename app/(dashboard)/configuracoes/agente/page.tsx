@@ -6,8 +6,10 @@ import {
     Bot, Save, RefreshCw, Eye, ChevronDown, ChevronUp,
     User, Building, Clock, Users, Package, DollarSign,
     MapPin, Settings, MessageSquare, Sparkles, Check,
-    AlertCircle, Info
+    AlertCircle, Info, Shield, AlertTriangle
 } from 'lucide-react';
+import Link from 'next/link';
+import { Button } from '@/components/ui/button';
 
 interface EquipeMembro {
     nome: string;
@@ -183,6 +185,7 @@ export default function ConfiguracaoAgentePage() {
     const [novoCurso, setNovoCurso] = useState({ nome: '', descricao: '', duracao: '' });
     const [novoDiferencial, setNovoDiferencial] = useState('');
     const [novaRegra, setNovaRegra] = useState('');
+    const [errorDetails, setErrorDetails] = useState<any>(null);
 
     // Carregar configuração
     useEffect(() => {
@@ -198,22 +201,51 @@ export default function ConfiguracaoAgentePage() {
 
         async function loadConfig() {
             try {
+                setLoading(true);
+                // Usando fetchWithTenant que já foi corrigido
                 const response = await tenantFetch('/api/empresas/me/agente');
 
-                if (!response.ok) {
-                    throw new Error(`Erro API: ${response.status}`);
-                }
+                // tenantFetch já faz throw se !ok, mas vamos garantir o catch lá embaixo
+                const data = response;
 
-                const data = await response.json();
+                // Se o tenantFetch retornar um objeto com erro (caso não use throw)
+                if (data.error) {
+                    throw { message: data.error, details: data.details };
+                }
 
                 if (data.config) {
                     setConfig({ ...defaultConfig, ...data.config });
                 } else if (data.defaults) {
                     setConfig({ ...defaultConfig, ...data.defaults });
                 }
-            } catch (error) {
+
+                if (data.preview_identidade) {
+                    setPreviewPrompt(data.preview_identidade);
+                }
+
+                if (data.defaults?.is_mock) {
+                    console.warn('Modo Mock ativado');
+                    // Opcional: Avisar usuário que está em modo de segurança
+                }
+
+            } catch (error: any) {
                 console.error('Erro ao carregar config:', error);
-                setMessage({ type: 'error', text: 'Erro ao carregar configurações. Verifique se a empresa existe.' });
+
+                // Tenta extrair mensagem útil
+                let msg = error.message || 'Erro desconhecido';
+                let details = error.details || error;
+
+                // Se for erro de fetch (response), tenta ler o body
+                if (error instanceof Response) {
+                    try {
+                        const errBody = await error.json();
+                        msg = errBody.error || msg;
+                        details = errBody.details || details;
+                    } catch (e) { /* ignore */ }
+                }
+
+                // toast.error(`Erro: ${msg}`);
+                setErrorDetails({ message: msg, details });
             } finally {
                 setLoading(false);
             }
@@ -349,18 +381,48 @@ export default function ConfiguracaoAgentePage() {
     }
 
     if (!tenant) {
-        return (
-            <div className="min-h-screen bg-[#0f0f1a] flex flex-col items-center justify-center p-6 text-center">
-                <AlertCircle className="w-12 h-12 text-yellow-500 mb-4" />
-                <h2 className="text-xl font-bold text-white mb-2">Nenhuma empresa selecionada</h2>
-                <p className="text-gray-400 max-w-md">
-                    Selecione uma empresa no menu ou no painel de controle para configurar o agente.
-                </p>
-                <a href="/admin/agentes" className="mt-6 px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition">
-                    Voltar para Admin
-                </a>
-            </div>
-        );
+        {/* Debug Info para Erros Críticos */ }
+        {
+            errorDetails && (
+                <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-800">
+                    <h3 className="font-bold flex items-center gap-2">
+                        <AlertTriangle className="w-5 h-5" />
+                        Não foi possível carregar as configurações
+                    </h3>
+                    <p className="mt-1">{errorDetails.message}</p>
+                    {errorDetails.details && (
+                        <pre className="mt-2 p-2 bg-red-100 rounded text-xs overflow-auto max-h-40">
+                            {typeof errorDetails.details === 'object'
+                                ? JSON.stringify(errorDetails.details, null, 2)
+                                : errorDetails.details}
+                        </pre>
+                    )}
+                    <button
+                        onClick={() => window.location.reload()}
+                        className="mt-3 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 text-sm"
+                    >
+                        Tentar Novamente
+                    </button>
+                </div>
+            )
+        }
+
+        {
+            !tenant && !loading && !errorDetails && (
+                <div className="flex flex-col items-center justify-center p-12 text-center">
+                    <Shield className="w-12 h-12 text-gray-300 mb-4" />
+                    <h2 className="text-xl font-semibold text-gray-700">Nenhuma empresa selecionada</h2>
+                    <p className="text-gray-500 max-w-md mt-2">
+                        Para configurar o Agente IA, você precisa selecionar uma empresa no menu superior ou painel de controle.
+                    </p>
+                    <Link href="/admin/agentes">
+                        <Button variant="outline" className="mt-4">
+                            Ir para Painel Master
+                        </Button>
+                    </Link>
+                </div>
+            )
+        };
     }
 
     return (
