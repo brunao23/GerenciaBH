@@ -171,7 +171,7 @@ function Section({ title, icon, children, defaultOpen = true }: SectionProps) {
 }
 
 export default function ConfiguracaoAgentePage() {
-    const { tenantFetch, tenant, loading: tenantLoading } = useTenantFetch();
+    const { fetchWithTenant: tenantFetch, tenant, loading: tenantLoading } = useTenantFetch();
     const [config, setConfig] = useState<AgenteConfig>(defaultConfig);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
