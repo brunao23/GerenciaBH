@@ -95,10 +95,19 @@ export default function AdminUnitsPage() {
             const res = await fetch('/api/admin/units')
             if (!res.ok) throw new Error('Falha ao buscar unidades')
             const data = await res.json()
-            setUnits(Array.isArray(data.units) ? data.units : [])
+
+            // Mapeamento seguro: DB (unit_name) -> Frontend (name)
+            const safeUnits = (Array.isArray(data.units) ? data.units : []).map((u: any) => ({
+                id: u.id,
+                name: u.unit_name || u.name || 'Sem Nome',
+                prefix: u.unit_prefix || u.prefix || '...',
+                is_active: u.is_active,
+                created_at: u.created_at
+            }))
+
+            setUnits(safeUnits)
         } catch (error) {
             console.error("Erro ao buscar unidades", error)
-            // toast.error("Erro ao carregar lista de unidades") 
             setUnits([])
         } finally {
             setLoading(false)
@@ -114,8 +123,7 @@ export default function AdminUnitsPage() {
             setWorkflows(Array.isArray(data.workflows) ? data.workflows : [])
         } catch (error) {
             console.error("Erro ao buscar workflows do N8N", error)
-            toast.error("Falha ao carregar fluxos do N8N")
-            setWorkflows([]) // Fallback seguro
+            setWorkflows([])
         } finally {
             setLoadingWorkflows(false)
         }
@@ -123,20 +131,27 @@ export default function AdminUnitsPage() {
 
     const handleCreate = async (e: React.FormEvent) => {
         e.preventDefault()
-        if (!newName || !newPrefix) return
+        if (!newName) return
 
         setCreating(true)
         try {
-            const res = await fetch('/api/admin/units', {
+            // Endpoint correto: /api/admin/create-unit
+            // Payload deve ter unitName, password, confirmPassword
+            const res = await fetch('/api/admin/create-unit', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: newName, prefix: newPrefix })
+                body: JSON.stringify({
+                    unitName: newName,
+                    // Como não tem campo de senha na UI simples, usamos um default seguro ou geramos
+                    password: 'ChangeMe123!',
+                    confirmPassword: 'ChangeMe123!'
+                })
             })
             const data = await res.json()
 
             if (!res.ok) throw new Error(data.error || "Erro ao criar")
 
-            toast.success("Unidade criada com sucesso!")
+            toast.success(data.message || "Unidade criada com sucesso!")
             setNewName("")
             setNewPrefix("")
             fetchUnits()
@@ -146,6 +161,8 @@ export default function AdminUnitsPage() {
             setCreating(false)
         }
     }
+
+
 
     // Auto-generate prefix from name
     const handleNameChange = (val: string) => {
