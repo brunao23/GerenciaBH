@@ -139,10 +139,7 @@ export function AppSidebar() {
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu className="space-y-2">
-              {[
-                ...items,
-                ...(isAdmin ? [{ title: "Gestão de Unidades", url: "/admin/units", icon: Shield }] : [])
-              ].map((item) => {
+              {items.map((item) => {
                 const active = pathname === item.url || (item.url !== "/" && pathname?.startsWith(item.url))
                 const Icon = item.icon
                 return (
