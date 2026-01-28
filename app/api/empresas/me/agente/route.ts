@@ -82,45 +82,48 @@ async function getEmpresaFromTenant(req: NextRequest): Promise<{ empresaId: stri
     console.log(`[Debug] Usuário autenticado: ${user.email} (${user.id})`);
 
     try {
-        // Buscar empresa do usuário via RPC SEGURA (evita RLS recursion)
-        const { data: empresaRpc, error: rpcError } = await supabaseAdmin
-            .rpc('get_empresa_do_usuario', { p_user_id: user.id })
-            .single();
+        // 1. Tentar via RPC (Método Preferencial e Seguro)
+        try {
+            const { data, error } = await supabaseAdmin.rpc('get_empresa_do_usuario', {
+                p_user_id: user.id
+            });
 
-        if (rpcError) {
-            console.error('[Debug] Erro na RPC get_empresa_do_usuario:', rpcError.message);
+            if (data && Array.isArray(data) && data.length > 0) {
+                const emp = data[0] as { empresa_id: string, schema_nome: string, empresa_nome: string };
+                return {
+                    empresaId: emp.empresa_id,
+                    schema: emp.schema_nome,
+                    nome: emp.empresa_nome
+                };
+            }
+        } catch (rpcError) {
+            console.warn('[API Agente] RPC falhou, tentando fallback:', rpcError);
+        }
 
-            // Tenta fallback manual antigo se RPC não existir
-            try {
-                const { data: usuario } = await supabaseAdmin
-                    .from('usuarios')
-                    .select('empresa_id')
-                    .eq('id', user.id)
+        // 2. Fallback: Consulta direta (pode falhar com RLS recursion se policies estiverem erradas)
+        try {
+            const { data: usuario } = await supabaseAdmin
+                .from('usuarios')
+                .select('empresa_id')
+                .eq('id', user.id)
+                .single();
+
+            if (usuario?.empresa_id) {
+                const { data: empresa } = await supabaseAdmin
+                    .from('empresas')
+                    .select('id, schema, nome')
+                    .eq('id', usuario.empresa_id)
                     .single();
 
-                if (usuario?.empresa_id) {
-                    const { data: empresa } = await supabaseAdmin
-                        .from('empresas')
-                        .select('id, schema, nome')
-                        .eq('id', usuario.empresa_id)
-                        .single();
-
-                    if (empresa) {
-                        console.log(`[Debug] Empresa encontrada pelo usuário (fallback select): ${empresa.nome}`);
-                        return { empresaId: empresa.id, schema: empresa.schema, nome: empresa.nome };
-                    }
+                if (empresa) {
+                    console.log(`[Debug] Empresa encontrada pelo usuário (fallback select): ${empresa.nome}`);
+                    return { empresaId: empresa.id, schema: empresa.schema, nome: empresa.nome };
                 }
-            } catch (fallbackError: any) {
-                console.error('[Debug] Erro FATAL no fallback de usuário (possível RLS recursion):', fallbackError.message);
             }
-        } else if (empresaRpc) {
-            console.log(`[Debug] Empresa encontrada pela RPC: ${empresaRpc.empresa_nome}`);
-            return {
-                empresaId: empresaRpc.empresa_id,
-                schema: empresaRpc.schema_nome,
-                nome: empresaRpc.empresa_nome
-            };
+        } catch (fallbackError: any) {
+            console.error('[Debug] Falha no fallback de usuário:', fallbackError.message);
         }
+
     } catch (criticalError: any) {
         console.error('[Debug] Erro CRÍTICO ao buscar empresa:', criticalError.message);
     }
@@ -393,13 +396,15 @@ export async function POST(req: NextRequest) {
             if (listResponse.success && listResponse.data?.data) {
                 // Tenta achar com nome padrão: "[VOX BH] zapi-principal"
                 const stdName = `[${empresaInfo.nome}] zapi-principal`;
+                const stdNameUpper = `[${empresaInfo.nome.toUpperCase()}] zapi-principal`;
                 // Tenta achar com nome legado: "ZAPI VOX BH" (conforme usuário relatou)
                 const legacyName = `ZAPI ${empresaInfo.nome.replace('Vox ', 'VOX ')}`;
 
                 const found = listResponse.data.data.find((w: any) =>
                     w.name === stdName ||
+                    w.name === stdNameUpper ||
                     w.name === legacyName ||
-                    (w.name.includes(empresaInfo.nome) && w.name.toLowerCase().includes('zapi'))
+                    (w.name.toLowerCase().includes(empresaInfo.nome.toLowerCase()) && w.name.toLowerCase().includes('zapi'))
                 );
 
                 if (found) {
