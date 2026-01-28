@@ -40,9 +40,22 @@ async function getEmpresaFromTenant(req: NextRequest): Promise<{ empresaId: stri
         if (empresa) {
             console.log(`[Debug] Empresa encontrada pelo header: ${empresa.nome} (${empresa.id})`);
             return { empresaId: empresa.id, schema: empresa.schema, nome: empresa.nome };
-        } else {
-            console.warn(`[Debug] Nenhuma empresa encontrada com schema '${tenantPrefix}'. Verifique se rodou o script POPULAR_EMPRESAS_LEGADO.sql`);
         }
+
+        // --- FALLBACK DE EMERGÊNCIA (LEGACY) ---
+        // Se não achou no banco, mas é um tenant válido conhecido, libera o acesso!
+        // Isso impede que o sistema pare se a tabela empresas estiver vazia ou com problema.
+        const tenantsLegados = ['vox_bh', 'vox_es', 'vox_maceio', 'vox_marilia', 'vox_piaui', 'vox_sp', 'vox_rio', 'bia_vox', 'colegio_progresso'];
+        if (tenantsLegados.includes(tenantPrefix)) {
+            console.warn(`[Debug] Tenant LEGADO detectado: '${tenantPrefix}'. Permitindo acesso modo compatibilidade.`);
+            return {
+                empresaId: '00000000-0000-0000-0000-000000000000', // ID Mock
+                schema: tenantPrefix,
+                nome: tenantPrefix.replace('_', ' ').toUpperCase()
+            };
+        }
+
+        console.warn(`[Debug] Nenhuma empresa encontrada com schema '${tenantPrefix}' nem na lista legado.`);
     } else {
         console.log('[Debug] Header x-tenant-prefix não fornecido.');
     }
