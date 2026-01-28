@@ -81,46 +81,55 @@ async function getEmpresaFromTenant(req: NextRequest): Promise<{ empresaId: stri
 
     console.log(`[Debug] Usuário autenticado: ${user.email} (${user.id})`);
 
-    // Buscar empresa do usuário via RPC SEGURA (evita RLS recursion)
-    const { data: empresaRpc, error: rpcError } = await supabaseAdmin
-        .rpc('get_empresa_do_usuario', { p_user_id: user.id })
-        .single();
-
-    if (rpcError) {
-        console.error('[Debug] Erro na RPC get_empresa_do_usuario:', rpcError.message);
-        // Tenta fallback manual antigo se RPC não existir
-        const { data: usuario } = await supabaseAdmin
-            .from('usuarios')
-            .select('empresa_id')
-            .eq('id', user.id)
+    try {
+        // Buscar empresa do usuário via RPC SEGURA (evita RLS recursion)
+        const { data: empresaRpc, error: rpcError } = await supabaseAdmin
+            .rpc('get_empresa_do_usuario', { p_user_id: user.id })
             .single();
 
-        if (!usuario?.empresa_id) {
-            console.warn("[Debug] Usuário não tem 'empresa_id' vinculado na tabela 'usuarios'.");
-            return null;
-        }
+        if (rpcError) {
+            console.error('[Debug] Erro na RPC get_empresa_do_usuario:', rpcError.message);
 
-        const { data: empresa } = await supabaseAdmin
-            .from('empresas')
-            .select('id, schema, nome')
-            .eq('id', usuario.empresa_id)
-            .single();
+            // Tenta fallback manual antigo se RPC não existir
+            try {
+                const { data: usuario } = await supabaseAdmin
+                    .from('usuarios')
+                    .select('empresa_id')
+                    .eq('id', user.id)
+                    .single();
 
-        if (empresa) {
-            console.log(`[Debug] Empresa encontrada pelo usuário (fallback select): ${empresa.nome}`);
-            return { empresaId: empresa.id, schema: empresa.schema, nome: empresa.nome };
+                if (usuario?.empresa_id) {
+                    const { data: empresa } = await supabaseAdmin
+                        .from('empresas')
+                        .select('id, schema, nome')
+                        .eq('id', usuario.empresa_id)
+                        .single();
+
+                    if (empresa) {
+                        console.log(`[Debug] Empresa encontrada pelo usuário (fallback select): ${empresa.nome}`);
+                        return { empresaId: empresa.id, schema: empresa.schema, nome: empresa.nome };
+                    }
+                }
+            } catch (fallbackError: any) {
+                console.error('[Debug] Erro FATAL no fallback de usuário (possível RLS recursion):', fallbackError.message);
+            }
+        } else if (empresaRpc) {
+            console.log(`[Debug] Empresa encontrada pela RPC: ${empresaRpc.empresa_nome}`);
+            return {
+                empresaId: empresaRpc.empresa_id,
+                schema: empresaRpc.schema_nome,
+                nome: empresaRpc.empresa_nome
+            };
         }
+    } catch (criticalError: any) {
+        console.error('[Debug] Erro CRÍTICO ao buscar empresa:', criticalError.message);
     }
 
-    if (empresaRpc) {
-        console.log(`[Debug] Empresa encontrada pela RPC: ${empresaRpc.empresa_nome}`);
-        return {
-            empresaId: empresaRpc.empresa_id,
-            schema: empresaRpc.schema_nome,
-            nome: empresaRpc.empresa_nome
-        };
-    }
-
+    // Se chegou aqui, nada funcionou.
+    // Retornar MOCK seguro se estivermos em ambiente de desenvolvimento ou falha total, 
+    // para permitir que o usuário pelo menos veja a tela (modo somente leitura/limitado)
+    console.warn('[Debug] FALHA TOTAL na identificação. Ativando modo de segurança.');
+    // return { empresaId: '0000', schema: 'falha_auth', nome: 'Modo Segurança (Erro Banco)' };
     return null;
 }
 
