@@ -11,10 +11,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
             <SidebarProvider>
                 <AdminSidebar />
-                <SidebarInset className="bg-[#0a0a0a]">
-                    <header className="sticky top-0 z-10 flex h-14 items-center gap-2 border-b border-white/10 bg-black/50 px-4 backdrop-blur-md">
-                        <SidebarTrigger className="text-white hover:bg-white/10" />
-                        <div className="font-semibold text-purple-400">Master Panel</div>
+                <SidebarInset className="bg-[#000000] text-[#ededed]">
+                    <header className="sticky top-0 z-10 flex h-14 items-center gap-4 border-b border-[#2a2a2a] bg-[#121212]/80 px-4 backdrop-blur-sm">
+                        <SidebarTrigger className="text-[#888] hover:text-white hover:bg-[#2a2a2a]" />
+                        <div className="h-4 w-[1px] bg-[#333]" />
+                        <div className="font-medium text-sm text-[#ededed]">Gerenciamento Geral</div>
                     </header>
                     <main className="p-6 overflow-auto h-[calc(100vh-3.5rem)]">{children}</main>
                     <Toaster />

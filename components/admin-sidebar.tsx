@@ -53,30 +53,28 @@ export function AdminSidebar() {
     }
 
     return (
-        <Sidebar className="bg-black border-r border-white/10 backdrop-blur-sm">
-            <SidebarHeader className="px-4 py-6 border-b border-white/10">
+        <Sidebar className="bg-[#121212] border-r border-[#2a2a2a]">
+            <SidebarHeader className="px-4 py-6 border-b border-[#2a2a2a]">
                 <div className="flex items-center gap-4 px-2">
-                    <div className="w-12 h-12 bg-gradient-to-br from-purple-600 to-purple-900 rounded-2xl flex items-center justify-center shadow-lg shadow-purple-900/40 animate-pulse">
-                        <Shield className="h-6 w-6 text-white font-bold" />
+                    <div className="w-10 h-10 bg-[#3ecf8e]/10 rounded-lg flex items-center justify-center border border-[#3ecf8e]/20">
+                        <Shield className="h-5 w-5 text-[#3ecf8e]" />
                     </div>
                     <div className="flex-1">
-                        <span className="font-bold text-white text-lg tracking-wide">MASTER ADMIN</span>
-                        <div className="text-xs text-gray-500 uppercase tracking-[0.2em] font-light">
-                            CORE LION AI
+                        <span className="font-bold text-[#ededed] text-lg tracking-wide">GerencIA</span>
+                        <div className="text-[10px] text-[#888] uppercase tracking-[0.2em] font-medium">
+                            Master Panel
                         </div>
                     </div>
                 </div>
             </SidebarHeader>
 
-            <SidebarSeparator className="bg-gradient-to-r from-transparent via-white/10 to-transparent" />
-
-            <SidebarContent className="px-2">
+            <SidebarContent className="px-2 mt-4">
                 <SidebarGroup>
-                    <SidebarGroupLabel className="text-gray-500 text-xs uppercase tracking-[0.15em] font-medium px-4 py-3">
+                    <SidebarGroupLabel className="text-[#666] text-xs uppercase tracking-wider font-semibold px-4 mb-2">
                         Gestão Global
                     </SidebarGroupLabel>
                     <SidebarGroupContent>
-                        <SidebarMenu className="space-y-2">
+                        <SidebarMenu className="space-y-1">
                             {adminItems.map((item) => {
                                 const active = pathname === item.url || (item.url !== "/" && pathname?.startsWith(item.url))
                                 const Icon = item.icon
@@ -87,21 +85,16 @@ export function AdminSidebar() {
                                             isActive={active}
                                             tooltip={item.title}
                                             className={`
-                        h-12 px-4 rounded-xl transition-all duration-300 ease-in-out
-                        hover:bg-white/5 hover:shadow-lg hover:shadow-purple-500/10
-                        hover:border-l-2 hover:border-purple-500/50
+                        h-10 px-4 rounded-md transition-all duration-200
                         ${active
-                                                    ? "bg-gradient-to-r from-purple-500/20 to-purple-900/10 border-l-4 border-purple-500 text-purple-400 shadow-lg shadow-purple-500/20"
-                                                    : "text-gray-400 hover:text-white"
+                                                    ? "bg-[#3ecf8e]/10 text-[#3ecf8e] border-l-2 border-[#3ecf8e]"
+                                                    : "text-[#999] hover:text-[#ededed] hover:bg-[#1a1a1a]"
                                                 }
                       `}
                                         >
-                                            <Link href={item.url} className="flex items-center gap-4 w-full">
+                                            <Link href={item.url} className="flex items-center gap-3 w-full">
                                                 <Icon
-                                                    className={`h-5 w-5 transition-all duration-300 ${active
-                                                        ? "text-purple-400 drop-shadow-[0_0_8px_rgba(168,85,247,0.5)]"
-                                                        : "group-hover:text-white"
-                                                        }`}
+                                                    className={`h-4 w-4 ${active ? "text-[#3ecf8e]" : "text-[#777] group-hover:text-[#ededed]"}`}
                                                 />
                                                 <span className="font-medium text-sm">{item.title}</span>
                                             </Link>
@@ -114,16 +107,14 @@ export function AdminSidebar() {
                 </SidebarGroup>
             </SidebarContent>
 
-            <SidebarFooter className="px-4 py-6 border-t border-white/10">
+            <SidebarFooter className="px-4 py-6 border-t border-[#2a2a2a]">
                 <div className="space-y-3">
                     <button
                         onClick={handleLogout}
-                        className="flex items-center gap-3 w-full p-3 rounded-lg bg-gradient-to-r from-red-500/20 to-red-900/10 border border-red-500/30 hover:border-red-500/50 transition-all duration-300 hover:shadow-lg hover:shadow-red-500/20 group"
+                        className="flex items-center gap-3 w-full p-2 rounded-md text-[#666] hover:text-[#ff4b4b] hover:bg-[#ff4b4b]/10 transition-colors group"
                     >
-                        <LogOut className="w-5 h-5 text-red-400 group-hover:scale-110 transition-transform duration-300" />
-                        <div className="flex-1 text-left">
-                            <span className="font-medium text-white text-sm">Sair do Master</span>
-                        </div>
+                        <LogOut className="w-4 h-4" />
+                        <span className="font-medium text-sm">Sair</span>
                     </button>
                 </div>
             </SidebarFooter>

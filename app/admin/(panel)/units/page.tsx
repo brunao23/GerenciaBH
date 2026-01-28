@@ -205,207 +205,245 @@ export default function AdminUnitsPage() {
         }
     }
 
+    const handleAccessUnit = async (unitPrefix: string) => {
+        try {
+            console.log('[Admin] Trocando para unidade:', unitPrefix)
+            const res = await fetch("/api/admin/switch-unit", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ unitPrefix }),
+            })
+
+            if (!res.ok) {
+                toast.error("Erro ao acessar unidade")
+                return
+            }
+
+            toast.success("Acessando unidade...")
+            // Redirect to unit dashboard
+            setTimeout(() => {
+                window.location.href = "/"
+            }, 500)
+        } catch (error) {
+            console.error("Erro ao trocar unidade:", error)
+            toast.error("Erro ao acessar unidade")
+        }
+    }
+
+    const activeUnits = units.filter(u => u.is_active).length
+    const inactiveUnits = units.filter(u => !u.is_active).length
+
     return (
-        <div className="p-8 space-y-8 max-w-6xl mx-auto">
-            <div className="flex justify-between items-center">
-                <div>
-                    <h1 className="text-3xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
-                        Gerenciamento de Unidades (SaaS)
-                    </h1>
-                    <p className="text-gray-400 mt-2">Crie e gerencie as instâncias do sistema.</p>
+        <div className="p-8 space-y-8 max-w-[1600px] mx-auto min-h-screen bg-[#000000]">
+            {/* Header / Stats */}
+            <div className="flex flex-col gap-6">
+                <div className="flex justify-between items-center">
+                    <div>
+                        <h1 className="text-2xl font-semibold text-[#ededed] tracking-tight">Gerenciar todas as unidades</h1>
+                        <p className="text-gray-500 text-sm">Visão geral do sistema SaaS</p>
+                    </div>
+                    <div className="flex gap-4">
+                        <Button
+                            className="bg-yellow-400 hover:bg-yellow-500 text-black font-bold h-10 px-6 rounded-md shadow-[0_0_15px_rgba(250,204,21,0.3)] transition-all"
+                        >
+                            N8N Manager
+                        </Button>
+                        <Button
+                            onClick={() => setCreating(true)} // Opens create box/modal? For now, I'll scroll to create or open dialog. Actually user wants "Nova Unidade" button. 
+                            // I will use a Dialog for creation to keep UI clean like screenshot 
+                            className="bg-transparent border border-gray-700 hover:border-yellow-400 text-[#ededed] hover:text-yellow-400 h-10 px-6 rounded-md transition-all"
+                        >
+                            + Nova Unidade
+                        </Button>
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <Card className="bg-[#121212] border border-[#2a2a2a] shadow-lg">
+                        <CardContent className="p-6">
+                            <div className="flex items-center gap-4 mb-2">
+                                <Database className="w-5 h-5 text-yellow-500" />
+                                <span className="text-gray-400 font-medium">Total de Unidades</span>
+                            </div>
+                            <div className="text-4xl font-bold text-yellow-500">{units.length}</div>
+                        </CardContent>
+                    </Card>
+                    <Card className="bg-[#121212] border border-[#2a2a2a] shadow-lg">
+                        <CardContent className="p-6">
+                            <div className="flex items-center gap-4 mb-2">
+                                <Activity className="w-5 h-5 text-green-500" />
+                                <span className="text-gray-400 font-medium">Unidades Ativas</span>
+                            </div>
+                            <div className="text-4xl font-bold text-green-500">{activeUnits}</div>
+                        </CardContent>
+                    </Card>
+                    <Card className="bg-[#121212] border border-[#2a2a2a] shadow-lg">
+                        <CardContent className="p-6">
+                            <div className="flex items-center gap-4 mb-2">
+                                <Server className="w-5 h-5 text-red-500" />
+                                <span className="text-gray-400 font-medium">Unidades Inativas</span>
+                            </div>
+                            <div className="text-4xl font-bold text-red-500">{inactiveUnits}</div>
+                        </CardContent>
+                    </Card>
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                {/* CREATE FORM */}
-                <Card className="bg-black/40 border-purple-500/20 md:col-span-1 h-fit">
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                            <Plus className="w-5 h-5 text-green-400" />
-                            Nova Unidade
-                        </CardTitle>
-                        <CardDescription>
-                            Isso criará automaticamente todas as tabelas no banco de dados.
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <form onSubmit={handleCreate} className="space-y-4">
-                            <div className="space-y-2">
-                                <Label>Nome da Unidade</Label>
-                                <Input
-                                    placeholder="Ex: Vox Curitiba"
-                                    value={newName}
-                                    onChange={(e) => handleNameChange(e.target.value)}
-                                    className="bg-black/50 border-white/10"
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Prefixo da Tabela (ID)</Label>
-                                <Input
-                                    placeholder="vox_curitiba"
-                                    value={newPrefix}
-                                    onChange={(e) => setNewPrefix(e.target.value)}
-                                    className="bg-black/50 border-white/10 font-mono text-xs text-yellow-400/80"
-                                />
-                                <p className="text-[10px] text-gray-500">
-                                    Serão criadas tabelas como: {newPrefix || 'prefixo'}_agendamentos, etc.
-                                </p>
-                            </div>
-                            <Button
-                                type="submit"
-                                className="w-full bg-green-600 hover:bg-green-700"
-                                disabled={creating || !newName || !newPrefix}
-                            >
-                                {creating ? "Criando Infraestrutura..." : "Criar Unidade"}
-                            </Button>
-                        </form>
-                    </CardContent>
-                </Card>
-
-                {/* LIST */}
-                <Card className="bg-black/40 border-purple-500/20 md:col-span-2">
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                            <Server className="w-5 h-5 text-purple-400" />
-                            Unidades Ativas
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="space-y-4">
-                            {loading ? (
-                                <p className="text-center text-gray-500 py-8">Carregando unidades...</p>
-                            ) : units.length === 0 ? (
-                                <p className="text-center text-gray-500 py-8">Nenhuma unidade encontrada. Crie a primeira!</p>
-                            ) : (
-                                <div className="grid gap-3">
-                                    {units.map(unit => (
-                                        <div key={unit.id} className="flex items-center justify-between p-4 rounded-lg bg-white/5 border border-white/5 hover:border-purple-500/30 transition-all">
-                                            <div className="flex items-center gap-4">
-                                                <div className="w-10 h-10 rounded-full bg-purple-500/20 flex items-center justify-center text-purple-400 font-bold">
-                                                    {unit.name.substring(0, 2).toUpperCase()}
-                                                </div>
-                                                <div>
-                                                    <h3 className="font-medium text-white">{unit.name}</h3>
-                                                    <p className="text-xs text-gray-400 font-mono">prefixo: {unit.prefix}</p>
-                                                </div>
-                                            </div>
-                                            <div className="flex items-center gap-3">
-                                                <Button
-                                                    variant="outline"
-                                                    size="sm"
-                                                    className="gap-2 border-white/10 hover:bg-white/10"
-                                                    onClick={() => openLinkDialog(unit)}
-                                                >
-                                                    <LinkIcon className="w-3.5 h-3.5 text-blue-400" />
-                                                    <span className="text-xs">N8N</span>
-                                                </Button>
-
-                                                <Button
-                                                    variant="destructive"
-                                                    size="sm"
-                                                    className="gap-2 bg-red-600 hover:bg-red-700 text-white"
-                                                    onClick={() => handleDelete(unit)}
-                                                >
-                                                    <Trash2 className="w-4 h-4" />
-                                                    <span className="text-xs font-bold">EXCLUIR</span>
-                                                </Button>
-
-                                                <span className={`px-2 py-1 rounded-full text-[10px] ${unit.is_active ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
-                                                    {unit.is_active ? 'ATIVO' : 'INATIVO'}
-                                                </span>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    </CardContent>
-                </Card>
-            </div>
-
-            {/* DIALOG DE VINCULO N8N */}
-            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-                <DialogContent className="bg-[#1a1a2e] border-white/10 text-white">
+            {/* CREATE FORM (CONDITIONAL OR DIALOG? Screenshot says "+ Nova Unidade" button. Previous UI had a card. I'll Keep the button opening a Dialog for creation to match clean screenshot look) */}
+            {/* Wait, previous code had inline form. I will wrap it in a Dialog to match the screenshot's clean "Dashboard" feel. */}
+            <Dialog open={creating} onOpenChange={setCreating}>
+                <DialogContent className="bg-[#121212] border-[#2a2a2a] text-[#ededed]">
                     <DialogHeader>
-                        <DialogTitle>Vincular Fluxo N8N</DialogTitle>
+                        <DialogTitle className="text-green-500 flex items-center gap-2">
+                            <Plus className="w-5 h-5" /> Nova Unidade
+                        </DialogTitle>
                         <DialogDescription className="text-gray-400">
-                            Selecione qual fluxo do N8N deve ser usado para <strong>{selectedUnit?.name}</strong>.
-                            Isso sobrescreve a descoberta automática.
+                            Criação automatizada de infraestrutura (Banco + N8N).
                         </DialogDescription>
                     </DialogHeader>
+                    <form onSubmit={handleCreate} className="space-y-4 py-4">
+                        <div className="space-y-2">
+                            <Label>Nome da Unidade</Label>
+                            <Input
+                                placeholder="Ex: Vox Curitiba"
+                                value={newName}
+                                onChange={(e) => handleNameChange(e.target.value)}
+                                className="bg-[#1a1a1a] border-[#333] text-white focus:border-green-500"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Prefixo (ID System)</Label>
+                            <Input
+                                value={newPrefix}
+                                readOnly
+                                className="bg-[#1a1a1a] border-[#333] text-gray-500 font-mono"
+                            />
+                        </div>
+                        <Button
+                            type="submit"
+                            className="w-full bg-green-600 hover:bg-green-700 text-white font-bold"
+                            disabled={!newName || !newPrefix}
+                        >
+                            Criar Infraestrutura
+                        </Button>
+                    </form>
+                </DialogContent>
+            </Dialog>
 
+            {/* Grid Title */}
+            <h2 className="text-xl font-bold text-[#ededed] pt-4">Todas as Unidades</h2>
+
+            {/* UNITS GRID */}
+            {loading ? (
+                <div className="text-center py-20 text-gray-500 animate-pulse">Carregando painel de controle...</div>
+            ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                    {units.map(unit => (
+                        <Card key={unit.id} className="bg-[#121212] border border-[#2a2a2a] hover:border-yellow-500/50 transition-all duration-300 group">
+                            <CardContent className="p-6 space-y-4">
+                                <div className="flex items-start justify-between">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-md bg-transparent border border-yellow-500/20 flex items-center justify-center">
+                                            <Database className="w-5 h-5 text-yellow-500" />
+                                        </div>
+                                        <div>
+                                            <h3 className="font-bold text-[#ededed] text-lg">{unit.name}</h3>
+                                            <p className="text-xs text-gray-500 font-mono">{unit.prefix}</p>
+                                        </div>
+                                    </div>
+                                    {/* Actions Menu (Optional, or just status) */}
+                                </div>
+
+                                <div className="space-y-2 pt-2 border-t border-[#222]">
+                                    <div className="flex justify-between text-sm">
+                                        <span className="text-gray-500">Status:</span>
+                                        <span className={`${unit.is_active ? 'text-green-500' : 'text-red-500'} font-medium`}>
+                                            {unit.is_active ? 'Ativo' : 'Inativo'}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between text-sm">
+                                        <span className="text-gray-500">Último acesso:</span>
+                                        <span className="text-[#ededed]">
+                                            {unit.created_at ? new Date(unit.created_at).toLocaleDateString('pt-BR') : 'Nunca'}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <Button
+                                    className="w-full mt-4 bg-yellow-400 hover:bg-yellow-500 text-black font-bold h-10 shadow-[0_4px_10px_rgba(250,204,21,0.1)] group-hover:shadow-[0_4px_15px_rgba(250,204,21,0.3)] transition-all"
+                                    onClick={() => handleAccessUnit(unit.prefix)}
+                                >
+                                    Acessar Painel
+                                </Button>
+
+                                <div className="flex justify-between items-center pt-2 border-t border-[#222] mt-4">
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); openLinkDialog(unit) }}
+                                        className="text-gray-600 hover:text-[#ededed] text-xs flex items-center gap-1 transition-colors"
+                                    >
+                                        <LinkIcon className="w-3 h-3" /> Configurar N8N
+                                    </button>
+
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); handleDelete(unit) }}
+                                        className="text-gray-600 hover:text-red-500 text-xs flex items-center gap-1 transition-colors"
+                                    >
+                                        <Trash2 className="w-3 h-3" /> Excluir
+                                    </button>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    ))}
+                </div>
+            )}
+
+            {/* KEEP EXISTING DIALOGS for Workflow and Deletion, just style them */}
+            {/* DIALOG DE VINCULO N8N */}
+            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                <DialogContent className="bg-[#121212] border-[#333] text-white">
+                    <DialogHeader>
+                        <DialogTitle>Gerenciar Integração N8N</DialogTitle>
+                        <DialogDescription className="text-gray-400">
+                            Vincular workflows para <strong>{selectedUnit?.name}</strong>.
+                        </DialogDescription>
+                    </DialogHeader>
+                    {/* ... (Keep content logic) ... */}
                     <div className="py-4 space-y-4">
                         <div className="space-y-2">
                             <Label>Fluxo Principal (Z-API)</Label>
                             <Select onValueChange={setSelectedWorkflowId} value={selectedWorkflowId}>
-                                <SelectTrigger className="bg-black/50 border-white/10">
+                                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
                                     <SelectValue placeholder="Selecione um fluxo..." />
                                 </SelectTrigger>
-                                <SelectContent className="bg-[#1a1a2e] border-white/10 text-white max-h-60">
+                                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
                                     {loadingWorkflows ? (
-                                        <div className="p-2 text-center text-xs text-gray-400">Carregando fluxos...</div>
+                                        <div className="p-2 text-center text-xs text-gray-400">Carregando...</div>
                                     ) : (
                                         workflows.map(wf => (
-                                            <SelectItem key={wf.id} value={wf.id}>
-                                                <div className="flex items-center gap-2">
-                                                    <Activity className={`w-3 h-3 ${wf.active ? 'text-green-500' : 'text-gray-500'}`} />
-                                                    {wf.name}
-                                                </div>
-                                            </SelectItem>
+                                            <SelectItem key={wf.id} value={wf.id}>{wf.name}</SelectItem>
                                         ))
                                     )}
                                 </SelectContent>
                             </Select>
-                            <p className="text-[10px] text-gray-500">
-                                Mostrando {workflows.length} fluxos do N8N.
-                            </p>
                         </div>
                     </div>
-
                     <DialogFooter>
-                        <Button
-                            variant="default"
-                            className="bg-blue-600 hover:bg-blue-700"
-                            onClick={handleLinkWorkflow}
-                            disabled={linking || !selectedWorkflowId}
-                        >
-                            {linking ? "Salvando..." : "Salvar Vínculo"}
-                        </Button>
+                        <Button className="bg-yellow-400 text-black hover:bg-yellow-500" onClick={handleLinkWorkflow}>Salvar Configuração</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
 
-            {/* CONFIRM DELETE */}
             <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-                <DialogContent className="bg-[#1a1a2e] border-red-500/30 text-white">
+                <DialogContent className="bg-[#121212] border-red-900/50 text-white">
                     <DialogHeader>
-                        <DialogTitle className="text-red-400">Excluir Unidade?</DialogTitle>
+                        <DialogTitle className="text-red-500">Confirmar Exclusão</DialogTitle>
                         <DialogDescription className="text-gray-400">
-                            Tem certeza que deseja excluir <strong>{unitToDelete?.name}</strong>?
-                            <br /><br />
-                            <span className="text-red-400 font-bold">ISSO É IRREVERSÍVEL!</span>
-                            <br />
-                            - Remove todas as tabelas do banco ({unitToDelete?.prefix}_*)
-                            <br />
-                            - Remove os workflows do N8N
+                            Isso removerá todo banco de dados e conexões da unidade <strong>{unitToDelete?.name}</strong>.
                         </DialogDescription>
                     </DialogHeader>
                     <DialogFooter>
-                        <Button
-                            variant="ghost"
-                            onClick={() => setDeleteDialogOpen(false)}
-                            disabled={deleting}
-                        >
-                            Cancelar
-                        </Button>
-                        <Button
-                            variant="destructive"
-                            className="bg-red-600 hover:bg-red-700"
-                            onClick={confirmDelete}
-                            disabled={deleting}
-                        >
-                            {deleting ? "Excluindo..." : "Sim, Excluir Tudo"}
-                        </Button>
+                        <Button variant="ghost" onClick={() => setDeleteDialogOpen(false)}>Cancelar</Button>
+                        <Button variant="destructive" className="bg-red-600" onClick={confirmDelete}>Excluir Definitivamente</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
