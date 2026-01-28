@@ -119,7 +119,7 @@ export function AppSidebar() {
         {/* Botão Trocar de Cliente - SEMPRE VISÍVEL para admin */}
         {!loading && isAdmin && (
           <div className="mt-3 px-2 space-y-2">
-            <Link href="/admin/agentes">
+            <Link href="/admin/units">
               <div className="flex items-center gap-2 w-full p-2.5 rounded-lg bg-gradient-to-r from-purple-500/20 to-purple-900/10 border border-purple-500/30 hover:border-purple-500/50 transition-all duration-300 hover:shadow-lg hover:shadow-purple-500/20 group cursor-pointer">
                 <Shield className="w-4 h-4 text-purple-400 group-hover:scale-110 transition-transform duration-300" />
                 <div className="flex-1 text-left">
