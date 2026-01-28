@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Plus, Database, Server, ExternalLink, Activity, Link as LinkIcon, Check } from "lucide-react"
+import { Plus, Database, Server, ExternalLink, Activity, Link as LinkIcon, Check, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import {
     Dialog,
@@ -54,6 +54,36 @@ export default function AdminUnitsPage() {
     const [selectedWorkflowId, setSelectedWorkflowId] = useState("")
     const [linking, setLinking] = useState(false)
     const [dialogOpen, setDialogOpen] = useState(false)
+
+    // Delete State
+    const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+    const [unitToDelete, setUnitToDelete] = useState<Unit | null>(null)
+    const [deleting, setDeleting] = useState(false)
+
+    const handleDelete = (unit: Unit) => {
+        setUnitToDelete(unit)
+        setDeleteDialogOpen(true)
+    }
+
+    const confirmDelete = async () => {
+        if (!unitToDelete) return
+        setDeleting(true)
+        try {
+            const res = await fetch(`/api/admin/units/${unitToDelete.id}`, {
+                method: 'DELETE'
+            })
+            const data = await res.json()
+            if (!res.ok) throw new Error(data.error || 'Erro ao excluir')
+
+            toast.success('Unidade excluída com sucesso!')
+            setDeleteDialogOpen(false)
+            fetchUnits()
+        } catch (error: any) {
+            toast.error(error.message)
+        } finally {
+            setDeleting(false)
+        }
+    }
 
     useEffect(() => {
         fetchUnits()
@@ -248,6 +278,15 @@ export default function AdminUnitsPage() {
                                                     <span className="text-xs">N8N</span>
                                                 </Button>
 
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="hover:bg-red-500/20 text-gray-400 hover:text-red-400"
+                                                    onClick={() => handleDelete(unit)}
+                                                >
+                                                    <Trash2 className="w-4 h-4" />
+                                                </Button>
+
                                                 <span className={`px-2 py-1 rounded-full text-[10px] ${unit.is_active ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
                                                     {unit.is_active ? 'ATIVO' : 'INATIVO'}
                                                 </span>
@@ -308,6 +347,41 @@ export default function AdminUnitsPage() {
                             disabled={linking || !selectedWorkflowId}
                         >
                             {linking ? "Salvando..." : "Salvar Vínculo"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* CONFIRM DELETE */}
+            <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+                <DialogContent className="bg-[#1a1a2e] border-red-500/30 text-white">
+                    <DialogHeader>
+                        <DialogTitle className="text-red-400">Excluir Unidade?</DialogTitle>
+                        <DialogDescription className="text-gray-400">
+                            Tem certeza que deseja excluir <strong>{unitToDelete?.name}</strong>?
+                            <br /><br />
+                            <span className="text-red-400 font-bold">ISSO É IRREVERSÍVEL!</span>
+                            <br />
+                            - Remove todas as tabelas do banco ({unitToDelete?.prefix}_*)
+                            <br />
+                            - Remove os workflows do N8N
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button
+                            variant="ghost"
+                            onClick={() => setDeleteDialogOpen(false)}
+                            disabled={deleting}
+                        >
+                            Cancelar
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            className="bg-red-600 hover:bg-red-700"
+                            onClick={confirmDelete}
+                            disabled={deleting}
+                        >
+                            {deleting ? "Excluindo..." : "Sim, Excluir Tudo"}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

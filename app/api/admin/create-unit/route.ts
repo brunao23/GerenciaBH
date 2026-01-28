@@ -98,13 +98,71 @@ export async function POST(req: Request) {
             )
         }
 
+        // ... (código anterior de criação de banco)
+
+        // 7. Replicar Workflows N8N
+        try {
+            console.log(`[Admin Create Unit] Iniciando replicação N8N para ${unitName}...`)
+
+            const { workflowReplicator } = await import('@/lib/n8n/replicator')
+
+            // Tenta pegar credenciais padrão do environment ou hardcoded (já que não temos tela pra isso ainda)
+            const replicationConfig = {
+                empresaId: newUnit.id,
+                empresaNome: unitName.trim(),
+                schema: unitPrefix,
+                credentials: {
+                    supabaseApiId: process.env.N8N_DEFAULT_SUPABASE_API_ID || '15', // ID padrão da credencial Supabase no N8N
+                    supabaseApiName: process.env.N8N_DEFAULT_SUPABASE_API_NAME || 'Supabase Account',
+                    redisId: process.env.N8N_DEFAULT_REDIS_ID || '13', // ID padrão Redis
+                    redisName: process.env.N8N_DEFAULT_REDIS_NAME || 'Redis Account',
+                    postgresId: process.env.N8N_DEFAULT_POSTGRES_ID || '1', // ID padrão Postgres
+                    postgresName: process.env.N8N_DEFAULT_POSTGRES_NAME || 'Postgres Account',
+                    evolutionApiId: process.env.N8N_DEFAULT_EVOLUTION_ID,
+                    evolutionApiName: process.env.N8N_DEFAULT_EVOLUTION_NAME,
+                    evolutionInstance: unitName.trim().replace(/\s+/g, '_').toLowerCase() // Sugestão de instancia
+                }
+            }
+
+            const replicationResult = await workflowReplicator.replicateAll(replicationConfig)
+
+            if (!replicationResult.success) {
+                console.error('[Admin Create Unit] Erro na replicação:', replicationResult.errors)
+                // Não fazemos rollback do banco aqui pois o banco foi criado com sucesso.
+                // Apenas avisamos o admin que a replicação falhou parcialmente.
+                return NextResponse.json({
+                    success: true, // Parcialmente sucesso
+                    unit: {
+                        name: newUnit.unit_name,
+                        prefix: newUnit.unit_prefix,
+                    },
+                    message: `Unidade criada, mas houve erro na replicação de workflows: ${replicationResult.errors.join(', ')}`,
+                    warning: true
+                })
+            }
+
+            console.log('[Admin Create Unit] Replicação concluída com sucesso!')
+
+        } catch (repError: any) {
+            console.error('[Admin Create Unit] Falha fatal na replicação:', repError)
+            return NextResponse.json({
+                success: true,
+                unit: {
+                    name: newUnit.unit_name,
+                    prefix: newUnit.unit_prefix,
+                },
+                message: `Unidade criada, mas falha ao iniciar replicação: ${repError.message}`,
+                warning: true
+            })
+        }
+
         return NextResponse.json({
             success: true,
             unit: {
                 name: newUnit.unit_name,
                 prefix: newUnit.unit_prefix,
             },
-            message: 'Unidade criada com sucesso!',
+            message: 'Unidade criada e workflows replicados com sucesso!',
         })
     } catch (error) {
         console.error('[Admin Create Unit] Erro:', error)
