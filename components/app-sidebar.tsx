@@ -119,14 +119,6 @@ export function AppSidebar() {
         {/* Botão Trocar de Cliente - SEMPRE VISÍVEL para admin */}
         {!loading && isAdmin && (
           <div className="mt-3 px-2 space-y-2">
-            <Link href="/admin/units">
-              <div className="flex items-center gap-2 w-full p-2.5 rounded-lg bg-gradient-to-r from-purple-500/20 to-purple-900/10 border border-purple-500/30 hover:border-purple-500/50 transition-all duration-300 hover:shadow-lg hover:shadow-purple-500/20 group cursor-pointer">
-                <Shield className="w-4 h-4 text-purple-400 group-hover:scale-110 transition-transform duration-300" />
-                <div className="flex-1 text-left">
-                  <span className="font-medium text-[var(--pure-white)] text-xs">Painel Master</span>
-                </div>
-              </div>
-            </Link>
             <button
               onClick={handleSwitchClient}
               className="flex items-center gap-2 w-full p-2.5 rounded-lg bg-gradient-to-r from-[var(--accent-yellow)]/20 to-[var(--dark-yellow)]/10 border border-[var(--accent-yellow)]/30 hover:border-[var(--accent-yellow)]/50 transition-all duration-300 hover:shadow-lg hover:shadow-[var(--accent-yellow)]/20 group"
@@ -147,7 +139,10 @@ export function AppSidebar() {
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu className="space-y-2">
-              {items.map((item) => {
+              {[
+                ...items,
+                ...(isAdmin ? [{ title: "Gestão de Unidades", url: "/admin/units", icon: Shield }] : [])
+              ].map((item) => {
                 const active = pathname === item.url || (item.url !== "/" && pathname?.startsWith(item.url))
                 const Icon = item.icon
                 return (
