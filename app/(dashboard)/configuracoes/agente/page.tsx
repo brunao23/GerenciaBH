@@ -189,32 +189,41 @@ export default function ConfiguracaoAgentePage() {
 
     const [isFirstLoad, setIsFirstLoad] = useState(true);
 
-    // Carregar configuração
+    // Carregar configuração - EFEITO ÚNICO
     useEffect(() => {
-        if (tenantLoading) return;
-
-        if (!tenant) {
+        // Se não tem tenant e já parou de carregar o contexto, aborta
+        if (!tenant && !tenantLoading) {
             setLoading(false);
             setIsFirstLoad(false);
             return;
         }
 
+        // Se ainda não tem tenant (está carregando), espera
+        if (!tenant) return;
+
+        let isMounted = true;
+
         async function loadConfig() {
             try {
-                // Só mostra loading full-screen na primeira vez
-                if (isFirstLoad) setLoading(true);
+                // Só mostra loading na tela se for a primeira vez
+                if (isFirstLoad) {
+                    setLoading(true);
+                }
 
+                console.log('Carregando config para tenant:', tenant);
                 const response = await tenantFetch('/api/empresas/me/agente');
                 const data = response;
+
+                if (!isMounted) return;
 
                 if (data.error) {
                     throw { message: data.error, details: data.details };
                 }
 
                 if (data.config) {
-                    setConfig({ ...defaultConfig, ...data.config });
+                    setConfig(prev => ({ ...prev, ...data.config }));
                 } else if (data.defaults) {
-                    setConfig({ ...defaultConfig, ...data.defaults });
+                    setConfig(prev => ({ ...prev, ...data.defaults }));
                 }
 
                 if (data.preview_identidade) {
@@ -223,27 +232,26 @@ export default function ConfiguracaoAgentePage() {
 
             } catch (error: any) {
                 console.error('Erro ao carregar config:', error);
-
-                let msg = error.message || 'Erro desconhecido';
-                let details = error.details || error;
-
-                if (error instanceof Response) {
-                    try {
-                        const errBody = await error.json();
-                        msg = errBody.error || msg;
-                        details = errBody.details || details;
-                    } catch (e) { /* ignore */ }
+                if (isMounted) {
+                    let msg = error.message || 'Erro desconhecido';
+                    setErrorDetails({ message: msg, details: error.details || error });
                 }
-
-                setErrorDetails({ message: msg, details });
             } finally {
-                setLoading(false);
-                setIsFirstLoad(false);
+                if (isMounted) {
+                    setLoading(false);
+                    setIsFirstLoad(false);
+                }
             }
         }
 
         loadConfig();
-    }, [tenantLoading, tenant, tenantFetch]);
+
+        return () => {
+            isMounted = false;
+        };
+        // REMOVIDO tenantFetch e tenantLoading das dependências para evitar loop
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [tenant]);
 
     // Salvar configuração
     async function handleSave() {
