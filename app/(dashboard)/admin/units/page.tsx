@@ -1,12 +1,26 @@
-'use client'
-
 import { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Plus, Database, Server, ExternalLink } from "lucide-react"
+import { Plus, Database, Server, ExternalLink, Activity, Link as LinkIcon, Check } from "lucide-react"
 import { toast } from "sonner"
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
+} from "@/components/ui/dialog"
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select"
 
 interface Unit {
     id: string
@@ -16,17 +30,32 @@ interface Unit {
     created_at: string
 }
 
+interface Workflow {
+    id: string
+    name: string
+    active: boolean
+}
+
 export default function AdminUnitsPage() {
     const [units, setUnits] = useState<Unit[]>([])
     const [loading, setLoading] = useState(true)
     const [creating, setCreating] = useState(false)
+    const [workflows, setWorkflows] = useState<Workflow[]>([])
+    const [loadingWorkflows, setLoadingWorkflows] = useState(false)
 
     // Form States
     const [newName, setNewName] = useState("")
     const [newPrefix, setNewPrefix] = useState("")
 
+    // Link Workflow State
+    const [selectedUnit, setSelectedUnit] = useState<Unit | null>(null)
+    const [selectedWorkflowId, setSelectedWorkflowId] = useState("")
+    const [linking, setLinking] = useState(false)
+    const [dialogOpen, setDialogOpen] = useState(false)
+
     useEffect(() => {
         fetchUnits()
+        fetchWorkflows()
     }, [])
 
     const fetchUnits = async () => {
@@ -38,6 +67,20 @@ export default function AdminUnitsPage() {
             console.error("Erro ao buscar unidades", error)
         } finally {
             setLoading(false)
+        }
+    }
+
+    const fetchWorkflows = async () => {
+        try {
+            setLoadingWorkflows(true)
+            const res = await fetch('/api/admin/n8n/workflows')
+            const data = await res.json()
+            if (data.workflows) setWorkflows(data.workflows)
+        } catch (error) {
+            console.error("Erro ao buscar workflows do N8N", error)
+            toast.error("Falha ao carregar fluxos do N8N")
+        } finally {
+            setLoadingWorkflows(false)
         }
     }
 
@@ -77,6 +120,35 @@ export default function AdminUnitsPage() {
             .replace(/_+/g, "_") // remove double __
 
         setNewPrefix(slug)
+    }
+
+    const openLinkDialog = (unit: Unit) => {
+        setSelectedUnit(unit)
+        setSelectedWorkflowId("") // Reset, or ideally fetch existing link
+        setDialogOpen(true)
+    }
+
+    const handleLinkWorkflow = async () => {
+        if (!selectedUnit || !selectedWorkflowId) return
+
+        setLinking(true)
+        try {
+            const res = await fetch(`/api/admin/empresas/${selectedUnit.id}/workflow`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ workflowId: selectedWorkflowId })
+            })
+            const data = await res.json()
+
+            if (!res.ok) throw new Error(data.error || "Erro ao vincular")
+
+            toast.success(`Fluxo vinculado a ${selectedUnit.name}!`)
+            setDialogOpen(false)
+        } catch (error: any) {
+            toast.error(error.message)
+        } finally {
+            setLinking(false)
+        }
     }
 
     return (
@@ -164,12 +236,19 @@ export default function AdminUnitsPage() {
                                                 </div>
                                             </div>
                                             <div className="flex items-center gap-3">
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="gap-2 border-white/10 hover:bg-white/10"
+                                                    onClick={() => openLinkDialog(unit)}
+                                                >
+                                                    <LinkIcon className="w-3.5 h-3.5 text-blue-400" />
+                                                    <span className="text-xs">N8N</span>
+                                                </Button>
+
                                                 <span className={`px-2 py-1 rounded-full text-[10px] ${unit.is_active ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
                                                     {unit.is_active ? 'ATIVO' : 'INATIVO'}
                                                 </span>
-                                                <Button variant="ghost" size="icon" className="hover:bg-white/10" disabled>
-                                                    <Database className="w-4 h-4 text-gray-400" />
-                                                </Button>
                                             </div>
                                         </div>
                                     ))}
@@ -179,6 +258,58 @@ export default function AdminUnitsPage() {
                     </CardContent>
                 </Card>
             </div>
+
+            {/* DIALOG DE VINCULO N8N */}
+            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                <DialogContent className="bg-[#1a1a2e] border-white/10 text-white">
+                    <DialogHeader>
+                        <DialogTitle>Vincular Fluxo N8N</DialogTitle>
+                        <DialogDescription className="text-gray-400">
+                            Selecione qual fluxo do N8N deve ser usado para <strong>{selectedUnit?.name}</strong>.
+                            Isso sobrescreve a descoberta automática.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="py-4 space-y-4">
+                        <div className="space-y-2">
+                            <Label>Fluxo Principal (Z-API)</Label>
+                            <Select onValueChange={setSelectedWorkflowId} value={selectedWorkflowId}>
+                                <SelectTrigger className="bg-black/50 border-white/10">
+                                    <SelectValue placeholder="Selecione um fluxo..." />
+                                </SelectTrigger>
+                                <SelectContent className="bg-[#1a1a2e] border-white/10 text-white max-h-60">
+                                    {loadingWorkflows ? (
+                                        <div className="p-2 text-center text-xs text-gray-400">Carregando fluxos...</div>
+                                    ) : (
+                                        workflows.map(wf => (
+                                            <SelectItem key={wf.id} value={wf.id}>
+                                                <div className="flex items-center gap-2">
+                                                    <Activity className={`w-3 h-3 ${wf.active ? 'text-green-500' : 'text-gray-500'}`} />
+                                                    {wf.name}
+                                                </div>
+                                            </SelectItem>
+                                        ))
+                                    )}
+                                </SelectContent>
+                            </Select>
+                            <p className="text-[10px] text-gray-500">
+                                Mostrando {workflows.length} fluxos do N8N.
+                            </p>
+                        </div>
+                    </div>
+
+                    <DialogFooter>
+                        <Button
+                            variant="default"
+                            className="bg-blue-600 hover:bg-blue-700"
+                            onClick={handleLinkWorkflow}
+                            disabled={linking || !selectedWorkflowId}
+                        >
+                            {linking ? "Salvando..." : "Salvar Vínculo"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }
