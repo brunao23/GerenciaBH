@@ -93,10 +93,13 @@ export default function AdminUnitsPage() {
     const fetchUnits = async () => {
         try {
             const res = await fetch('/api/admin/units')
+            if (!res.ok) throw new Error('Falha ao buscar unidades')
             const data = await res.json()
-            if (data.units) setUnits(data.units)
+            setUnits(Array.isArray(data.units) ? data.units : [])
         } catch (error) {
             console.error("Erro ao buscar unidades", error)
+            // toast.error("Erro ao carregar lista de unidades") 
+            setUnits([])
         } finally {
             setLoading(false)
         }
@@ -106,11 +109,13 @@ export default function AdminUnitsPage() {
         try {
             setLoadingWorkflows(true)
             const res = await fetch('/api/admin/n8n/workflows')
+            if (!res.ok) throw new Error('Falha ao buscar workflows')
             const data = await res.json()
-            if (data.workflows) setWorkflows(data.workflows)
+            setWorkflows(Array.isArray(data.workflows) ? data.workflows : [])
         } catch (error) {
             console.error("Erro ao buscar workflows do N8N", error)
             toast.error("Falha ao carregar fluxos do N8N")
+            setWorkflows([]) // Fallback seguro
         } finally {
             setLoadingWorkflows(false)
         }
