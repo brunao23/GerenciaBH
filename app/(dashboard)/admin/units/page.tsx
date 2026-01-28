@@ -279,12 +279,13 @@ export default function AdminUnitsPage() {
                                                 </Button>
 
                                                 <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="hover:bg-red-500/20 text-gray-400 hover:text-red-400"
+                                                    variant="destructive"
+                                                    size="sm"
+                                                    className="gap-2 bg-red-600 hover:bg-red-700 text-white"
                                                     onClick={() => handleDelete(unit)}
                                                 >
                                                     <Trash2 className="w-4 h-4" />
+                                                    <span className="text-xs font-bold">EXCLUIR</span>
                                                 </Button>
 
                                                 <span className={`px-2 py-1 rounded-full text-[10px] ${unit.is_active ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
