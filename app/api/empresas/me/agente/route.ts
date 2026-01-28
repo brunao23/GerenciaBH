@@ -81,29 +81,44 @@ async function getEmpresaFromTenant(req: NextRequest): Promise<{ empresaId: stri
 
     console.log(`[Debug] Usuário autenticado: ${user.email} (${user.id})`);
 
-    // Buscar empresa do usuário
-    const { data: usuario } = await supabaseAdmin
-        .from('usuarios')
-        .select('empresa_id')
-        .eq('id', user.id)
+    // Buscar empresa do usuário via RPC SEGURA (evita RLS recursion)
+    const { data: empresaRpc, error: rpcError } = await supabaseAdmin
+        .rpc('get_empresa_do_usuario', { p_user_id: user.id })
         .single();
 
-    console.log(`[Debug] Dados do usuário na tabela 'usuarios':`, usuario);
+    if (rpcError) {
+        console.error('[Debug] Erro na RPC get_empresa_do_usuario:', rpcError.message);
+        // Tenta fallback manual antigo se RPC não existir
+        const { data: usuario } = await supabaseAdmin
+            .from('usuarios')
+            .select('empresa_id')
+            .eq('id', user.id)
+            .single();
 
-    if (!usuario?.empresa_id) {
-        console.warn("[Debug] Usuário não tem 'empresa_id' vinculado na tabela 'usuarios'.");
-        return null;
+        if (!usuario?.empresa_id) {
+            console.warn("[Debug] Usuário não tem 'empresa_id' vinculado na tabela 'usuarios'.");
+            return null;
+        }
+
+        const { data: empresa } = await supabaseAdmin
+            .from('empresas')
+            .select('id, schema, nome')
+            .eq('id', usuario.empresa_id)
+            .single();
+
+        if (empresa) {
+            console.log(`[Debug] Empresa encontrada pelo usuário (fallback select): ${empresa.nome}`);
+            return { empresaId: empresa.id, schema: empresa.schema, nome: empresa.nome };
+        }
     }
 
-    const { data: empresa } = await supabaseAdmin
-        .from('empresas')
-        .select('id, schema, nome')
-        .eq('id', usuario.empresa_id)
-        .single();
-
-    if (empresa) {
-        console.log(`[Debug] Empresa encontrada pelo usuário: ${empresa.nome}`);
-        return { empresaId: empresa.id, schema: empresa.schema, nome: empresa.nome };
+    if (empresaRpc) {
+        console.log(`[Debug] Empresa encontrada pela RPC: ${empresaRpc.empresa_nome}`);
+        return {
+            empresaId: empresaRpc.empresa_id,
+            schema: empresaRpc.schema_nome,
+            nome: empresaRpc.empresa_nome
+        };
     }
 
     return null;
