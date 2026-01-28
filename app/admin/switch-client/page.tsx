@@ -74,25 +74,35 @@ export default function SwitchClientPage() {
         <div className="min-h-screen bg-primary-black p-8">
             <div className="max-w-6xl mx-auto">
                 {/* Header */}
-                <div className="mb-8">
-                    <Button
-                        variant="ghost"
-                        onClick={() => router.back()}
-                        className="mb-4 text-text-gray hover:text-pure-white"
-                    >
-                        <ArrowLeft className="w-4 h-4 mr-2" />
-                        Voltar
-                    </Button>
+                <div className="mb-8 flex justify-between items-end">
+                    <div>
+                        <Button
+                            variant="ghost"
+                            onClick={() => router.back()}
+                            className="mb-4 text-text-gray hover:text-pure-white"
+                        >
+                            <ArrowLeft className="w-4 h-4 mr-2" />
+                            Voltar
+                        </Button>
 
-                    <div className="flex items-center gap-4">
-                        <div className="w-16 h-16 bg-gradient-to-br from-accent-yellow to-dark-yellow rounded-2xl flex items-center justify-center shadow-lg shadow-accent-yellow/30">
-                            <Building2 className="h-8 w-8 text-primary-black" />
-                        </div>
-                        <div>
-                            <h1 className="text-3xl font-bold text-pure-white">Trocar de Cliente</h1>
-                            <p className="text-text-gray">Selecione a unidade que deseja acessar</p>
+                        <div className="flex items-center gap-4">
+                            <div className="w-16 h-16 bg-gradient-to-br from-accent-yellow to-dark-yellow rounded-2xl flex items-center justify-center shadow-lg shadow-accent-yellow/30">
+                                <Building2 className="h-8 w-8 text-primary-black" />
+                            </div>
+                            <div>
+                                <h1 className="text-3xl font-bold text-pure-white">Trocar de Cliente</h1>
+                                <p className="text-text-gray">Selecione a unidade que deseja acessar</p>
+                            </div>
                         </div>
                     </div>
+
+                    <Button
+                        onClick={() => router.push('/admin/units')}
+                        className="bg-purple-600 hover:bg-purple-700 text-white gap-2 h-12 px-6 shadow-lg shadow-purple-900/40"
+                    >
+                        <Building2 className="w-5 h-5" />
+                        Acessar Painel Master
+                    </Button>
                 </div>
 
                 {/* Lista de Unidades */}
