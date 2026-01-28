@@ -24,21 +24,33 @@ async function getEmpresaFromTenant(req: NextRequest): Promise<{ empresaId: stri
     // Primeiro tenta pegar do header de tenant
     const tenantPrefix = req.headers.get('x-tenant-prefix');
 
+    console.log(`[Debug] Header x-tenant-prefix: "${tenantPrefix}"`);
+
     if (tenantPrefix) {
-        const { data: empresa } = await supabaseAdmin
+        const { data: empresa, error } = await supabaseAdmin
             .from('empresas')
             .select('id, schema, nome')
             .eq('schema', tenantPrefix)
             .single();
 
-        if (empresa) {
-            return { empresaId: empresa.id, schema: empresa.schema, nome: empresa.nome };
+        if (error) {
+            console.error(`[Debug] Erro ao buscar empresa por schema '${tenantPrefix}':`, error.message);
         }
+
+        if (empresa) {
+            console.log(`[Debug] Empresa encontrada pelo header: ${empresa.nome} (${empresa.id})`);
+            return { empresaId: empresa.id, schema: empresa.schema, nome: empresa.nome };
+        } else {
+            console.warn(`[Debug] Nenhuma empresa encontrada com schema '${tenantPrefix}'. Verifique se rodou o script POPULAR_EMPRESAS_LEGADO.sql`);
+        }
+    } else {
+        console.log('[Debug] Header x-tenant-prefix não fornecido.');
     }
 
     // Fallback: pegar pelo token do usuário
     const authHeader = req.headers.get('authorization');
     if (!authHeader?.startsWith('Bearer ')) {
+        console.log('[Debug] Sem token Bearer para fallback.');
         return null;
     }
 
@@ -46,8 +58,11 @@ async function getEmpresaFromTenant(req: NextRequest): Promise<{ empresaId: stri
     const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
 
     if (error || !user) {
+        console.log('[Debug] Token inválido ou usuário não encontrado.');
         return null;
     }
+
+    console.log(`[Debug] Usuário autenticado: ${user.email} (${user.id})`);
 
     // Buscar empresa do usuário
     const { data: usuario } = await supabaseAdmin
@@ -56,7 +71,10 @@ async function getEmpresaFromTenant(req: NextRequest): Promise<{ empresaId: stri
         .eq('id', user.id)
         .single();
 
+    console.log(`[Debug] Dados do usuário na tabela 'usuarios':`, usuario);
+
     if (!usuario?.empresa_id) {
+        console.warn("[Debug] Usuário não tem 'empresa_id' vinculado na tabela 'usuarios'.");
         return null;
     }
 
@@ -67,6 +85,7 @@ async function getEmpresaFromTenant(req: NextRequest): Promise<{ empresaId: stri
         .single();
 
     if (empresa) {
+        console.log(`[Debug] Empresa encontrada pelo usuário: ${empresa.nome}`);
         return { empresaId: empresa.id, schema: empresa.schema, nome: empresa.nome };
     }
 
