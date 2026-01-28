@@ -187,28 +187,26 @@ export default function ConfiguracaoAgentePage() {
     const [novaRegra, setNovaRegra] = useState('');
     const [errorDetails, setErrorDetails] = useState<any>(null);
 
+    const [isFirstLoad, setIsFirstLoad] = useState(true);
+
     // Carregar configuração
     useEffect(() => {
-        // Se ainda está carregando o hook, espera
         if (tenantLoading) return;
 
-        // Se não tem tenant, para o loading local e avisa (ou redireciona)
         if (!tenant) {
-            console.warn("Nenhum tenant identificado. O usuário pode ser admin global sem unidade selecionada.");
             setLoading(false);
+            setIsFirstLoad(false);
             return;
         }
 
         async function loadConfig() {
             try {
-                setLoading(true);
-                // Usando fetchWithTenant que já foi corrigido
-                const response = await tenantFetch('/api/empresas/me/agente');
+                // Só mostra loading full-screen na primeira vez
+                if (isFirstLoad) setLoading(true);
 
-                // tenantFetch já faz throw se !ok, mas vamos garantir o catch lá embaixo
+                const response = await tenantFetch('/api/empresas/me/agente');
                 const data = response;
 
-                // Se o tenantFetch retornar um objeto com erro (caso não use throw)
                 if (data.error) {
                     throw { message: data.error, details: data.details };
                 }
@@ -223,19 +221,12 @@ export default function ConfiguracaoAgentePage() {
                     setPreviewPrompt(data.preview_identidade);
                 }
 
-                if (data.defaults?.is_mock) {
-                    console.warn('Modo Mock ativado');
-                    // Opcional: Avisar usuário que está em modo de segurança
-                }
-
             } catch (error: any) {
                 console.error('Erro ao carregar config:', error);
 
-                // Tenta extrair mensagem útil
                 let msg = error.message || 'Erro desconhecido';
                 let details = error.details || error;
 
-                // Se for erro de fetch (response), tenta ler o body
                 if (error instanceof Response) {
                     try {
                         const errBody = await error.json();
@@ -244,10 +235,10 @@ export default function ConfiguracaoAgentePage() {
                     } catch (e) { /* ignore */ }
                 }
 
-                // toast.error(`Erro: ${msg}`);
                 setErrorDetails({ message: msg, details });
             } finally {
                 setLoading(false);
+                setIsFirstLoad(false);
             }
         }
 
@@ -369,7 +360,79 @@ export default function ConfiguracaoAgentePage() {
         }
     }
 
-    if (loading || tenantLoading) {
+    // Renderização com prioridades corretas para evitar flickering
+
+    // 1. Carregando Tenant (Contexto)
+    if (tenantLoading) {
+        return (
+            <div className="min-h-screen bg-[#0f0f1a] flex items-center justify-center">
+                <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 border-4 border-purple-500 border-t-transparent rounded-full animate-spin" />
+                    <span className="text-white">Carregando ambiente...</span>
+                </div>
+            </div>
+        );
+    }
+
+    // 2. Erro Crítico (Mostra mesmo se tiver tenant, pois impediu load da config)
+    if (errorDetails) {
+        return (
+            <div className="min-h-screen bg-[#0f0f1a] flex items-center justify-center p-6">
+                <div className="max-w-md w-full p-6 bg-red-50 border border-red-200 rounded-lg text-red-800 shadow-xl">
+                    <h3 className="font-bold flex items-center gap-2 text-lg mb-2">
+                        <AlertTriangle className="w-6 h-6 text-red-600" />
+                        Erro ao carregar configurações
+                    </h3>
+                    <p className="mb-4 text-sm">{errorDetails.message}</p>
+
+                    {errorDetails.details && (
+                        <div className="mb-4">
+                            <p className="text-xs font-semibold uppercase text-red-600 mb-1">Detalhes Técnicos:</p>
+                            <pre className="p-3 bg-red-100 rounded text-xs overflow-auto max-h-40 font-mono border border-red-200">
+                                {typeof errorDetails.details === 'object'
+                                    ? JSON.stringify(errorDetails.details, null, 2)
+                                    : errorDetails.details}
+                            </pre>
+                        </div>
+                    )}
+
+                    <button
+                        onClick={() => window.location.reload()}
+                        className="w-full py-2 bg-red-600 text-white rounded hover:bg-red-700 transition font-medium"
+                    >
+                        Tentar Novamente
+                    </button>
+
+                    <div className="mt-4 pt-4 border-t border-red-200 text-center">
+                        <Link href="/admin/agentes" className="text-sm text-red-600 hover:underline">
+                            Voltar para Painel Admin
+                        </Link>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // 3. Sem Tenant Selecionado
+    if (!tenant) {
+        return (
+            <div className="min-h-screen bg-[#0f0f1a] flex flex-col items-center justify-center p-12 text-center">
+                <Shield className="w-16 h-16 text-gray-600 mb-6" />
+                <h2 className="text-2xl font-bold text-white mb-2">Nenhuma empresa selecionada</h2>
+                <p className="text-gray-400 max-w-md mb-8">
+                    Para configurar o Agente IA, você precisa selecionar uma empresa no menu superior ou painel de controle.
+                </p>
+                <Link href="/admin/agentes">
+                    <Button className="bg-purple-600 hover:bg-purple-700">
+                        Ir para Painel Master
+                    </Button>
+                </Link>
+            </div>
+        );
+    }
+
+    // 4. Carregando Dados da Config (Primeira vez apenas)
+    if (loading && isFirstLoad) {
         return (
             <div className="min-h-screen bg-[#0f0f1a] flex items-center justify-center">
                 <div className="flex items-center gap-3">
@@ -380,51 +443,7 @@ export default function ConfiguracaoAgentePage() {
         );
     }
 
-    if (!tenant) {
-        {/* Debug Info para Erros Críticos */ }
-        {
-            errorDetails && (
-                <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-800">
-                    <h3 className="font-bold flex items-center gap-2">
-                        <AlertTriangle className="w-5 h-5" />
-                        Não foi possível carregar as configurações
-                    </h3>
-                    <p className="mt-1">{errorDetails.message}</p>
-                    {errorDetails.details && (
-                        <pre className="mt-2 p-2 bg-red-100 rounded text-xs overflow-auto max-h-40">
-                            {typeof errorDetails.details === 'object'
-                                ? JSON.stringify(errorDetails.details, null, 2)
-                                : errorDetails.details}
-                        </pre>
-                    )}
-                    <button
-                        onClick={() => window.location.reload()}
-                        className="mt-3 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 text-sm"
-                    >
-                        Tentar Novamente
-                    </button>
-                </div>
-            )
-        }
-
-        {
-            !tenant && !loading && !errorDetails && (
-                <div className="flex flex-col items-center justify-center p-12 text-center">
-                    <Shield className="w-12 h-12 text-gray-300 mb-4" />
-                    <h2 className="text-xl font-semibold text-gray-700">Nenhuma empresa selecionada</h2>
-                    <p className="text-gray-500 max-w-md mt-2">
-                        Para configurar o Agente IA, você precisa selecionar uma empresa no menu superior ou painel de controle.
-                    </p>
-                    <Link href="/admin/agentes">
-                        <Button variant="outline" className="mt-4">
-                            Ir para Painel Master
-                        </Button>
-                    </Link>
-                </div>
-            )
-        };
-    }
-
+    // 5. App Carregado (Formulário)
     return (
         <div className="min-h-screen bg-[#0f0f1a] p-6">
             <div className="max-w-4xl mx-auto space-y-6">
