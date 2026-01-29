@@ -7,23 +7,74 @@ import { verifyToken } from "@/lib/auth/jwt"
 // DDDs por região (vox_disparos é compartilhada entre BH e SP)
 const DDD_BH = ['31', '32', '33', '34', '35', '37', '38'] // Minas Gerais
 const DDD_SP = ['11', '12', '13', '14', '15', '16', '17', '18', '19'] // São Paulo
+const DDD_RIO = ['21', '22', '24'] // Rio de Janeiro
+const DDD_ES = ['27', '28'] // Espírito Santo
+const DDD_MACEIO = ['82'] // Alagoas (Maceió)
 
 // Função para buscar leads de vox_disparos filtrados por DDD
 // IMPORTANTE: vox_disparos é COMPARTILHADA entre BH e SP - precisa filtrar por DDD!
 // Outras unidades (ES, Rio, Maceió, etc.) NÃO usam vox_disparos
+// Função para buscar leads - tenta primeiro tabela específica, depois fallback para vox_disparos compartilhada
 async function getDisparosLeads(tenant: string) {
   try {
     const supabase = createBiaSupabaseServerClient()
 
+    // 1. TENTATIVA PRIORITÁRIA: Tabela de disparos específica do tenant
+    // Ex: vox_maceio_disparos ou vox_maceiodisparos
+    const specificTable1 = `${tenant}_disparos`
+    const specificTable2 = `${tenant}disparos`
+
+    let { data: specificData, error: specificError } = await supabase
+      .from(specificTable1)
+      .select('numero, created_at')
+
+    // Se falhar na primeira (underscore), tenta a segunda
+    if (specificError && specificError.message.includes('does not exist')) {
+      // console.log(`[Overview] Tabela ${specificTable1} ausente, tentando ${specificTable2}`)
+      const res2 = await supabase.from(specificTable2).select('numero, created_at')
+      if (!res2.error) {
+        specificData = res2.data
+        specificError = null
+      }
+    }
+
+    // Se encontrou dados na tabela específica, usa ela!
+    if (!specificError && specificData) {
+      console.log(`[Overview] Usando tabela específica de disparos: ${tenant} (Total: ${specificData.length})`)
+
+      const dailyLeads = new Map<string, number>()
+      const processedNumbers = new Set<string>() // Opcional: contar únicos se quiser
+
+      for (const row of specificData) {
+        if (row.created_at) {
+          try {
+            const dateStr = new Date(row.created_at).toISOString().split('T')[0]
+            dailyLeads.set(dateStr, (dailyLeads.get(dateStr) || 0) + 1)
+          } catch { }
+        }
+        // Se quiser contar total de leads únicos
+        if (row.numero) processedNumbers.add(row.numero)
+      }
+
+      return { leads: specificData.length, dailyLeads }
+    }
+
+    // 2. FALLBACK: vox_disparos (Tabela compartilhada - apenas para unidades mapeadas)
     // Determinar quais DDDs usar baseado no tenant
     let allowedDDDs: string[] = []
     if (tenant.includes('bh') || tenant.includes('lourdes')) {
       allowedDDDs = DDD_BH
     } else if (tenant.includes('sp')) {
       allowedDDDs = DDD_SP
+    } else if (tenant.includes('rio')) {
+      allowedDDDs = DDD_RIO
+    } else if (tenant.includes('es') || tenant.includes('vitoria')) {
+      allowedDDDs = DDD_ES
+    } else if (tenant.includes('maceio')) {
+      allowedDDDs = DDD_MACEIO
     } else {
-      // ✅ Outras unidades (ES, Rio, Maceió, etc.) NÃO usam vox_disparos
-      console.log(`[Overview] Tenant ${tenant} não usa vox_disparos - retornando 0 leads`)
+      // ✅ Outras unidades sem tabela específica e sem DDD mapeado
+      console.log(`[Overview] Tenant ${tenant} não tem tabela própria e não usa vox_disparos - retornando 0 leads`)
       return { leads: 0, dailyLeads: new Map<string, number>() }
     }
 
@@ -368,32 +419,37 @@ async function getDirectFollowupsData(tenant: string) {
   try {
     const supabase = createBiaSupabaseServerClient()
 
-    // Tentar primeiro com folow_normal (Bia Vox)
-    const folowNormalTable = `${tenant}_folow_normal`
-    console.log(`[v0] Tentando buscar de ${folowNormalTable}...`)
+    // Lista de possíveis nomes de tabelas para verificar
+    const possibleTables = [
+      `${tenant}_folow_normal`,   // Padrão antigo (typo)
+      `${tenant}_follow_normal`,  // Padrão corrigido
+      `${tenant}folow_normal`,    // Sem underscore (typo)
+      `${tenant}follow_normal`    // Sem underscore (corrigido)
+    ]
 
-    let { data, error } = await supabase.from(folowNormalTable).select("*").limit(5000)
+    console.log(`[v0] Buscando follow-ups para ${tenant}...`)
 
-    // Se der erro (tabela não existe), tentar com follow_normal (Vox*, Colégio)
-    if (error && error.message.includes('does not exist')) {
-      const followNormalTable = `${tenant}_follow_normal`
-      console.log(`[v0] Tabela ${folowNormalTable} não existe, tentando ${followNormalTable}...`)
+    for (const table of possibleTables) {
+      // Tentar buscar da tabela atual
+      const { data, error } = await supabase.from(table).select("*").limit(5000)
 
-      const result = await supabase.from(followNormalTable).select("*").limit(5000)
-      data = result.data
-      error = result.error
+      // Se sucesso, retorna os dados
+      if (!error && data) {
+        console.log(`[v0] Follow-ups encontrados em ${table}: ${data.length}`)
+        return data
+      }
+
+      // Se erro diferente de "tabela não existe", logar warning
+      if (error && !error.message.includes('does not exist')) {
+        console.warn(`[v0] Erro ao acessar ${table}:`, error.message)
+      }
     }
 
-    if (error) {
-      console.error("[v0] Erro ao buscar dados de follow-ups:", error)
-      throw error
-    }
-
-    console.log(`[v0] Carregados ${data?.length || 0} follow-ups`)
-    return data || []
+    console.log(`[v0] Nenhuma tabela de follow-up encontrada para ${tenant}`)
+    return []
   } catch (error) {
     console.error("[v0] Erro ao buscar dados diretos de follow-ups:", error)
-    throw error
+    return [] // Retorna array vazio em vez de estourar erro
   }
 }
 
@@ -452,6 +508,31 @@ function calculateAverageResponseTime(sessions: any[]): number {
 
   return 0
 }
+
+// Helper para buscar dados de tabela com fallback robusto de nome (com/sem underscore)
+async function fetchTableDataRobust(tenant: string, suffix: string, limit: number = 5000) {
+  const supabase = createBiaSupabaseServerClient()
+  const table1 = `${tenant}_${suffix}`
+  const table2 = `${tenant}${suffix}`
+
+  let { data, error } = await supabase.from(table1).select("*").limit(limit)
+
+  if (error && error.message.includes('does not exist')) {
+    console.log(`[Overview] Tabela ${table1} não existe, tentando ${table2}...`)
+    const res2 = await supabase.from(table2).select("*").limit(limit)
+    data = res2.data
+    error = res2.error
+  }
+
+  if (error) {
+    console.warn(`[Overview] Erro ao buscar dados de ${suffix} (${tenant}):`, error.message)
+    // Não retornar erro para não quebrar o dashboard todo
+    return []
+  }
+
+  return data || []
+}
+
 
 export async function GET(req: Request) {
   try {
@@ -544,12 +625,13 @@ export async function GET(req: Request) {
       })
     })).filter(s => s.messages.length > 0)
 
+    const [agData, notificationsData] = await Promise.all([
+      fetchTableDataRobust(tenant, 'agendamentos'),
+      fetchTableDataRobust(tenant, 'notifications'),
+    ])
+
     const supabase = createBiaSupabaseServerClient()
 
-    const [agRes, notificationsRes] = await Promise.all([
-      supabase.from(agendamentosTable).select("*").limit(5000),
-      supabase.from(notificationsTable).select("*").limit(5000),
-    ])
 
     // Função para validar se o agendamento é explícito (mesma lógica do endpoint de agendamentos)
     function isAgendamentoExplicito(agendamento: any): boolean {
@@ -594,7 +676,7 @@ export async function GET(req: Request) {
     }
 
     // 2. Filtrar Agendamentos por data
-    const agendamentosNoPeriodo = (agRes.data || []).filter((a: any) => {
+    const agendamentosNoPeriodo = agData.filter((a: any) => {
       const aDate = a.created_at ? new Date(a.created_at).getTime() : 0
       return aDate >= startMs
     })
@@ -604,7 +686,7 @@ export async function GET(req: Request) {
     const agendamentos = agendamentosExplicitos.length
 
     // Filtrar notificações por data
-    const notifications = (notificationsRes.data || []).filter((n: any) => {
+    const notifications = notificationsData.filter((n: any) => {
       const nDate = n.created_at ? new Date(n.created_at).getTime() : 0
       return nDate >= startMs
     }).length
