@@ -15,9 +15,11 @@ const DDD_MACEIO = ['82'] // Alagoas (Maceió)
 // IMPORTANTE: vox_disparos é COMPARTILHADA entre BH e SP - precisa filtrar por DDD!
 // Outras unidades (ES, Rio, Maceió, etc.) NÃO usam vox_disparos
 // Função para buscar leads - tenta primeiro tabela específica, depois fallback para vox_disparos compartilhada
-async function getDisparosLeads(tenant: string) {
+// Função para buscar leads - tenta primeiro tabela específica, depois fallback para vox_disparos compartilhada
+async function getDisparosLeads(tenant: string, startDate: Date) {
   try {
     const supabase = createBiaSupabaseServerClient()
+    const startDateStr = startDate.toISOString()
 
     // 1. TENTATIVA PRIORITÁRIA: Tabela de disparos específica do tenant
     // Ex: vox_maceio_disparos ou vox_maceiodisparos
@@ -27,11 +29,13 @@ async function getDisparosLeads(tenant: string) {
     let { data: specificData, error: specificError } = await supabase
       .from(specificTable1)
       .select('numero, created_at')
+      .gte('created_at', startDateStr)
+
 
     // Se falhar na primeira (underscore), tenta a segunda
     if (specificError && specificError.message.includes('does not exist')) {
       // console.log(`[Overview] Tabela ${specificTable1} ausente, tentando ${specificTable2}`)
-      const res2 = await supabase.from(specificTable2).select('numero, created_at')
+      const res2 = await supabase.from(specificTable2).select('numero, created_at').gte('created_at', startDateStr)
       if (!res2.error) {
         specificData = res2.data
         specificError = null
@@ -83,6 +87,8 @@ async function getDisparosLeads(tenant: string) {
     const { data, error } = await supabase
       .from('vox_disparos')
       .select('numero, created_at')
+      .gte('created_at', startDateStr)
+
 
     if (error) {
       console.warn(`[Overview] Erro ao buscar vox_disparos:`, error.message)
@@ -217,10 +223,11 @@ function extractContactName(messages: any[]): string {
   return ''
 }
 
-async function getDirectChatsData(tenant: string) {
+async function getDirectChatsData(tenant: string, startDate: Date) {
   try {
     const chatTable = `${tenant}n8n_chat_histories`
-    console.log(`[v0] Buscando dados diretamente da tabela ${chatTable}...`)
+    const startDateStr = startDate.toISOString()
+    console.log(`[v0] Buscando dados diretamente da tabela ${chatTable} (>= ${startDateStr})...`)
 
     const supabase = createBiaSupabaseServerClient()
 
@@ -239,6 +246,7 @@ async function getDirectChatsData(tenant: string) {
       const result1 = await supabase
         .from(chatTable)
         .select("session_id, message, id, created_at")
+        .gte('created_at', startDateStr)
         .order("id", { ascending: true })
         .range(from, to)
 
@@ -250,6 +258,7 @@ async function getDirectChatsData(tenant: string) {
         const result3 = await supabase
           .from(chatTableWithUnderscore)
           .select("session_id, message, id, created_at")
+          .gte('created_at', startDateStr)
           .order("id", { ascending: true })
           .range(from, to)
 
@@ -415,9 +424,10 @@ async function getDirectChatsData(tenant: string) {
   }
 }
 
-async function getDirectFollowupsData(tenant: string) {
+async function getDirectFollowupsData(tenant: string, startDate: Date) {
   try {
     const supabase = createBiaSupabaseServerClient()
+    const startDateStr = startDate.toISOString()
 
     // Lista de possíveis nomes de tabelas para verificar
     const possibleTables = [
@@ -431,6 +441,10 @@ async function getDirectFollowupsData(tenant: string) {
 
     for (const table of possibleTables) {
       // Tentar buscar da tabela atual
+      // Tenta filtrar por created_at se existir, mas como as colunas variam (updated_at, last_contact),
+      // e o volume de followups é menor (limit 5000), vamos manter o select simples mas tentar otimizar se possível
+      // OBS: Followups não tem padrão garantido de created_at em todas as variantes, então mantemos busca geral + limit
+      // mas vamos tentar ordenar para pegar os mais recentes
       const { data, error } = await supabase.from(table).select("*").limit(5000)
 
       // Se sucesso, retorna os dados
@@ -510,16 +524,21 @@ function calculateAverageResponseTime(sessions: any[]): number {
 }
 
 // Helper para buscar dados de tabela com fallback robusto de nome (com/sem underscore)
-async function fetchTableDataRobust(tenant: string, suffix: string, limit: number = 5000) {
+async function fetchTableDataRobust(tenant: string, suffix: string, limit: number = 5000, startDate?: Date) {
   const supabase = createBiaSupabaseServerClient()
   const table1 = `${tenant}_${suffix}`
   const table2 = `${tenant}${suffix}`
 
-  let { data, error } = await supabase.from(table1).select("*").limit(limit)
+  let q1 = supabase.from(table1).select("*")
+  if (startDate) q1 = q1.gte('created_at', startDate.toISOString())
+  let { data, error } = await q1.limit(limit)
 
   if (error && error.message.includes('does not exist')) {
     console.log(`[Overview] Tabela ${table1} não existe, tentando ${table2}...`)
-    const res2 = await supabase.from(table2).select("*").limit(limit)
+    let q2 = supabase.from(table2).select("*")
+    if (startDate) q2 = q2.gte('created_at', startDate.toISOString())
+    const res2 = await q2.limit(limit)
+
     data = res2.data
     error = res2.error
   }
@@ -602,9 +621,9 @@ export async function GET(req: Request) {
     const notificationsTable = `${tenant}_notifications`
 
     const [sessionsData, followupsData, disparosData] = await Promise.all([
-      getDirectChatsData(tenant),
-      getDirectFollowupsData(tenant),
-      getDisparosLeads(tenant)
+      getDirectChatsData(tenant, startDate),
+      getDirectFollowupsData(tenant, startDate),
+      getDisparosLeads(tenant, startDate)
     ])
 
     console.log(`[Overview] Carregadas ${sessionsData.length} sessões totais`)
@@ -626,8 +645,8 @@ export async function GET(req: Request) {
     })).filter(s => s.messages.length > 0)
 
     const [agData, notificationsData] = await Promise.all([
-      fetchTableDataRobust(tenant, 'agendamentos'),
-      fetchTableDataRobust(tenant, 'notifications'),
+      fetchTableDataRobust(tenant, 'agendamentos', 5000, startDate),
+      fetchTableDataRobust(tenant, 'notifications', 5000, startDate),
     ])
 
     const supabase = createBiaSupabaseServerClient()
