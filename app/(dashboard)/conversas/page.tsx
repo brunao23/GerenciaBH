@@ -5,12 +5,13 @@ import type React from "react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Input } from "../../../components/ui/input"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card"
 import { ScrollArea } from "../../../components/ui/scroll-area"
 import { Avatar, AvatarFallback } from "../../../components/ui/avatar"
 import { Badge } from "../../../components/ui/badge"
 import { Button } from "../../../components/ui/button"
-import { Search, MessageSquare, Phone, User, Clock, AlertCircle, CheckCircle2, PauseCircle, PlayCircle, Calendar, UserMinus, Loader2, Briefcase, Target, Clock3, Sparkles, Zap } from "lucide-react"
+import { Search, MessageSquare, Phone, User, Clock, AlertCircle, CheckCircle2, PauseCircle, PlayCircle, Calendar, UserMinus, Loader2, Briefcase, Target, Clock3, Sparkles, Zap, Download, ListChecks, XCircle } from "lucide-react"
 import { useTenant } from "@/lib/contexts/TenantContext"
 
 type ChatMessage = {
@@ -148,6 +149,10 @@ export default function ConversasPage() {
   const [pauseLoading, setPauseLoading] = useState(false)
   const [followupAIEnabled, setFollowupAIEnabled] = useState<boolean>(false)
   const [followupAILoading, setFollowupAILoading] = useState(false)
+
+  // Estados para Seleção Múltipla
+  const [isSelectionMode, setIsSelectionMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
 
   const params = useSearchParams()
   const router = useRouter()
@@ -363,6 +368,40 @@ export default function ConversasPage() {
     }
   }, [current])
 
+  const handleExportChat = () => {
+    if (!current || !current.messages) return;
+
+    const lines = [];
+    lines.push(`Conversa com: ${current.contact_name || "Lead"} (${current.numero || "Sem número"})`);
+    lines.push(`Data da Exportação: ${new Date().toLocaleString('pt-BR')}`);
+    lines.push("--------------------------------------------------");
+    lines.push("");
+
+    current.messages.forEach((msg) => {
+      const role = msg.role === 'user' ? 'CLIENTE' : 'IA';
+      const time = fmtBR(msg.created_at);
+      const content = msg.content ? msg.content.replace(/\r\n/g, '\n').trim() : "";
+
+      lines.push(`[${time}] ${role}:`);
+      lines.push(content);
+      lines.push(""); // Linha em branco entre mensagens
+    });
+
+    lines.push("--------------------------------------------------");
+    lines.push("Fim da conversa exportada.");
+
+    const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    // Sanitizar nome do arquivo
+    const safeName = (current.contact_name || "lead").replace(/[^a-z0-9]/gi, '_').toLowerCase();
+    link.download = `chat_${safeName}_${new Date().toISOString().split('T')[0]}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const filtered = useMemo(() => {
     if (!query.trim()) {
       return sessions.map((session) => ({ session, score: 0, matchedMessages: [] }))
@@ -390,15 +429,108 @@ export default function ConversasPage() {
     return <span dangerouslySetInnerHTML={{ __html: highlightedText }} />
   }
 
+  const handleBulkExport = () => {
+    const sessionsToExport = sessions.filter(s => selectedIds.includes(s.session_id));
+    if (sessionsToExport.length === 0) return;
+
+    const lines: string[] = [];
+    lines.push("RELATÓRIO DE EXPORTAÇÃO EM MASSA");
+    lines.push(`Data: ${new Date().toLocaleString('pt-BR')}`);
+    lines.push(`Total de conversas: ${sessionsToExport.length}`);
+    lines.push("================================================================================");
+    lines.push("");
+
+    sessionsToExport.forEach((session, index) => {
+      lines.push(`CONVERSA ${index + 1} DE ${sessionsToExport.length}`);
+      lines.push(`Contato: ${session.contact_name || "Lead"} (${session.numero || "Sem número"})`);
+      lines.push(`ID Sessão: ${session.session_id}`);
+      lines.push("--------------------------------------------------");
+
+      session.messages.forEach(msg => {
+        const role = msg.role === 'user' ? 'CLIENTE' : 'IA';
+        const time = fmtBR(msg.created_at);
+        const content = msg.content ? msg.content.replace(/\r\n/g, '\n').trim() : "";
+        lines.push(`[${time}] ${role}: ${content}`);
+      });
+
+      lines.push("");
+      lines.push("================================================================================");
+      lines.push("");
+    });
+
+    const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `exportacao_massa_${new Date().toISOString().split('T')[0]}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    // Limpar seleção após exportar
+    setSelectedIds([]);
+    setIsSelectionMode(false);
+    toast.success(`${sessionsToExport.length} conversas exportadas!`);
+  };
+
+  const toggleSelection = (sessionId: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(sessionId)
+        ? prev.filter(id => id !== sessionId)
+        : [...prev, sessionId]
+    )
+  }
+
+  const toggleSelectAll = () => {
+    if (selectedIds.length === filtered.length) {
+      setSelectedIds([])
+    } else {
+      setSelectedIds(filtered.map(f => f.session.session_id))
+    }
+  }
+
   return (
     <div className="h-[calc(100vh-5rem)] flex flex-col lg:flex-row gap-4 overflow-hidden">
       {/* Sidebar - Lista de Sessões */}
       <Card className="genial-card w-full lg:w-96 flex-shrink-0 flex flex-col overflow-hidden border-border-gray">
         <CardHeader className="border-b border-border-gray pb-4 shrink-0">
-          <CardTitle className="text-pure-white flex items-center gap-2 text-lg">
-            <MessageSquare className="w-5 h-5 text-accent-green" />
-            Conversas ({filtered.length})
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            {isSelectionMode ? (
+              <div className="flex items-center gap-2 w-full">
+                <Checkbox
+                  checked={filtered.length > 0 && selectedIds.length === filtered.length}
+                  onCheckedChange={toggleSelectAll}
+                  aria-label="Selecionar tudo"
+                />
+                <span className="text-sm text-pure-white truncate flex-1">
+                  {selectedIds.length} selecionados
+                </span>
+                <Button variant="ghost" size="icon" onClick={() => handleBulkExport()} disabled={selectedIds.length === 0} title="Baixar Selecionados">
+                  <Download className="w-4 h-4 text-accent-green" />
+                </Button>
+                <Button variant="ghost" size="icon" onClick={() => { setIsSelectionMode(false); setSelectedIds([]) }}>
+                  <XCircle className="w-4 h-4 text-red-400" />
+                </Button>
+              </div>
+            ) : (
+              <>
+                <CardTitle className="text-pure-white flex items-center gap-2 text-lg">
+                  <MessageSquare className="w-5 h-5 text-accent-green" />
+                  Conversas ({filtered.length})
+                </CardTitle>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setIsSelectionMode(true)}
+                  title="Selecionar Múltiplos"
+                  className="text-text-gray hover:text-white"
+                >
+                  <ListChecks className="w-5 h-5" />
+                </Button>
+              </>
+            )}
+          </div>
+
           <div className="relative mt-3">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-text-gray" />
             <Input
@@ -432,6 +564,14 @@ export default function ConversasPage() {
                       }`}
                   >
                     <div className="flex items-start gap-3">
+                      {isSelectionMode && (
+                        <div className="pt-3" onClick={(e) => e.stopPropagation()}>
+                          <Checkbox
+                            checked={selectedIds.includes(session.session_id)}
+                            onCheckedChange={() => toggleSelection(session.session_id)}
+                          />
+                        </div>
+                      )}
                       <Avatar className="w-10 h-10 shrink-0">
                         <AvatarFallback className="bg-secondary-black text-accent-green font-semibold">
                           {session.contact_name?.charAt(0).toUpperCase() || "L"}
@@ -555,6 +695,18 @@ export default function ConversasPage() {
                       {followupAILoading ? "Processando..." : followupAIEnabled ? "Follow-up AI Ativo" : "Follow-up AI Inativo"}
                     </Button>
                   )}
+                  {current?.numero && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleExportChat}
+                      className="text-xs bg-gray-500/10 text-gray-400 border-gray-500/30 hover:bg-gray-500/20 hover:text-white transition-colors"
+                      title="Baixar conversa em TXT"
+                    >
+                      <Download className="w-3 h-3 mr-1" />
+                      Exportar
+                    </Button>
+                  )}
                 </div>
               </div>
             </CardHeader>
@@ -635,12 +787,12 @@ export default function ConversasPage() {
                     >
                       <div
                         className={`max-w-[75%] md:max-w-[65%] lg:max-w-[55%] rounded-2xl px-5 py-4 shadow-lg transition-all hover:shadow-xl ${msg.role === "user"
-                            ? "bg-gradient-to-br from-[#00ff88] to-[#00cc6a] text-black border border-[#00cc6a]/30"
-                            : msg.isError
-                              ? "bg-gradient-to-br from-red-900/50 to-red-800/40 text-red-50 border-2 border-red-500/50"
-                              : msg.isSuccess
-                                ? "bg-gradient-to-br from-emerald-900/50 to-emerald-800/40 text-emerald-50 border-2 border-emerald-500/50"
-                                : "bg-gradient-to-br from-gray-800/95 to-gray-700/80 text-white border border-gray-600/50"
+                          ? "bg-gradient-to-br from-[#00ff88] to-[#00cc6a] text-black border border-[#00cc6a]/30"
+                          : msg.isError
+                            ? "bg-gradient-to-br from-red-900/50 to-red-800/40 text-red-50 border-2 border-red-500/50"
+                            : msg.isSuccess
+                              ? "bg-gradient-to-br from-emerald-900/50 to-emerald-800/40 text-emerald-50 border-2 border-emerald-500/50"
+                              : "bg-gradient-to-br from-gray-800/95 to-gray-700/80 text-white border border-gray-600/50"
                           }`}
                       >
                         <div className="flex items-center gap-2 mb-3">
