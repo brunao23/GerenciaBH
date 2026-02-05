@@ -9,9 +9,34 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
-import { Trash2, Plus, Phone, Pause, Play, Search, X } from "lucide-react"
+import {
+  Trash2,
+  Plus,
+  Phone,
+  Pause,
+  Play,
+  Search,
+  X,
+  Upload,
+  FileText,
+  AlertCircle,
+  CheckCircle2,
+  Loader2
+} from "lucide-react"
 import { toast } from "sonner"
 import { useTenant } from "@/lib/contexts/TenantContext"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogFooter,
+} from "@/components/ui/dialog"
+import { Textarea } from "@/components/ui/textarea"
+import { Progress } from "@/components/ui/progress"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 
 interface PausaRecord {
   id: number
@@ -27,7 +52,7 @@ export default function PausasPage() {
   const { tenant } = useTenant()
   const [pausas, setPausas] = useState<PausaRecord[]>([])
   const [loading, setLoading] = useState(true)
-  const [searchTerm, setSearchTerm] = useState("") // NOVO: Estado de busca
+  const [searchTerm, setSearchTerm] = useState("")
   const [novoNumero, setNovoNumero] = useState("")
   const [novaPausa, setNovaPausa] = useState({
     pausar: false,
@@ -35,27 +60,36 @@ export default function PausasPage() {
     agendamento: true,
   })
 
+  // Estados para Importação em Massa
+  const [importOpen, setImportOpen] = useState(false)
+  const [importText, setImportText] = useState("")
+  const [importConfig, setImportConfig] = useState({
+    pausar: true,
+    vaga: false,
+    agendamento: true
+  })
+  const [isImporting, setIsImporting] = useState(false)
+  const [importProgress, setImportProgress] = useState(0)
+  const [importStats, setImportStats] = useState<{ total: number, processed: number, success: number, errors: number } | null>(null)
+
   // Carregar pausas existentes
   const carregarPausas = async () => {
     if (!tenant) return
     try {
-      console.log("[v0] Pausas: Iniciando carregamento de pausas...")
+      console.log("[Pausas] Iniciando carregamento de pausas...")
       const response = await fetch("/api/pausar", {
         headers: { 'x-tenant-prefix': tenant.prefix }
       })
-      console.log("[v0] Pausas: Resposta recebida, status:", response.status)
 
       if (response.ok) {
         const data = await response.json()
-        console.log("[v0] Pausas: Dados recebidos:", data)
         setPausas(data.data || [])
       } else {
-        const errorText = await response.text()
-        console.log("[v0] Pausas: Erro na resposta:", response.status, errorText)
+        console.log("[Pausas] Erro na resposta:", response.status)
         toast.error(`Erro ao carregar pausas: ${response.status}`)
       }
     } catch (error) {
-      console.error("[v0] Pausas: Erro ao carregar pausas:", error)
+      console.error("[Pausas] Erro ao carregar pausas:", error)
       toast.error("Erro ao carregar pausas")
     } finally {
       setLoading(false)
@@ -100,8 +134,6 @@ export default function PausasPage() {
   // Atualizar pausa existente
   const atualizarPausa = async (id: number, updates: Partial<PausaRecord>) => {
     try {
-      console.log("[v0] Pausas: Atualizando pausa", id, updates)
-
       const pausaAtual = pausas.find((p) => p.id === id)
       if (!pausaAtual) {
         toast.error("Pausa não encontrada")
@@ -116,23 +148,19 @@ export default function PausasPage() {
         },
         body: JSON.stringify({
           id,
-          numero: pausaAtual.numero, // Incluindo o número obrigatório
+          numero: pausaAtual.numero,
           ...updates,
         }),
       })
-
-      console.log("[v0] Pausas: Resposta da atualização, status:", response.status)
 
       if (response.ok) {
         toast.success("Pausa atualizada")
         carregarPausas()
       } else {
-        const errorText = await response.text()
-        console.log("[v0] Pausas: Erro na atualização:", errorText)
         toast.error("Erro ao atualizar pausa")
       }
     } catch (error) {
-      console.error("[v0] Pausas: Erro ao atualizar pausa:", error)
+      console.error("[Pausas] Erro ao atualizar pausa:", error)
       toast.error("Erro ao atualizar pausa")
     }
   }
@@ -161,31 +189,227 @@ export default function PausasPage() {
     }
   }
 
+  // Processar Importação em Massa
+  const processarImportacao = async () => {
+    if (!importText.trim()) {
+      toast.error("Cole a lista de números primeiro")
+      return
+    }
+
+    setIsImporting(true)
+    setImportProgress(0)
+
+    // Normalizar lista: quebrar por linhas, remover vazios, limpar caracteres
+    const rawLines = importText.split(/[\n,;]+/) // Aceita quebra de linha, vírgula ou ponto e vírgula
+    const cleanNumbers = rawLines
+      .map(l => l.replace(/\D/g, ''))
+      .filter(n => n.length >= 8)
+
+    const uniqueNumbers = Array.from(new Set(cleanNumbers))
+    const total = uniqueNumbers.length
+
+    if (total === 0) {
+      toast.error("Nenhum número válido encontrado.")
+      setIsImporting(false)
+      return
+    }
+
+    setImportStats({ total, processed: 0, success: 0, errors: 0 })
+
+    // Processar em lotes de 500
+    const BATCH_SIZE = 500
+    const batches = []
+
+    for (let i = 0; i < total; i += BATCH_SIZE) {
+      batches.push(uniqueNumbers.slice(i, i + BATCH_SIZE))
+    }
+
+    let processedCount = 0
+    let successCount = 0
+    let errorCount = 0
+
+    for (const batch of batches) {
+      try {
+        const response = await fetch("/api/pausar-bulk", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-tenant-prefix": tenant?.prefix || ""
+          },
+          body: JSON.stringify({
+            numbers: batch,
+            ...importConfig
+          })
+        })
+
+        if (response.ok) {
+          const data = await response.json()
+          successCount += data.total_processed || 0
+        } else {
+          errorCount += batch.length
+          console.error("Erro no lote bulk:", await response.text())
+        }
+      } catch (err) {
+        console.error("Erro de rede no bulk:", err)
+        errorCount += batch.length
+      }
+
+      processedCount += batch.length
+      setImportProgress(Math.round((processedCount / total) * 100))
+      setImportStats({
+        total,
+        processed: processedCount,
+        success: successCount,
+        errors: errorCount
+      })
+    }
+
+    setIsImporting(false)
+    toast.success(`Processamento concluído! ${successCount} salvos.`)
+    setImportText("") // Limpa apenas se quiser, talvez o usuario queira ver o que colou? Vou limpar.
+    carregarPausas() // Recarrega a lista
+
+    // Fecha modal após 2s se sucesso total
+    if (errorCount === 0) {
+      setTimeout(() => setImportOpen(false), 2000)
+    }
+  }
+
   useEffect(() => {
     carregarPausas()
-  }, [])
+  }, [tenant]) // Reload if tenant changes
 
-  // NOVO: Filtrar pausas baseado na busca
   const pausasFiltradas = pausas.filter(pausa =>
     pausa.numero.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
   return (
     <div className="flex-1 space-y-6 p-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight text-[var(--pure-white)]">Pausas da Automação</h1>
-        <p className="text-[var(--text-gray)]">Gerencie quando pausar a automação da IA para números específicos</p>
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-[var(--pure-white)]">Pausas da Automação ({tenant?.name || '...'})</h1>
+          <p className="text-[var(--text-gray)]">Gerencie quando pausar a automação da IA para números específicos</p>
+        </div>
+
+        {/* Botão de Importação em Massa */}
+        <Dialog open={importOpen} onOpenChange={setImportOpen}>
+          <DialogTrigger asChild>
+            <Button className="bg-[var(--accent-green)] hover:bg-green-600 text-white font-bold shadow-lg shadow-green-900/20">
+              <Upload className="w-4 h-4 mr-2" />
+              Importar em Massa
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="max-w-2xl bg-[#121212] border-[#333] text-white">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-xl">
+                <FileText className="w-5 h-5 text-yellow-500" />
+                Importação em Massa
+              </DialogTitle>
+              <DialogDescription className="text-gray-400">
+                Cole uma lista de números para aplicar as configurações de pausa automaticamente.
+                O sistema remove duplicatas e caracteres não numéricos.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="grid gap-6 py-4">
+              {/* Configurações Globais */}
+              <div className="grid grid-cols-3 gap-4 p-4 bg-[#1a1a1a] rounded-lg border border-[#333]">
+                <div className="flex flex-col items-center gap-2">
+                  <Label>Pausar IA</Label>
+                  <Switch
+                    checked={importConfig.pausar}
+                    onCheckedChange={(c) => setImportConfig(prev => ({ ...prev, pausar: c }))}
+                    className="data-[state=checked]:bg-yellow-500"
+                  />
+                </div>
+                <div className="flex flex-col items-center gap-2">
+                  <Label>Vaga Disponível</Label>
+                  <Switch
+                    checked={importConfig.vaga}
+                    onCheckedChange={(c) => setImportConfig(prev => ({ ...prev, vaga: c }))}
+                    className="data-[state=checked]:bg-green-500"
+                  />
+                </div>
+                <div className="flex flex-col items-center gap-2">
+                  <Label>Agendamento</Label>
+                  <Switch
+                    checked={importConfig.agendamento}
+                    onCheckedChange={(c) => setImportConfig(prev => ({ ...prev, agendamento: c }))}
+                    className="data-[state=checked]:bg-blue-500"
+                  />
+                </div>
+              </div>
+
+              {/* Área de Texto */}
+              <div className="space-y-2">
+                <Label>Lista de Números (Excel, CSV, Texto)</Label>
+                <Textarea
+                  placeholder={"5527999999999\n5527988888888\n..."}
+                  className="h-48 bg-[#0a0a0a] border-[#333] font-mono text-sm"
+                  value={importText}
+                  onChange={(e) => setImportText(e.target.value)}
+                  disabled={isImporting}
+                />
+                <p className="text-xs text-gray-500 text-right">
+                  {importText ? `${importText.split('\n').filter(l => l.trim().length > 0).length} linhas detectadas` : 'Cole uma lista...'}
+                </p>
+              </div>
+
+              {/* Progresso */}
+              {isImporting && importStats && (
+                <div className="space-y-2">
+                  <div className="flex justify-between text-xs text-gray-400">
+                    <span>Processando: {importStats.processed}/{importStats.total}</span>
+                    <span>{importProgress}%</span>
+                  </div>
+                  <Progress value={importProgress} className="h-2 bg-[#333]" />
+                </div>
+              )}
+
+              {/* Resultado Final */}
+              {!isImporting && importStats && importStats.processed > 0 && (
+                <Alert className={`bg-[#1a1a1a] ${importStats.errors > 0 ? 'border-red-900' : 'border-green-900'}`}>
+                  {importStats.errors > 0 ? <AlertCircle className="h-4 w-4 text-red-500" /> : <CheckCircle2 className="h-4 w-4 text-green-500" />}
+                  <AlertTitle>{importStats.errors > 0 ? 'Atenção' : 'Sucesso!'}</AlertTitle>
+                  <AlertDescription>
+                    {importStats.success} números importados com sucesso. {importStats.errors} falhas.
+                  </AlertDescription>
+                </Alert>
+              )}
+            </div>
+
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setImportOpen(false)} disabled={isImporting}>
+                Cancelar
+              </Button>
+              <Button
+                onClick={processarImportacao}
+                disabled={isImporting || !importText.trim()}
+                className="bg-yellow-500 text-black hover:bg-yellow-600 font-bold"
+              >
+                {isImporting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Processando...
+                  </>
+                ) : (
+                  'Iniciar Importação'
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
       </div>
 
-      {/* Formulário para adicionar nova pausa */}
+      {/* Formulário para adicionar nova pausa UNITÁRIA */}
       <Card className="bg-[var(--card-black)] border-[var(--border-gray)]">
         <CardHeader>
           <CardTitle className="text-[var(--pure-white)] flex items-center gap-2">
             <Plus className="h-5 w-5 text-[var(--accent-green)]" />
-            Adicionar Nova Pausa
+            Adicionar Nova Pausa (Individual)
           </CardTitle>
           <CardDescription className="text-[var(--text-gray)]">
-            Configure pausas para números específicos
+            Configure pausas para um número específico manualmente
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -208,6 +432,7 @@ export default function PausasPage() {
                 <Switch
                   checked={novaPausa.pausar}
                   onCheckedChange={(checked) => setNovaPausa((prev) => ({ ...prev, pausar: checked }))}
+                  className="data-[state=checked]:bg-yellow-500"
                 />
               </div>
               <div className="flex items-center justify-between">
@@ -215,6 +440,7 @@ export default function PausasPage() {
                 <Switch
                   checked={novaPausa.vaga}
                   onCheckedChange={(checked) => setNovaPausa((prev) => ({ ...prev, vaga: checked }))}
+                  className="data-[state=checked]:bg-[var(--accent-green)]"
                 />
               </div>
               <div className="flex items-center justify-between">
@@ -222,6 +448,7 @@ export default function PausasPage() {
                 <Switch
                   checked={novaPausa.agendamento}
                   onCheckedChange={(checked) => setNovaPausa((prev) => ({ ...prev, agendamento: checked }))}
+                  className="data-[state=checked]:bg-blue-500"
                 />
               </div>
             </div>
@@ -231,7 +458,7 @@ export default function PausasPage() {
             className="bg-[var(--accent-yellow)] hover:bg-yellow-500 text-[var(--primary-black)] font-semibold"
           >
             <Plus className="h-4 w-4 mr-2" />
-            Adicionar Pausa
+            Adicionar Manualmente
           </Button>
         </CardContent>
       </Card>
@@ -270,7 +497,10 @@ export default function PausasPage() {
         </CardHeader>
         <CardContent>
           {loading ? (
-            <div className="text-center py-8 text-[var(--text-gray)]">Carregando pausas...</div>
+            <div className="text-center py-8 text-[var(--text-gray)]">
+              <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2 text-yellow-500" />
+              Carregando pausas...
+            </div>
           ) : pausasFiltradas.length === 0 ? (
             <div className="text-center py-8 text-[var(--text-gray)]">
               {searchTerm ? `Nenhum número encontrado para "${searchTerm}"` : 'Nenhuma pausa configurada'}
@@ -320,7 +550,6 @@ export default function PausasPage() {
                         <Switch
                           checked={pausa.pausar}
                           onCheckedChange={(checked) => {
-                            console.log("[v0] Pausas: Switch pausar clicado", pausa.id, checked)
                             atualizarPausa(pausa.id, { pausar: checked })
                           }}
                           className="data-[state=checked]:bg-yellow-500"
@@ -331,7 +560,6 @@ export default function PausasPage() {
                         <Switch
                           checked={pausa.vaga}
                           onCheckedChange={(checked) => {
-                            console.log("[v0] Pausas: Switch vaga clicado", pausa.id, checked)
                             atualizarPausa(pausa.id, { vaga: checked })
                           }}
                           className="data-[state=checked]:bg-[var(--accent-green)]"
@@ -342,7 +570,6 @@ export default function PausasPage() {
                         <Switch
                           checked={pausa.agendamento}
                           onCheckedChange={(checked) => {
-                            console.log("[v0] Pausas: Switch agendamento clicado", pausa.id, checked)
                             atualizarPausa(pausa.id, { agendamento: checked })
                           }}
                           className="data-[state=checked]:bg-blue-500"
