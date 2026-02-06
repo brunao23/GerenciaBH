@@ -6,12 +6,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Input } from "../../../components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Textarea } from "@/components/ui/textarea"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card"
 import { ScrollArea } from "../../../components/ui/scroll-area"
 import { Avatar, AvatarFallback } from "../../../components/ui/avatar"
 import { Badge } from "../../../components/ui/badge"
 import { Button } from "../../../components/ui/button"
-import { Search, MessageSquare, Phone, User, Clock, AlertCircle, CheckCircle2, PauseCircle, PlayCircle, Calendar, UserMinus, Loader2, Briefcase, Target, Clock3, Sparkles, Zap, Download, ListChecks, XCircle } from "lucide-react"
+import { Search, MessageSquare, Phone, User, Clock, AlertCircle, CheckCircle2, PauseCircle, PlayCircle, Calendar, UserMinus, Loader2, Briefcase, Target, Clock3, Sparkles, Zap, Download, ListChecks, XCircle, Send } from "lucide-react"
 import { useTenant } from "@/lib/contexts/TenantContext"
 
 type ChatMessage = {
@@ -149,6 +157,11 @@ export default function ConversasPage() {
   const [pauseLoading, setPauseLoading] = useState(false)
   const [followupAIEnabled, setFollowupAIEnabled] = useState<boolean>(false)
   const [followupAILoading, setFollowupAILoading] = useState(false)
+
+  // Estados de Envio Mensagem Humana
+  const [messageInput, setMessageInput] = useState("")
+  const [pauseDuration, setPauseDuration] = useState("30")
+  const [isSending, setIsSending] = useState(false)
 
   // Estados para Seleção Múltipla
   const [isSelectionMode, setIsSelectionMode] = useState(false)
@@ -489,6 +502,66 @@ export default function ConversasPage() {
     }
   }
 
+  const handleSendMessage = async () => {
+    if (!messageInput.trim() || !current?.numero) return
+    setIsSending(true)
+
+    try {
+      // 1. Simular envio imediato (Optimistic UI) - A API real será implementada depois
+      const tempMsg: ChatMessage = {
+        role: 'bot', // Usando bot para alinhar à direita ou criar lógica visual diferente depois
+        content: messageInput,
+        created_at: new Date().toISOString(),
+        isSuccess: true // Marcador de enviado
+      }
+
+      // Atualizar lista localmente
+      const updatedSessions = sessions.map(s => {
+        if (s.session_id === current.session_id) {
+          return { ...s, messages: [...s.messages, tempMsg] }
+        }
+        return s
+      })
+      setSessions(updatedSessions)
+
+      // 2. Chamar API de Pausa Automática
+      console.log(`[Conversas] Enviando mensagem e pausando por ${pauseDuration} mins (ou permanente)`)
+
+      // Calcular data de expiração
+      let pausedUntil = null
+      if (pauseDuration !== 'permanent') {
+        const minutes = parseInt(pauseDuration)
+        if (!isNaN(minutes)) {
+          const date = new Date()
+          date.setMinutes(date.getMinutes() + minutes)
+          pausedUntil = date.toISOString()
+        }
+      }
+
+      await fetch("/api/pausar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          numero: current.numero,
+          pausar: true,
+          paused_until: pausedUntil
+        })
+      })
+
+      // Atualizar status de pausa visualmente
+      setPauseStatus(prev => prev ? { ...prev, pausar: true } : { pausar: true, vaga: true, agendamento: true })
+      setMessageInput("")
+
+      // Feedback
+      // toast.success("Mensagem enviada e IA pausada.")
+
+    } catch (err) {
+      console.error("Erro ao enviar:", err)
+    } finally {
+      setIsSending(false)
+    }
+  }
+
   return (
     <div className="h-[calc(100vh-5rem)] flex flex-col lg:flex-row gap-4 overflow-hidden">
       {/* Sidebar - Lista de Sessões */}
@@ -820,6 +893,54 @@ export default function ConversasPage() {
                 </div>
               </ScrollArea>
             </CardContent>
+
+            {/* Footer de Envio de Mensagem */}
+            <div className="p-4 border-t border-border-gray bg-[#151515]">
+              <div className="flex items-center gap-3 mb-3">
+                <span className="text-xs text-text-gray font-medium flex items-center gap-1">
+                  <PauseCircle className="w-3 h-3 text-yellow-500" />
+                  Ao enviar, pausar IA por:
+                </span>
+                <Select value={pauseDuration} onValueChange={setPauseDuration}>
+                  <SelectTrigger className="h-7 w-[140px] text-xs bg-black/40 border-border-gray text-pure-white focus:ring-accent-green">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-[#1a1a1a] border-[#333] text-pure-white">
+                    <SelectItem value="10">10 minutos</SelectItem>
+                    <SelectItem value="20">20 minutos</SelectItem>
+                    <SelectItem value="30">30 minutos</SelectItem>
+                    <SelectItem value="60">1 hora</SelectItem>
+                    <SelectItem value="permanent">Permanente</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex gap-3">
+                <Textarea
+                  value={messageInput}
+                  onChange={e => setMessageInput(e.target.value)}
+                  placeholder="Digite sua resposta aqui... (Enter envia)"
+                  className="min-h-[50px] max-h-[120px] bg-black/40 border-border-gray resize-none text-pure-white placeholder:text-gray-600 focus:border-accent-green genial-scrollbar"
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      handleSendMessage()
+                    }
+                  }}
+                />
+                <Button
+                  onClick={handleSendMessage}
+                  disabled={!messageInput.trim() || isSending}
+                  className="h-[50px] w-[50px] bg-accent-green hover:bg-green-600 shadow-lg shadow-green-900/20 shrink-0"
+                >
+                  {isSending ? (
+                    <Loader2 className="w-5 h-5 animate-spin text-white" />
+                  ) : (
+                    <Send className="w-5 h-5 text-white" />
+                  )}
+                </Button>
+              </div>
+            </div>
+
           </>
         ) : (
           <div className="flex-1 flex items-center justify-center text-text-gray">

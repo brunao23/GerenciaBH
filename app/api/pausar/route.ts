@@ -7,7 +7,9 @@ import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
  */
 function normalizePhoneNumber(numero: string): string {
   if (!numero || typeof numero !== 'string') return ''
-  return numero.replace(/\D/g, '')
+  // Remove sufixos de ID (ex: 5511999999999@c.us -> 5511999999999) antes de limpar
+  const idPrefix = numero.split('@')[0]
+  return idPrefix.replace(/\D/g, '')
 }
 
 /**
@@ -96,7 +98,7 @@ export async function POST(request: NextRequest) {
     const { tables } = await getTenantFromRequest()
     const { pausar: pausarTable } = tables
     const body = await request.json()
-    const { numero, pausar, vaga, agendamento } = body
+    const { numero, pausar, vaga, agendamento, paused_until } = body
 
     // Validação do número
     if (!numero || typeof numero !== 'string') {
@@ -135,6 +137,7 @@ export async function POST(request: NextRequest) {
           pausar: pausarBool,
           vaga: vagaBool,
           agendamento: agendamentoBool,
+          paused_until: paused_until, // Pode ser null ou data ISO string
           updated_at: new Date().toISOString(),
         },
         {
@@ -185,7 +188,7 @@ export async function PUT(request: NextRequest) {
     const { tables } = await getTenantFromRequest()
     const { pausar: pausarTable } = tables
     const body = await request.json()
-    const { numero, pausar, vaga, agendamento } = body
+    const { numero, pausar, vaga, agendamento, paused_until } = body
 
     if (!numero || typeof numero !== 'string') {
       return NextResponse.json({
@@ -219,6 +222,9 @@ export async function PUT(request: NextRequest) {
     }
     if (agendamento !== undefined) {
       updateData.agendamento = agendamento === true || agendamento === "true" || agendamento === 1 || agendamento === "1"
+    }
+    if (paused_until !== undefined) {
+      updateData.paused_until = paused_until
     }
 
     console.log(`[Pausar API PUT] Atualizando ${normalizedNumero}:`, updateData)
