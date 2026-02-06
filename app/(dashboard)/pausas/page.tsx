@@ -21,7 +21,8 @@ import {
   FileText,
   AlertCircle,
   CheckCircle2,
-  Loader2
+  Loader2,
+  AlertTriangle
 } from "lucide-react"
 import { toast } from "sonner"
 import { useTenant } from "@/lib/contexts/TenantContext"
@@ -60,6 +61,9 @@ export default function PausasPage() {
     agendamento: true,
   })
 
+  // Estado para Modal de Confirmação Individual
+  const [confirmPausaOpen, setConfirmPausaOpen] = useState(false)
+
   // Estados para Importação em Massa
   const [importOpen, setImportOpen] = useState(false)
   const [importText, setImportText] = useState("")
@@ -71,6 +75,16 @@ export default function PausasPage() {
   const [isImporting, setIsImporting] = useState(false)
   const [importProgress, setImportProgress] = useState(0)
   const [importStats, setImportStats] = useState<{ total: number, processed: number, success: number, errors: number } | null>(null)
+
+  // Helper para garantir prefixo 55
+  const ensureBRPrefix = (num: string) => {
+    const clean = num.replace(/\D/g, '')
+    // Se tiver 10 ou 11 dígitos (DDD + numero), adiciona 55
+    if (clean.length === 10 || clean.length === 11) {
+      return `55${clean}`
+    }
+    return clean
+  }
 
   // Carregar pausas existentes
   const carregarPausas = async () => {
@@ -96,13 +110,21 @@ export default function PausasPage() {
     }
   }
 
-  // Adicionar nova pausa
-  const adicionarPausa = async () => {
+  // Preparar Adição (Abre Modal)
+  const handlePreAddPausa = () => {
     if (!novoNumero.trim()) {
       toast.error("Digite um número válido")
       return
     }
+    const formatted = ensureBRPrefix(novoNumero)
+    setNovoNumero(formatted)
+    setConfirmPausaOpen(true)
+    // Reseta configs para o padrão seguro inicial se quiser
+    // setNovaPausa({ pausar: false, vaga: true, agendamento: true })
+  }
 
+  // Confirmar e Adicionar Pausa
+  const adicionarPausaConfirmada = async () => {
     try {
       const response = await fetch("/api/pausar", {
         method: "POST",
@@ -120,6 +142,7 @@ export default function PausasPage() {
         toast.success("Pausa adicionada com sucesso")
         setNovoNumero("")
         setNovaPausa({ pausar: false, vaga: true, agendamento: true })
+        setConfirmPausaOpen(false)
         carregarPausas()
       } else {
         const error = await response.json()
@@ -199,10 +222,10 @@ export default function PausasPage() {
     setIsImporting(true)
     setImportProgress(0)
 
-    // Normalizar lista: quebrar por linhas, remover vazios, limpar caracteres
-    const rawLines = importText.split(/[\n,;]+/) // Aceita quebra de linha, vírgula ou ponto e vírgula
+    // Normalizar lista: quebrar por linhas, remover vazios, limpar caracteres E ADICIONAR 55
+    const rawLines = importText.split(/[\n,;]+/)
     const cleanNumbers = rawLines
-      .map(l => l.replace(/\D/g, ''))
+      .map(l => ensureBRPrefix(l)) // Aplica formatação automática
       .filter(n => n.length >= 8)
 
     const uniqueNumbers = Array.from(new Set(cleanNumbers))
@@ -216,7 +239,6 @@ export default function PausasPage() {
 
     setImportStats({ total, processed: 0, success: 0, errors: 0 })
 
-    // Processar em lotes de 500
     const BATCH_SIZE = 500
     const batches = []
 
@@ -266,10 +288,9 @@ export default function PausasPage() {
 
     setIsImporting(false)
     toast.success(`Processamento concluído! ${successCount} salvos.`)
-    setImportText("") // Limpa apenas se quiser, talvez o usuario queira ver o que colou? Vou limpar.
-    carregarPausas() // Recarrega a lista
+    setImportText("")
+    carregarPausas()
 
-    // Fecha modal após 2s se sucesso total
     if (errorCount === 0) {
       setTimeout(() => setImportOpen(false), 2000)
     }
@@ -277,7 +298,7 @@ export default function PausasPage() {
 
   useEffect(() => {
     carregarPausas()
-  }, [tenant]) // Reload if tenant changes
+  }, [tenant])
 
   const pausasFiltradas = pausas.filter(pausa =>
     pausa.numero.toLowerCase().includes(searchTerm.toLowerCase())
@@ -307,7 +328,7 @@ export default function PausasPage() {
               </DialogTitle>
               <DialogDescription className="text-gray-400">
                 Cole uma lista de números para aplicar as configurações de pausa automaticamente.
-                O sistema remove duplicatas e caracteres não numéricos.
+                O sistema adicionará o prefixo 55 se ausente e removerá duplicatas.
               </DialogDescription>
             </DialogHeader>
 
@@ -344,7 +365,7 @@ export default function PausasPage() {
               <div className="space-y-2">
                 <Label>Lista de Números (Excel, CSV, Texto)</Label>
                 <Textarea
-                  placeholder={"5527999999999\n5527988888888\n..."}
+                  placeholder={"27999999999\n5527988888888\n..."}
                   className="h-48 bg-[#0a0a0a] border-[#333] font-mono text-sm"
                   value={importText}
                   onChange={(e) => setImportText(e.target.value)}
@@ -398,10 +419,86 @@ export default function PausasPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
-
       </div>
 
-      {/* Formulário para adicionar nova pausa UNITÁRIA */}
+      {/* MODAL DE ADIÇÃO INDIVIDUAL (CONFIRMAÇÃO) */}
+      <Dialog open={confirmPausaOpen} onOpenChange={setConfirmPausaOpen}>
+        <DialogContent className="max-w-md bg-[#121212] border-[#333] text-white">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-xl">
+              <Pause className="w-5 h-5 text-yellow-500" />
+              Opções de Pausa
+            </DialogTitle>
+            <DialogDescription className="text-gray-400">
+              Configurando pausa para: <span className="text-white font-mono font-bold">{novoNumero}</span>
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex flex-col gap-6 py-4">
+            <div className="space-y-4">
+              <div className="flex items-center justify-between p-3 bg-[#1a1a1a] rounded border border-[#333]">
+                <div className="space-y-0.5">
+                  <Label className="text-white text-base">Pausar Automação</Label>
+                  <p className="text-xs text-gray-500">Impede que a IA responda mensagens</p>
+                </div>
+                <Switch
+                  checked={novaPausa.pausar}
+                  onCheckedChange={(c) => setNovaPausa({ ...novaPausa, pausar: c })}
+                  className="data-[state=checked]:bg-yellow-500"
+                />
+              </div>
+
+              <div className="flex items-center justify-between p-3 bg-[#1a1a1a] rounded border border-[#333]">
+                <div className="space-y-0.5">
+                  <Label className="text-white text-base">Vaga Disponível</Label>
+                  <p className="text-xs text-gray-500">Define se há vaga para o lead</p>
+                </div>
+                <Switch
+                  checked={novaPausa.vaga}
+                  onCheckedChange={(c) => setNovaPausa({ ...novaPausa, vaga: c })}
+                  className="data-[state=checked]:bg-green-500"
+                />
+              </div>
+
+              <div className="flex items-center justify-between p-3 bg-[#1a1a1a] rounded border border-[#333]">
+                <div className="space-y-0.5">
+                  <Label className="text-white text-base">Agendamento Realizado</Label>
+                  <p className="text-xs text-gray-500">Marca como agendado confirmad</p>
+                </div>
+                <Switch
+                  checked={novaPausa.agendamento}
+                  onCheckedChange={(c) => setNovaPausa({ ...novaPausa, agendamento: c })}
+                  className="data-[state=checked]:bg-blue-500"
+                />
+              </div>
+            </div>
+
+            {/* ALERTA CONDICIONAL PARA AGENDAMENTO */}
+            {novaPausa.agendamento && (
+              <Alert className="bg-blue-900/20 border-blue-800 text-blue-200">
+                <AlertTriangle className="h-4 w-4 text-blue-400" />
+                <AlertTitle className="text-blue-400">Atenção</AlertTitle>
+                <AlertDescription className="text-xs mt-1">
+                  O lead precisa <strong>realmente estar agendado</strong>.
+                  Confirmar essa opção sem agendamento real pode enviar lembretes incorretos e ser inconveniente para o cliente.
+                </AlertDescription>
+              </Alert>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setConfirmPausaOpen(false)}>Cancelar</Button>
+            <Button
+              onClick={adicionarPausaConfirmada}
+              className="bg-accent-green hover:bg-green-600 font-bold text-white shadow-lg shadow-green-900/20"
+            >
+              Confirmar Pausa
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Formulário SIMPLIFICADO para adicionar nova pausa UNITÁRIA */}
       <Card className="bg-[var(--card-black)] border-[var(--border-gray)]">
         <CardHeader>
           <CardTitle className="text-[var(--pure-white)] flex items-center gap-2">
@@ -409,57 +506,34 @@ export default function PausasPage() {
             Adicionar Nova Pausa (Individual)
           </CardTitle>
           <CardDescription className="text-[var(--text-gray)]">
-            Configure pausas para um número específico manualmente
+            Digite o número para configurar a pausa
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
+          <div className="flex gap-4 items-end">
+            <div className="space-y-2 flex-1">
               <Label htmlFor="numero" className="text-[var(--pure-white)]">
-                Número de Telefone
+                Número de Telefone (DDD + Número)
               </Label>
               <Input
                 id="numero"
-                placeholder="Ex: 5511999999999"
+                placeholder="Ex: 11999999999 (o sistema adiciona o 55)"
                 value={novoNumero}
                 onChange={(e) => setNovoNumero(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handlePreAddPausa();
+                }}
                 className="bg-[var(--secondary-black)] border-[var(--border-gray)] text-[var(--pure-white)]"
               />
             </div>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <Label className="text-[var(--pure-white)]">Pausar Automação</Label>
-                <Switch
-                  checked={novaPausa.pausar}
-                  onCheckedChange={(checked) => setNovaPausa((prev) => ({ ...prev, pausar: checked }))}
-                  className="data-[state=checked]:bg-yellow-500"
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <Label className="text-[var(--pure-white)]">Vaga Disponível</Label>
-                <Switch
-                  checked={novaPausa.vaga}
-                  onCheckedChange={(checked) => setNovaPausa((prev) => ({ ...prev, vaga: checked }))}
-                  className="data-[state=checked]:bg-[var(--accent-green)]"
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <Label className="text-[var(--pure-white)]">Agendamento</Label>
-                <Switch
-                  checked={novaPausa.agendamento}
-                  onCheckedChange={(checked) => setNovaPausa((prev) => ({ ...prev, agendamento: checked }))}
-                  className="data-[state=checked]:bg-blue-500"
-                />
-              </div>
-            </div>
+            <Button
+              onClick={handlePreAddPausa}
+              className="bg-[var(--accent-yellow)] hover:bg-yellow-500 text-[var(--primary-black)] font-semibold mb-[2px]"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Configurar
+            </Button>
           </div>
-          <Button
-            onClick={adicionarPausa}
-            className="bg-[var(--accent-yellow)] hover:bg-yellow-500 text-[var(--primary-black)] font-semibold"
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Adicionar Manualmente
-          </Button>
         </CardContent>
       </Card>
 
