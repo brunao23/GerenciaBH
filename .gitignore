@@ -22,6 +22,10 @@ yarn-error.log*
 # vercel
 .vercel
 
+# auto-generated agent folders
+.agent/
+.emergent/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
