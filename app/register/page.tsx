@@ -49,10 +49,10 @@ export default function RegisterPage() {
             <Card className="w-full max-w-md genial-card">
                 <CardHeader className="text-center">
                     <div className="mb-4">
-                        <h1 className="text-3xl font-bold bg-gradient-to-r from-accent-yellow to-dark-yellow bg-clip-text text-transparent">
+                        <h1 className="text-3xl font-bold bg-gradient-to-r from-accent-green to-dark-green bg-clip-text text-transparent">
                             GerencIA
                         </h1>
-                        <p className="text-sm text-text-gray mt-1">By CORE LION AI</p>
+                        <p className="text-sm text-text-gray mt-1">Genial Labs AI</p>
                     </div>
                     <CardTitle className="text-2xl text-pure-white">Criar Novo Acesso</CardTitle>
                     <CardDescription className="text-text-gray">
@@ -120,7 +120,7 @@ export default function RegisterPage() {
                         <Button
                             type="submit"
                             disabled={loading}
-                            className="w-full bg-gradient-to-r from-accent-yellow to-dark-yellow text-primary-black font-semibold hover:opacity-90"
+                            className="w-full bg-gradient-to-r from-accent-green to-dark-green text-primary-black font-semibold hover:opacity-90"
                         >
                             {loading ? "Criando acesso..." : "Criar Acesso"}
                         </Button>
@@ -128,7 +128,7 @@ export default function RegisterPage() {
                         <div className="text-center pt-4">
                             <p className="text-sm text-text-gray">
                                 Já tem acesso?{" "}
-                                <Link href="/login" className="text-accent-yellow hover:underline font-medium">
+                                <Link href="/login" className="text-accent-green hover:underline font-medium">
                                     Fazer Login
                                 </Link>
                             </p>

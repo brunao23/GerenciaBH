@@ -6,6 +6,8 @@
 import { cookies } from 'next/headers'
 import { verifyToken } from '@/lib/auth/jwt'
 import { getTablesForTenant, isRegisteredTenant } from './tenant'
+import { normalizeTenant } from './normalize-tenant'
+import { normalizeTenantAlias, resolveTenantDataPrefix } from './tenant-resolution'
 
 /**
  * Obtém o tenant da sessão JWT (Cookie auth-token)
@@ -36,18 +38,32 @@ export async function getTenantFromRequest() {
             throw new Error('❌ Sessão inválida. Faça login novamente.')
         }
 
-        const tenant = session.unitPrefix
+        const rawTenant = normalizeTenant(session.unitPrefix)
 
-        if (!isRegisteredTenant(tenant)) {
-            throw new Error(`❌ Unidade '${tenant}' não está registrada no sistema.`)
+        if (!isRegisteredTenant(rawTenant)) {
+            throw new Error(`❌ Unidade '${rawTenant}' não está registrada no sistema.`)
         }
 
-        console.log(`✅ [API] Tenant autenticado: ${tenant}`)
+        const logicalTenant = normalizeTenantAlias(rawTenant)
+        let dataTenant = rawTenant
+        try {
+            dataTenant = await resolveTenantDataPrefix(rawTenant)
+        } catch (error: any) {
+            console.warn(
+                "⚠️ [getTenantFromRequest] Falha ao resolver tenant de dados, usando bruto:",
+                error?.message || error
+            )
+        }
+
+        console.log(`✅ [API] Tenant autenticado: raw=${rawTenant} logical=${logicalTenant} data=${dataTenant}`)
 
         return {
-            tenant,
-            tables: getTablesForTenant(tenant),
-            session
+            tenant: dataTenant,
+            tables: getTablesForTenant(dataTenant),
+            session,
+            rawTenant,
+            logicalTenant,
+            dataTenant,
         }
     } catch (error: any) {
         console.error('❌ [getTenantFromRequest] Erro:', error.message)
@@ -76,18 +92,19 @@ export async function getTablesFromRequest() {
  * USE APENAS para endpoints que não são chamados pelo frontend!
  */
 export function getTenantFromHeader(req: Request): string {
-    const tenant = req.headers.get('x-tenant-prefix')
+    const rawTenant = normalizeTenant(req.headers.get('x-tenant-prefix') || '')
 
-    if (!tenant) {
+    if (!rawTenant) {
         throw new Error('❌ Header x-tenant-prefix não encontrado')
     }
 
-    if (!isRegisteredTenant(tenant)) {
-        throw new Error(`❌ Tenant '${tenant}' não está registrado`)
+    if (!isRegisteredTenant(rawTenant)) {
+        throw new Error(`❌ Tenant '${rawTenant}' não está registrado`)
     }
 
-    console.log(`⚠️ [API] Tenant via header (cron/webhook): ${tenant}`)
-    return tenant
+    const logicalTenant = normalizeTenantAlias(rawTenant)
+    console.log(`⚠️ [API] Tenant via header (cron/webhook): raw=${rawTenant} logical=${logicalTenant}`)
+    return logicalTenant
 }
 
 /**
@@ -95,21 +112,32 @@ export function getTenantFromHeader(req: Request): string {
  */
 export async function getTenantFromHeaderOrBody(req: Request, body?: any): Promise<string> {
     // Tentar header primeiro
-    let tenant = req.headers.get('x-tenant-prefix')
+    let rawTenant = normalizeTenant(req.headers.get('x-tenant-prefix') || '')
 
     // Se não tem header, tentar body
-    if (!tenant && body?.tenant) {
-        tenant = body.tenant
+    if (!rawTenant && body?.tenant) {
+        rawTenant = normalizeTenant(body.tenant)
     }
 
-    if (!tenant) {
+    if (!rawTenant) {
         throw new Error('❌ Tenant não especificado (header ou body)')
     }
 
-    if (!isRegisteredTenant(tenant)) {
-        throw new Error(`❌ Tenant '${tenant}' não está registrado`)
+    if (!isRegisteredTenant(rawTenant)) {
+        throw new Error(`❌ Tenant '${rawTenant}' não está registrado`)
     }
 
-    console.log(`⚠️ [API] Tenant externo: ${tenant}`)
-    return tenant
+    const logicalTenant = normalizeTenantAlias(rawTenant)
+    let dataTenant = logicalTenant
+    try {
+        dataTenant = await resolveTenantDataPrefix(logicalTenant)
+    } catch (error: any) {
+        console.warn(
+            "⚠️ [API] Falha ao resolver tenant externo, usando lógico:",
+            error?.message || error
+        )
+    }
+
+    console.log(`⚠️ [API] Tenant externo: raw=${rawTenant} logical=${logicalTenant} data=${dataTenant}`)
+    return dataTenant
 }

@@ -206,7 +206,7 @@ export function FollowUpScheduler() {
     switch (status) {
       case "pendente":
         return (
-          <Badge variant="secondary" className="bg-yellow-500/20 text-yellow-300 border-yellow-500/30">
+          <Badge variant="secondary" className="bg-green-500/20 text-green-300 border-green-500/30">
             <Clock className="w-3 h-3 mr-1" />
             Pendente
           </Badge>
@@ -378,7 +378,7 @@ export function FollowUpScheduler() {
               <CardTitle className="text-sm font-medium text-white">Pendentes</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-yellow-400">{stats.pendentes}</div>
+              <div className="text-2xl font-bold text-green-400">{stats.pendentes}</div>
             </CardContent>
           </Card>
           <Card className="bg-[var(--card-black)] border-[var(--border-gray)]">

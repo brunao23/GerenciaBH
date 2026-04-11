@@ -64,6 +64,21 @@ export async function POST(req: Request) {
                 unit_prefix: unitPrefix,
                 password_hash: passwordHash,
                 created_by: 'admin',
+                metadata: {
+                    weeklyReport: {
+                        enabled: true,
+                        groups: [],
+                        notes: '',
+                        dayOfWeek: 1,
+                        hour: 9,
+                        timezone: 'America/Sao_Paulo',
+                        lastSentAt: null,
+                        lastAttemptAt: null,
+                        lastMetrics: {},
+                        lastError: null,
+                        updatedAt: new Date().toISOString(),
+                    },
+                },
             })
             .select()
             .single()
@@ -87,6 +102,11 @@ export async function POST(req: Request) {
                     { error: 'Erro ao criar estrutura do banco de dados' },
                     { status: 500 }
                 )
+            }
+
+            const { error: webhookTriggerError } = await supabase.rpc('ensure_agendamentos_webhook_triggers')
+            if (webhookTriggerError) {
+                console.warn('[Admin Create Unit] Aviso ao vincular webhook de agendamentos:', webhookTriggerError.message)
             }
         } catch (error) {
             console.error('[Admin Create Unit] Erro ao executar create_new_unit:', error)

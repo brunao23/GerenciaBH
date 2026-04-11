@@ -28,8 +28,13 @@ export async function GET(req: Request) {
       throw unread.error
     }
 
+    const items = (list.data ?? []).map((item: any) => ({
+      ...item,
+      description: item?.description ?? item?.message ?? null,
+    }))
+
     return NextResponse.json({
-      items: list.data ?? [],
+      items,
       unread: unread.count ?? 0,
     })
   } catch (e: any) {
@@ -77,7 +82,7 @@ export async function PATCH(req: Request) {
       throw res.error
     }
 
-    const updated = res.count ?? res.data?.length ?? 0
+    const updated = res.count ?? (Array.isArray((res as any).data) ? (res as any).data.length : 0)
     console.log("[v0] Notificações atualizadas:", updated)
 
     return NextResponse.json({ ok: true, updated })

@@ -1,14 +1,56 @@
 import { NextResponse } from "next/server"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
+import { resolveTenant } from "@/lib/helpers/resolve-tenant"
+import { getMessagingConfigForTenant } from "@/lib/helpers/messaging-config"
+import { createZApiServiceFromMessagingConfig } from "@/lib/helpers/zapi-messaging"
 import { ZApiService } from "@/lib/services/z-api.service"
 
-/**
- * Verifica status da instância da Z-API
- */
-export async function GET() {
-  try {
-    const supabase = createBiaSupabaseServerClient()
+function resolveLegacyInstanceId(config: any): string {
+  const instanceNameRaw = String(config.instance_name || "")
+  const parsedDelay = Number.parseInt(instanceNameRaw, 10)
+  const instanceNameIsDelay = instanceNameRaw && String(parsedDelay) === instanceNameRaw.trim()
+  return String(config.instance_id || (!instanceNameIsDelay ? config.instance_name : "") || "").trim()
+}
 
+function resolveLegacyService(config: any): ZApiService | null {
+  const instanceId = resolveLegacyInstanceId(config)
+  const token = String(config.token || "").trim()
+  const clientToken = String(config.client_token || config.token || "").trim()
+  const apiUrl = String(config.api_url || "").trim()
+
+  if (!instanceId || !token || !clientToken) return null
+  return new ZApiService({
+    instanceId,
+    token,
+    clientToken,
+    apiUrl,
+  })
+}
+
+/**
+ * Verifica status da instancia Z-API.
+ * Prioriza configuracao por tenant e mantem fallback legacy.
+ */
+export async function GET(req: Request) {
+  try {
+    const tenant = await resolveTenant(req).catch(() => "")
+    if (tenant) {
+      const messagingConfig = await getMessagingConfigForTenant(tenant)
+      const tenantZapi = createZApiServiceFromMessagingConfig(messagingConfig || undefined)
+      if (tenantZapi.service) {
+        const status = await tenantZapi.service.checkInstanceStatus()
+        return NextResponse.json({
+          success: true,
+          status: {
+            online: status.connected,
+            error: status.error,
+            details: status,
+          },
+        })
+      }
+    }
+
+    const supabase = createBiaSupabaseServerClient()
     const { data: config, error: configError } = await supabase
       .from("evolution_api_config")
       .select("*")
@@ -17,34 +59,38 @@ export async function GET() {
       .limit(1)
       .maybeSingle()
 
-    if (configError && configError.code !== 'PGRST116') {
+    if (configError && configError.code !== "PGRST116") {
       throw configError
     }
 
     if (!config) {
       return NextResponse.json({
         success: false,
-        message: "Configuração não encontrada",
-        status: { online: false, error: "Configuração não encontrada" }
+        message: "Configuracao nao encontrada",
+        status: { online: false, error: "Configuracao nao encontrada" },
       })
     }
 
-    const zApiService = new ZApiService({
-      instanceId: config.instance_name,
-      token: config.token,
-      clientToken: config.token, // Usando token como Client Token também
-      apiUrl: config.api_url // Z-API Service handle this if undefined
-    })
+    const service = resolveLegacyService(config)
+    if (!service) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Configuracao incompleta",
+          status: { online: false, error: "Configuracao incompleta (instanceId, token, clientToken)" },
+        },
+        { status: 400 },
+      )
+    }
 
-    const status = await zApiService.checkInstanceStatus()
-
+    const status = await service.checkInstanceStatus()
     return NextResponse.json({
       success: true,
       status: {
         online: status.connected,
         error: status.error,
-        details: status
-      }
+        details: status,
+      },
     })
   } catch (error: any) {
     console.error("[Follow-up Status] Erro:", error)
@@ -52,9 +98,10 @@ export async function GET() {
       {
         success: false,
         error: error?.message || "Erro ao verificar status",
-        status: { online: false, error: error?.message || "Erro desconhecido" }
+        status: { online: false, error: error?.message || "Erro desconhecido" },
       },
-      { status: 500 }
+      { status: 500 },
     )
   }
 }
+

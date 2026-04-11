@@ -44,9 +44,9 @@ export default function CreateUnitPage() {
             setConfirmPassword("")
             setLoading(false)
 
-            // Redirecionar após 2 segundos
+            // Redirecionar apos 2 segundos
             setTimeout(() => {
-                router.push("/admin/dashboard")
+                router.push("/admin/units")
             }, 2000)
         } catch (err) {
             setError("Erro ao conectar com o servidor")
@@ -59,7 +59,7 @@ export default function CreateUnitPage() {
             <div className="max-w-2xl mx-auto">
                 <Button
                     variant="ghost"
-                    onClick={() => router.push("/admin/dashboard")}
+                    onClick={() => router.push("/admin/units")}
                     className="mb-6 text-text-gray hover:text-pure-white"
                 >
                     <ArrowLeft className="w-4 h-4 mr-2" />
@@ -94,14 +94,14 @@ export default function CreateUnitPage() {
                                 <Input
                                     id="unitName"
                                     type="text"
-                                    placeholder="Ex: Vox Rio, Vox Brasília"
+                                    placeholder="Ex: Vox Rio, Vox Brasilia"
                                     value={unitName}
                                     onChange={(e) => setUnitName(e.target.value)}
                                     required
                                     className="bg-secondary-black border-border-gray text-pure-white"
                                 />
                                 <p className="text-xs text-text-gray">
-                                    Este será o nome da unidade no sistema
+                                    Este sera o nome da unidade no sistema
                                 </p>
                             </div>
 
@@ -112,7 +112,7 @@ export default function CreateUnitPage() {
                                 <Input
                                     id="password"
                                     type="password"
-                                    placeholder="Mínimo 8 caracteres"
+                                    placeholder="Minimo 8 caracteres"
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)}
                                     required
@@ -137,21 +137,21 @@ export default function CreateUnitPage() {
                                 />
                             </div>
 
-                            <div className="bg-accent-yellow/10 border border-accent-yellow/30 rounded-lg p-4">
-                                <p className="text-sm text-accent-yellow font-medium mb-2">
-                                    ⚠️ Atenção
+                            <div className="bg-accent-green/10 border border-accent-green/30 rounded-lg p-4">
+                                <p className="text-sm text-accent-green font-medium mb-2">
+                                    Atencao
                                 </p>
                                 <ul className="text-xs text-text-gray space-y-1">
-                                    <li>• Será criado automaticamente: 15 tabelas no banco de dados</li>
-                                    <li>• A unidade ficará disponível imediatamente</li>
-                                    <li>• As credenciais devem ser enviadas ao cliente</li>
+                                    <li>- Sera criado automaticamente: 15 tabelas no banco de dados</li>
+                                    <li>- A unidade ficara disponivel imediatamente</li>
+                                    <li>- As credenciais devem ser enviadas ao cliente</li>
                                 </ul>
                             </div>
 
                             <Button
                                 type="submit"
                                 disabled={loading}
-                                className="w-full bg-gradient-to-r from-accent-yellow to-dark-yellow text-primary-black font-semibold hover:opacity-90"
+                                className="w-full bg-gradient-to-r from-accent-green to-dark-green text-primary-black font-semibold hover:opacity-90"
                             >
                                 {loading ? "Criando unidade..." : "Criar Unidade"}
                             </Button>
@@ -162,3 +162,4 @@ export default function CreateUnitPage() {
         </div>
     )
 }
+

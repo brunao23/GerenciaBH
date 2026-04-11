@@ -2,11 +2,14 @@
 
 import type React from "react"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Input } from "../../../components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Textarea } from "@/components/ui/textarea"
+import { Progress } from "@/components/ui/progress"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Select,
   SelectContent,
@@ -19,8 +22,17 @@ import { ScrollArea } from "../../../components/ui/scroll-area"
 import { Avatar, AvatarFallback } from "../../../components/ui/avatar"
 import { Badge } from "../../../components/ui/badge"
 import { Button } from "../../../components/ui/button"
-import { Search, MessageSquare, Phone, User, Clock, AlertCircle, CheckCircle2, PauseCircle, PlayCircle, Calendar, UserMinus, Loader2, Briefcase, Target, Clock3, Sparkles, Zap, Download, ListChecks, XCircle, Send } from "lucide-react"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Search, MessageSquare, Phone, User, Clock, AlertCircle, CheckCircle2, PauseCircle, PlayCircle, Calendar, UserMinus, Loader2, Briefcase, Target, Clock3, Sparkles, Zap, Download, ListChecks, XCircle, Send, Trash2 } from "lucide-react"
 import { useTenant } from "@/lib/contexts/TenantContext"
+import { toast } from "sonner"
 
 type ChatMessage = {
   role: "user" | "bot"
@@ -28,7 +40,11 @@ type ChatMessage = {
   created_at: string
   isError?: boolean
   isSuccess?: boolean
+  isManual?: boolean
   message_id?: number
+  provider_message_id?: string
+  fromMe?: boolean
+  senderType?: "lead" | "ia" | "human" | "system"
 }
 
 type ChatSession = {
@@ -36,10 +52,13 @@ type ChatSession = {
   numero?: string | null
   contact_name?: string
   messages: ChatMessage[]
+  messages_count?: number
+  last_message_preview?: string
+  isSummary?: boolean
   unread?: number
   error?: boolean
   success?: boolean
-  last_id: number
+  last_id?: number
   formData?: {
     nome?: string
     primeiroNome?: string
@@ -51,10 +70,48 @@ type ChatSession = {
   }
 }
 
+type BulkSendResult = {
+  sessionId: string
+  phone: string
+  name?: string
+  status: "success" | "error" | "skipped"
+  error?: string
+}
+
+type MetaTemplateCatalog = {
+  name: string
+  status?: string
+  category?: string
+  language?: string
+  components?: any[]
+}
+
+type MetaParamField = {
+  id: string
+  label: string
+  component: "header" | "body" | "button"
+  buttonIndex?: number
+  paramIndex?: number
+}
+
+type HeaderMediaConfig = {
+  format: "IMAGE" | "VIDEO" | "DOCUMENT"
+  id?: string
+  link?: string
+}
+
 type PauseStatus = {
   pausar: boolean
   vaga: boolean
   agendamento: boolean
+}
+
+type NativeAgentOverview = {
+  enabled: boolean
+  autoReplyEnabled: boolean
+  webhookEnabled: boolean
+  webhookPrimaryUrl?: string
+  webhookExtraUrls?: string[]
 }
 
 function fmtBR(iso: string | undefined | null) {
@@ -75,6 +132,230 @@ function fmtBR(iso: string | undefined | null) {
 
 const onlyDigits = (s: string) => s.replace(/\D+/g, "")
 
+const normalizePhoneCandidate = (value?: string | null) => {
+  if (!value) return ""
+  const digits = onlyDigits(value)
+  return digits.length >= 8 ? digits : ""
+}
+
+const parseMetaTemplateLines = (input: string) => {
+  const raw = input.replace(/\r/g, "").trim()
+  if (!raw) return []
+  return raw
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && line !== "---")
+    .map((line) => {
+      const parts = line
+        .split("|")
+        .map((p) => p.trim())
+        .filter(Boolean)
+      if (!parts[0]) return null
+      return { name: parts[0], params: parts.slice(1) }
+    })
+    .filter(Boolean) as { name: string; params: string[] }[]
+}
+
+const extractPlaceholderCount = (text: string) => {
+  const matches = [...text.matchAll(/{{\s*(\d+)\s*}}/g)]
+  if (matches.length === 0) return 0
+  const values = matches.map((m) => Number(m[1])).filter((n) => Number.isFinite(n))
+  return values.length ? Math.max(...values) : 0
+}
+
+function resolveMessageSenderType(message: ChatMessage): "lead" | "ia" | "human" | "system" {
+  const explicit = String(message.senderType || "").toLowerCase()
+  if (explicit === "lead" || explicit === "ia" || explicit === "human" || explicit === "system") {
+    return explicit as "lead" | "ia" | "human" | "system"
+  }
+  if (message.isManual) return "human"
+  return message.role === "user" ? "lead" : "ia"
+}
+
+function resolveMessageRoleLabel(message: ChatMessage): "LEAD" | "IA" | "HUMANO" | "SISTEMA" {
+  const senderType = resolveMessageSenderType(message)
+  if (senderType === "lead") return "LEAD"
+  if (senderType === "human") return "HUMANO"
+  if (senderType === "system") return "SISTEMA"
+  return "IA"
+}
+
+const buildHeaderMediaComponent = (config?: HeaderMediaConfig | null) => {
+  if (!config) return null
+  const id = config.id?.trim()
+  const link = config.link?.trim()
+  const payload = id ? { id } : link ? { link } : null
+  if (!payload) return null
+  const mediaType = config.format.toLowerCase()
+  const param: any = { type: mediaType }
+  param[mediaType] = payload
+  return {
+    type: "header",
+    parameters: [param],
+  }
+}
+
+const buildMetaParamFields = (template?: MetaTemplateCatalog | null): MetaParamField[] => {
+  if (!template?.components) return []
+  const fields: MetaParamField[] = []
+
+  for (const comp of template.components) {
+    const type = String(comp?.type || "").toUpperCase()
+    if (type === "HEADER" && String(comp?.format || "").toUpperCase() === "TEXT") {
+      const count = extractPlaceholderCount(String(comp?.text || ""))
+      for (let i = 0; i < count; i += 1) {
+        fields.push({
+          id: `header-${i + 1}`,
+          label: `Header {{${i + 1}}}`,
+          component: "header",
+          paramIndex: i,
+        })
+      }
+    }
+
+    if (type === "BODY") {
+      const count = extractPlaceholderCount(String(comp?.text || ""))
+      for (let i = 0; i < count; i += 1) {
+        fields.push({
+          id: `body-${i + 1}`,
+          label: `Body {{${i + 1}}}`,
+          component: "body",
+          paramIndex: i,
+        })
+      }
+    }
+
+    if (type === "BUTTONS" && Array.isArray(comp?.buttons)) {
+      comp.buttons.forEach((button: any, idx: number) => {
+        const btnType = String(button?.type || "").toUpperCase()
+        if (btnType !== "URL") return
+        const count = extractPlaceholderCount(String(button?.url || ""))
+        for (let i = 0; i < count; i += 1) {
+          fields.push({
+            id: `button-${idx}-${i + 1}`,
+            label: `Botao ${idx + 1} {{${i + 1}}}`,
+            component: "button",
+            buttonIndex: idx,
+            paramIndex: i,
+          })
+        }
+      })
+    }
+  }
+
+  return fields
+}
+
+const buildComponentsFromFields = (
+  template: MetaTemplateCatalog | null,
+  values: Record<string, string>,
+  headerMedia?: HeaderMediaConfig | null,
+) => {
+  if (!template?.components) return []
+  const components: any[] = []
+
+  for (const comp of template.components) {
+    const type = String(comp?.type || "").toUpperCase()
+    if (type === "HEADER") {
+      const format = String(comp?.format || "").toUpperCase()
+      if (format === "TEXT") {
+        const count = extractPlaceholderCount(String(comp?.text || ""))
+        if (count > 0) {
+          const parameters = Array.from({ length: count }, (_, i) => ({
+            type: "text",
+            text: values[`header-${i + 1}`] || "",
+          }))
+          components.push({ type: "header", parameters })
+        }
+      } else if (headerMedia && headerMedia.format === format) {
+        const headerComponent = buildHeaderMediaComponent(headerMedia)
+        if (headerComponent) components.push(headerComponent)
+      }
+    }
+
+    if (type === "BODY") {
+      const count = extractPlaceholderCount(String(comp?.text || ""))
+      if (count > 0) {
+        const parameters = Array.from({ length: count }, (_, i) => ({
+          type: "text",
+          text: values[`body-${i + 1}`] || "",
+        }))
+        components.push({ type: "body", parameters })
+      }
+    }
+
+    if (type === "BUTTONS" && Array.isArray(comp?.buttons)) {
+      comp.buttons.forEach((button: any, idx: number) => {
+        const btnType = String(button?.type || "").toUpperCase()
+        if (btnType !== "URL") return
+        const count = extractPlaceholderCount(String(button?.url || ""))
+        if (count === 0) return
+        const parameters = Array.from({ length: count }, (_, i) => ({
+          type: "text",
+          text: values[`button-${idx}-${i + 1}`] || "",
+        }))
+        components.push({
+          type: "button",
+          sub_type: "url",
+          index: String(idx),
+          parameters,
+        })
+      })
+    }
+  }
+
+  return components
+}
+
+const parseComponentsJson = (input: string): { components?: any[]; error?: string } => {
+  const raw = input.trim()
+  if (!raw) return {}
+  try {
+    const parsed = JSON.parse(raw)
+    const value = Array.isArray(parsed)
+      ? parsed
+      : parsed && typeof parsed === "object" && Array.isArray((parsed as any).components)
+        ? (parsed as any).components
+        : null
+    if (!Array.isArray(value)) {
+      return { error: "JSON deve ser um array de components ou { components: [...] }" }
+    }
+    if (value.length === 0) {
+      return { error: "JSON de components nao pode estar vazio" }
+    }
+    return { components: value }
+  } catch (error: any) {
+    return { error: error?.message || "JSON invalido" }
+  }
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+type SearchResult = { session: ChatSession; score: number; matchedMessages: number[] }
+type SearchMode = "number" | "semantic"
+
+type IndexedSession = {
+  session: ChatSession
+  numeroDigits: string
+  sessionDigits: string
+  semanticCore: string
+  semanticMessages: string
+}
+
+const SEMANTIC_SYNONYMS: Record<string, string[]> = {
+  agendar: ["agendamento", "agenda", "marcar", "marcacao", "horario", "horarios"],
+  horario: ["horarios", "agenda", "agendar", "agendamento", "marcar"],
+  curso: ["aula", "aulas", "treinamento", "oratoria", "comunicacao"],
+  oratoria: ["comunicacao", "falar", "apresentacao", "curso"],
+  preco: ["valor", "investimento", "custo", "mensalidade"],
+  inscricao: ["matricula", "entrar", "participar"],
+  visita: ["reuniao", "encontro", "presencial"],
+  duvida: ["duvidas", "pergunta", "questao", "questoes"],
+}
+
+const MAX_INDEXED_MESSAGES = 40
+const MAX_INDEXED_MESSAGE_CHARS = 240
+
 function normalizeText(text: string): string {
   return text
     .toLowerCase()
@@ -85,73 +366,200 @@ function normalizeText(text: string): string {
     .trim()
 }
 
-function searchScore(text: string, query: string): number {
-  if (!text || !query) return 0
+function splitWords(text: string): string[] {
+  return text.split(" ").map((part) => part.trim()).filter((part) => part.length > 1)
+}
 
-  const normalizedText = normalizeText(text)
-  const normalizedQuery = normalizeText(query)
-  const queryWords = normalizedQuery.split(" ").filter((w) => w.length > 0)
+function expandSemanticWords(words: string[]): string[] {
+  const expanded = new Set<string>(words)
+  const knownEntries = Object.entries(SEMANTIC_SYNONYMS)
 
-  if (queryWords.length === 0) return 0
+  for (const word of words) {
+    const direct = SEMANTIC_SYNONYMS[word]
+    if (direct) {
+      direct.forEach((value) => expanded.add(value))
+    }
 
-  let score = 0
-
-  if (normalizedText.includes(normalizedQuery)) {
-    score += 100
-  }
-
-  for (const word of queryWords) {
-    if (normalizedText.includes(word)) {
-      const wordRegex = new RegExp(`\\b${word}\\b`, "i")
-      if (wordRegex.test(normalizedText)) {
-        score += 50
-      } else {
-        score += 25
+    for (const [base, values] of knownEntries) {
+      if (values.includes(word)) {
+        expanded.add(base)
       }
     }
   }
 
-  const foundWords = queryWords.filter((word) => normalizedText.includes(word))
-  if (foundWords.length === queryWords.length) {
-    score += 30
+  return Array.from(expanded)
+}
+
+function detectSearchMode(query: string): SearchMode {
+  const trimmed = query.trim()
+  if (!trimmed) return "semantic"
+
+  const digits = onlyDigits(trimmed)
+  const hasLetters = /[a-zA-Z\u00C0-\u024F]/.test(trimmed)
+
+  if (digits.length >= 3 && !hasLetters) return "number"
+  if (digits.length >= 10 && digits.length >= trimmed.replace(/\s+/g, "").length - 2) return "number"
+  return "semantic"
+}
+
+function buildSemanticMessageIndex(messages: ChatMessage[]): string {
+  if (!Array.isArray(messages) || messages.length === 0) return ""
+
+  const start = Math.max(0, messages.length - MAX_INDEXED_MESSAGES)
+  const chunks: string[] = []
+
+  for (let i = start; i < messages.length; i++) {
+    const raw = messages[i]?.content
+    if (!raw) continue
+    const normalized = normalizeText(raw).slice(0, MAX_INDEXED_MESSAGE_CHARS)
+    if (normalized) chunks.push(normalized)
+  }
+
+  return chunks.join(" ")
+}
+
+function buildSessionIndex(session: ChatSession): IndexedSession {
+  const semanticCore = normalizeText([
+    session.session_id,
+    session.numero || "",
+    session.contact_name || "",
+    session.formData?.nome || "",
+    session.formData?.primeiroNome || "",
+    session.formData?.profissao || "",
+    session.formData?.motivo || "",
+    session.formData?.dificuldade || "",
+    session.formData?.tempoDecisao || "",
+    session.formData?.comparecimento || "",
+  ].join(" "))
+
+  return {
+    session,
+    numeroDigits: onlyDigits(session.numero || ""),
+    sessionDigits: onlyDigits(session.session_id || ""),
+    semanticCore,
+    semanticMessages: buildSemanticMessageIndex(session.messages),
+  }
+}
+
+function scoreNumericSearch(indexed: IndexedSession, digitsQuery: string): number {
+  if (digitsQuery.length < 3) return 0
+
+  const candidates = [indexed.numeroDigits, indexed.sessionDigits].filter(Boolean)
+  let score = 0
+
+  for (const candidate of candidates) {
+    if (candidate === digitsQuery) {
+      score = Math.max(score, 400)
+      continue
+    }
+    if (candidate.startsWith(digitsQuery)) {
+      score = Math.max(score, 300)
+      continue
+    }
+    if (candidate.includes(digitsQuery)) {
+      score = Math.max(score, 220)
+      continue
+    }
+    if (digitsQuery.length >= 10 && digitsQuery.includes(candidate)) {
+      score = Math.max(score, 150)
+    }
   }
 
   return score
 }
 
-function searchInSession(
-  session: ChatSession,
-  query: string,
-): { session: ChatSession; score: number; matchedMessages: number[] } {
-  if (!query.trim()) return { session, score: 0, matchedMessages: [] }
+function scoreSemanticSearch(
+  indexed: IndexedSession,
+  normalizedQuery: string,
+  baseWords: string[],
+  expandedWords: string[],
+): number {
+  if (!normalizedQuery || baseWords.length === 0) return 0
 
-  let totalScore = 0
-  const matchedMessages: number[] = []
+  let score = 0
+  let matchedOriginalWords = 0
 
-  const sessionScore = Math.max(
-    searchScore(session.session_id, query),
-    searchScore(session.numero || "", query),
-    searchScore(session.contact_name || "", query),
-  )
-  totalScore += sessionScore * 2
+  if (indexed.semanticCore.includes(normalizedQuery)) score += 180
+  if (indexed.semanticMessages.includes(normalizedQuery)) score += 120
 
-  session.messages.forEach((message, index) => {
-    const messageScore = searchScore(message.content, query)
-    if (messageScore > 0) {
-      totalScore += messageScore
-      matchedMessages.push(index)
+  for (const word of baseWords) {
+    if (indexed.semanticCore.includes(word)) {
+      score += 60
+      matchedOriginalWords += 1
+      continue
     }
-  })
 
-  return { session, score: totalScore, matchedMessages }
+    if (indexed.semanticMessages.includes(word)) {
+      score += 35
+      matchedOriginalWords += 1
+      continue
+    }
+
+    if (word.length >= 5) {
+      const stem = word.slice(0, word.length - 1)
+      if (indexed.semanticCore.includes(stem) || indexed.semanticMessages.includes(stem)) {
+        score += 16
+      }
+    }
+  }
+
+  const originalWordsSet = new Set(baseWords)
+  for (const word of expandedWords) {
+    if (originalWordsSet.has(word)) continue
+    if (indexed.semanticCore.includes(word)) {
+      score += 20
+      continue
+    }
+    if (indexed.semanticMessages.includes(word)) {
+      score += 12
+    }
+  }
+
+  if (matchedOriginalWords > 0) {
+    score += matchedOriginalWords * 8
+    if (matchedOriginalWords === baseWords.length) {
+      score += 90
+    }
+  }
+
+  return score
+}
+
+function searchIndexedSession(indexed: IndexedSession, query: string): SearchResult {
+  const trimmed = query.trim()
+  if (!trimmed) return { session: indexed.session, score: 0, matchedMessages: [] }
+
+  const mode = detectSearchMode(trimmed)
+  const digitsQuery = onlyDigits(trimmed)
+
+  if (mode === "number") {
+    return {
+      session: indexed.session,
+      score: scoreNumericSearch(indexed, digitsQuery),
+      matchedMessages: [],
+    }
+  }
+
+  const normalizedQuery = normalizeText(trimmed)
+  const baseWords = splitWords(normalizedQuery)
+  const expandedWords = expandSemanticWords(baseWords)
+  const score = scoreSemanticSearch(indexed, normalizedQuery, baseWords, expandedWords)
+
+  return {
+    session: indexed.session,
+    score,
+    matchedMessages: [],
+  }
 }
 
 export default function ConversasPage() {
   const { tenant } = useTenant()
   const [sessions, setSessions] = useState<ChatSession[]>([])
   const [query, setQuery] = useState("")
+  const deferredQuery = useDeferredValue(query)
   const [active, setActive] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   const [pauseStatus, setPauseStatus] = useState<PauseStatus | null>(null)
   const [pauseLoading, setPauseLoading] = useState(false)
@@ -162,70 +570,269 @@ export default function ConversasPage() {
   const [messageInput, setMessageInput] = useState("")
   const [pauseDuration, setPauseDuration] = useState("30")
   const [isSending, setIsSending] = useState(false)
+  const [takeoverLoading, setTakeoverLoading] = useState(false)
+  const [deletingMessageId, setDeletingMessageId] = useState<number | null>(null)
+  const [clearingMemory, setClearingMemory] = useState(false)
+  const [serverSearching, setServerSearching] = useState(false)
+  const [detailLoadingSessionId, setDetailLoadingSessionId] = useState<string | null>(null)
+  const [nativeAgentOverview, setNativeAgentOverview] = useState<NativeAgentOverview | null>(null)
 
   // Estados para Seleção Múltipla
   const [isSelectionMode, setIsSelectionMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [bulkDialogOpen, setBulkDialogOpen] = useState(false)
+  const [bulkProvider, setBulkProvider] = useState<"zapi" | "evolution" | "meta" | null>(null)
+  const [bulkProviderLoading, setBulkProviderLoading] = useState(false)
+  const [bulkProviderError, setBulkProviderError] = useState<string | null>(null)
+  const [bulkMessage, setBulkMessage] = useState("")
+  const [bulkMetaTemplates, setBulkMetaTemplates] = useState("")
+  const [bulkMetaLanguage, setBulkMetaLanguage] = useState("pt_BR")
+  const [bulkMetaTemplateMode, setBulkMetaTemplateMode] = useState<"select" | "manual">("select")
+  const [bulkMetaTemplatesCatalog, setBulkMetaTemplatesCatalog] = useState<MetaTemplateCatalog[]>([])
+  const [bulkMetaTemplatesLoading, setBulkMetaTemplatesLoading] = useState(false)
+  const [bulkMetaTemplatesError, setBulkMetaTemplatesError] = useState<string | null>(null)
+  const [bulkMetaSelectedTemplate, setBulkMetaSelectedTemplate] = useState("")
+  const [bulkMetaParamValues, setBulkMetaParamValues] = useState<Record<string, string>>({})
+  const [bulkMetaManualTemplateName, setBulkMetaManualTemplateName] = useState("")
+  const [bulkMetaManualComponents, setBulkMetaManualComponents] = useState("")
+  const [bulkMetaHeaderMediaId, setBulkMetaHeaderMediaId] = useState("")
+  const [bulkMetaHeaderMediaLink, setBulkMetaHeaderMediaLink] = useState("")
+  const [bulkMetaHeaderUploading, setBulkMetaHeaderUploading] = useState(false)
+  const [bulkDelaySeconds, setBulkDelaySeconds] = useState("8")
+  const [bulkProgress, setBulkProgress] = useState(0)
+  const [bulkResults, setBulkResults] = useState<BulkSendResult[]>([])
+  const [bulkSending, setBulkSending] = useState(false)
+  const bulkStopRef = useRef(false)
 
   const params = useSearchParams()
   const router = useRouter()
   const focusAppliedRef = useRef(false)
   const scrollAreaRef = useRef<HTMLDivElement>(null)
+  const activeRef = useRef<string | null>(null)
+  const sessionsRef = useRef<ChatSession[]>([])
+  const fetchControllerRef = useRef<AbortController | null>(null)
+  const detailRequestsRef = useRef<Set<string>>(new Set())
 
   const current = useMemo(() => {
     const result = sessions.find((s) => s.session_id === active)
     return result ? result : null
   }, [sessions, active])
 
-  const fetchData = useCallback(() => {
-    if (!tenant) return
-    setLoading(true)
+  const selectedSessions = useMemo(() => {
+    if (selectedIds.length === 0) return []
+    const byId = new Map(sessions.map((session) => [session.session_id, session]))
+    return selectedIds.map((id) => byId.get(id)).filter(Boolean) as ChatSession[]
+  }, [selectedIds, sessions])
 
-    fetch(`/api/supabase/chats`)
-      .then((r) => r.json())
+  const selectedBulkMetaTemplate = useMemo(
+    () => bulkMetaTemplatesCatalog.find((tpl) => tpl.name === bulkMetaSelectedTemplate) || null,
+    [bulkMetaTemplatesCatalog, bulkMetaSelectedTemplate],
+  )
+  const bulkMetaParamFields = useMemo(
+    () => buildMetaParamFields(selectedBulkMetaTemplate),
+    [selectedBulkMetaTemplate],
+  )
+  const bulkMetaHeaderMediaType = useMemo(() => {
+    if (!selectedBulkMetaTemplate?.components) return null
+    const header = selectedBulkMetaTemplate.components.find((comp) => {
+      const type = String(comp?.type || "").toUpperCase()
+      return type === "HEADER"
+    })
+    const format = String(header?.format || "").toUpperCase()
+    if (format === "IMAGE" || format === "VIDEO" || format === "DOCUMENT") {
+      return format as HeaderMediaConfig["format"]
+    }
+    return null
+  }, [selectedBulkMetaTemplate])
+
+  useEffect(() => {
+    if (bulkMetaParamFields.length === 0) {
+      setBulkMetaParamValues({})
+      return
+    }
+    setBulkMetaParamValues((prev) => {
+      const next: Record<string, string> = {}
+      bulkMetaParamFields.forEach((field) => {
+        next[field.id] = prev[field.id] || ""
+      })
+      return next
+    })
+  }, [bulkMetaParamFields])
+
+  useEffect(() => {
+    setBulkMetaHeaderMediaId("")
+    setBulkMetaHeaderMediaLink("")
+  }, [bulkMetaSelectedTemplate])
+
+  const fetchData = useCallback((searchTerm: string) => {
+    if (!tenant) return
+
+    const trimmedSearch = searchTerm.trim()
+    setLoading(sessionsRef.current.length === 0)
+    setError(null)
+    setServerSearching(trimmedSearch.length > 0)
+
+    if (fetchControllerRef.current) {
+      fetchControllerRef.current.abort()
+    }
+
+    const controller = new AbortController()
+    fetchControllerRef.current = controller
+
+    const queryParams = new URLSearchParams()
+    queryParams.set("limit", "250")
+    if (trimmedSearch) {
+      queryParams.set("q", trimmedSearch)
+    }
+
+    fetch(`/api/supabase/chats/summary?${queryParams.toString()}`, { signal: controller.signal })
+      .then(async (r) => {
+        if (!r.ok) {
+          const err = await r.json().catch(() => null)
+          const message = err?.error || `Erro ao carregar conversas (${r.status})`
+          throw new Error(message)
+        }
+        return r.json()
+      })
       .then((d) => {
         const arr = Array.isArray(d) ? (d as ChatSession[]) : []
-        setSessions(arr)
 
-        const sessionParam = params.get("session")
-        const numeroParam = params.get("numero")
+        setSessions((prev) => {
+          const prevById = new Map(prev.map((session) => [session.session_id, session]))
 
-        if (sessionParam && arr.some((s) => s.session_id === sessionParam)) {
-          setActive(sessionParam)
-        } else if (numeroParam) {
-          const nd = onlyDigits(numeroParam)
-          const found = arr.find((s) => onlyDigits(s.numero ?? "") === nd)
-          setActive(found?.session_id ?? arr[0]?.session_id ?? null)
-        } else if (!active && arr.length > 0) {
-          setActive(arr[0]?.session_id ?? null)
-        }
+          return arr.map((session) => {
+            const existing = prevById.get(session.session_id)
+            if (existing && !existing.isSummary) {
+              return {
+                ...session,
+                ...existing,
+                messages_count: existing.messages_count ?? existing.messages.length,
+                isSummary: false,
+              }
+            }
+            return session
+          })
+        })
+
+        setActive((prevActive) => {
+          const currentActive = prevActive ?? activeRef.current
+          const sessionParam = params.get("session")
+          const numeroParam = params.get("numero")
+
+          if (sessionParam && arr.some((s) => s.session_id === sessionParam)) {
+            return sessionParam
+          }
+
+          if (numeroParam) {
+            const nd = onlyDigits(numeroParam)
+            const found = arr.find((s) => onlyDigits(s.numero ?? "") === nd)
+            if (found?.session_id) return found.session_id
+          }
+
+          if (currentActive && arr.some((s) => s.session_id === currentActive)) {
+            return currentActive
+          }
+
+          return arr[0]?.session_id ?? null
+        })
 
         setLoading(false)
+        setServerSearching(false)
         focusAppliedRef.current = false
       })
       .catch((error) => {
+        if (controller.signal.aborted) return
         console.error("Erro ao buscar conversas:", error)
+        setError(error?.message || "Erro ao carregar conversas")
         setSessions([])
         setActive(null)
         setLoading(false)
+        setServerSearching(false)
       })
-  }, [params, active, tenant])
+  }, [params, tenant])
+
+  useEffect(() => {
+    let active = true
+    if (!tenant?.prefix) {
+      setNativeAgentOverview(null)
+      return
+    }
+
+    fetch("/api/tenant/native-agent-config", {
+      headers: {
+        "x-tenant-prefix": tenant.prefix,
+      },
+      cache: "no-store",
+    })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({}))
+        if (!response.ok) {
+          throw new Error(payload?.error || `Erro ao buscar agente nativo (${response.status})`)
+        }
+
+        const config = payload?.config || {}
+        if (!active) return
+
+        setNativeAgentOverview({
+          enabled: config?.enabled === true,
+          autoReplyEnabled: config?.autoReplyEnabled !== false,
+          webhookEnabled: config?.webhookEnabled !== false,
+          webhookPrimaryUrl: String(config?.webhookPrimaryUrl || "").trim() || undefined,
+          webhookExtraUrls: Array.isArray(config?.webhookExtraUrls)
+            ? config.webhookExtraUrls.map((value: any) => String(value || "").trim()).filter(Boolean)
+            : [],
+        })
+      })
+      .catch((error) => {
+        console.error("[Conversas] Erro ao carregar config do agente:", error)
+        if (active) setNativeAgentOverview(null)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [tenant?.prefix])
+
+  const webhookEndpoint = useMemo(() => {
+    const configured = String(nativeAgentOverview?.webhookPrimaryUrl || "").trim()
+    if (configured) return configured
+    if (!tenant?.prefix) return ""
+
+    if (typeof window !== "undefined" && window.location?.origin) {
+      return `${window.location.origin.replace(/\/+$/, "")}/api/agent/webhooks/zapi?tenant=${encodeURIComponent(tenant.prefix)}`
+    }
+
+    return `/api/agent/webhooks/zapi?tenant=${encodeURIComponent(tenant.prefix)}`
+  }, [nativeAgentOverview?.webhookPrimaryUrl, tenant?.prefix])
 
   const fetchPauseStatus = useCallback(async (numero: string) => {
     if (!numero || !tenant) return
+    const defaultStatus = { pausar: false, vaga: true, agendamento: true }
     try {
       const response = await fetch(`/api/pausar?numero=${encodeURIComponent(numero)}`)
-      if (response.ok) {
-        const data = await response.json()
-        setPauseStatus(data || { pausar: false, vaga: true, agendamento: true })
-      } else {
-        setPauseStatus({ pausar: false, vaga: true, agendamento: true })
+      if (!response.ok) {
+        setPauseStatus(defaultStatus)
+        return
       }
+
+      const payload = await response.json()
+      const pauseData = payload?.data ?? payload
+
+      if (!pauseData || typeof pauseData !== "object") {
+        setPauseStatus(defaultStatus)
+        return
+      }
+
+      setPauseStatus({
+        pausar: pauseData.pausar ?? false,
+        vaga: pauseData.vaga ?? true,
+        agendamento: pauseData.agendamento ?? true,
+      })
     } catch (error) {
       console.error("Erro ao buscar status de pausa:", error)
-      setPauseStatus({ pausar: false, vaga: true, agendamento: true })
+      setPauseStatus(defaultStatus)
     }
-  }, [])
+  }, [tenant])
 
   const fetchFollowupAIStatus = useCallback(async (numero: string, sessionId?: string) => {
     if (!numero) {
@@ -340,8 +947,77 @@ export default function ConversasPage() {
     [current, pauseStatus, pauseLoading],
   )
 
+  const fetchSessionDetails = useCallback(async (sessionId: string) => {
+    if (!tenant || !sessionId) return
+
+    const selected = sessions.find((session) => session.session_id === sessionId)
+    if (!selected || !selected.isSummary) return
+
+    if (detailRequestsRef.current.has(sessionId)) return
+    detailRequestsRef.current.add(sessionId)
+    setDetailLoadingSessionId(sessionId)
+
+    try {
+      const response = await fetch(`/api/supabase/chats?session=${encodeURIComponent(sessionId)}`)
+      if (!response.ok) {
+        const err = await response.json().catch(() => null)
+        throw new Error(err?.error || `Erro ao carregar conversa (${response.status})`)
+      }
+
+      const payload = await response.json()
+      const detailed = Array.isArray(payload) ? (payload[0] as ChatSession | undefined) : undefined
+      if (!detailed) return
+
+      setSessions((prev) =>
+        prev.map((session) => {
+          if (session.session_id !== sessionId) return session
+          const detailedMessages = Array.isArray(detailed.messages) ? detailed.messages : session.messages
+
+          return {
+            ...session,
+            ...detailed,
+            messages: detailedMessages,
+            messages_count: detailedMessages.length,
+            isSummary: false,
+          }
+        }),
+      )
+    } catch (error) {
+      console.error("Erro ao carregar detalhes da sessão:", error)
+    } finally {
+      detailRequestsRef.current.delete(sessionId)
+      setDetailLoadingSessionId((prev) => (prev === sessionId ? null : prev))
+    }
+  }, [tenant, sessions])
+
   useEffect(() => {
-    fetchData()
+    activeRef.current = active
+  }, [active])
+
+  useEffect(() => {
+    sessionsRef.current = sessions
+  }, [sessions])
+
+  useEffect(() => {
+    if (!tenant) return
+    const timer = setTimeout(() => {
+      fetchData(deferredQuery)
+    }, 220)
+
+    return () => clearTimeout(timer)
+  }, [tenant, deferredQuery, fetchData])
+
+  useEffect(() => {
+    if (!active) return
+    const selected = sessions.find((session) => session.session_id === active)
+    if (!selected?.isSummary) return
+    fetchSessionDetails(active)
+  }, [active, sessions, fetchSessionDetails])
+
+  useEffect(() => {
+    return () => {
+      fetchControllerRef.current?.abort()
+    }
   }, [])
 
   useEffect(() => {
@@ -391,7 +1067,7 @@ export default function ConversasPage() {
     lines.push("");
 
     current.messages.forEach((msg) => {
-      const role = msg.role === 'user' ? 'CLIENTE' : 'IA';
+      const role = resolveMessageRoleLabel(msg);
       const time = fmtBR(msg.created_at);
       const content = msg.content ? msg.content.replace(/\r\n/g, '\n').trim() : "";
 
@@ -416,30 +1092,72 @@ export default function ConversasPage() {
   };
 
   const filtered = useMemo(() => {
-    if (!query.trim()) {
-      return sessions.map((session) => ({ session, score: 0, matchedMessages: [] }))
+    return sessions.map((session) => ({ session, score: 0, matchedMessages: [] }))
+  }, [sessions])
+
+  const isSearchPending = query !== deferredQuery || serverSearching
+  const trimmedQuery = query.trim()
+
+  const highlightText = (text: string, searchQuery: string): React.ReactNode => {
+    if (!searchQuery.trim() || !text) return text
+
+    const value = String(text)
+    const cleanQuery = searchQuery.trim()
+    const valueLower = value.toLocaleLowerCase()
+    const levels = new Array<number>(value.length).fill(0)
+
+    const paintMatches = (needle: string, level: number) => {
+      const candidate = needle.trim()
+      if (candidate.length < 2) return
+      const candidateLower = candidate.toLocaleLowerCase()
+      let idx = valueLower.indexOf(candidateLower)
+      while (idx !== -1) {
+        const end = Math.min(value.length, idx + candidate.length)
+        for (let i = idx; i < end; i += 1) {
+          levels[i] = Math.max(levels[i], level)
+        }
+        idx = valueLower.indexOf(candidateLower, idx + 1)
+      }
     }
 
-    return sessions
-      .map((session) => searchInSession(session, query))
-      .filter((result) => result.score > 0)
-      .sort((a, b) => b.score - a.score)
-  }, [sessions, query])
+    // Frase exata em vermelho; termos individuais em verde.
+    paintMatches(cleanQuery, 2)
+    cleanQuery
+      .split(/\s+/)
+      .map((token) => token.trim())
+      .filter((token) => token.length >= 2)
+      .forEach((token) => paintMatches(token, 1))
 
-  const highlightText = (text: string, query: string): React.ReactNode => {
-    if (!query.trim()) return text
+    const nodes: React.ReactNode[] = []
+    let segmentStart = 0
+    let currentLevel = levels[0] ?? 0
 
-    const normalizedQuery = normalizeText(query)
-    const queryWords = normalizedQuery.split(" ").filter((w) => w.length > 0)
+    for (let i = 1; i <= value.length; i += 1) {
+      const level = levels[i] ?? 0
+      if (i < value.length && level === currentLevel) continue
 
-    let highlightedText = text
+      const fragment = value.slice(segmentStart, i)
+      if (currentLevel === 2) {
+        nodes.push(
+          <mark key={`hl-red-${segmentStart}-${i}`} className="bg-red-500/55 text-red-50 px-0.5 rounded">
+            {fragment}
+          </mark>,
+        )
+      } else if (currentLevel === 1) {
+        nodes.push(
+          <mark key={`hl-green-${segmentStart}-${i}`} className="bg-green-400/65 text-black px-0.5 rounded">
+            {fragment}
+          </mark>,
+        )
+      } else {
+        nodes.push(<span key={`hl-text-${segmentStart}-${i}`}>{fragment}</span>)
+      }
 
-    queryWords.forEach((word) => {
-      const regex = new RegExp(`(${word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi")
-      highlightedText = highlightedText.replace(regex, '<mark class="bg-accent-green/30 text-white px-0.5 rounded">$1</mark>')
-    })
+      segmentStart = i
+      currentLevel = level
+    }
 
-    return <span dangerouslySetInnerHTML={{ __html: highlightedText }} />
+    return <>{nodes}</>
   }
 
   const handleBulkExport = () => {
@@ -460,7 +1178,7 @@ export default function ConversasPage() {
       lines.push("--------------------------------------------------");
 
       session.messages.forEach(msg => {
-        const role = msg.role === 'user' ? 'CLIENTE' : 'IA';
+        const role = resolveMessageRoleLabel(msg);
         const time = fmtBR(msg.created_at);
         const content = msg.content ? msg.content.replace(/\r\n/g, '\n').trim() : "";
         lines.push(`[${time}] ${role}: ${content}`);
@@ -502,34 +1220,468 @@ export default function ConversasPage() {
     }
   }
 
-  const handleSendMessage = async () => {
-    if (!messageInput.trim() || !current?.numero) return
-    setIsSending(true)
-
+  const loadBulkProvider = useCallback(async () => {
+    if (!tenant) return
+    setBulkProviderLoading(true)
+    setBulkProviderError(null)
     try {
-      // 1. Simular envio imediato (Optimistic UI) - A API real será implementada depois
-      const tempMsg: ChatMessage = {
-        role: 'bot', // Usando bot para alinhar à direita ou criar lógica visual diferente depois
-        content: messageInput,
-        created_at: new Date().toISOString(),
-        isSuccess: true // Marcador de enviado
+      const res = await fetch("/api/tenant/messaging-config")
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data?.config?.provider) {
+        setBulkProvider(null)
+        setBulkProviderError(data?.error || "Configuracao de WhatsApp ausente")
+        return
+      }
+      setBulkProvider(data.config.provider)
+    } catch (error: any) {
+      setBulkProvider(null)
+      setBulkProviderError(error?.message || "Erro ao carregar configuracao")
+    } finally {
+      setBulkProviderLoading(false)
+    }
+  }, [tenant])
+
+  const loadBulkMetaTemplates = useCallback(async () => {
+    setBulkMetaTemplatesLoading(true)
+    setBulkMetaTemplatesError(null)
+    try {
+      const res = await fetch("/api/meta/templates")
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || "Erro ao carregar templates")
+      setBulkMetaTemplatesCatalog(Array.isArray(data?.data) ? data.data : [])
+    } catch (error: any) {
+      setBulkMetaTemplatesError(error?.message || "Erro ao carregar templates")
+    } finally {
+      setBulkMetaTemplatesLoading(false)
+    }
+  }, [])
+
+  const openBulkDialog = async () => {
+    if (selectedIds.length === 0) {
+      toast.error("Selecione pelo menos uma conversa")
+      return
+    }
+    setBulkResults([])
+    setBulkProgress(0)
+    setBulkSending(false)
+    bulkStopRef.current = false
+    setBulkDialogOpen(true)
+    await loadBulkProvider()
+  }
+
+  useEffect(() => {
+    if (!bulkDialogOpen) return
+    if (bulkProvider !== "meta") return
+    if (bulkMetaTemplatesCatalog.length > 0) return
+    loadBulkMetaTemplates()
+  }, [bulkDialogOpen, bulkProvider, bulkMetaTemplatesCatalog.length, loadBulkMetaTemplates])
+
+  const handleBulkStop = () => {
+    bulkStopRef.current = true
+    setBulkSending(false)
+  }
+
+  const handleBulkHeaderUpload = async (file?: File | null) => {
+    if (!file) return
+    if (!bulkMetaHeaderMediaType) {
+      toast.error("Selecione um template com header de midia")
+      return
+    }
+    if (bulkMetaHeaderMediaType === "IMAGE" && !file.type.startsWith("image/")) {
+      toast.error("Selecione um arquivo de imagem")
+      return
+    }
+    if (bulkMetaHeaderMediaType === "VIDEO" && !file.type.startsWith("video/")) {
+      toast.error("Selecione um arquivo de video")
+      return
+    }
+
+    setBulkMetaHeaderUploading(true)
+    try {
+      const form = new FormData()
+      form.append("file", file)
+      form.append("messaging_product", "whatsapp")
+      if (file.type) form.append("type", file.type)
+
+      const res = await fetch("/api/meta/media", { method: "POST", body: form })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || "Falha ao enviar midia")
+      if (!data?.id) throw new Error("Meta nao retornou o ID da midia")
+
+      setBulkMetaHeaderMediaId(String(data.id))
+      setBulkMetaHeaderMediaLink("")
+      toast.success("Midia enviada. ID preenchido.")
+    } catch (error: any) {
+      toast.error(error?.message || "Erro ao enviar midia")
+    } finally {
+      setBulkMetaHeaderUploading(false)
+    }
+  }
+
+  const handleBulkSend = async () => {
+    if (bulkSending) return
+    if (selectedSessions.length === 0) {
+      toast.error("Nenhuma conversa selecionada")
+      return
+    }
+    if (!bulkProvider) {
+      toast.error(bulkProviderError || "Configuracao de WhatsApp ausente")
+      return
+    }
+
+    const delaySeconds = Math.max(0, Number(bulkDelaySeconds) || 0)
+
+    if (bulkProvider === "meta") {
+      if (bulkMetaTemplateMode === "select") {
+        if (!selectedBulkMetaTemplate) {
+          toast.error("Selecione um template da lista")
+          return
+        }
+        const missing = bulkMetaParamFields.filter(
+          (field) => !(bulkMetaParamValues[field.id] || "").trim(),
+        )
+        if (missing.length > 0) {
+          toast.error("Preencha todos os parametros do template")
+          return
+        }
+        if (bulkMetaHeaderMediaType) {
+          const id = bulkMetaHeaderMediaId.trim()
+          const link = bulkMetaHeaderMediaLink.trim()
+          if (!id && !link) {
+            toast.error("Informe o ID ou link de midia do header")
+            return
+          }
+        }
+      } else {
+        const manualJson = bulkMetaManualComponents.trim()
+        if (manualJson) {
+          if (!bulkMetaManualTemplateName.trim()) {
+            toast.error("Informe o nome do template para o JSON")
+            return
+          }
+          const parsed = parseComponentsJson(manualJson)
+          if (parsed.error) {
+            toast.error(parsed.error)
+            return
+          }
+        } else {
+          if (!bulkMetaTemplates.trim()) {
+            toast.error("Adicione pelo menos um template oficial")
+            return
+          }
+          const parsed = parseMetaTemplateLines(bulkMetaTemplates)
+          if (parsed.length === 0) {
+            toast.error("Templates oficiais invalidos")
+            return
+          }
+        }
+      }
+    } else {
+      if (!bulkMessage.trim()) {
+        toast.error("Digite a mensagem do disparo")
+        return
+      }
+    }
+
+    setBulkSending(true)
+    setBulkResults([])
+    setBulkProgress(0)
+    bulkStopRef.current = false
+
+    const metaTemplates = bulkProvider === "meta" ? parseMetaTemplateLines(bulkMetaTemplates) : []
+    const manualComponentsParsed =
+      bulkProvider === "meta" && bulkMetaTemplateMode === "manual" && bulkMetaManualComponents.trim()
+        ? parseComponentsJson(bulkMetaManualComponents).components
+        : null
+    const headerMediaConfig =
+      bulkProvider === "meta" && bulkMetaTemplateMode === "select" && bulkMetaHeaderMediaType
+        ? {
+            format: bulkMetaHeaderMediaType,
+            id: bulkMetaHeaderMediaId.trim() || undefined,
+            link: bulkMetaHeaderMediaLink.trim() || undefined,
+          }
+        : null
+    const selectedComponents =
+      bulkProvider === "meta" && bulkMetaTemplateMode === "select"
+        ? buildComponentsFromFields(selectedBulkMetaTemplate, bulkMetaParamValues, headerMediaConfig)
+        : []
+    const total = selectedSessions.length
+    let processed = 0
+
+    for (const session of selectedSessions) {
+      if (bulkStopRef.current) break
+      const phoneCandidate = session.numero || session.session_id
+      const phoneDigits = normalizePhoneCandidate(phoneCandidate)
+      const name = session.contact_name || session.formData?.nome || session.formData?.primeiroNome || undefined
+
+      if (!phoneDigits) {
+        setBulkResults((prev) => [
+          ...prev,
+          {
+            sessionId: session.session_id,
+            phone: String(phoneCandidate || ""),
+            name,
+            status: "skipped",
+            error: "Numero invalido",
+          },
+        ])
+        processed += 1
+        setBulkProgress(Math.round((processed / total) * 100))
+        continue
       }
 
-      // Atualizar lista localmente
+      try {
+        const payload: Record<string, any> = {
+          number: phoneCandidate,
+          name,
+          sessionId: session.session_id,
+        }
+
+        if (bulkProvider === "meta") {
+          payload.templateLanguage = bulkMetaLanguage.trim() || "pt_BR"
+          if (bulkMetaTemplateMode === "select") {
+            if (selectedBulkMetaTemplate) {
+              if (selectedComponents.length > 0) {
+                payload.templateName = selectedBulkMetaTemplate.name
+                payload.templateComponents = selectedComponents
+              } else {
+                payload.metaTemplates = [{ name: selectedBulkMetaTemplate.name, params: [] }]
+              }
+            }
+          } else if (bulkMetaManualComponents.trim() && manualComponentsParsed) {
+            payload.templateName = bulkMetaManualTemplateName.trim()
+            payload.templateComponents = manualComponentsParsed
+          } else {
+            payload.metaTemplates = metaTemplates
+          }
+        } else {
+          payload.templates = [bulkMessage.trim()]
+        }
+
+        const res = await fetch("/api/whatsapp-blast/send", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-tenant-prefix": tenant?.prefix || "",
+          },
+          body: JSON.stringify(payload),
+        })
+
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          throw new Error(data?.error || "Erro ao enviar")
+        }
+
+        setBulkResults((prev) => [
+          ...prev,
+          {
+            sessionId: session.session_id,
+            phone: String(phoneCandidate || ""),
+            name,
+            status: "success",
+          },
+        ])
+      } catch (error: any) {
+        setBulkResults((prev) => [
+          ...prev,
+          {
+            sessionId: session.session_id,
+            phone: String(phoneCandidate || ""),
+            name,
+            status: "error",
+            error: error?.message || "Erro ao enviar",
+          },
+        ])
+      }
+
+      processed += 1
+      setBulkProgress(Math.round((processed / total) * 100))
+
+      if (processed < total && !bulkStopRef.current && delaySeconds > 0) {
+        await sleep(delaySeconds * 1000)
+      }
+    }
+
+    setBulkSending(false)
+    if (bulkStopRef.current) {
+      toast.message("Disparo interrompido")
+    } else {
+      toast.success("Disparo finalizado")
+    }
+  }
+
+  const handleSendMessage = async () => {
+    if (!messageInput.trim() || !current) return
+    setIsSending(true)
+
+    const messageText = messageInput.trim()
+
+    try {
+      const res = await fetch("/api/conversas/send-text", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-tenant-prefix": tenant?.prefix || "",
+        },
+        body: JSON.stringify({
+          number: current.numero || current.session_id,
+          sessionId: current.session_id,
+          message: messageText,
+        })
+      })
+
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data?.error || "Erro ao enviar mensagem")
+      }
+
+      const providerMessageId = typeof data?.messageId === "string" ? data.messageId : undefined
+
+      const tempMsg: ChatMessage = {
+        role: "bot",
+        content: messageText,
+        created_at: new Date().toISOString(),
+        isSuccess: true,
+        isManual: true,
+        provider_message_id: providerMessageId,
+        fromMe: true,
+      }
+
       const updatedSessions = sessions.map(s => {
         if (s.session_id === current.session_id) {
-          return { ...s, messages: [...s.messages, tempMsg] }
+          const nextMessages = [...s.messages, tempMsg]
+          return {
+            ...s,
+            messages: nextMessages,
+            messages_count: nextMessages.length,
+            isSummary: false,
+          }
         }
         return s
       })
       setSessions(updatedSessions)
+      setMessageInput("")
+      toast.success("Mensagem enviada")
+    } catch (err: any) {
+      console.error("Erro ao enviar:", err)
+      toast.error(err?.message || "Erro ao enviar mensagem")
+    } finally {
+      setIsSending(false)
+    }
+  }
 
-      // 2. Chamar API de Pausa Automática
-      console.log(`[Conversas] Enviando mensagem e pausando por ${pauseDuration} mins (ou permanente)`)
+  const handleDeleteMessage = async (msg: ChatMessage) => {
+    if (!current) return
+    if (!msg.message_id) {
+      toast.error("Nao foi possivel excluir: mensagem sem ID interno.")
+      return
+    }
+    if (!msg.provider_message_id) {
+      toast.error("Nao foi possivel excluir no WhatsApp: ID da mensagem ausente.")
+      return
+    }
 
-      // Calcular data de expiração
+    const confirmed = window.confirm("Tem certeza que deseja excluir esta mensagem?")
+    if (!confirmed) return
+
+    setDeletingMessageId(msg.message_id)
+    try {
+      const res = await fetch("/api/conversas/delete-message", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-tenant-prefix": tenant?.prefix || "",
+        },
+        body: JSON.stringify({
+          rowId: msg.message_id,
+          messageId: msg.provider_message_id,
+          phone: current.numero || current.session_id,
+          sessionId: current.session_id,
+          owner: typeof msg.fromMe === "boolean" ? msg.fromMe : msg.role !== "user",
+        }),
+      })
+
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data?.error || "Erro ao excluir mensagem")
+      }
+
+      setSessions((prev) =>
+        prev.map((s) => {
+          if (s.session_id !== current.session_id) return s
+          const remainingMessages = s.messages.filter((m) => m.message_id !== msg.message_id)
+          return {
+            ...s,
+            messages: remainingMessages,
+            messages_count: remainingMessages.length,
+          }
+        }),
+      )
+
+      toast.success("Mensagem excluida com sucesso.")
+    } catch (error: any) {
+      toast.error(error?.message || "Erro ao excluir mensagem.")
+    } finally {
+      setDeletingMessageId(null)
+    }
+  }
+
+  const handleClearLeadMemory = useCallback(async () => {
+    if (!current || clearingMemory) return
+
+    const confirmed = window.confirm(
+      "Apagar memoria deste lead?\n\nIsso remove historico, pausas e registros relacionados no tenant para este contato.",
+    )
+    if (!confirmed) return
+
+    setClearingMemory(true)
+    const targetSessionId = current.session_id
+    const targetNumber = current.numero || current.session_id
+
+    try {
+      const response = await fetch("/api/conversas/clear-memory", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-tenant-prefix": tenant?.prefix || "",
+        },
+        body: JSON.stringify({
+          sessionId: targetSessionId,
+          number: targetNumber,
+        }),
+      })
+
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || !payload?.success) {
+        throw new Error(payload?.error || "Erro ao apagar memoria do lead")
+      }
+
+      setSessions((prev) => prev.filter((session) => session.session_id !== targetSessionId))
+      setActive((prev) => (prev === targetSessionId ? null : prev))
+      setPauseStatus({ pausar: false, vaga: true, agendamento: true })
+
+      const totalDeleted = Number(payload?.totalDeleted || 0)
+      toast.success(
+        totalDeleted > 0
+          ? `Memoria apagada com sucesso (${totalDeleted} registros removidos).`
+          : "Memoria apagada com sucesso.",
+      )
+
+      fetchData(query)
+    } catch (error: any) {
+      toast.error(error?.message || "Erro ao apagar memoria do lead.")
+    } finally {
+      setClearingMemory(false)
+    }
+  }, [current, clearingMemory, tenant?.prefix, fetchData, query])
+
+  const handleActivatePause = async () => {
+    if (!current?.numero && !current?.session_id) return
+    setTakeoverLoading(true)
+
+    try {
       let pausedUntil = null
-      if (pauseDuration !== 'permanent') {
+      if (pauseDuration !== "permanent") {
         const minutes = parseInt(pauseDuration)
         if (!isNaN(minutes)) {
           const date = new Date()
@@ -538,29 +1690,31 @@ export default function ConversasPage() {
         }
       }
 
-      await fetch("/api/pausar", {
+      const res = await fetch("/api/pausar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          numero: current.numero,
+          numero: current.numero || current.session_id,
           pausar: true,
           paused_until: pausedUntil
         })
       })
 
-      // Atualizar status de pausa visualmente
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data?.error || "Erro ao pausar IA")
+      }
+
       setPauseStatus(prev => prev ? { ...prev, pausar: true } : { pausar: true, vaga: true, agendamento: true })
-      setMessageInput("")
-
-      // Feedback
-      // toast.success("Mensagem enviada e IA pausada.")
-
-    } catch (err) {
-      console.error("Erro ao enviar:", err)
+      toast.success("IA pausada")
+    } catch (err: any) {
+      console.error("Erro ao pausar:", err)
+      toast.error(err?.message || "Erro ao pausar IA")
     } finally {
-      setIsSending(false)
+      setTakeoverLoading(false)
     }
   }
+
 
   return (
     <div className="h-[calc(100vh-5rem)] flex flex-col lg:flex-row gap-4 overflow-hidden">
@@ -580,6 +1734,15 @@ export default function ConversasPage() {
                 </span>
                 <Button variant="ghost" size="icon" onClick={() => handleBulkExport()} disabled={selectedIds.length === 0} title="Baixar Selecionados">
                   <Download className="w-4 h-4 text-accent-green" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={openBulkDialog}
+                  disabled={selectedIds.length === 0}
+                  title="Disparo em massa"
+                >
+                  <Send className="w-4 h-4 text-accent-green" />
                 </Button>
                 <Button variant="ghost" size="icon" onClick={() => { setIsSelectionMode(false); setSelectedIds([]) }}>
                   <XCircle className="w-4 h-4 text-red-400" />
@@ -606,19 +1769,63 @@ export default function ConversasPage() {
 
           <div className="relative mt-3">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-text-gray" />
+            {isSearchPending && (
+              <Loader2 className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-accent-green animate-spin" />
+            )}
             <Input
-              placeholder="Buscar conversas..."
+              placeholder="Buscar por nome, assunto ou número..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              className="pl-10 bg-secondary-black border-border-gray focus:border-accent-green transition-all"
+              className="pl-10 pr-10 bg-secondary-black border-border-gray focus:border-accent-green transition-all"
             />
           </div>
+          {trimmedQuery && (
+            <p className="text-[11px] text-text-gray mt-2">
+              Destaque: <span className="px-1 rounded bg-green-400/65 text-black">verde</span> termo encontrado,{" "}
+              <span className="px-1 rounded bg-red-500/55 text-red-50">vermelho</span> frase exata.
+            </p>
+          )}
+          {tenant?.prefix && (
+            <div className="mt-3 rounded-md border border-border-gray bg-secondary-black/60 p-2 space-y-1">
+              <div className="flex items-center justify-between gap-2 text-[11px]">
+                <span className="text-text-gray">Webhook IA ({tenant.prefix})</span>
+                <span
+                  className={`font-medium ${
+                    nativeAgentOverview?.enabled &&
+                    nativeAgentOverview?.webhookEnabled &&
+                    nativeAgentOverview?.autoReplyEnabled
+                      ? "text-emerald-400"
+                      : "text-amber-400"
+                  }`}
+                >
+                  {nativeAgentOverview?.enabled &&
+                  nativeAgentOverview?.webhookEnabled &&
+                  nativeAgentOverview?.autoReplyEnabled
+                    ? "Ativo"
+                    : "Inativo/Pausado"}
+                </span>
+              </div>
+              <p className="text-[11px] font-mono text-accent-green break-all">{webhookEndpoint || "-"}</p>
+              {Array.isArray(nativeAgentOverview?.webhookExtraUrls) &&
+                nativeAgentOverview!.webhookExtraUrls!.length > 0 && (
+                  <p className="text-[11px] text-text-gray">
+                    Links extras: {nativeAgentOverview!.webhookExtraUrls!.length}
+                  </p>
+                )}
+            </div>
+          )}
         </CardHeader>
         <CardContent className="p-0 flex-1 overflow-hidden">
           <ScrollArea className="h-full genial-scrollbar">
             {loading ? (
               <div className="flex items-center justify-center h-32">
                 <Loader2 className="w-6 h-6 animate-spin text-accent-green" />
+              </div>
+            ) : error ? (
+              <div className="p-6 text-center text-red-400">
+                <AlertCircle className="w-10 h-10 mx-auto mb-3 opacity-80" />
+                <p className="font-medium">Erro ao carregar conversas</p>
+                <p className="text-sm text-red-300/80 mt-1">{error}</p>
               </div>
             ) : filtered.length === 0 ? (
               <div className="p-6 text-center text-text-gray">
@@ -662,11 +1869,17 @@ export default function ConversasPage() {
                           {highlightText(session.numero || "Sem número", query)}
                         </p>
                         <p className="text-xs text-text-gray/70 truncate">
-                          {session.messages[session.messages.length - 1]?.content.substring(0, 50) || "..."}
+                          {highlightText(
+                            (session.last_message_preview ||
+                              session.messages[session.messages.length - 1]?.content ||
+                              "...").substring(0, 80),
+                            query,
+                          )}
                         </p>
                         <div className="flex items-center gap-2 mt-2">
                           <Badge variant="secondary" className="text-xs">
-                            {session.messages.length} msgs
+                            {session.isSummary ? "~" : ""}
+                            {session.messages_count ?? session.messages.length} msgs
                           </Badge>
                         </div>
                       </div>
@@ -697,7 +1910,10 @@ export default function ConversasPage() {
                       <Phone className="w-3 h-3" />
                       <span className="font-mono">{current.numero || "Sem número"}</span>
                       <span>•</span>
-                      <span>{current.messages.length} mensagens</span>
+                      <span>
+                        {current.isSummary ? "~" : ""}
+                        {current.messages_count ?? current.messages.length} mensagens
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -712,7 +1928,7 @@ export default function ConversasPage() {
                         onClick={() => togglePauseParam("pausar")}
                         disabled={pauseLoading}
                         className={`text-xs ${pauseStatus.pausar
-                          ? "bg-yellow-500/20 text-yellow-400 border-yellow-500/30"
+                          ? "bg-green-500/20 text-green-400 border-green-500/30"
                           : "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
                           }`}
                       >
@@ -778,6 +1994,23 @@ export default function ConversasPage() {
                     >
                       <Download className="w-3 h-3 mr-1" />
                       Exportar
+                    </Button>
+                  )}
+                  {current && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleClearLeadMemory}
+                      disabled={clearingMemory}
+                      className="text-xs bg-red-500/10 text-red-300 border-red-500/40 hover:bg-red-500/20 hover:text-red-100 transition-colors"
+                      title="Apagar memoria completa do lead no sistema"
+                    >
+                      {clearingMemory ? (
+                        <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-3 h-3 mr-1" />
+                      )}
+                      {clearingMemory ? "Apagando..." : "Apagar Memoria"}
                     </Button>
                   )}
                 </div>
@@ -852,54 +2085,82 @@ export default function ConversasPage() {
                     </div>
                   )}
 
-                  {current.messages.map((msg, idx) => (
-                    <div
-                      key={`${msg.message_id || idx}`}
-                      id={`msg-${msg.message_id}`}
-                      className={`flex w-full mb-4 ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-                    >
+                  {detailLoadingSessionId === current.session_id && current.isSummary ? (
+                    <div className="flex items-center justify-center py-10 text-text-gray">
+                      <Loader2 className="w-5 h-5 animate-spin mr-2 text-accent-green" />
+                      <span>Carregando mensagens desta conversa...</span>
+                    </div>
+                  ) : current.messages.map((msg, idx) => {
+                    const senderType = resolveMessageSenderType(msg)
+                    const isLead = senderType === "lead"
+                    const isHuman = senderType === "human"
+                    return (
                       <div
-                        className={`max-w-[75%] md:max-w-[65%] lg:max-w-[55%] rounded-2xl px-5 py-4 shadow-lg transition-all hover:shadow-xl ${msg.role === "user"
-                          ? "bg-gradient-to-br from-[#00ff88] to-[#00cc6a] text-black border border-[#00cc6a]/30"
-                          : msg.isError
-                            ? "bg-gradient-to-br from-red-900/50 to-red-800/40 text-red-50 border-2 border-red-500/50"
-                            : msg.isSuccess
-                              ? "bg-gradient-to-br from-emerald-900/50 to-emerald-800/40 text-emerald-50 border-2 border-emerald-500/50"
-                              : "bg-gradient-to-br from-gray-800/95 to-gray-700/80 text-white border border-gray-600/50"
-                          }`}
+                        key={`${msg.message_id || idx}`}
+                        id={`msg-${msg.message_id}`}
+                        className={`flex w-full mb-4 ${isLead ? "justify-end" : "justify-start"}`}
                       >
-                        <div className="flex items-center gap-2 mb-3">
-                          {msg.role === "user" ? (
-                            <User className="w-4 h-4 flex-shrink-0" />
-                          ) : (
-                            <MessageSquare className="w-4 h-4 flex-shrink-0" />
-                          )}
-                          <span className="text-xs font-semibold uppercase tracking-wide">
-                            {msg.role === "user" ? "Cliente" : "IA"}
-                          </span>
-                        </div>
-                        <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
-                          {msg.content}
-                        </p>
-                        <div className="flex items-center gap-2 mt-3 pt-2 border-t border-current/10 text-xs opacity-75">
-                          <Clock className="w-3 h-3 flex-shrink-0" />
-                          <span>{fmtBR(msg.created_at)}</span>
-                          {msg.isError && <AlertCircle className="w-3 h-3 text-red-400 flex-shrink-0" />}
-                          {msg.isSuccess && <CheckCircle2 className="w-3 h-3 text-emerald-400 flex-shrink-0" />}
+                        <div
+                          className={`relative max-w-[75%] md:max-w-[65%] lg:max-w-[55%] rounded-2xl px-5 py-4 shadow-lg transition-all hover:shadow-xl ${isLead
+                            ? "bg-gradient-to-br from-[#00ff88] to-[#00cc6a] text-black border border-[#00cc6a]/30"
+                            : isHuman
+                              ? "bg-gradient-to-br from-amber-900/55 to-amber-800/40 text-amber-50 border border-amber-500/50"
+                              : msg.isError
+                                ? "bg-gradient-to-br from-red-900/50 to-red-800/40 text-red-50 border-2 border-red-500/50"
+                                : msg.isSuccess
+                                  ? "bg-gradient-to-br from-emerald-900/50 to-emerald-800/40 text-emerald-50 border-2 border-emerald-500/50"
+                                  : "bg-gradient-to-br from-gray-800/95 to-gray-700/80 text-white border border-gray-600/50"
+                            }`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteMessage(msg)}
+                            disabled={!msg.message_id || !msg.provider_message_id || deletingMessageId === msg.message_id}
+                            title={!msg.provider_message_id ? "Mensagem sem ID no WhatsApp" : "Excluir mensagem"}
+                            className={`absolute right-2 top-2 rounded-full p-1 text-xs transition-opacity ${isLead
+                              ? "text-black/70 hover:text-black"
+                              : "text-white/60 hover:text-white"
+                              } ${!msg.message_id || !msg.provider_message_id ? "opacity-40 cursor-not-allowed" : "opacity-80 hover:opacity-100"}`}
+                          >
+                            {deletingMessageId === msg.message_id ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Trash2 className="w-3 h-3" />
+                            )}
+                          </button>
+                          <div className="flex items-center gap-2 mb-3">
+                            {isLead || isHuman ? (
+                              <User className="w-4 h-4 flex-shrink-0" />
+                            ) : (
+                              <MessageSquare className="w-4 h-4 flex-shrink-0" />
+                            )}
+                            <span className="text-xs font-semibold uppercase tracking-wide">
+                              {resolveMessageRoleLabel(msg)}
+                            </span>
+                          </div>
+                          <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+                            {highlightText(msg.content, query)}
+                          </p>
+                          <div className="flex items-center gap-2 mt-3 pt-2 border-t border-current/10 text-xs opacity-75">
+                            <Clock className="w-3 h-3 flex-shrink-0" />
+                            <span>{fmtBR(msg.created_at)}</span>
+                            {msg.isError && <AlertCircle className="w-3 h-3 text-red-400 flex-shrink-0" />}
+                            {msg.isSuccess && <CheckCircle2 className="w-3 h-3 text-emerald-400 flex-shrink-0" />}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </ScrollArea>
             </CardContent>
 
             {/* Footer de Envio de Mensagem */}
             <div className="p-4 border-t border-border-gray bg-[#151515]">
-              <div className="flex items-center gap-3 mb-3">
+              <div className="flex items-center gap-3 mb-3 flex-wrap">
                 <span className="text-xs text-text-gray font-medium flex items-center gap-1">
-                  <PauseCircle className="w-3 h-3 text-yellow-500" />
-                  Ao enviar, pausar IA por:
+                  <PauseCircle className="w-3 h-3 text-green-500" />
+                  Ao assumir, pausar IA por:
                 </span>
                 <Select value={pauseDuration} onValueChange={setPauseDuration}>
                   <SelectTrigger className="h-7 w-[140px] text-xs bg-black/40 border-border-gray text-pure-white focus:ring-accent-green">
@@ -913,6 +2174,14 @@ export default function ConversasPage() {
                     <SelectItem value="permanent">Permanente</SelectItem>
                   </SelectContent>
                 </Select>
+                <Button
+                  onClick={handleActivatePause}
+                  disabled={takeoverLoading || pauseStatus?.pausar}
+                  variant="outline"
+                  className="h-7 text-xs border-green-500/30 text-green-400 hover:bg-green-500/10"
+                >
+                  {pauseStatus?.pausar ? "Tempo ativo" : takeoverLoading ? "Ativando..." : "Ativar tempo"}
+                </Button>
               </div>
               <div className="flex gap-3">
                 <Textarea
@@ -951,6 +2220,287 @@ export default function ConversasPage() {
           </div>
         )}
       </Card>
+
+      <Dialog open={bulkDialogOpen} onOpenChange={(open) => { if (!bulkSending) setBulkDialogOpen(open) }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Disparo em massa</DialogTitle>
+            <DialogDescription>
+              Envio para {selectedIds.length} conversa(s) selecionada(s).
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="flex items-center justify-between text-xs text-text-gray">
+              <span>
+                Provider:{" "}
+                {bulkProvider === "meta"
+                  ? "Meta Cloud API"
+                  : bulkProvider === "evolution"
+                    ? "Evolution API"
+                    : bulkProvider === "zapi"
+                      ? "Z-API"
+                      : "Nao configurado"}
+              </span>
+              {bulkProviderLoading && <Loader2 className="w-3 h-3 animate-spin text-accent-green" />}
+            </div>
+
+            {bulkProviderError && (
+              <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-2 text-xs text-red-300">
+                {bulkProviderError}
+              </div>
+            )}
+
+            {bulkProvider === "meta" ? (
+              <Tabs
+                value={bulkMetaTemplateMode}
+                onValueChange={(v) => setBulkMetaTemplateMode(v as "select" | "manual")}
+                className="w-full"
+              >
+                <TabsList className="grid w-full grid-cols-2 bg-[var(--secondary-black)] border border-[var(--border-gray)]">
+                  <TabsTrigger value="select">Selecionar da lista</TabsTrigger>
+                  <TabsTrigger value="manual">Manual / JSON</TabsTrigger>
+                </TabsList>
+                <TabsContent value="select" className="mt-4 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-xs text-text-gray">
+                      {bulkMetaTemplatesCatalog.length} templates carregados
+                    </div>
+                    <Button
+                      variant="outline"
+                      className="border-border-gray text-text-gray hover:bg-white/5"
+                      onClick={loadBulkMetaTemplates}
+                      disabled={bulkMetaTemplatesLoading}
+                    >
+                      {bulkMetaTemplatesLoading ? "Carregando..." : "Atualizar lista"}
+                    </Button>
+                  </div>
+                  {bulkMetaTemplatesError && (
+                    <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-2 text-xs text-red-300">
+                      {bulkMetaTemplatesError}
+                    </div>
+                  )}
+                  <div className="space-y-2">
+                    <Label>Template</Label>
+                    <Select value={bulkMetaSelectedTemplate} onValueChange={setBulkMetaSelectedTemplate}>
+                      <SelectTrigger className="bg-black/40 border-border-gray text-pure-white">
+                        <SelectValue placeholder="Selecione..." />
+                      </SelectTrigger>
+                      <SelectContent className="bg-[#1a1a1a] border-[#333] text-pure-white">
+                        {bulkMetaTemplatesCatalog.map((tpl) => (
+                          <SelectItem key={tpl.name} value={tpl.name}>
+                            {tpl.name}{tpl.status ? ` (${tpl.status})` : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Idioma do template</Label>
+                    <Input
+                      value={bulkMetaLanguage}
+                      onChange={(e) => setBulkMetaLanguage(e.target.value)}
+                      placeholder="pt_BR"
+                      className="bg-black/40 border-border-gray text-pure-white"
+                    />
+                  </div>
+                  {selectedBulkMetaTemplate && (
+                    <div className="flex flex-wrap gap-2">
+                      <Badge variant="outline" className="text-xs text-text-gray">
+                        {selectedBulkMetaTemplate.status || "UNKNOWN"}
+                      </Badge>
+                      <Badge variant="outline" className="text-xs text-text-gray">
+                        {selectedBulkMetaTemplate.category || "Categoria"}
+                      </Badge>
+                      <Badge variant="outline" className="text-xs text-text-gray">
+                        {selectedBulkMetaTemplate.language || "Idioma"}
+                      </Badge>
+                    </div>
+                  )}
+                  {bulkMetaParamFields.length > 0 ? (
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {bulkMetaParamFields.map((field) => (
+                        <div key={field.id} className="space-y-2">
+                          <Label className="text-xs">{field.label}</Label>
+                          <Input
+                            value={bulkMetaParamValues[field.id] || ""}
+                            onChange={(e) =>
+                              setBulkMetaParamValues((prev) => ({ ...prev, [field.id]: e.target.value }))
+                            }
+                            placeholder="Valor"
+                            className="bg-black/40 border-border-gray text-pure-white"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-text-gray">Este template nao exige parametros.</div>
+                  )}
+                  {bulkMetaHeaderMediaType && (
+                    <div className="space-y-2">
+                      <Label>Header de midia ({bulkMetaHeaderMediaType.toLowerCase()})</Label>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <Input
+                          value={bulkMetaHeaderMediaId}
+                          onChange={(e) => setBulkMetaHeaderMediaId(e.target.value)}
+                          placeholder="Media ID (upload Meta)"
+                          className="bg-black/40 border-border-gray text-pure-white"
+                        />
+                        <Input
+                          value={bulkMetaHeaderMediaLink}
+                          onChange={(e) => setBulkMetaHeaderMediaLink(e.target.value)}
+                          placeholder="https://... (link publico)"
+                          className="bg-black/40 border-border-gray text-pure-white"
+                        />
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <Input
+                          type="file"
+                          accept={
+                            bulkMetaHeaderMediaType === "IMAGE"
+                              ? "image/*"
+                              : bulkMetaHeaderMediaType === "VIDEO"
+                                ? "video/*"
+                                : ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt"
+                          }
+                          className="text-xs text-text-gray file:text-xs"
+                          onChange={(e) => handleBulkHeaderUpload(e.target.files?.[0])}
+                          disabled={bulkMetaHeaderUploading}
+                        />
+                        <span className="text-[11px] text-text-gray">
+                          {bulkMetaHeaderUploading ? "Enviando midia..." : "Upload opcional"}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-text-gray">
+                        Informe o ID de midia ou um link publico para enviar o header.
+                      </div>
+                    </div>
+                  )}
+                </TabsContent>
+                <TabsContent value="manual" className="mt-4 space-y-3">
+                  <div className="space-y-2">
+                    <Label>Templates oficiais</Label>
+                    <Textarea
+                      value={bulkMetaTemplates}
+                      onChange={(e) => setBulkMetaTemplates(e.target.value)}
+                      placeholder="template_boas_vindas|{primeiro_nome}"
+                      className="min-h-[120px] bg-black/40 border-border-gray text-pure-white"
+                    />
+                    <div className="text-[11px] text-text-gray">
+                      Um template por linha. Use | para parametros (ex: template|{"{primeiro_nome}"}).
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Idioma do template</Label>
+                    <Input
+                      value={bulkMetaLanguage}
+                      onChange={(e) => setBulkMetaLanguage(e.target.value)}
+                      placeholder="pt_BR"
+                      className="bg-black/40 border-border-gray text-pure-white"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Nome do template (para JSON)</Label>
+                    <Input
+                      value={bulkMetaManualTemplateName}
+                      onChange={(e) => setBulkMetaManualTemplateName(e.target.value)}
+                      placeholder="template_boas_vindas"
+                      className="bg-black/40 border-border-gray text-pure-white"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Components JSON (opcional)</Label>
+                    <Textarea
+                      value={bulkMetaManualComponents}
+                      onChange={(e) => setBulkMetaManualComponents(e.target.value)}
+                      placeholder='[{"type":"BODY","text":"Ola {{1}}"}]'
+                      className="min-h-[120px] bg-black/40 border-border-gray text-pure-white"
+                    />
+                    <div className="text-[11px] text-text-gray">
+                      Se informado, o JSON substitui a lista manual.
+                    </div>
+                  </div>
+                </TabsContent>
+              </Tabs>
+            ) : (
+              <div className="space-y-2">
+                <Label>Mensagem</Label>
+                <Textarea
+                  value={bulkMessage}
+                  onChange={(e) => setBulkMessage(e.target.value)}
+                  placeholder="Oi {nome}, tudo bem?"
+                  className="min-h-[120px] bg-black/40 border-border-gray text-pure-white"
+                />
+                <div className="text-[11px] text-text-gray">
+                  Use {`{nome}`} ou {`{primeiro_nome}`} para personalizar.
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label>Delay entre envios (segundos)</Label>
+              <Input
+                type="number"
+                value={bulkDelaySeconds}
+                onChange={(e) => setBulkDelaySeconds(e.target.value)}
+                className="bg-black/40 border-border-gray text-pure-white"
+              />
+            </div>
+
+            {bulkSending && (
+              <div className="space-y-2">
+                <Progress value={bulkProgress} className="h-2 bg-[#222]" />
+                <div className="text-xs text-text-gray">{bulkProgress}% concluido</div>
+              </div>
+            )}
+
+            {bulkResults.length > 0 && (
+              <div className="max-h-48 overflow-auto rounded-lg border border-border-gray bg-black/30 p-2 space-y-2 text-xs">
+                {bulkResults.map((result, idx) => (
+                  <div key={`${result.sessionId}-${idx}`} className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-mono text-pure-white truncate">{result.phone}</div>
+                      {result.name && <div className="text-text-gray truncate">{result.name}</div>}
+                      {result.error && <div className="text-red-400">{result.error}</div>}
+                    </div>
+                    {result.status === "success" ? (
+                      <Badge variant="outline" className="border-green-500/40 text-green-400">
+                        Enviado
+                      </Badge>
+                    ) : result.status === "skipped" ? (
+                      <Badge variant="outline" className="border-green-500/40 text-green-400">
+                        Ignorado
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="border-red-500/40 text-red-400">
+                        Erro
+                      </Badge>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              className="border-red-500/40 text-red-400 hover:bg-red-500/10"
+              onClick={handleBulkStop}
+              disabled={!bulkSending}
+            >
+              Parar
+            </Button>
+            <Button
+              onClick={handleBulkSend}
+              disabled={bulkSending || bulkProviderLoading || !bulkProvider}
+              className="bg-accent-green"
+            >
+              {bulkSending ? "Enviando..." : "Iniciar disparo"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

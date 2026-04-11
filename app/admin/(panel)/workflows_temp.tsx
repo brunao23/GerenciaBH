@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
@@ -36,6 +36,7 @@ import {
     UserPlus,
     Send
 } from "lucide-react"
+import { strToU8, zipSync } from "fflate"
 import { toast } from "sonner"
 
 interface N8NWorkflow {
@@ -59,7 +60,7 @@ export default function AdminWorkflowsPage() {
     const [loading, setLoading] = useState(true)
     const [actionLoading, setActionLoading] = useState<string | null>(null)
 
-    // Seleção múltipla
+    // SeleÃ§Ã£o mÃºltipla
     const [selectedWorkflows, setSelectedWorkflows] = useState<Set<string>>(new Set())
     const [showReplicateModal, setShowReplicateModal] = useState(false)
     const [selectedUnits, setSelectedUnits] = useState<Set<string>>(new Set())
@@ -117,7 +118,7 @@ export default function AdminWorkflowsPage() {
 
             if (!res.ok) {
                 const error = await res.json()
-                toast.error(error.error || 'Erro na operação')
+                toast.error(error.error || 'Erro na operaÃ§Ã£o')
                 return
             }
 
@@ -125,29 +126,34 @@ export default function AdminWorkflowsPage() {
 
             switch (action) {
                 case 'activate':
-                    toast.success(`✅ Workflow ativado: ${workflowName}`)
+                    toast.success(`âœ… Workflow ativado: ${workflowName}`)
                     break
                 case 'deactivate':
-                    toast.success(`⏸️ Workflow desativado: ${workflowName}`)
+                    toast.success(`â¸ï¸ Workflow desativado: ${workflowName}`)
                     break
                 case 'duplicate':
-                    toast.success(`📋 Workflow duplicado com sucesso`)
+                    toast.success(`ðŸ“‹ Workflow duplicado com sucesso`)
                     break
                 case 'export':
+                    if (!data?.workflow) {
+                        toast.error('Workflow nao retornado pela API')
+                        return
+                    }
                     const blob = new Blob([JSON.stringify(data.workflow, null, 2)], { type: 'application/json' })
                     const url = URL.createObjectURL(blob)
                     const a = document.createElement('a')
                     a.href = url
                     a.download = `${workflowName.replace(/[^a-z0-9]/gi, '_')}.json`
                     a.click()
-                    toast.success('💾 Workflow exportado')
+                    URL.revokeObjectURL(url)
+                    toast.success('ðŸ’¾ Workflow exportado')
                     return
             }
 
             await loadWorkflows()
         } catch (error) {
             console.error('Erro:', error)
-            toast.error('❌ Erro na operação')
+            toast.error('âŒ Erro na operaÃ§Ã£o')
         } finally {
             setActionLoading(null)
         }
@@ -203,14 +209,14 @@ export default function AdminWorkflowsPage() {
         return true
     })
 
-    // Extrair todas as tags únicas (garantir que sejam strings)
+    // Extrair todas as tags Ãºnicas (garantir que sejam strings)
     const allTags = Array.from(
         new Set(
             workflows.flatMap(w => normalizeTags(w.tags))
         )
     ).sort()
 
-    // Funções de seleção
+    // FunÃ§Ãµes de seleÃ§Ã£o
     const toggleWorkflow = (id: string) => {
         const newSet = new Set(selectedWorkflows)
         if (newSet.has(id)) {
@@ -223,6 +229,10 @@ export default function AdminWorkflowsPage() {
 
     const selectAll = () => {
         setSelectedWorkflows(new Set(filteredWorkflows.map(w => w.id)))
+    }
+
+    const selectAllGlobal = () => {
+        setSelectedWorkflows(new Set(workflows.map(w => w.id)))
     }
 
     const selectNone = () => {
@@ -267,7 +277,7 @@ export default function AdminWorkflowsPage() {
 
             if (!res.ok) {
                 const error = await res.json()
-                toast.error(error.error || 'Erro na replicação')
+                toast.error(error.error || 'Erro na replicaÃ§Ã£o')
                 return
             }
 
@@ -275,10 +285,10 @@ export default function AdminWorkflowsPage() {
             const { summary } = data
 
             if (summary.succeeded > 0) {
-                toast.success(`🎉 ${summary.succeeded} workflows replicados com sucesso!`)
+                toast.success(`ðŸŽ‰ ${summary.succeeded} workflows replicados com sucesso!`)
             }
             if (summary.failed > 0) {
-                toast.error(`⚠️ ${summary.failed} workflows falharam`)
+                toast.error(`âš ï¸ ${summary.failed} workflows falharam`)
             }
 
             setShowReplicateModal(false)
@@ -291,6 +301,116 @@ export default function AdminWorkflowsPage() {
         } finally {
             setReplicating(false)
         }
+    }
+
+    const exportWorkflowsByIds = async (
+        workflowIds: string[],
+        options?: { label?: string; filenamePrefix?: string }
+    ) => {
+        if (workflowIds.length === 0) {
+            toast.error('Nenhum workflow para exportar')
+            return
+        }
+
+        const label = options?.label || 'workflows selecionados'
+        const filenamePrefix = options?.filenamePrefix || 'workflows_selecionados'
+
+        try {
+            setActionLoading('export-bulk')
+
+            const res = await fetch('/api/admin/n8n/workflows', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'export_bulk', workflowIds })
+            })
+
+            const data = await res.json().catch(() => ({}))
+            if (!res.ok) {
+                toast.error(data?.error || `Erro ao exportar ${label}`)
+                return
+            }
+
+            const exported = Array.isArray(data?.workflows)
+                ? data.workflows.filter((item: any) => item?.success && item?.workflow)
+                : []
+
+            if (exported.length === 0) {
+                toast.error('Nenhum workflow foi exportado')
+                return
+            }
+
+            const failed = Math.max(0, workflowIds.length - exported.length)
+            const today = new Date().toISOString().split('T')[0]
+            const sanitize = (value: string) => {
+                const normalized = value
+                    .normalize('NFD')
+                    .replace(/[\u0300-\u036f]/g, '')
+                    .replace(/[^a-zA-Z0-9_-]+/g, '_')
+                    .replace(/^_+|_+$/g, '')
+                return normalized || 'workflow'
+            }
+
+            const files: Array<{ filename: string; content: string }> = exported.map((item: any) => {
+                const id = String(item?.id || 'sem_id')
+                const rawName = String(item?.name || `workflow_${id}`)
+                const safeName = sanitize(rawName)
+                return {
+                    filename: `${filenamePrefix}_${safeName}_${id}_${today}.json`,
+                    content: JSON.stringify(item.workflow, null, 2),
+                }
+            })
+
+            // Modo automÃ¡tico: usuÃ¡rio escolhe uma pasta 1x e os arquivos sÃ£o gravados sem prompts por arquivo.
+            const zipEntries = files.reduce((acc: Record<string, Uint8Array>, file) => {
+                acc[file.filename] = strToU8(file.content)
+                return acc
+            }, {})
+            const zipData = zipSync(zipEntries, { level: 6 })
+            const zipArrayBuffer = zipData.buffer.slice(
+                zipData.byteOffset,
+                zipData.byteOffset + zipData.byteLength,
+            ) as ArrayBuffer
+            const zipBlob = new Blob([zipArrayBuffer], { type: 'application/zip' })
+            const zipUrl = URL.createObjectURL(zipBlob)
+            const a = document.createElement('a')
+            a.href = zipUrl
+            a.download = `${filenamePrefix}_${today}.zip`
+            a.click()
+            URL.revokeObjectURL(zipUrl)
+
+            if (failed > 0) {
+                toast.warning(`ZIP gerado com ${exported.length} workflows. ${failed} falharam.`)
+            } else {
+                toast.success(`ZIP gerado com ${exported.length} workflows`)
+            }
+        } catch (error) {
+            console.error('Erro:', error)
+            toast.error(`Erro ao exportar ${label}`)
+        } finally {
+            setActionLoading(null)
+        }
+    }
+
+    const handleBulkExport = async () => {
+        if (selectedWorkflows.size === 0) {
+            toast.error('Selecione pelo menos um workflow')
+            return
+        }
+        await exportWorkflowsByIds(Array.from(selectedWorkflows), {
+            label: 'workflows selecionados',
+            filenamePrefix: 'workflows_selecionados',
+        })
+    }
+
+    const handleExportAll = async () => {
+        if (workflows.length === 0) {
+            toast.error('Nenhum workflow carregado para exportar')
+            return
+        }
+        await exportWorkflowsByIds(workflows.map((w) => w.id), {
+            label: 'todos os workflows',
+            filenamePrefix: 'workflows_todos',
+        })
     }
 
     const getCategoryIcon = (category: Category) => {
@@ -306,7 +426,7 @@ export default function AdminWorkflowsPage() {
     const getCategoryName = (category: Category) => {
         switch (category) {
             case 'zapi': return 'ZAPI'
-            case 'notificacoes': return 'Notificações'
+            case 'notificacoes': return 'NotificaÃ§Ãµes'
             case 'lembrete': return 'Lembretes'
             case 'followup': return 'Follow-up'
             default: return 'Todos'
@@ -342,48 +462,62 @@ export default function AdminWorkflowsPage() {
                 <div className="mb-8">
                     <Button
                         variant="ghost"
-                        onClick={() => router.push('/admin/dashboard')}
+                        onClick={() => router.push('/admin/units')}
                         className="mb-4 text-text-gray hover:text-pure-white"
                     >
                         <ArrowLeft className="w-4 h-4 mr-2" />
-                        Voltar ao Dashboard
+                        Voltar ao Admin
                     </Button>
 
                     <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                         <div className="flex items-center gap-4">
-                            <div className="w-16 h-16 bg-gradient-to-br from-accent-yellow to-dark-yellow rounded-2xl flex items-center justify-center shadow-lg shadow-accent-yellow/30">
+                            <div className="w-16 h-16 bg-gradient-to-br from-accent-green to-dark-green rounded-2xl flex items-center justify-center shadow-lg shadow-accent-green/30">
                                 <Workflow className="h-8 w-8 text-primary-black" />
                             </div>
                             <div>
-                                <h1 className="text-3xl font-bold bg-gradient-to-r from-accent-yellow to-dark-yellow bg-clip-text text-transparent">
+                                <h1 className="text-3xl font-bold bg-gradient-to-r from-accent-green to-dark-green bg-clip-text text-transparent">
                                     Workflows n8n
                                 </h1>
-                                <p className="text-text-gray">Sistema de Replicação em Massa</p>
+                                <p className="text-text-gray">Sistema de ReplicaÃ§Ã£o em Massa</p>
                             </div>
                         </div>
 
-                        <Button
-                            onClick={loadWorkflows}
-                            disabled={loading}
-                            className="bg-gradient-to-r from-accent-yellow to-dark-yellow text-primary-black font-semibold hover:opacity-90"
-                        >
-                            <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-                            Atualizar
-                        </Button>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <Button
+                                variant="outline"
+                                onClick={handleExportAll}
+                                disabled={loading || actionLoading === 'export-bulk' || workflows.length === 0}
+                                className="border-blue-500 text-blue-500 hover:bg-blue-500/10"
+                            >
+                                {actionLoading === 'export-bulk'
+                                    ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                                    : <Download className="w-4 h-4 mr-2" />
+                                }
+                                Baixar tudo
+                            </Button>
+                            <Button
+                                onClick={loadWorkflows}
+                                disabled={loading}
+                                className="bg-gradient-to-r from-accent-green to-dark-green text-primary-black font-semibold hover:opacity-90"
+                            >
+                                <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+                                Atualizar
+                            </Button>
+                        </div>
                     </div>
                 </div>
 
                 {/* Stats */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-                    <Card className="genial-card border-l-4 border-l-accent-yellow">
+                    <Card className="genial-card border-l-4 border-l-accent-green">
                         <CardHeader className="pb-3">
                             <CardTitle className="text-sm font-medium text-text-gray flex items-center gap-2">
-                                <Zap className="w-4 h-4 text-accent-yellow" />
+                                <Zap className="w-4 h-4 text-accent-green" />
                                 Total
                             </CardTitle>
                         </CardHeader>
                         <CardContent>
-                            <div className="text-2xl font-bold text-accent-yellow">{workflows.length}</div>
+                            <div className="text-2xl font-bold text-accent-green">{workflows.length}</div>
                         </CardContent>
                     </Card>
 
@@ -428,7 +562,7 @@ export default function AdminWorkflowsPage() {
                 <Card className="genial-card mb-6">
                     <CardHeader>
                         <CardTitle className="text-pure-white flex items-center gap-2">
-                            <Filter className="w-5 h-5 text-accent-yellow" />
+                            <Filter className="w-5 h-5 text-accent-green" />
                             Filtros e Busca
                         </CardTitle>
                     </CardHeader>
@@ -455,7 +589,7 @@ export default function AdminWorkflowsPage() {
                                         variant={filterCategory === cat ? "default" : "outline"}
                                         onClick={() => setFilterCategory(cat)}
                                         className={filterCategory === cat
-                                            ? "bg-accent-yellow text-primary-black"
+                                            ? "bg-accent-green text-primary-black"
                                             : "border-border-gray text-text-gray hover:text-pure-white"}
                                     >
                                         {getCategoryIcon(cat)}
@@ -471,7 +605,7 @@ export default function AdminWorkflowsPage() {
                                     size="sm"
                                     variant={filterStatus === "all" ? "default" : "outline"}
                                     onClick={() => setFilterStatus("all")}
-                                    className={filterStatus === "all" ? "bg-accent-yellow text-primary-black" : "border-border-gray text-text-gray"}
+                                    className={filterStatus === "all" ? "bg-accent-green text-primary-black" : "border-border-gray text-text-gray"}
                                 >
                                     Todos
                                 </Button>
@@ -495,11 +629,14 @@ export default function AdminWorkflowsPage() {
                                 </Button>
                             </div>
 
-                            {/* Seleção Rápida */}
+                            {/* SeleÃ§Ã£o RÃ¡pida */}
                             <div className="flex flex-wrap items-center gap-2 pt-4 border-t border-border-gray">
                                 <span className="text-text-gray text-sm font-medium">Selecionar:</span>
-                                <Button size="sm" onClick={selectAll} variant="outline" className="border-accent-yellow text-accent-yellow">
-                                    Todos ({filteredWorkflows.length})
+                                <Button size="sm" onClick={selectAll} variant="outline" className="border-accent-green text-accent-green">
+                                    Filtrados ({filteredWorkflows.length})
+                                </Button>
+                                <Button size="sm" onClick={selectAllGlobal} variant="outline" className="border-blue-500 text-blue-500">
+                                    Tudo ({workflows.length})
                                 </Button>
                                 <Button size="sm" onClick={selectAllActive} variant="outline" className="border-green-500 text-green-500">
                                     Apenas Ativos ({filteredWorkflows.filter(w => w.active).length})
@@ -520,7 +657,7 @@ export default function AdminWorkflowsPage() {
                 {/* Lista de Workflows */}
                 {loading ? (
                     <div className="text-center py-12">
-                        <RefreshCw className="w-8 h-8 text-accent-yellow animate-spin mx-auto mb-4" />
+                        <RefreshCw className="w-8 h-8 text-accent-green animate-spin mx-auto mb-4" />
                         <p className="text-text-gray">Carregando workflows...</p>
                     </div>
                 ) : filteredWorkflows.length === 0 ? (
@@ -543,11 +680,11 @@ export default function AdminWorkflowsPage() {
                                         <Card
                                             key={workflow.id}
                                             className={`genial-card border-l-4 ${selectedWorkflows.has(workflow.id)
-                                                    ? 'border-l-accent-yellow ring-2 ring-accent-yellow/50'
+                                                    ? 'border-l-accent-green ring-2 ring-accent-green/50'
                                                     : workflow.active
                                                         ? 'border-l-green-500'
                                                         : 'border-l-gray-600'
-                                                } transition-all cursor-pointer hover:shadow-lg hover:shadow-accent-yellow/10`}
+                                                } transition-all cursor-pointer hover:shadow-lg hover:shadow-accent-green/10`}
                                             onClick={() => toggleWorkflow(workflow.id)}
                                         >
                                             <CardHeader>
@@ -570,7 +707,7 @@ export default function AdminWorkflowsPage() {
                                                                     ? "bg-green-500/20 text-green-500 border border-green-500/30"
                                                                     : "bg-gray-700/30 text-gray-400 border border-gray-600/30"}
                                                             >
-                                                                {workflow.active ? '✅ Ativo' : '⏸️ Inativo'}
+                                                                {workflow.active ? 'âœ… Ativo' : 'â¸ï¸ Inativo'}
                                                             </Badge>
                                                         </div>
                                                     </div>
@@ -600,7 +737,7 @@ export default function AdminWorkflowsPage() {
                                                         variant="outline"
                                                         onClick={() => handleAction('duplicate', workflow.id, workflow.name)}
                                                         disabled={actionLoading === `duplicate-${workflow.id}`}
-                                                        className="border-accent-yellow/50 text-accent-yellow hover:bg-accent-yellow/10"
+                                                        className="border-accent-green/50 text-accent-green hover:bg-accent-green/10"
                                                     >
                                                         <Copy className="w-4 h-4 mr-1" />
                                                         Duplicar
@@ -626,10 +763,10 @@ export default function AdminWorkflowsPage() {
                     </div>
                 )}
 
-                {/* Barra de Ações Flutuante */}
+                {/* Barra de AÃ§Ãµes Flutuante */}
                 {selectedWorkflows.size > 0 && (
                     <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50">
-                        <Card className="genial-card border-2 border-accent-yellow shadow-2xl shadow-accent-yellow/50">
+                        <Card className="genial-card border-2 border-accent-green shadow-2xl shadow-accent-green/50">
                             <CardContent className="p-4 flex items-center gap-4">
                                 <div className="text-pure-white font-semibold">
                                     {selectedWorkflows.size} workflow{selectedWorkflows.size !== 1 ? 's' : ''} selecionado{selectedWorkflows.size !== 1 ? 's' : ''}
@@ -642,8 +779,20 @@ export default function AdminWorkflowsPage() {
                                     Cancelar
                                 </Button>
                                 <Button
+                                    variant="outline"
+                                    onClick={handleBulkExport}
+                                    disabled={actionLoading === 'export-bulk'}
+                                    className="border-blue-500 text-blue-500 hover:bg-blue-500/10"
+                                >
+                                    {actionLoading === 'export-bulk'
+                                        ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                                        : <Download className="w-4 h-4 mr-2" />
+                                    }
+                                    {actionLoading === 'export-bulk' ? 'Baixando...' : 'Baixar selecionados'}
+                                </Button>
+                                <Button
                                     onClick={() => setShowReplicateModal(true)}
-                                    className="bg-gradient-to-r from-accent-yellow to-dark-yellow text-primary-black font-semibold"
+                                    className="bg-gradient-to-r from-accent-green to-dark-green text-primary-black font-semibold"
                                 >
                                     <Send className="w-4 h-4 mr-2" />
                                     Replicar para Unidades
@@ -653,12 +802,12 @@ export default function AdminWorkflowsPage() {
                     </div>
                 )}
 
-                {/* Modal de Replicação */}
+                {/* Modal de ReplicaÃ§Ã£o */}
                 <Dialog open={showReplicateModal} onOpenChange={setShowReplicateModal}>
                     <DialogContent className="max-w-md">
                         <DialogHeader>
                             <DialogTitle className="flex items-center gap-2">
-                                <Send className="w-5 h-5 text-accent-yellow" />
+                                <Send className="w-5 h-5 text-accent-green" />
                                 Replicar Workflows
                             </DialogTitle>
                             <DialogDescription>
@@ -671,7 +820,7 @@ export default function AdminWorkflowsPage() {
                                 <h3 className="text-sm font-medium text-pure-white mb-3">Selecione as unidades:</h3>
                                 <div className="space-y-2">
                                     {units.map(unit => (
-                                        <div key={unit.id} className="flex items-center space-x-3 p-3 rounded-lg bg-card-black border border-border-gray hover:border-accent-yellow/50 transition-colors">
+                                        <div key={unit.id} className="flex items-center space-x-3 p-3 rounded-lg bg-card-black border border-border-gray hover:border-accent-green/50 transition-colors">
                                             <Checkbox
                                                 checked={selectedUnits.has(unit.id)}
                                                 onCheckedChange={() => toggleUnit(unit.id)}
@@ -685,7 +834,7 @@ export default function AdminWorkflowsPage() {
                             </div>
 
                             <div className="text-xs text-text-gray bg-blue-500/10 border border-blue-500/30 rounded p-3">
-                                ℹ️ Os workflows serão criados com variáveis substituídas automaticamente para cada unidade
+                                â„¹ï¸ Os workflows serÃ£o criados com variÃ¡veis substituÃ­das automaticamente para cada unidade
                             </div>
                         </div>
 
@@ -700,7 +849,7 @@ export default function AdminWorkflowsPage() {
                             <Button
                                 onClick={handleReplicate}
                                 disabled={replicating || selectedUnits.size === 0}
-                                className="bg-gradient-to-r from-accent-yellow to-dark-yellow text-primary-black"
+                                className="bg-gradient-to-r from-accent-green to-dark-green text-primary-black"
                             >
                                 {replicating ? (
                                     <>
@@ -710,7 +859,7 @@ export default function AdminWorkflowsPage() {
                                 ) : (
                                     <>
                                         <Send className="w-4 h-4 mr-2" />
-                                        Iniciar Replicação
+                                        Iniciar ReplicaÃ§Ã£o
                                     </>
                                 )}
                             </Button>
@@ -721,3 +870,4 @@ export default function AdminWorkflowsPage() {
         </div>
     )
 }
+

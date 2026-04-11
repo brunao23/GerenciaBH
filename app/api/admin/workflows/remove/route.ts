@@ -7,12 +7,12 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { workflowReplicator } from '@/lib/n8n';
-import { createClient } from '@/lib/supabase/server';
+import { createServerClient } from '@/lib/supabase/server';
 
 export async function DELETE(req: NextRequest) {
     try {
         // 1. Autenticação
-        const supabase = await createClient();
+        const supabase = createServerClient();
         const { data: { user }, error: authError } = await supabase.auth.getUser();
 
         if (authError || !user) {

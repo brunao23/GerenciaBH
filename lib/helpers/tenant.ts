@@ -54,10 +54,19 @@ export interface TenantTables {
  * - Exceções: vox_maceio_n8n_chat_histories, vox_es_n8n_chat_histories (COM underscore)
  */
 function getChatHistoriesTableName(tenant: string): string {
-    // Tenants que usam underscore (confirmado no banco)
-    const tenantsWithUnderscore = ['vox_maceio', 'vox_es']
+    // Tenants conhecidos com underscore
+    const defaultWithUnderscore = ['vox_maceio', 'vox_es']
 
-    if (tenantsWithUnderscore.includes(tenant)) {
+    // Permite extender sem alterar cÃ³digo:
+    // CHAT_HISTORY_UNDERSCORE_TENANTS=tenant_a,tenant_b
+    const envWithUnderscore = String(process.env.CHAT_HISTORY_UNDERSCORE_TENANTS || '')
+        .split(',')
+        .map((t) => t.trim().toLowerCase())
+        .filter(Boolean)
+
+    const tenantsWithUnderscore = new Set([...defaultWithUnderscore, ...envWithUnderscore])
+
+    if (tenantsWithUnderscore.has(tenant)) {
         return `${tenant}_n8n_chat_histories`
     }
 

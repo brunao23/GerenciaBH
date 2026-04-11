@@ -111,7 +111,7 @@ export default function ErrorsMonitor() {
         return (
             <div className="min-h-screen bg-primary-black p-4 md:p-8 flex items-center justify-center">
                 <div className="text-center">
-                    <RefreshCw className="w-12 h-12 text-accent-yellow animate-spin mx-auto mb-4" />
+                    <RefreshCw className="w-12 h-12 text-accent-green animate-spin mx-auto mb-4" />
                     <p className="text-text-gray">Carregando dados de erros...</p>
                 </div>
             </div>
@@ -188,15 +188,15 @@ export default function ErrorsMonitor() {
                             </CardContent>
                         </Card>
 
-                        <Card className="genial-card border-l-4 border-l-yellow-500">
+                        <Card className="genial-card border-l-4 border-l-green-500">
                             <CardHeader className="pb-3">
                                 <CardTitle className="text-sm font-medium text-text-gray flex items-center gap-2">
-                                    <BarChart3 className="w-4 h-4 text-yellow-500" />
+                                    <BarChart3 className="w-4 h-4 text-green-500" />
                                     Últimos 30 dias
                                 </CardTitle>
                             </CardHeader>
                             <CardContent>
-                                <div className="text-3xl font-bold text-yellow-500">
+                                <div className="text-3xl font-bold text-green-500">
                                     {analytics.overview.errors.last30d}
                                 </div>
                                 <p className="text-text-gray text-sm mt-1">erros no mês</p>

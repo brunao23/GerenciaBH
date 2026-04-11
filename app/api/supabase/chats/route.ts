@@ -1,12 +1,58 @@
-import { NextResponse } from "next/server"
+﻿import { NextResponse } from "next/server"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
-import { getTenantTables, getTablesForTenant } from "@/lib/helpers/tenant"
-import { cookies } from "next/headers"
-import { verifyToken } from "@/lib/auth/jwt"
+import { getTablesForTenant } from "@/lib/helpers/tenant"
+import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
+import { resolveChatHistoriesTable } from "@/lib/helpers/resolve-chat-table"
 
-type Row = { session_id: string; message: any; id: number; created_at?: string | null } // LEI INVIOLÁVEL: Inclui created_at da tabela
+type Row = { session_id: string; message: any; id: number; created_at?: string | null } // LEI INVIOLÃVEL: Inclui created_at da tabela
 
-// LEI INVIOLÁVEL: Normaliza role de forma consistente e robusta
+type ChatsCacheEntry = {
+  expiresAt: number
+  data: any[]
+}
+
+type SenderType = "lead" | "ia" | "human" | "system"
+
+const CHATS_CACHE_TTL_MS = 15_000
+const CHATS_CACHE_MAX_KEYS = 30
+const chatsResponseCache = new Map<string, ChatsCacheEntry>()
+
+function buildChatsCacheKey(tenant: string, start: string | null, end: string | null, session: string | null): string {
+  return `${tenant}|${start ?? ""}|${end ?? ""}|${session ?? ""}`
+}
+
+function readChatsCache(key: string): any[] | null {
+  const cached = chatsResponseCache.get(key)
+  if (!cached) return null
+
+  if (cached.expiresAt < Date.now()) {
+    chatsResponseCache.delete(key)
+    return null
+  }
+
+  return cached.data
+}
+
+function writeChatsCache(key: string, data: any[]): void {
+  const now = Date.now()
+  chatsResponseCache.set(key, { expiresAt: now + CHATS_CACHE_TTL_MS, data })
+
+  if (chatsResponseCache.size <= CHATS_CACHE_MAX_KEYS) return
+
+  for (const [cacheKey, value] of chatsResponseCache.entries()) {
+    if (value.expiresAt < now) {
+      chatsResponseCache.delete(cacheKey)
+    }
+  }
+
+  while (chatsResponseCache.size > CHATS_CACHE_MAX_KEYS) {
+    const first = chatsResponseCache.keys().next()
+    if (first.done) break
+    chatsResponseCache.delete(first.value)
+  }
+}
+
+// LEI INVIOLÃVEL: Normaliza role de forma consistente e robusta
 function normalizeRole(msg: any): "user" | "bot" {
   if (!msg) return "bot"
 
@@ -20,11 +66,210 @@ function normalizeRole(msg: any): "user" | "bot" {
   if (role === "user" || role === "human") return "user"
   if (role === "bot" || role === "ai" || role === "assistant" || role === "system") return "bot"
 
-  // Se não conseguir determinar, assume bot (mais seguro)
+  // Se nÃ£o conseguir determinar, assume bot (mais seguro)
   return "bot"
 }
 
-// Extrai informações estruturadas do formulário quando presente no prompt
+function isStatusCallbackMessage(msg: any): boolean {
+  if (!msg || typeof msg !== "object") return false
+
+  const type = String(msg.type ?? "").toLowerCase()
+  const role = String(msg.role ?? "").toLowerCase()
+  const callbackType = String(
+    msg.callback_type ??
+    msg.callbackType ??
+    msg.zapi_meta?.callbackType ??
+    "",
+  ).toLowerCase()
+  const source = String(msg.source ?? "").toLowerCase()
+  const content = String(msg.content ?? msg.text ?? "").trim()
+
+  if (type === "status" || role === "system") return true
+  if (callbackType && callbackType !== "received") return true
+
+  if (
+    source === "zapi-webhook" &&
+    /^\[(MessageStatusCallback|DeliveryCallback|PresenceChatCallback|ConnectedCallback|DisconnectedCallback)\]/i.test(
+      content,
+    )
+  ) {
+    return true
+  }
+
+  return false
+}
+
+function normalizeComparableText(value: string): string {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function isDeletedPlaceholderText(value: string): boolean {
+  const normalized = normalizeComparableText(value)
+  if (!normalized) return false
+
+  return [
+    "mensagem apagada",
+    "mensagem excluida",
+    "mensagem removida",
+    "voce apagou esta mensagem",
+    "esta mensagem foi apagada",
+    "esta mensagem foi excluida",
+    "message deleted",
+    "you deleted this message",
+    "this message was deleted",
+    "mensaje eliminado",
+    "mensaje borrado",
+    "mensagem deletada",
+  ].some((pattern) => normalized.includes(pattern))
+}
+
+function isDeletedPlaceholderMessage(msg: any): boolean {
+  if (!msg || typeof msg !== "object") return false
+
+  const content = String(msg.content ?? msg.text ?? "").trim()
+  const source = String(msg.source ?? "").toLowerCase()
+  const callbackType = String(
+    msg.callback_type ??
+    msg.callbackType ??
+    msg.zapi_meta?.callbackType ??
+    "",
+  ).toLowerCase()
+  const status = String(
+    msg.status ??
+    msg.zapi_status ??
+    msg.zapi_meta?.status ??
+    msg.messageStatus ??
+    "",
+  ).toLowerCase()
+  const eventType = String(
+    msg.type ??
+    msg.zapi_type ??
+    msg.zapi_meta?.type ??
+    "",
+  ).toLowerCase()
+  const protocolType = String(
+    msg?.raw?.message?.protocolMessage?.type ??
+    msg?.raw?.data?.message?.protocolMessage?.type ??
+    msg?.raw?.protocolMessage?.type ??
+    "",
+  ).toLowerCase()
+
+  const explicitDelete =
+    parseBoolean(
+      msg?.deleted ??
+      msg?.is_deleted ??
+      msg?.isDeleted ??
+      msg?.isRevoked ??
+      msg?.messageDeleted ??
+      msg?.zapi_meta?.deleted ??
+      msg?.zapi_meta?.isDeleted ??
+      msg?.zapi_meta?.isRevoked ??
+      msg?.raw?.deleted ??
+      msg?.raw?.isDeleted ??
+      msg?.raw?.isRevoked,
+    ) === true
+
+  const hasDeleteKeyword = [status, eventType, protocolType].some((value) =>
+    /delete|deleted|revoke|revoked|apagad|excluid|remov/.test(String(value || "")),
+  )
+
+  if (explicitDelete || hasDeleteKeyword) return true
+  if (!isDeletedPlaceholderText(content)) return false
+
+  const fromMe = extractFromMe(msg, normalizeRole(msg))
+  return source === "zapi-webhook" && (fromMe || callbackType === "received" || callbackType === "")
+}
+
+function extractProviderMessageId(msg: any): string | null {
+  if (!msg) return null
+  const candidates = [
+    msg.messageId,
+    msg.message_id,
+    msg.id,
+    msg.key?.id,
+    msg.data?.messageId,
+    msg.payload?.messageId,
+    msg.message?.id,
+    msg.message?.messageId,
+  ]
+  for (const value of candidates) {
+    if (typeof value === "string" && value.trim().length > 0) return value
+    if (typeof value === "number" && Number.isFinite(value)) return String(value)
+  }
+  return null
+}
+
+function extractFromMe(msg: any, role: "user" | "bot"): boolean {
+  if (!msg) return role !== "user"
+  const raw = msg.fromMe ?? msg.from_me ?? msg.owner ?? msg.isFromMe ?? msg.key?.fromMe
+  if (typeof raw === "boolean") return raw
+  if (typeof raw === "string") {
+    if (raw.toLowerCase() === "true") return true
+    if (raw.toLowerCase() === "false") return false
+  }
+  return role !== "user"
+}
+
+function parseBoolean(value: any): boolean | null {
+  if (value === true || value === false) return value
+  const normalized = String(value ?? "").trim().toLowerCase()
+  if (!normalized) return null
+  if (normalized === "true" || normalized === "1") return true
+  if (normalized === "false" || normalized === "0") return false
+  return null
+}
+
+function isInternalInvisibleMessage(msg: any): boolean {
+  if (!msg || typeof msg !== "object") return false
+
+  const content = String(msg.content ?? msg.text ?? "").trim()
+  if (!content) return false
+
+  const normalized = normalizeComparableText(content)
+  if (!normalized) return false
+
+  if (normalized.includes("gatilho externo fromme") || normalized.includes("gatilho externo welcome unidade")) {
+    return true
+  }
+
+  const source = String(msg.source ?? "").trim().toLowerCase()
+  const senderType = String(msg.sender_type ?? msg.senderType ?? "").trim().toLowerCase()
+  const fromApi = parseBoolean(msg.from_api ?? msg.fromApi)
+
+  if (
+    normalized.includes("perfeito recebi sua mensagem e ja estou organizando as proximas informacoes para voce") &&
+    (source.includes("native-agent") || senderType === "ia" || fromApi === true)
+  ) {
+    return true
+  }
+
+  return false
+}
+
+function normalizeSenderType(msg: any, role: "user" | "bot", fromMe: boolean): SenderType {
+  const explicit = String(msg?.sender_type ?? msg?.senderType ?? "").trim().toLowerCase()
+  if (explicit === "lead") return "lead"
+  if (explicit === "ia" || explicit === "ai") return "ia"
+  if (explicit === "human" || explicit === "humano") return "human"
+  if (explicit === "system") return "system"
+
+  const source = String(msg?.source ?? "").trim().toLowerCase()
+  const manual = msg?.manual === true || source.includes("human-manual")
+  const fromApi = parseBoolean(msg?.from_api ?? msg?.fromApi)
+
+  if (role === "user" || fromMe === false) return "lead"
+  if (manual) return "human"
+  if (fromMe === true && fromApi === false && source === "zapi-webhook") return "human"
+  return "ia"
+}
+
+// Extrai informaÃ§Ãµes estruturadas do formulÃ¡rio quando presente no prompt
 function extractFormData(text: string): {
   nome?: string
   primeiroNome?: string
@@ -45,7 +290,7 @@ function extractFormData(text: string): {
     if (jsonMatch) {
       const varsText = jsonMatch[1]
 
-      // Extrai cada variável
+      // Extrai cada variÃ¡vel
       const nomeMatch = varsText.match(/"Nome"\s*:\s*"([^"]+)"/i)
       if (nomeMatch) formData.nome = nomeMatch[1]
 
@@ -68,7 +313,7 @@ function extractFormData(text: string): {
       if (comparecimentoMatch) formData.comparecimento = comparecimentoMatch[1]
     }
 
-    // Se encontrou pelo menos uma variável, retorna
+    // Se encontrou pelo menos uma variÃ¡vel, retorna
     if (Object.keys(formData).length > 0) {
       return formData
     }
@@ -79,38 +324,38 @@ function extractFormData(text: string): {
   return null
 }
 
-// Remove metadados e prefácios comuns
+// Remove metadados e prefÃ¡cios comuns
 function stripSystemMetaLines(t: string) {
   let s = t
-  // Remove linhas como "Hoje é: ...", "Dia da semana: ...", "Horário da mensagem: ..."
-  s = s.replace(/^\s*(Hoje\s*[ée]:|Dia da semana:|Hor[áa]rio(?:\s+da)?\s+mensagem:).*$/gim, "")
-  // Remove prefixos "Sua memória:" e "lembre-se: ..." quando aparecem no fim
-  s = s.replace(/(?:Sua\s+mem[óo]ria:|lembre-?se\s*:?)[\s\S]*$/i, "")
+  // Remove linhas como "Hoje Ã©: ...", "Dia da semana: ...", "HorÃ¡rio da mensagem: ..."
+  s = s.replace(/^\s*(Hoje\s*[Ã©e]:|Dia da semana:|Hor[Ã¡a]rio(?:\s+da)?\s+mensagem:).*$/gim, "")
+  // Remove prefixos "Sua memÃ³ria:" e "lembre-se: ..." quando aparecem no fim
+  s = s.replace(/(?:Sua\s+mem[Ã³o]ria:|lembre-?se\s*:?)[\s\S]*$/i, "")
   s = s.replace(/\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?[+-]\d{2}:\d{2}\b/g, "")
   s = s.replace(/,\s*(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s*\.?/gi, "")
   return s
 }
 
-// Remove dicas de ferramenta entre parênteses: (Verifica-...), (Consulta-...), etc.
+// Remove dicas de ferramenta entre parÃªnteses: (Verifica-...), (Consulta-...), etc.
 function stripToolHints(t: string) {
   return t.replace(
-    /$$(?:Verifica|Consulta|Checa|Busca|Executa|A[cç]ao|A[cç][aã]o|Workflow|Ferramenta|Tool)[^)]+$$/gi,
+    /$$(?:Verifica|Consulta|Checa|Busca|Executa|A[cÃ§]ao|A[cÃ§][aÃ£]o|Workflow|Ferramenta|Tool)[^)]+$$/gi,
     "",
   )
 }
 
-// Captura o bloco após "Mensagem:" quando existir, removendo metadados em seguida
+// Captura o bloco apÃ³s "Mensagem:" quando existir, removendo metadados em seguida
 function stripMensagemBlock(t: string) {
   let s = t
   const block = s.match(
-    /Mensagem:\s*([\s\S]*?)(?:Sua\s+mem[óo]ria:|Hor[áa]rio(?:\s+da)?\s+mensagem:|Dia da semana:|lembre-?se.*?:|Hoje\s*[ée]:|$)/i,
+    /Mensagem:\s*([\s\S]*?)(?:Sua\s+mem[Ã³o]ria:|Hor[Ã¡a]rio(?:\s+da)?\s+mensagem:|Dia da semana:|lembre-?se.*?:|Hoje\s*[Ã©e]:|$)/i,
   )
   if (block && block[1]) {
     s = block[1]
   }
   s = s.replace(/^Mensagem:\s*/i, "")
   s = s.replace(
-    /(?:Sua\s+mem[óo]ria:|Hor[áa]rio(?:\s+da)?\s+mensagem:|Dia da semana:|lembre-?se.*?:|Hoje\s*[ée]:)[\s\S]*$/i,
+    /(?:Sua\s+mem[Ã³o]ria:|Hor[Ã¡a]rio(?:\s+da)?\s+mensagem:|Dia da semana:|lembre-?se.*?:|Hoje\s*[Ã©e]:)[\s\S]*$/i,
     "",
   )
   return s
@@ -120,7 +365,7 @@ function cleanHumanMessage(text: string) {
   if (!text) return ""
   let s = String(text).replace(/\r/g, "")
 
-  // LEI INVIOLÁVEL: Remove COMPLETAMENTE qualquer bloco JSON que contenha prompt/regras
+  // LEI INVIOLÃVEL: Remove COMPLETAMENTE qualquer bloco JSON que contenha prompt/regras
   // Remove TODOS os objetos JSON completos (incluindo aninhados)
   while (s.includes('"rules"') || s.includes('"inviolaveis"') || s.includes('"prompt"') || s.includes('"variaveis"') || s.includes('"contexto"') || s.includes('"geracao_de_mensagem"') || s.includes('"modelos_de_saida"')) {
     // Remove blocos JSON completos de qualquer tamanho
@@ -132,7 +377,7 @@ function cleanHumanMessage(text: string) {
     s = s.replace(/\{[\s\S]{0,50000}?"geracao_de_mensagem"[\s\S]{0,50000}?\}/gi, "")
     s = s.replace(/\{[\s\S]{0,50000}?"modelos_de_saida"[\s\S]{0,50000}?\}/gi, "")
 
-    // Remove seções específicas
+    // Remove seÃ§Ãµes especÃ­ficas
     s = s.replace(/"rules"\s*:\s*\{[\s\S]{0,50000}?\}/gi, "")
     s = s.replace(/"inviolaveis"\s*:\s*\[[\s\S]{0,50000}?\]/gi, "")
     s = s.replace(/"prompt"\s*:\s*\{[\s\S]{0,50000}?\}/gi, "")
@@ -144,50 +389,50 @@ function cleanHumanMessage(text: string) {
     // Remove qualquer linha que contenha essas palavras-chave
     s = s.replace(/^.*?(?:rules|inviolaveis|prompt|variaveis|contexto|geracao_de_mensagem|modelos_de_saida).*$/gim, "")
 
-    // Se não conseguiu remover mais nada, quebra o loop
+    // Se nÃ£o conseguiu remover mais nada, quebra o loop
     if (!s.includes('"rules"') && !s.includes('"inviolaveis"') && !s.includes('"prompt"') && !s.includes('"variaveis"')) {
       break
     }
   }
 
-  // Remove TODAS as seções de regras e prompts em texto (ultra-agressivo)
+  // Remove TODAS as seÃ§Ãµes de regras e prompts em texto (ultra-agressivo)
   s = s.replace(/inviolaveis[\s\S]{0,10000}?\]/gi, "")
   s = s.replace(/Sempre chame o lead[\s\S]{0,5000}?Jamais[\s\S]{0,5000}?/gi, "")
-  s = s.replace(/maior escola de oratória[\s\S]{0,5000}?rules[\s\S]{0,5000}?/gi, "")
+  s = s.replace(/maior escola de oratÃ³ria[\s\S]{0,5000}?rules[\s\S]{0,5000}?/gi, "")
   s = s.replace(/Use no maximo[\s\S]{0,500}?caracteres[\s\S]{0,500}?/gi, "")
   s = s.replace(/Use emojis de forma leve[\s\S]{0,500}?/gi, "")
-  s = s.replace(/Use vícios de linguagem[\s\S]{0,500}?/gi, "")
-  s = s.replace(/Nunca use travessões[\s\S]{0,500}?/gi, "")
+  s = s.replace(/Use vÃ­cios de linguagem[\s\S]{0,500}?/gi, "")
+  s = s.replace(/Nunca use travessÃµes[\s\S]{0,500}?/gi, "")
   s = s.replace(/Sempre finalize com uma pergunta[\s\S]{0,500}?/gi, "")
-  s = s.replace(/Sempre diga que recebeu o formulário[\s\S]{0,500}?/gi, "")
-  s = s.replace(/Sempre utilize as variáveis[\s\S]{0,500}?/gi, "")
+  s = s.replace(/Sempre diga que recebeu o formulÃ¡rio[\s\S]{0,500}?/gi, "")
+  s = s.replace(/Sempre utilize as variÃ¡veis[\s\S]{0,500}?/gi, "")
   s = s.replace(/Jamais explique[\s\S]{0,500}?/gi, "")
   s = s.replace(/Nunca use os valores[\s\S]{0,500}?/gi, "")
 
-  // Remove blocos que começam com "}" e contêm regras
+  // Remove blocos que comeÃ§am com "}" e contÃªm regras
   s = s.replace(/\}[\s\S]{0,5000}?"rules"[\s\S]{0,5000}?\{/gi, "")
   s = s.replace(/\}[\s\S]{0,5000}?"inviolaveis"[\s\S]{0,5000}?\[/gi, "")
 
-  // LEI INVIOLÁVEL: Remove resquícios específicos de prompts/formulários
-  // Remove padrões como "por mensagem. ---, }" ou "por mensagem. ---"
+  // LEI INVIOLÃVEL: Remove resquÃ­cios especÃ­ficos de prompts/formulÃ¡rios
+  // Remove padrÃµes como "por mensagem. ---, }" ou "por mensagem. ---"
   s = s.replace(/por\s+mensagem[.\s]*[-]{2,}[,\s]*\}?/gi, "")
   s = s.replace(/por\s+mensagem[.\s]*\}?/gi, "")
   s = s.replace(/[-]{3,}[,\s]*\}?/g, "") // Remove "---" ou "---, }"
-  s = s.replace(/^[-\s,\.]+$/gm, "") // Remove linhas só com traços, vírgulas, pontos
+  s = s.replace(/^[-\s,\.]+$/gm, "") // Remove linhas sÃ³ com traÃ§os, vÃ­rgulas, pontos
   s = s.replace(/,\s*\}\s*$/g, "") // Remove ", }" no final
   s = s.replace(/\}\s*$/g, "") // Remove "}" no final
-  s = s.replace(/^[^a-zA-ZáàâãéêíóôõúçÁÀÂÃÉÊÍÓÔÕÚÇ]*$/gm, "") // Remove linhas sem letras
+  s = s.replace(/^[^a-zA-ZÃ¡Ã Ã¢Ã£Ã©ÃªÃ­Ã³Ã´ÃµÃºÃ§ÃÃ€Ã‚ÃƒÃ‰ÃŠÃÃ“Ã”Ã•ÃšÃ‡]*$/gm, "") // Remove linhas sem letras
 
-  // 4. Primeiro, procura especificamente por "Mensagem do cliente/lead:" e extrai só essa parte
+  // 4. Primeiro, procura especificamente por "Mensagem do cliente/lead:" e extrai sÃ³ essa parte
   const messageMatch = s.match(
-    /Mensagem do cliente\/lead:\s*(.*?)(?:\s+Para \d{4}|\s+Sua mem[óo]ria|\s+Hor[áa]rio|\s+Dia da semana|\s+lembre-se|\s+\{|\s+"rules"|por\s+mensagem|[-]{2,}|$)/is,
+    /Mensagem do cliente\/lead:\s*(.*?)(?:\s+Para \d{4}|\s+Sua mem[Ã³o]ria|\s+Hor[Ã¡a]rio|\s+Dia da semana|\s+lembre-se|\s+\{|\s+"rules"|por\s+mensagem|[-]{2,}|$)/is,
   )
   if (messageMatch && messageMatch[1]) {
     s = messageMatch[1].trim()
-    // Remove qualquer resquício de JSON ou regras
+    // Remove qualquer resquÃ­cio de JSON ou regras
     s = s.replace(/\{[\s\S]*?"rules"[\s\S]*?\}/gi, "")
     s = s.replace(/inviolaveis[\s\S]*?\]/gi, "")
-    // Remove resquícios específicos
+    // Remove resquÃ­cios especÃ­ficos
     s = s.replace(/por\s+mensagem[.\s]*[-]{2,}[,\s]*\}?/gi, "")
     s = s.replace(/[-]{3,}[,\s]*\}?/g, "")
     s = s.replace(/,\s*\}\s*$/g, "")
@@ -195,13 +440,13 @@ function cleanHumanMessage(text: string) {
     // Se conseguiu extrair a mensagem, retorna direto
     if (s.length > 0 && !s.match(/^(rules|inviolaveis|Sempre|Nunca|Use|Jamais|por\s+mensagem)/i)) {
       const cleaned = s
-        .replace(/^Sua mem[óo]ria:\s*/gi, "")
+        .replace(/^Sua mem[Ã³o]ria:\s*/gi, "")
         .replace(/[ \t]+\n/g, "\n")
         .replace(/\n{3,}/g, "\n\n")
         .replace(/\s{2,}/g, " ")
         .trim()
 
-      // Validação final: se ainda tem resquícios, retorna vazio
+      // ValidaÃ§Ã£o final: se ainda tem resquÃ­cios, retorna vazio
       if (cleaned.match(/^[-\s,\.\}]+$/)) return ""
       if (cleaned.length < 3) return ""
 
@@ -209,28 +454,28 @@ function cleanHumanMessage(text: string) {
     }
   }
 
-  // 5. Tenta outros padrões se o primeiro não funcionar
+  // 5. Tenta outros padrÃµes se o primeiro nÃ£o funcionar
   const altMatch = s.match(
-    /Mensagem do cliente\/usuário\/lead:\s*(.*?)(?:\s+Para \d{4}|\s+Sua mem[óo]ria|\s+Hor[áa]rio|\s+Dia da semana|\s+lembre-se|\s+\{|\s+"rules"|por\s+mensagem|[-]{2,}|$)/is,
+    /Mensagem do cliente\/usuÃ¡rio\/lead:\s*(.*?)(?:\s+Para \d{4}|\s+Sua mem[Ã³o]ria|\s+Hor[Ã¡a]rio|\s+Dia da semana|\s+lembre-se|\s+\{|\s+"rules"|por\s+mensagem|[-]{2,}|$)/is,
   )
   if (altMatch && altMatch[1]) {
     s = altMatch[1].trim()
     s = s.replace(/\{[\s\S]*?"rules"[\s\S]*?\}/gi, "")
     s = s.replace(/inviolaveis[\s\S]*?\]/gi, "")
-    // Remove resquícios específicos
+    // Remove resquÃ­cios especÃ­ficos
     s = s.replace(/por\s+mensagem[.\s]*[-]{2,}[,\s]*\}?/gi, "")
     s = s.replace(/[-]{3,}[,\s]*\}?/g, "")
     s = s.replace(/,\s*\}\s*$/g, "")
     s = s.replace(/\}\s*$/g, "")
     if (s.length > 0 && !s.match(/^(rules|inviolaveis|Sempre|Nunca|Use|Jamais|por\s+mensagem)/i)) {
       const cleaned = s
-        .replace(/^Sua mem[óo]ria:\s*/gi, "")
+        .replace(/^Sua mem[Ã³o]ria:\s*/gi, "")
         .replace(/[ \t]+\n/g, "\n")
         .replace(/\n{3,}/g, "\n\n")
         .replace(/\s{2,}/g, " ")
         .trim()
 
-      // Validação final
+      // ValidaÃ§Ã£o final
       if (cleaned.match(/^[-\s,\.\}]+$/)) return ""
       if (cleaned.length < 3) return ""
 
@@ -238,11 +483,11 @@ function cleanHumanMessage(text: string) {
     }
   }
 
-  // 6. Se ainda contém prompts/regras, tenta extrair apenas a parte que NÃO é prompt
-  // Procura por padrões que indicam início de mensagem real do cliente
+  // 6. Se ainda contÃ©m prompts/regras, tenta extrair apenas a parte que NÃƒO Ã© prompt
+  // Procura por padrÃµes que indicam inÃ­cio de mensagem real do cliente
   const realMessagePatterns = [
-    /(?:Oi|Olá|Opa|Bom dia|Boa tarde|Boa noite|Oi|Olá)[\s\S]*?(?:\{|\"rules\"|inviolaveis|Sempre chame|$)/i,
-    /^[^{"]*?(?:Oi|Olá|Opa|Sim|Não|Ok|Quero|Gostaria|Tenho interesse)[\s\S]*?(?:\{|\"rules\"|inviolaveis|$)/i,
+    /(?:Oi|OlÃ¡|Opa|Bom dia|Boa tarde|Boa noite|Oi|OlÃ¡)[\s\S]*?(?:\{|\"rules\"|inviolaveis|Sempre chame|$)/i,
+    /^[^{"]*?(?:Oi|OlÃ¡|Opa|Sim|NÃ£o|Ok|Quero|Gostaria|Tenho interesse)[\s\S]*?(?:\{|\"rules\"|inviolaveis|$)/i,
   ]
 
   for (const pattern of realMessagePatterns) {
@@ -256,7 +501,7 @@ function cleanHumanMessage(text: string) {
 
       if (extracted.length > 5 && !extracted.match(/^(rules|inviolaveis)/i)) {
         return extracted
-          .replace(/^Sua mem[óo]ria:\s*/gi, "")
+          .replace(/^Sua mem[Ã³o]ria:\s*/gi, "")
           .replace(/[ \t]+\n/g, "\n")
           .replace(/\n{3,}/g, "\n\n")
           .replace(/\s{2,}/g, " ")
@@ -265,31 +510,31 @@ function cleanHumanMessage(text: string) {
     }
   }
 
-  // 7. Se não encontrar os padrões específicos, faz limpeza agressiva de prompts
-  // Remove "Sua memoria:" ou "Sua memória:"
-  s = s.replace(/^Sua mem[óo]ria:\s*/gi, "")
+  // 7. Se nÃ£o encontrar os padrÃµes especÃ­ficos, faz limpeza agressiva de prompts
+  // Remove "Sua memoria:" ou "Sua memÃ³ria:"
+  s = s.replace(/^Sua mem[Ã³o]ria:\s*/gi, "")
 
   // Remove blocos JSON completos
   s = s.replace(/\{[\s\S]*?"rules"[\s\S]*?\}/gi, "")
   s = s.replace(/\{[\s\S]*?"inviolaveis"[\s\S]*?\}/gi, "")
 
-  // Remove linhas que começam com regras conhecidas
-  s = s.replace(/^.*?(?:Sempre chame|Sempre diga|Sempre utilize|Nunca use|Sempre finalize|Use emojis|Use vícios|Jamais).*$/gim, "")
-  s = s.replace(/^.*?(?:maior escola de oratória|América Latina).*$/gim, "")
+  // Remove linhas que comeÃ§am com regras conhecidas
+  s = s.replace(/^.*?(?:Sempre chame|Sempre diga|Sempre utilize|Nunca use|Sempre finalize|Use emojis|Use vÃ­cios|Jamais).*$/gim, "")
+  s = s.replace(/^.*?(?:maior escola de oratÃ³ria|AmÃ©rica Latina).*$/gim, "")
 
-  // Remove timestamps e informações de sistema
+  // Remove timestamps e informaÃ§Ãµes de sistema
   s = s.replace(/\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?[+-]\d{2}:\d{2}\b/g, "")
   s = s.replace(/,\s*(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s*\.?/gi, "")
-  s = s.replace(/^Nome do cliente\/usuário\/lead:.*$/gim, "")
-  s = s.replace(/^Para \d{4} no cartão de memória:.*$/gim, "")
-  s = s.replace(/^Horário mensagem:.*$/gim, "")
+  s = s.replace(/^Nome do cliente\/usuÃ¡rio\/lead:.*$/gim, "")
+  s = s.replace(/^Para \d{4} no cartÃ£o de memÃ³ria:.*$/gim, "")
+  s = s.replace(/^HorÃ¡rio mensagem:.*$/gim, "")
   s = s.replace(/^Dia da semana:.*$/gim, "")
-  s = s.replace(/lembre-se\s*dessa\s*informação:.*$/gim, "")
+  s = s.replace(/lembre-se\s*dessa\s*informaÃ§Ã£o:.*$/gim, "")
 
-  // 8. Se ainda contém muito texto de prompt, retorna vazio (não é mensagem real)
+  // 8. Se ainda contÃ©m muito texto de prompt, retorna vazio (nÃ£o Ã© mensagem real)
   if (s.match(/(rules|inviolaveis|Sempre chame|Sempre diga|Sempre utilize|Nunca use|Sempre finalize)/i) &&
     s.length > 200) {
-    // Tenta extrair apenas a última parte que pode ser a mensagem real
+    // Tenta extrair apenas a Ãºltima parte que pode ser a mensagem real
     const lastPart = s.split(/\n/).filter(line =>
       !line.match(/(rules|inviolaveis|Sempre|Nunca|Use|Jamais|maior escola)/i) &&
       line.trim().length > 0
@@ -301,38 +546,38 @@ function cleanHumanMessage(text: string) {
     return "" // Retorna vazio se for claramente um prompt
   }
 
-  // LEI INVIOLÁVEL: Remove resquícios finais de prompts/formulários
+  // LEI INVIOLÃVEL: Remove resquÃ­cios finais de prompts/formulÃ¡rios
   s = s.replace(/por\s+mensagem[.\s]*[-]{2,}[,\s]*\}?/gi, "")
   s = s.replace(/[-]{3,}[,\s]*\}?/g, "")
   s = s.replace(/,\s*\}\s*$/g, "")
   s = s.replace(/\}\s*$/g, "")
-  s = s.replace(/^[-\s,\.\}]+$/gm, "") // Remove linhas só com caracteres especiais
+  s = s.replace(/^[-\s,\.\}]+$/gm, "") // Remove linhas sÃ³ com caracteres especiais
 
-  // Normalização final de espaços
+  // NormalizaÃ§Ã£o final de espaÃ§os
   s = s
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .replace(/\s{2,}/g, " ")
     .trim()
 
-  // 9. VALIDAÇÃO FINAL ULTRA-AGRESSIVA: Se encontrar QUALQUER resquício de prompt, retorna VAZIO
+  // 9. VALIDAÃ‡ÃƒO FINAL ULTRA-AGRESSIVA: Se encontrar QUALQUER resquÃ­cio de prompt, retorna VAZIO
   const promptIndicators = [
     /rules/i, /inviolaveis/i, /"rules"/i, /"inviolaveis"/i, /"prompt"/i, /"variaveis"/i,
     /Sempre chame/i, /Sempre diga/i, /Sempre utilize/i, /Nunca use/i, /Sempre finalize/i,
-    /Use emojis/i, /Use vícios/i, /Jamais/i, /maior escola/i, /América Latina/i,
+    /Use emojis/i, /Use vÃ­cios/i, /Jamais/i, /maior escola/i, /AmÃ©rica Latina/i,
     /Use no maximo/i, /caracteres por mensagem/i, /Tereza/i, /Vox2You/i,
     /\{[^}]*rules/i, /\{[^}]*inviolaveis/i, /\{[^}]*prompt/i,
-    /por\s+mensagem/i, /^[-\s,\.\}]+$/ // Resquícios de formulários
+    /por\s+mensagem/i, /^[-\s,\.\}]+$/ // ResquÃ­cios de formulÃ¡rios
   ]
 
   // Se encontrar QUALQUER indicador de prompt, retorna VAZIO
   for (const indicator of promptIndicators) {
     if (indicator.test(s)) {
-      return "" // LEI INVIOLÁVEL: Retorna vazio se tiver QUALQUER prompt
+      return "" // LEI INVIOLÃVEL: Retorna vazio se tiver QUALQUER prompt
     }
   }
 
-  // Se o texto é muito longo e contém palavras-chave de prompt, retorna vazio
+  // Se o texto Ã© muito longo e contÃ©m palavras-chave de prompt, retorna vazio
   if (s.length > 200 && (
     s.includes("Sempre") || s.includes("Nunca") || s.includes("Use") ||
     s.includes("Jamais") || s.includes("regras") || s.includes("inviol")
@@ -340,8 +585,8 @@ function cleanHumanMessage(text: string) {
     return ""
   }
 
-  // LEI INVIOLÁVEL: Remove resquícios de arrays e estruturas de dados
-  // Remove "])" e variações que podem aparecer no final de mensagens
+  // LEI INVIOLÃVEL: Remove resquÃ­cios de arrays e estruturas de dados
+  // Remove "])" e variaÃ§Ãµes que podem aparecer no final de mensagens
   s = s.replace(/\]\s*\)\s*$/g, "").trim() // Remove "])" no final
   s = s.replace(/\]\s*\)\s*$/gm, "").trim() // Remove "])" no final de cada linha
   s = s.replace(/\]\s*\)\s+/g, " ").trim() // Remove "])" no meio do texto
@@ -354,11 +599,11 @@ function cleanHumanMessage(text: string) {
   s = s.replace(/,\s*\]/g, "").trim() // Remove ",]"
   s = s.replace(/,\s*\)/g, "").trim() // Remove ",)"
 
-  // Remove linhas que são só caracteres especiais ou estruturas de dados
+  // Remove linhas que sÃ£o sÃ³ caracteres especiais ou estruturas de dados
   s = s.replace(/^[,\s\[\]\(\)\-\.\}]+$/gm, "").trim()
   s = s.replace(/\n[,\s\[\]\(\)\-\.]+\n/g, "\n").trim()
 
-  // LEI INVIOLÁVEL: Se a mensagem final é só caracteres especiais ou resquícios, retorna vazio
+  // LEI INVIOLÃVEL: Se a mensagem final Ã© sÃ³ caracteres especiais ou resquÃ­cios, retorna vazio
   if (s.match(/^[-\s,\.\}]+$/) || s.match(/^por\s+mensagem/i) || s.length < 3) {
     return ""
   }
@@ -366,12 +611,12 @@ function cleanHumanMessage(text: string) {
   return s.trim()
 }
 
-// Limpeza geral para mensagens da IA (mantém limpeza agressiva)
+// Limpeza geral para mensagens da IA (mantÃ©m limpeza agressiva)
 function cleanAnyMessage(text: string) {
   if (!text) return text
   let s = String(text).replace(/\r/g, "")
 
-  // LEI INVIOLÁVEL: Remove TODAS as chamadas de ferramentas/tools da IA
+  // LEI INVIOLÃVEL: Remove TODAS as chamadas de ferramentas/tools da IA
   // Remove blocos [Used tools: ...]
   s = s.replace(/\[Used\s+tools?[\s\S]{0,50000}?\]/gi, "")
   s = s.replace(/\[Tool[\s\S]{0,50000}?\]/gi, "")
@@ -384,29 +629,29 @@ function cleanAnyMessage(text: string) {
   s = s.replace(/"disponiveis"[\s\S]{0,50000}?\}/gi, "")
   s = s.replace(/Quinta\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
   s = s.replace(/Sexta\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
-  s = s.replace(/Sábado\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
+  s = s.replace(/SÃ¡bado\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
   s = s.replace(/Segunda\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
-  s = s.replace(/Terça\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
+  s = s.replace(/TerÃ§a\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
   s = s.replace(/Quarta\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
 
-  // Remove arrays de horários
+  // Remove arrays de horÃ¡rios
   s = s.replace(/\["[\d:]+"(?:,"[\d:]+")*\]/g, "")
 
-  // Remove blocos de ferramentas com nomes específicos
+  // Remove blocos de ferramentas com nomes especÃ­ficos
   s = s.replace(/buscar_horarios_disponiveis[\s\S]{0,50000}?\]/gi, "")
   s = s.replace(/consultar_agenda[\s\S]{0,50000}?\]/gi, "")
   s = s.replace(/agendar_visita[\s\S]{0,50000}?\]/gi, "")
 
-  // LEI INVIOLÁVEL: Remove mensagens internas de follow-up
-  // Remove "SEM AÇÃO" e variações
-  s = s.replace(/^SEM\s*A[ÇC][ÃA]O\s*$/gim, "")
+  // LEI INVIOLÃVEL: Remove mensagens internas de follow-up
+  // Remove "SEM AÃ‡ÃƒO" e variaÃ§Ãµes
+  s = s.replace(/^SEM\s*A[Ã‡C][ÃƒA]O\s*$/gim, "")
   s = s.replace(/^SEM\s*ACAO\s*$/gim, "")
-  // Remove linhas que são apenas "SEM AÇÃO"
+  // Remove linhas que sÃ£o apenas "SEM AÃ‡ÃƒO"
   s = s.split('\n').filter(line => {
     const trimmed = line.trim().toUpperCase()
-    return trimmed !== 'SEM AÇÃO' &&
+    return trimmed !== 'SEM AÃ‡ÃƒO' &&
       trimmed !== 'SEM ACAO' &&
-      trimmed !== 'SEMAÇÃO' &&
+      trimmed !== 'SEMAÃ‡ÃƒO' &&
       trimmed !== 'SEMACAO'
   }).join('\n')
 
@@ -420,29 +665,29 @@ function cleanAnyMessage(text: string) {
     }
   }
 
-  // 1) se houver bloco "Mensagem:", mantém só o conteúdo principal
+  // 1) se houver bloco "Mensagem:", mantÃ©m sÃ³ o conteÃºdo principal
   s = stripMensagemBlock(s)
   // 2) remove linhas de metadados
   s = stripSystemMetaLines(s)
-  // 3) remove dicas de ferramenta entre parênteses
+  // 3) remove dicas de ferramenta entre parÃªnteses
   s = stripToolHints(s)
-  s = s.replace(/Hoje é:\s*[^.]+\./gi, "")
+  s = s.replace(/Hoje Ã©:\s*[^.]+\./gi, "")
   s = s.replace(/Dia da semana:\s*[^.]+\./gi, "")
   s = s.replace(/,\s*\./g, ".")
   s = s.replace(/\.{2,}/g, ".")
 
-  // Remove qualquer resquício de estruturas JSON de ferramentas
+  // Remove qualquer resquÃ­cio de estruturas JSON de ferramentas
   s = s.replace(/\{[^}]*"disponiveis"[^}]*\}/gi, "")
   s = s.replace(/\[[^\]]*"[\d:]+"[^\]]*\]/g, "")
 
-  // 4) normaliza espaços vazios múltiplos
+  // 4) normaliza espaÃ§os vazios mÃºltiplos
   s = s
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .replace(/\s{2,}/g, " ")
     .trim()
 
-  // Validação final: se ainda contém estruturas de ferramentas, tenta extrair mensagem real
+  // ValidaÃ§Ã£o final: se ainda contÃ©m estruturas de ferramentas, tenta extrair mensagem real
   if (s.match(/\[Used\s+tools?|\[Tool:|Input:|Result:|"disponiveis"/i)) {
     // Divide por linhas e filtra apenas linhas conversacionais
     const lines = s.split(/\n/)
@@ -451,19 +696,19 @@ function cleanAnyMessage(text: string) {
       if (lineTrimmed.length < 5) return false
 
       const lineLower = lineTrimmed.toLowerCase()
-      // Remove linhas que são claramente de ferramentas
+      // Remove linhas que sÃ£o claramente de ferramentas
       if (lineLower.includes('[used tools') ||
         lineLower.includes('[tool:') ||
         lineLower.includes('input:') ||
         lineLower.includes('result:') ||
         lineLower.includes('"disponiveis"') ||
-        lineLower.match(/^[\d:,\[\]\s"]+$/) || // Só arrays de horários
-        lineLower.match(/^\{.*\}$/) || // Só JSON
-        lineLower.match(/^\[.*\]$/)) { // Só arrays
+        lineLower.match(/^[\d:,\[\]\s"]+$/) || // SÃ³ arrays de horÃ¡rios
+        lineLower.match(/^\{.*\}$/) || // SÃ³ JSON
+        lineLower.match(/^\[.*\]$/)) { // SÃ³ arrays
         return false
       }
 
-      // Mantém linhas que parecem conversacionais
+      // MantÃ©m linhas que parecem conversacionais
       return lineTrimmed.length > 10 &&
         !lineTrimmed.startsWith('[') &&
         !lineTrimmed.startsWith('{') &&
@@ -474,21 +719,21 @@ function cleanAnyMessage(text: string) {
     if (conversationalLines.length > 0) {
       s = conversationalLines.join(" ").trim()
     } else {
-      // Se não encontrou linhas conversacionais, tenta pegar tudo após o último ]
+      // Se nÃ£o encontrou linhas conversacionais, tenta pegar tudo apÃ³s o Ãºltimo ]
       const lastBracket = s.lastIndexOf(']')
       if (lastBracket > 0 && lastBracket < s.length - 10) {
         s = s.substring(lastBracket + 1).trim()
         // Remove qualquer JSON restante
         s = s.replace(/\{[\s\S]*?\}/g, "").trim()
       } else {
-        s = "" // Se não conseguiu extrair, retorna vazio
+        s = "" // Se nÃ£o conseguiu extrair, retorna vazio
       }
     }
   }
 
-  // Validação final: se a mensagem é muito curta ou só contém caracteres especiais, retorna vazio
-  // LEI INVIOLÁVEL: Remove resquícios de arrays e estruturas de dados
-  // Remove "])" e variações que podem aparecer no final de mensagens
+  // ValidaÃ§Ã£o final: se a mensagem Ã© muito curta ou sÃ³ contÃ©m caracteres especiais, retorna vazio
+  // LEI INVIOLÃVEL: Remove resquÃ­cios de arrays e estruturas de dados
+  // Remove "])" e variaÃ§Ãµes que podem aparecer no final de mensagens
   s = s.replace(/\]\s*\)\s*$/g, "").trim() // Remove "])" no final
   s = s.replace(/\]\s*\)\s*$/gm, "").trim() // Remove "])" no final de cada linha
   s = s.replace(/\]\s*\)\s+/g, " ").trim() // Remove "])" no meio do texto
@@ -501,26 +746,78 @@ function cleanAnyMessage(text: string) {
   s = s.replace(/,\s*\]/g, "").trim() // Remove ",]"
   s = s.replace(/,\s*\)/g, "").trim() // Remove ",)"
 
-  // Remove linhas que são só caracteres especiais ou estruturas de dados
+  // Remove linhas que sÃ£o sÃ³ caracteres especiais ou estruturas de dados
   s = s.replace(/^[,\s\[\]\(\)\-\.]+$/gm, "").trim()
   s = s.replace(/\n[,\s\[\]\(\)\-\.]+\n/g, "\n").trim()
 
   const cleaned = s.trim()
   if (cleaned.length < 3) return ""
-  if (cleaned.match(/^[\d\s:,\[\]\{\}"]+$/)) return "" // Só números, espaços e caracteres especiais
+  if (cleaned.match(/^[\d\s:,\[\]\{\}"]+$/)) return "" // SÃ³ nÃºmeros, espaÃ§os e caracteres especiais
 
   return cleaned
 }
 
+function extractNameFromMessageMeta(msg: any): string | null {
+  if (!msg || typeof msg !== "object") return null
+
+  const candidates = [
+    msg.pushName,
+    msg.senderName,
+    msg.contactName,
+    msg.name,
+    msg.fromName,
+    msg.notifyName,
+    msg.authorName,
+    msg.chatName,
+    msg.userName,
+    msg.sender?.name,
+    msg.sender?.pushName,
+    msg.contact?.name,
+    msg.contact?.pushName,
+    msg.data?.pushName,
+    msg.data?.senderName,
+  ]
+
+  const blocked = new Set([
+    "bot",
+    "assistente",
+    "atendente",
+    "sistema",
+    "ia",
+    "ai",
+    "chatbot",
+    "virtual",
+    "automatico",
+    "vox",
+    "robo",
+  ])
+
+  for (const candidate of candidates) {
+    if (!candidate) continue
+    const raw = String(candidate).trim().replace(/\s+/g, " ")
+    if (!raw || raw.length < 2) continue
+    if (raw.includes("@")) continue
+    const lower = raw.toLowerCase()
+    if (blocked.has(lower)) continue
+    if (/^\d+$/.test(lower)) continue
+
+    const first = raw.split(" ")[0]
+    if (!first || first.length < 2) continue
+    return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase()
+  }
+
+  return null
+}
+
 function extractNameFromMessage(text: string, role: string): string | null {
-  // LEI INVIOLÁVEL: Tratamento robusto de edge cases
+  // LEI INVIOLÃVEL: Tratamento robusto de edge cases
   if (!text || typeof text !== 'string') return null
   if (text.trim().length < 2) return null
 
   const cleanText = text.toLowerCase().trim()
 
-  // Busca por "Nome do cliente/usuário/lead:" nas mensagens da IA
-  const nameInAIMessage = text.match(/Nome do cliente\/(?:usuário\/)?lead:\s*([A-ZÁÀÂÃÉÊÍÓÔÕÚÇ][a-záàâãéêíóôõúç]{1,19})/i)
+  // Busca por "Nome do cliente/usuÃ¡rio/lead:" nas mensagens da IA
+  const nameInAIMessage = text.match(/Nome do cliente\/(?:usuÃ¡rio\/)?lead:\s*([A-ZÃÃ€Ã‚ÃƒÃ‰ÃŠÃÃ“Ã”Ã•ÃšÃ‡][a-zÃ¡Ã Ã¢Ã£Ã©ÃªÃ­Ã³Ã´ÃµÃºÃ§]{1,19})/i)
   if (nameInAIMessage && nameInAIMessage[1]) {
     const name = nameInAIMessage[1].trim()
     if (name.length >= 2 && name.length <= 20) {
@@ -528,8 +825,8 @@ function extractNameFromMessage(text: string, role: string): string | null {
     }
   }
 
-  // Busca por padrões como "Ivana, pra próxima semana" ou "Suellen, pra esta feira"
-  const nameBeforeComma = text.match(/^([A-ZÁÀÂÃÉÊÍÓÔÕÚÇ][a-záàâãéêíóôõúç]{2,19}),\s+(?:pra|para|na|no|da|do|em|sexta|quarta|segunda|terça|quinta|sábado|domingo)/i)
+  // Busca por padrÃµes como "Ivana, pra prÃ³xima semana" ou "Suellen, pra esta feira"
+  const nameBeforeComma = text.match(/^([A-ZÃÃ€Ã‚ÃƒÃ‰ÃŠÃÃ“Ã”Ã•ÃšÃ‡][a-zÃ¡Ã Ã¢Ã£Ã©ÃªÃ­Ã³Ã´ÃµÃºÃ§]{2,19}),\s+(?:pra|para|na|no|da|do|em|sexta|quarta|segunda|terÃ§a|quinta|sÃ¡bado|domingo)/i)
   if (nameBeforeComma && nameBeforeComma[1]) {
     const name = nameBeforeComma[1].trim()
     const aiNames = ["sofia", "bot", "assistente", "atendente", "sistema", "ia", "ai", "chatbot", "virtual", "automatico"]
@@ -538,8 +835,8 @@ function extractNameFromMessage(text: string, role: string): string | null {
     }
   }
 
-  // Busca por padrões como "Oi Ivana" ou "Olá Maria" no início da mensagem da IA
-  const greetingName = text.match(/^(?:Oi|Olá|Opa|Bom dia|Boa tarde|Boa noite),?\s+([A-ZÁÀÂÃÉÊÍÓÔÕÚÇ][a-záàâãéêíóôõúç]{2,19})[,!.\s]/i)
+  // Busca por padrÃµes como "Oi Ivana" ou "OlÃ¡ Maria" no inÃ­cio da mensagem da IA
+  const greetingName = text.match(/^(?:Oi|OlÃ¡|Opa|Bom dia|Boa tarde|Boa noite),?\s+([A-ZÃÃ€Ã‚ÃƒÃ‰ÃŠÃÃ“Ã”Ã•ÃšÃ‡][a-zÃ¡Ã Ã¢Ã£Ã©ÃªÃ­Ã³Ã´ÃµÃºÃ§]{2,19})[,!.\s]/i)
   if (greetingName && greetingName[1]) {
     const name = greetingName[1].trim()
     const aiNames = ["sofia", "bot", "assistente", "atendente", "sistema", "ia", "ai", "chatbot", "virtual", "automatico", "tudo", "bem"]
@@ -548,23 +845,23 @@ function extractNameFromMessage(text: string, role: string): string | null {
     }
   }
 
-  // Se for mensagem do usuário, tenta extrair o nome
+  // Se for mensagem do usuÃ¡rio, tenta extrair o nome
   if (role !== "user") return null
 
   const aiNames = ["sofia", "bot", "assistente", "atendente", "sistema", "ia", "ai", "chatbot", "virtual", "automatico"]
 
   const patterns = [
-    // Apresentações diretas e explícitas
-    /(?:meu nome [eé]|me chamo|sou (?:a|o)?)\s+([a-záàâãéêíóôõúç]{2,20})/i,
-    /(?:eu sou (?:a|o)?|sou)\s+([a-záàâãéêíóôõúç]{2,20})/i,
-    /(?:pode me chamar de|me chamam de)\s+([a-záàâãéêíóôõúç]{2,20})/i,
+    // ApresentaÃ§Ãµes diretas e explÃ­citas
+    /(?:meu nome [eÃ©]|me chamo|sou (?:a|o)?)\s+([a-zÃ¡Ã Ã¢Ã£Ã©ÃªÃ­Ã³Ã´ÃµÃºÃ§]{2,20})/i,
+    /(?:eu sou (?:a|o)?|sou)\s+([a-zÃ¡Ã Ã¢Ã£Ã©ÃªÃ­Ã³Ã´ÃµÃºÃ§]{2,20})/i,
+    /(?:pode me chamar de|me chamam de)\s+([a-zÃ¡Ã Ã¢Ã£Ã©ÃªÃ­Ã³Ã´ÃµÃºÃ§]{2,20})/i,
 
-    // Nome em contexto de identificação
-    /^([a-záàâãéêíóôõúç]{2,20})\s+(?:aqui|falando|da|do|responsável)/i,
-    /^(?:oi|olá),?\s+(?:eu sou (?:a|o)?|sou)\s+([a-záàâãéêíóôõúç]{2,20})/i,
+    // Nome em contexto de identificaÃ§Ã£o
+    /^([a-zÃ¡Ã Ã¢Ã£Ã©ÃªÃ­Ã³Ã´ÃµÃºÃ§]{2,20})\s+(?:aqui|falando|da|do|responsÃ¡vel)/i,
+    /^(?:oi|olÃ¡),?\s+(?:eu sou (?:a|o)?|sou)\s+([a-zÃ¡Ã Ã¢Ã£Ã©ÃªÃ­Ã³Ã´ÃµÃºÃ§]{2,20})/i,
 
-    // Nome isolado apenas se for uma palavra válida e não comum
-    /^([a-záàâãéêíóôõúç]{3,20})$/i,
+    // Nome isolado apenas se for uma palavra vÃ¡lida e nÃ£o comum
+    /^([a-zÃ¡Ã Ã¢Ã£Ã©ÃªÃ­Ã³Ã´ÃµÃºÃ§]{3,20})$/i,
   ]
 
   for (const pattern of patterns) {
@@ -576,9 +873,9 @@ function extractNameFromMessage(text: string, role: string): string | null {
 
       const commonWords = [
         "oi",
-        "olá",
+        "olÃ¡",
         "sim",
-        "não",
+        "nÃ£o",
         "ok",
         "bom",
         "dia",
@@ -612,7 +909,7 @@ function extractNameFromMessage(text: string, role: string): string | null {
         "escola",
         "hoje",
         "ontem",
-        "amanhã",
+        "amanhÃ£",
         "agora",
         "depois",
         "antes",
@@ -621,12 +918,12 @@ function extractNameFromMessage(text: string, role: string): string | null {
       if (
         name.length >= 3 &&
         name.length <= 20 &&
-        !/\d/.test(name) && // não contém números
-        !commonWords.includes(name) && // não é palavra comum
-        /^[a-záàâãéêíóôõúç]+$/i.test(name) // só letras válidas
+        !/\d/.test(name) && // nÃ£o contÃ©m nÃºmeros
+        !commonWords.includes(name) && // nÃ£o Ã© palavra comum
+        /^[a-zÃ¡Ã Ã¢Ã£Ã©ÃªÃ­Ã³Ã´ÃµÃºÃ§]+$/i.test(name) // sÃ³ letras vÃ¡lidas
       ) {
-        const isExplicitIntroduction = /(?:meu nome|me chamo|sou|pode me chamar|me chamam|responsável)/i.test(text)
-        const isValidIsolatedName = name.length >= 4 && /^([a-záàâãéêíóôõúç]{4,20})$/i.test(match[0].trim())
+        const isExplicitIntroduction = /(?:meu nome|me chamo|sou|pode me chamar|me chamam|responsÃ¡vel)/i.test(text)
+        const isValidIsolatedName = name.length >= 4 && /^([a-zÃ¡Ã Ã¢Ã£Ã©ÃªÃ­Ã³Ã´ÃµÃºÃ§]{4,20})$/i.test(match[0].trim())
 
         if (isExplicitIntroduction || isValidIsolatedName) {
           // Capitaliza o nome
@@ -639,34 +936,34 @@ function extractNameFromMessage(text: string, role: string): string | null {
   return null
 }
 
-// LEI INVIOLÁVEL: Extrai timestamp do texto com 100% de precisão
+// LEI INVIOLÃVEL: Extrai timestamp do texto com 100% de precisÃ£o
 function extractTimestampFromText(text: string): string | null {
   if (!text) return null
   const t = String(text)
 
-  // Remove timestamps de prompts para não pegar data errada
+  // Remove timestamps de prompts para nÃ£o pegar data errada
   if (t.match(/(rules|inviolaveis|Sempre chame|por\s+mensagem)/i)) {
-    // Só procura timestamps se não for claramente um prompt
+    // SÃ³ procura timestamps se nÃ£o for claramente um prompt
     const promptSection = t.match(/(rules|inviolaveis|Sempre chame|por\s+mensagem)[\s\S]*?$/i)
     if (promptSection) {
-      // Remove a seção de prompt antes de procurar timestamp
+      // Remove a seÃ§Ã£o de prompt antes de procurar timestamp
       const cleanText = t.replace(/(rules|inviolaveis|Sempre chame|por\s+mensagem)[\s\S]*$/i, "")
-      if (cleanText.length < 10) return null // Se sobrou muito pouco, não confia
+      if (cleanText.length < 10) return null // Se sobrou muito pouco, nÃ£o confia
     }
   }
 
-  // 1) "Horário mensagem: 2025-08-05T08:30:39.578-03:00" (mais específico e confiável)
-  const m1 = t.match(/Hor[áa]rio(?:\s+da)?\s+mensagem:\s*([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,3})?(?:[+-][0-9]{2}:[0-9]{2}|Z)?)/i)
+  // 1) "HorÃ¡rio mensagem: 2025-08-05T08:30:39.578-03:00" (mais especÃ­fico e confiÃ¡vel)
+  const m1 = t.match(/Hor[Ã¡a]rio(?:\s+da)?\s+mensagem:\s*([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,3})?(?:[+-][0-9]{2}:[0-9]{2}|Z)?)/i)
   if (m1?.[1]) {
     const ts = m1[1]
     const date = new Date(ts)
     if (!isNaN(date.getTime()) && date.getFullYear() >= 2020 && date.getFullYear() <= 2100) {
-      return date.toISOString() // Sempre retorna ISO para consistência
+      return date.toISOString() // Sempre retorna ISO para consistÃªncia
     }
   }
 
-  // 2) "Hoje é: 2025-08-05T08:30:39.578-03:00"
-  const m2 = t.match(/Hoje\s*[ée]:\s*([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,3})?(?:[+-][0-9]{2}:[0-9]{2}|Z)?)/i)
+  // 2) "Hoje Ã©: 2025-08-05T08:30:39.578-03:00"
+  const m2 = t.match(/Hoje\s*[Ã©e]:\s*([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,3})?(?:[+-][0-9]{2}:[0-9]{2}|Z)?)/i)
   if (m2?.[1]) {
     const ts = m2[1]
     const date = new Date(ts)
@@ -685,10 +982,10 @@ function extractTimestampFromText(text: string): string | null {
     const minutes = m3[5] ? parseInt(m3[5], 10) : 0
     const seconds = m3[6] ? parseInt(m3[6], 10) : 0
 
-    // Validação básica
+    // ValidaÃ§Ã£o bÃ¡sica
     if (day >= 1 && day <= 31 && month >= 0 && month <= 11 && year >= 2020 && year <= 2100 &&
       hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59 && seconds >= 0 && seconds <= 59) {
-      // Cria data no timezone de São Paulo (UTC-3)
+      // Cria data no timezone de SÃ£o Paulo (UTC-3)
       const date = new Date(Date.UTC(year, month, day, hours, minutes, seconds))
       // Ajusta para UTC-3 (Brasil)
       date.setHours(date.getHours() - 3)
@@ -699,7 +996,7 @@ function extractTimestampFromText(text: string): string | null {
     }
   }
 
-  // 4) ISO solto (fallback) - mas só se não estiver dentro de um bloco de prompt
+  // 4) ISO solto (fallback) - mas sÃ³ se nÃ£o estiver dentro de um bloco de prompt
   if (!t.match(/(rules|inviolaveis|Sempre chame|por\s+mensagem)/i)) {
     const m4 = t.match(/([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,3})?(?:[+-][0-9]{2}:[0-9]{2}|Z)?)/)
     if (m4?.[1]) {
@@ -714,7 +1011,7 @@ function extractTimestampFromText(text: string): string | null {
   return null
 }
 
-// Normalização
+// NormalizaÃ§Ã£o
 function normalizeNoAccent(t: string) {
   return t
     .toLowerCase()
@@ -745,7 +1042,7 @@ function isSemanticErrorText(text: string | undefined | null, type?: string) {
   return false
 }
 
-// Regras de "vitória" (sucesso)
+// Regras de "vitÃ³ria" (sucesso)
 function isVictoryText(text: string | undefined | null) {
   if (!text) return false
   const n = stripPunctuation(normalizeNoAccent(String(text)))
@@ -775,7 +1072,7 @@ function calculateSimilarity(text1: string, text2: string): number {
 
   if (t1 === t2) return 1.0
 
-  // Verifica se uma mensagem contém a outra (para casos onde uma é substring da outra)
+  // Verifica se uma mensagem contÃ©m a outra (para casos onde uma Ã© substring da outra)
   if (t1.includes(t2) || t2.includes(t1)) {
     const shorter = t1.length < t2.length ? t1 : t2
     const longer = t1.length >= t2.length ? t1 : t2
@@ -797,7 +1094,7 @@ function areAIMessagesSimilar(msg1: any, msg2: any, threshold = 0.6): boolean {
 
   const similarity = calculateSimilarity(msg1.content, msg2.content)
 
-  // Se as mensagens começam com as mesmas palavras e têm tamanho similar
+  // Se as mensagens comeÃ§am com as mesmas palavras e tÃªm tamanho similar
   const normalize = (text: string) =>
     text
       .toLowerCase()
@@ -807,7 +1104,7 @@ function areAIMessagesSimilar(msg1: any, msg2: any, threshold = 0.6): boolean {
   const t1 = normalize(msg1.content)
   const t2 = normalize(msg2.content)
 
-  // Verifica se começam com as mesmas 10 primeiras palavras
+  // Verifica se comeÃ§am com as mesmas 10 primeiras palavras
   const words1 = t1.split(" ").slice(0, 10).join(" ")
   const words2 = t2.split(" ").slice(0, 10).join(" ")
 
@@ -822,94 +1119,117 @@ export async function GET(req: Request) {
   try {
     console.log("[v0] ChatsAPI: Iniciando busca de conversas...")
 
-    // BUSCAR TENANT DA SESSÃO JWT (CORRIGIDO!)
-    const cookieStore = await cookies()
-    const token = cookieStore.get('auth-token')?.value
-
-    let tenant = 'vox_bh' // fallback
-
-    if (token) {
-      const session = await verifyToken(token)
-      if (session && session.unitPrefix) {
-        tenant = session.unitPrefix
-        console.log(`[ChatsAPI] Tenant obtido da sessão JWT: ${tenant}`)
-      } else {
-        console.log(`[ChatsAPI] ATENÇÃO: Sessão inválida, usando tenant padrão`)
-      }
-    } else {
-      // Fallback para header (compatibilidade)
+    // BUSCAR TENANT DA SESSAO JWT (preferencial) COM FALLBACK PARA HEADER
+    let tenant: string
+    try {
+      const tenantInfo = await getTenantFromRequest()
+      tenant = tenantInfo.tenant
+      console.log(`[ChatsAPI] Tenant obtido da sessao JWT: ${tenant}`)
+    } catch (error: any) {
       const headerTenant = req.headers.get('x-tenant-prefix')
-      if (headerTenant) {
+      if (headerTenant && /^[a-z0-9_]+$/.test(headerTenant)) {
         tenant = headerTenant
         console.log(`[ChatsAPI] Tenant obtido do header: ${tenant}`)
       } else {
-        console.log(`[ChatsAPI] ATENÇÃO: Sem token e sem header, usando tenant padrão: ${tenant}`)
+        const message = error?.message || 'Sessao nao encontrada. Faca login novamente.'
+        return NextResponse.json({ error: message }, { status: 401 })
       }
     }
 
     // Validar tenant
     if (!/^[a-z0-9_]+$/.test(tenant)) {
-      return NextResponse.json({ error: 'Tenant inválido' }, { status: 400 })
+      return NextResponse.json({ error: 'Tenant invÃ¡lido' }, { status: 400 })
     }
 
-    const { chatHistories, agendamentos, lembretes } = getTablesForTenant(tenant)
+    const { chatHistories: defaultChatHistories } = getTablesForTenant(tenant)
     const supabase = createBiaSupabaseServerClient()
+    const chatHistories = await resolveChatHistoriesTable(supabase as any, tenant)
+    if (chatHistories !== defaultChatHistories) {
+      console.log(`[ChatsAPI] Tabela de chats resolvida: ${chatHistories}`)
+    }
 
     const { searchParams } = new URL(req.url)
     const start = searchParams.get("start")
     const end = searchParams.get("end")
     const session = searchParams.get("session")
+    const sessionMode = Boolean(session && session.trim().length > 0)
+    const cacheKey = buildChatsCacheKey(tenant, start, end, session)
 
-    console.log("[v0] ChatsAPI: Parâmetros recebidos:", { start, end, session })
+    console.log("[v0] ChatsAPI: ParÃ¢metros recebidos:", { start, end, session })
 
-    // LEI INVIOLÁVEL: Busca TODAS as mensagens de forma completa e ordenada
-    const pageSize = 1000
-    const maxRecords = 50000 // Aumentado para garantir que todas as mensagens sejam carregadas
+    // LEI INVIOLÃVEL: Busca TODAS as mensagens de forma completa e ordenada
+    const cachedData = readChatsCache(cacheKey)
+    if (cachedData) {
+      console.log("[v0] ChatsAPI: Retornando cache em memoria")
+      return NextResponse.json(cachedData)
+    }
+
+    const pageSize = sessionMode ? 4000 : 2000
+    const maxRecords = sessionMode ? 500000 : 50000
     let from = 0
     let to = pageSize - 1
     const all: Row[] = []
     let totalFetched = 0
 
-    console.log("[v0] ChatsAPI: Iniciando paginação com pageSize:", pageSize, "maxRecords:", maxRecords)
+    console.log("[v0] ChatsAPI: Iniciando paginaÃ§Ã£o com pageSize:", pageSize, "maxRecords:", maxRecords)
 
 
-    // Primeiro, busca o total de registros para saber quantas páginas buscar
+    // Primeiro, busca o total de registros para saber quantas pÃ¡ginas buscar
     let totalCount = 0
     try {
-      const countRes = await supabase
+      let countQuery = supabase
         .from(chatHistories)
         .select("id", { count: "exact", head: true })
+
+      if (sessionMode && session) {
+        countQuery = countQuery.eq("session_id", session)
+      }
+
+      const countRes = await countQuery
 
       if (!countRes.error && countRes.count !== null) {
         totalCount = countRes.count
         console.log("[v0] ChatsAPI: Total de registros no banco:", totalCount)
       }
     } catch (e) {
-      console.log("[v0] ChatsAPI: Não foi possível obter contagem total:", e)
+      console.log("[v0] ChatsAPI: NÃ£o foi possÃ­vel obter contagem total:", e)
     }
 
     // Busca TODAS as mensagens ordenadas por id ASCENDENTE (mais antigas primeiro)
     // Isso garante que todas as mensagens sejam carregadas na ordem correta
-    for (let page = 0; page < 100; page++) {
-      // Aumentado limite de páginas para garantir que todas sejam carregadas
-      console.log("[v0] ChatsAPI: Buscando página", page + 1, "range:", from, "to", to)
+    const maxPages = sessionMode ? 250 : 100
+    for (let page = 0; page < maxPages; page++) {
+      // Aumentado limite de pÃ¡ginas para garantir que todas sejam carregadas
+      console.log("[v0] ChatsAPI: Buscando pÃ¡gina", page + 1, "range:", from, "to", to)
 
       try {
-        // Tenta buscar created_at, mas se não existir, busca sem ele
-        let res = await supabase
+        // Tenta buscar created_at, mas se nÃ£o existir, busca sem ele
+        let query = supabase
           .from(chatHistories)
-          .select("session_id, message, id, created_at", { count: "planned" }) // LEI INVIOLÁVEL: Busca created_at da tabela
-          .order("id", { ascending: true }) // LEI INVIOLÁVEL: Ordena ASCENDENTE para garantir ordem cronológica correta
+          .select("session_id, message, id, created_at", { count: "planned" }) // LEI INVIOLÃVEL: Busca created_at da tabela
+          .order("id", { ascending: true }) // LEI INVIOLÃVEL: Ordena ASCENDENTE para garantir ordem cronolÃ³gica correta
           .range(from, to)
 
-        // Se der erro por causa de created_at não existir, tenta sem ele
+        if (sessionMode && session) {
+          query = query.eq("session_id", session)
+        }
+
+        let res: any = await query
+
+        // Se der erro por causa de created_at nÃ£o existir, tenta sem ele
         if (res.error && res.error.message?.includes("created_at")) {
-          console.log("[v0] ChatsAPI: Coluna created_at não encontrada, buscando sem ela:", res.error.message)
-          res = await supabase
+          console.log("[v0] ChatsAPI: Coluna created_at nÃ£o encontrada, buscando sem ela:", res.error.message)
+          let fallbackQuery = supabase
             .from(chatHistories)
             .select("session_id, message, id", { count: "planned" })
-            .order("id", { ascending: true }) // LEI INVIOLÁVEL: Ordena ASCENDENTE
+            .order("id", { ascending: true }) // LEI INVIOLÃVEL: Ordena ASCENDENTE
             .range(from, to)
+
+          if (sessionMode && session) {
+            fallbackQuery = fallbackQuery.eq("session_id", session)
+          }
+
+          res = await fallbackQuery
         }
 
         if (res.error) {
@@ -918,23 +1238,23 @@ export async function GET(req: Request) {
         }
 
         const chunk = (res.data ?? []) as Row[]
-        console.log("[v0] ChatsAPI: Página", page + 1, "retornou", chunk.length, "registros")
+        console.log("[v0] ChatsAPI: PÃ¡gina", page + 1, "retornou", chunk.length, "registros")
 
         if (chunk.length === 0) {
-          console.log("[v0] ChatsAPI: Nenhum registro retornado, parando paginação")
+          console.log("[v0] ChatsAPI: Nenhum registro retornado, parando paginaÃ§Ã£o")
           break
         }
 
         all.push(...chunk)
         totalFetched += chunk.length
 
-        // Para se não retornou registros suficientes ou atingiu o limite
+        // Para se nÃ£o retornou registros suficientes ou atingiu o limite
         if (chunk.length < pageSize || totalFetched >= maxRecords) {
-          console.log("[v0] ChatsAPI: Parando paginação. Chunk size:", chunk.length, "Total fetched:", totalFetched)
+          console.log("[v0] ChatsAPI: Parando paginaÃ§Ã£o. Chunk size:", chunk.length, "Total fetched:", totalFetched)
           break
         }
 
-        // Se já buscou todos os registros disponíveis, para
+        // Se jÃ¡ buscou todos os registros disponÃ­veis, para
         if (totalCount > 0 && totalFetched >= totalCount) {
           console.log("[v0] ChatsAPI: Todas as mensagens foram carregadas. Total:", totalFetched)
           break
@@ -943,35 +1263,35 @@ export async function GET(req: Request) {
         from += pageSize
         to += pageSize
       } catch (error) {
-        console.log("[v0] ChatsAPI: Erro na página", page + 1, ":", error)
+        console.log("[v0] ChatsAPI: Erro na pÃ¡gina", page + 1, ":", error)
         break
       }
     }
 
     console.log("[v0] ChatsAPI: Total de registros carregados:", all.length)
 
-    // Filtro por sessão (se solicitado)
+    // Filtro por sessÃ£o (se solicitado)
     let rows = all
     if (session) {
       rows = rows.filter((r) => r.session_id === session)
-      console.log("[v0] ChatsAPI: Filtrado por sessão", session, "resultou em", rows.length, "registros")
+      console.log("[v0] ChatsAPI: Filtrado por sessÃ£o", session, "resultou em", rows.length, "registros")
     }
 
-    // LEI INVIOLÁVEL: Agrupa por sessão garantindo que TODAS as mensagens sejam incluídas
+    // LEI INVIOLÃVEL: Agrupa por sessÃ£o garantindo que TODAS as mensagens sejam incluÃ­das
     const bySession = new Map<string, Row[]>()
     for (const r of rows) {
-      if (!r || !r.session_id) continue // Ignora registros inválidos
+      if (!r || !r.session_id) continue // Ignora registros invÃ¡lidos
       if (!bySession.has(r.session_id)) {
         bySession.set(r.session_id, [])
       }
       bySession.get(r.session_id)!.push(r)
     }
 
-    console.log("[v0] ChatsAPI: Agrupado em", bySession.size, "sessões")
+    console.log("[v0] ChatsAPI: Agrupado em", bySession.size, "sessÃµes")
 
-    // Log para debug: mostra quantas mensagens cada sessão tem
+    // Log para debug: mostra quantas mensagens cada sessÃ£o tem
     bySession.forEach((messages, sessionId) => {
-      console.log(`[v0] ChatsAPI: Sessão ${sessionId}: ${messages.length} mensagens`)
+      console.log(`[v0] ChatsAPI: SessÃ£o ${sessionId}: ${messages.length} mensagens`)
     })
 
     const sessionIds = Array.from(bySession.keys()).sort()
@@ -985,25 +1305,38 @@ export async function GET(req: Request) {
       let hasError = false
       let hasSuccess = false
       let detectedName: string | null = null
-      let formData: any = null // Dados do formulário extraídos
+      let formData: any = null // Dados do formulÃ¡rio extraÃ­dos
 
-      // LEI INVIOLÁVEL: Ordena items por id ASCENDENTE antes de processar
-      // Isso garante que as mensagens sejam processadas na ordem cronológica correta
+      // LEI INVIOLÃVEL: Ordena items por id ASCENDENTE antes de processar
+      // Isso garante que as mensagens sejam processadas na ordem cronolÃ³gica correta
       const sortedItems = [...items].sort((a, b) => a.id - b.id)
 
       const messages = sortedItems
         .map((r) => {
-          // LEI INVIOLÁVEL: Tratamento robusto de edge cases
+          // LEI INVIOLÃVEL: Tratamento robusto de edge cases
           if (!r || !r.message) {
-            return null // Ignora mensagens inválidas
+            return null // Ignora mensagens invÃ¡lidas
           }
 
           const msg = r.message ?? {}
+          if (isStatusCallbackMessage(msg)) {
+            return null
+          }
+          if (isDeletedPlaceholderMessage(msg)) {
+            return null
+          }
+          if (isInternalInvisibleMessage(msg)) {
+            return null
+          }
+
           const type = String(msg.type ?? "").toLowerCase()
-          const role = normalizeRole(msg) // LEI INVIOLÁVEL: Normalização robusta
+          const role = normalizeRole(msg) // LEI INVIOLÃVEL: NormalizaÃ§Ã£o robusta
+          const providerMessageId = extractProviderMessageId(msg)
+          const fromMe = extractFromMe(msg, role)
+          const senderType = normalizeSenderType(msg, role, fromMe)
           const raw = String(msg.content ?? msg.text ?? "").trim()
 
-          // Se não tem conteúdo válido, ignora
+          // Se nÃ£o tem conteÃºdo vÃ¡lido, ignora
           if (!raw || raw.length < 1) {
             return null
           }
@@ -1014,12 +1347,19 @@ export async function GET(req: Request) {
           const isSuccess = isVictoryText(raw)
           if (isSuccess) hasSuccess = true
 
-          // Extrai dados do formulário se presente (primeira mensagem com prompt)
+          const isManual = senderType === "human" || Boolean(
+            msg.manual === true ||
+            msg.sender === "human" ||
+            msg.sender === "agent" ||
+            msg.role === "human_agent",
+          )
+
+          // Extrai dados do formulÃ¡rio se presente (primeira mensagem com prompt)
           if (!formData && raw.includes('"variaveis"')) {
             const extractedFormData = extractFormData(raw)
             if (extractedFormData) {
               formData = extractedFormData
-              // Usa o nome do formulário se disponível
+              // Usa o nome do formulÃ¡rio se disponÃ­vel
               if (extractedFormData.primeiroNome && !detectedName) {
                 detectedName = extractedFormData.primeiroNome
               } else if (extractedFormData.nome && !detectedName) {
@@ -1030,7 +1370,12 @@ export async function GET(req: Request) {
             }
           }
 
-          // Extrai nome de qualquer mensagem (usuário ou IA)
+          if (!detectedName && role === "user") {
+            const metaName = extractNameFromMessageMeta(msg)
+            if (metaName) detectedName = metaName
+          }
+
+          // Extrai nome de qualquer mensagem (usuÃ¡rio ou IA)
           if (!detectedName) {
             const extractedName = extractNameFromMessage(raw, role)
             if (extractedName) {
@@ -1038,36 +1383,36 @@ export async function GET(req: Request) {
             }
           }
 
-          // LEI INVIOLÁVEL: Prioridade CORRETA para timestamp (100% preciso)
-          // 1) PRIMEIRO: created_at da TABELA (mais confiável)
+          // LEI INVIOLÃVEL: Prioridade CORRETA para timestamp (100% preciso)
+          // 1) PRIMEIRO: created_at da TABELA (mais confiÃ¡vel)
           let ts: string | null = r.created_at ?? null
 
-          // 2) SEGUNDO: created_at dentro do JSON message (se não tiver da tabela)
+          // 2) SEGUNDO: created_at dentro do JSON message (se nÃ£o tiver da tabela)
           if (!ts) ts = msg.created_at ?? null
 
-          // 3) TERCEIRO: Extrai do texto da mensagem (apenas se não tiver nenhum dos anteriores)
+          // 3) TERCEIRO: Extrai do texto da mensagem (apenas se nÃ£o tiver nenhum dos anteriores)
           if (!ts) {
             const extracted = extractTimestampFromText(raw)
             if (extracted) ts = extracted
           }
 
-          // 4) ÚLTIMO RECURSO: Se ainda não tem, usa o timestamp da mensagem anterior (apenas para manter ordem)
-          // MAS marca como não confiável para não exibir data errada
+          // 4) ÃšLTIMO RECURSO: Se ainda nÃ£o tem, usa o timestamp da mensagem anterior (apenas para manter ordem)
+          // MAS marca como nÃ£o confiÃ¡vel para nÃ£o exibir data errada
           if (!ts) {
             if (lastTs) {
-              // Usa o último timestamp + 1 segundo para manter ordem, mas não é preciso
+              // Usa o Ãºltimo timestamp + 1 segundo para manter ordem, mas nÃ£o Ã© preciso
               const lastDate = new Date(lastTs)
               if (!isNaN(lastDate.getTime())) {
                 lastDate.setSeconds(lastDate.getSeconds() + 1)
                 ts = lastDate.toISOString()
               }
             } else {
-              // Se não tem nenhum timestamp, usa a data atual (não ideal, mas melhor que vazio)
+              // Se nÃ£o tem nenhum timestamp, usa a data atual (nÃ£o ideal, mas melhor que vazio)
               ts = new Date().toISOString()
             }
           }
 
-          // Atualiza lastTs apenas se conseguiu um timestamp válido
+          // Atualiza lastTs apenas se conseguiu um timestamp vÃ¡lido
           if (ts) {
             const date = new Date(ts)
             if (!isNaN(date.getTime())) {
@@ -1075,16 +1420,16 @@ export async function GET(req: Request) {
             }
           }
 
-          // LEI INVIOLÁVEL: Limpa a mensagem baseado no role com tratamento robusto
+          // LEI INVIOLÃVEL: Limpa a mensagem baseado no role com tratamento robusto
           let content = ""
 
           if (role === "user") {
-            // Mensagem do usuário: limpeza ultra-agressiva
+            // Mensagem do usuÃ¡rio: limpeza ultra-agressiva
             content = cleanHumanMessage(raw)
           } else {
             // Mensagem da IA: primeiro tenta extrair mensagem final de modelos_de_saida
             if (raw.includes('"modelos_de_saida"')) {
-              // Procura por padrão_1, padrão_2, urgente_1, etc. e extrai a mensagem final
+              // Procura por padrÃ£o_1, padrÃ£o_2, urgente_1, etc. e extrai a mensagem final
               const messagePatterns = [
                 /"padrao_\d+"\s*:\s*"([^"]{10,500})"/i,
                 /"urgente_\d+"\s*:\s*"([^"]{10,500})"/i,
@@ -1103,7 +1448,7 @@ export async function GET(req: Request) {
                 }
               }
 
-              // Se não encontrou nos padrões, tenta pegar a última mensagem antes de "saida_final"
+              // Se nÃ£o encontrou nos padrÃµes, tenta pegar a Ãºltima mensagem antes de "saida_final"
               if (!content || content.length < 10) {
                 const lastMessageMatch = raw.match(/"([^"]{20,500})"\s*,\s*"saida_final"/i)
                 if (lastMessageMatch && lastMessageMatch[1] && lastMessageMatch[1].trim().length > 10) {
@@ -1113,12 +1458,12 @@ export async function GET(req: Request) {
               }
             }
 
-            // Se não conseguiu extrair de modelos_de_saida ou não tinha, limpa normalmente
+            // Se nÃ£o conseguiu extrair de modelos_de_saida ou nÃ£o tinha, limpa normalmente
             if (!content || content.length < 10) {
               content = cleanAnyMessage(raw)
             }
 
-            // Validação final: se ainda contém tools/prompts, tenta extrair apenas a parte conversacional
+            // ValidaÃ§Ã£o final: se ainda contÃ©m tools/prompts, tenta extrair apenas a parte conversacional
             if (content && (content.includes('[Used tools') || content.includes('[Tool:') || content.includes('Input:') || content.includes('Result:'))) {
               // Divide por linhas e pega apenas as que parecem conversacionais
               const lines = content.split(/\n/)
@@ -1129,14 +1474,14 @@ export async function GET(req: Request) {
                   !lineLower.includes('input:') &&
                   !lineLower.includes('result:') &&
                   !lineLower.includes('"disponiveis"') &&
-                  !lineLower.match(/^[\d:,\[\]]+$/) && // Não é só arrays de horários
+                  !lineLower.match(/^[\d:,\[\]]+$/) && // NÃ£o Ã© sÃ³ arrays de horÃ¡rios
                   line.trim().length > 5
               })
 
               if (conversationalLines.length > 0) {
                 content = conversationalLines.join(" ").trim()
               } else {
-                // Se não encontrou linhas conversacionais, tenta pegar tudo após o último ]
+                // Se nÃ£o encontrou linhas conversacionais, tenta pegar tudo apÃ³s o Ãºltimo ]
                 const lastBracket = content.lastIndexOf(']')
                 if (lastBracket > 0) {
                   content = content.substring(lastBracket + 1).trim()
@@ -1145,13 +1490,13 @@ export async function GET(req: Request) {
             }
           }
 
-          // LEI INVIOLÁVEL: Filtro adicional ultra-agressivo para mensagens de usuário
+          // LEI INVIOLÃVEL: Filtro adicional ultra-agressivo para mensagens de usuÃ¡rio
           if (role === "user" && content) {
             // Lista completa de indicadores de prompt
             const promptIndicators = [
               /rules/i, /inviolaveis/i, /"rules"/i, /"inviolaveis"/i, /"prompt"/i, /"variaveis"/i,
               /Sempre chame/i, /Sempre diga/i, /Sempre utilize/i, /Nunca use/i, /Sempre finalize/i,
-              /Use emojis/i, /Use vícios/i, /Jamais/i, /maior escola/i, /América Latina/i,
+              /Use emojis/i, /Use vÃ­cios/i, /Jamais/i, /maior escola/i, /AmÃ©rica Latina/i,
               /Use no maximo/i, /caracteres por mensagem/i, /Tereza.*Vox2You/i,
               /\{[^}]*rules/i, /\{[^}]*inviolaveis/i, /\{[^}]*prompt/i
             ]
@@ -1159,18 +1504,18 @@ export async function GET(req: Request) {
             // Se encontrar QUALQUER indicador, marca como vazia
             for (const indicator of promptIndicators) {
               if (indicator.test(content)) {
-                content = "" // LEI INVIOLÁVEL: Remove completamente
+                content = "" // LEI INVIOLÃVEL: Remove completamente
                 break
               }
             }
 
-            // Se ainda tem conteúdo mas é suspeito (muito longo com palavras-chave), tenta limpar mais
+            // Se ainda tem conteÃºdo mas Ã© suspeito (muito longo com palavras-chave), tenta limpar mais
             if (content && content.length > 100 && (
               content.includes("Sempre") || content.includes("Nunca") ||
               content.includes("Use") || content.includes("Jamais") ||
               content.includes("regras") || content.includes("inviol")
             )) {
-              // Tenta extrair apenas linhas que NÃO são prompts
+              // Tenta extrair apenas linhas que NÃƒO sÃ£o prompts
               const lines = content.split(/\n/)
               const realLines = lines.filter(line => {
                 const lineLower = line.toLowerCase()
@@ -1184,14 +1529,26 @@ export async function GET(req: Request) {
               if (realLines.length > 0) {
                 content = realLines.join(" ").trim()
               } else {
-                content = "" // Se não conseguiu extrair nada válido, marca como vazia
+                content = "" // Se nÃ£o conseguiu extrair nada vÃ¡lido, marca como vazia
               }
             }
           }
 
           const created_at: string = ts ?? ""
+          const roleForDisplay: "user" | "bot" = senderType === "lead" ? "user" : "bot"
 
-          return { role, content, created_at, isError, isSuccess, message_id: r.id }
+          return {
+            role: roleForDisplay,
+            content,
+            created_at,
+            isError,
+            isSuccess,
+            isManual,
+            senderType,
+            message_id: r.id,
+            provider_message_id: providerMessageId || undefined,
+            fromMe,
+          }
         })
         .filter((m): m is NonNullable<typeof m> => {
           // Remove mensagens null/undefined
@@ -1200,19 +1557,19 @@ export async function GET(req: Request) {
           return true
         })
         .filter((m) => {
-          // LEI INVIOLÁVEL: Remove mensagens vazias ou muito curtas (menos de 3 caracteres)
-          if (!m.content || m.content.trim().length < 3) return false
+          // LEI INVIOLÃVEL: Remove mensagens vazias ou muito curtas (menos de 3 caracteres)
+          if (!m.content || m.content.trim().length < 1) return false
 
-          // Remove mensagens que são só caracteres especiais/números
+          // Remove mensagens que sÃ£o sÃ³ caracteres especiais/nÃºmeros
           const trimmed = m.content.trim()
           if (trimmed.match(/^[\d\s:,\[\]\{\}"]+$/)) return false
 
-          // LEI INVIOLÁVEL: Remove mensagens de usuário que ainda contêm QUALQUER resquício de prompt
+          // LEI INVIOLÃVEL: Remove mensagens de usuÃ¡rio que ainda contÃªm QUALQUER resquÃ­cio de prompt
           if (m.role === "user") {
             const promptIndicators = [
               /rules/i, /inviolaveis/i, /"rules"/i, /"inviolaveis"/i, /"prompt"/i, /"variaveis"/i,
               /Sempre chame/i, /Sempre diga/i, /Sempre utilize/i, /Nunca use/i, /Sempre finalize/i,
-              /Use emojis/i, /Use vícios/i, /Jamais/i, /maior escola/i, /América Latina/i,
+              /Use emojis/i, /Use vÃ­cios/i, /Jamais/i, /maior escola/i, /AmÃ©rica Latina/i,
               /Use no maximo/i, /caracteres por mensagem/i, /Tereza.*Vox2You/i,
               /\{[^}]*rules/i, /\{[^}]*inviolaveis/i, /\{[^}]*prompt/i
             ]
@@ -1220,11 +1577,11 @@ export async function GET(req: Request) {
             // Se encontrar QUALQUER indicador, remove a mensagem
             for (const indicator of promptIndicators) {
               if (indicator.test(m.content)) {
-                return false // LEI INVIOLÁVEL: Remove se tiver QUALQUER prompt
+                return false // LEI INVIOLÃVEL: Remove se tiver QUALQUER prompt
               }
             }
 
-            // Se é muito longo e contém palavras-chave de prompt, remove
+            // Se Ã© muito longo e contÃ©m palavras-chave de prompt, remove
             if (m.content.length > 100 && (
               m.content.includes("Sempre") || m.content.includes("Nunca") ||
               m.content.includes("Use") || m.content.includes("Jamais") ||
@@ -1234,7 +1591,7 @@ export async function GET(req: Request) {
             }
           }
 
-          // LEI INVIOLÁVEL: Remove mensagens da IA que ainda contêm tools/prompts
+          // LEI INVIOLÃVEL: Remove mensagens da IA que ainda contÃªm tools/prompts
           if (m.role === "bot") {
             const toolIndicators = [
               /\[Used\s+tools?/i, /\[Tool:/i, /Input:/i, /Result:/i,
@@ -1247,7 +1604,7 @@ export async function GET(req: Request) {
               }
             }
 
-            // Se é muito longo e parece ser só dados técnicos, remove
+            // Se Ã© muito longo e parece ser sÃ³ dados tÃ©cnicos, remove
             if (m.content.length > 500 && m.content.match(/^[\d\s:,\[\]\{\}"]+$/)) {
               return false
             }
@@ -1256,92 +1613,70 @@ export async function GET(req: Request) {
           return true
         })
         .sort((a, b) => {
-          // LEI INVIOLÁVEL: Ordenação 100% precisa e correta - SEMPRE usa message_id como desempate
-          // 1) PRIMEIRO: Ordena por timestamp se ambos tiverem (mais confiável)
+          // LEI INVIOLÃVEL: OrdenaÃ§Ã£o 100% precisa e correta - SEMPRE usa message_id como desempate
+          // 1) PRIMEIRO: Ordena por timestamp se ambos tiverem (mais confiÃ¡vel)
           if (a.created_at && b.created_at) {
             const dateA = new Date(a.created_at).getTime()
             const dateB = new Date(b.created_at).getTime()
             if (!isNaN(dateA) && !isNaN(dateB)) {
-              // Se timestamps são diferentes, ordena por timestamp
+              // Se timestamps sÃ£o diferentes, ordena por timestamp
               if (dateA !== dateB) {
                 return dateA - dateB // ASCENDENTE (mais antigas primeiro)
               }
-              // LEI INVIOLÁVEL: Se timestamps são IGUAIS, usa message_id como desempate
-              // Isso garante ordem correta mesmo quando múltiplas mensagens têm o mesmo timestamp
+              // LEI INVIOLÃVEL: Se timestamps sÃ£o IGUAIS, usa message_id como desempate
+              // Isso garante ordem correta mesmo quando mÃºltiplas mensagens tÃªm o mesmo timestamp
               return a.message_id - b.message_id
             }
           }
 
-          // 2) SEGUNDO: Se um tem timestamp e outro não, o com timestamp vem primeiro
+          // 2) SEGUNDO: Se um tem timestamp e outro nÃ£o, o com timestamp vem primeiro
           if (a.created_at && !b.created_at) return -1
           if (!a.created_at && b.created_at) return 1
 
-          // 3) TERCEIRO: Fallback para ordenação por message_id ASCENDENTE (mais antigas primeiro)
-          // Isso garante ordem cronológica correta mesmo sem timestamp
+          // 3) TERCEIRO: Fallback para ordenaÃ§Ã£o por message_id ASCENDENTE (mais antigas primeiro)
+          // Isso garante ordem cronolÃ³gica correta mesmo sem timestamp
           return a.message_id - b.message_id
         })
 
-      // LEI INVIOLÁVEL: Deduplicação mantendo ordem cronológica
-      // A deduplicação é feita iterando na ordem já estabelecida, mantendo a ordem correta
+      // Deduplicacao conservadora: provider_message_id ou repeticao textual em janela curta
       const deduplicatedMessages = []
+      const seenProviderIds = new Set<string>()
+      const normalizeForDedupe = (value: string) =>
+        String(value || "").toLowerCase().replace(/\s+/g, " ").trim()
 
-      for (let i = 0; i < messages.length; i++) {
-        const currentMsg = messages[i]
-        let isDuplicate = false
-
-        // Verifica se é duplicata comparando com mensagens já adicionadas
-        // IMPORTANTE: Itera na ordem já estabelecida, então mantém ordem cronológica
-        for (const existingMsg of deduplicatedMessages) {
-          // Mesmo role e conteúdo exatamente igual
-          if (currentMsg.role === existingMsg.role &&
-            currentMsg.content.trim().toLowerCase() === existingMsg.content.trim().toLowerCase()) {
-            isDuplicate = true
-            break
+      for (const currentMsg of messages) {
+        const providerId = String(currentMsg.provider_message_id || "").trim()
+        if (providerId) {
+          if (seenProviderIds.has(providerId)) {
+            continue
           }
-
-          // Mensagens da IA muito similares (threshold MUITO baixo para ser ultra-agressivo)
-          if (currentMsg.role === 'bot' && existingMsg.role === 'bot') {
-            const similarity = calculateSimilarity(currentMsg.content, existingMsg.content)
-
-            // Se similaridade > 60% considera duplicata (muito agressivo!)
-            if (similarity > 0.60) {
-              isDuplicate = true
-              break
-            }
-
-            // Verifica se começam com o mesmo texto (primeiras 80 caracteres)
-            const start1 = currentMsg.content.trim().substring(0, 80).toLowerCase()
-            const start2 = existingMsg.content.trim().substring(0, 80).toLowerCase()
-            if (start1.length > 15 && start1 === start2) {
-              isDuplicate = true
-              break
-            }
-
-            // Verifica se contêm as mesmas palavras-chave principais
-            const extractKeywords = (text: string) => {
-              return text.toLowerCase()
-                .split(/\s+/)
-                .filter(w => w.length > 4) // Palavras com mais de 4 letras
-                .slice(0, 10) // Primeiras 10 palavras significativas
-                .join(' ')
-            }
-
-            const keywords1 = extractKeywords(currentMsg.content)
-            const keywords2 = extractKeywords(existingMsg.content)
-
-            if (keywords1.length > 20 && keywords1 === keywords2) {
-              isDuplicate = true
-              break
-            }
-          }
+          seenProviderIds.add(providerId)
         }
 
-        if (!isDuplicate) {
-          deduplicatedMessages.push(currentMsg)
+        const currentContent = normalizeForDedupe(currentMsg.content)
+        const currentTs = new Date(currentMsg.created_at || "").getTime()
+        const currentSenderType = String((currentMsg as any).senderType || "").toLowerCase()
+
+        const duplicateByTextWindow = deduplicatedMessages.some((existingMsg: any) => {
+          if (existingMsg.role !== currentMsg.role) return false
+          if (String(existingMsg.senderType || "").toLowerCase() !== currentSenderType) return false
+          if (normalizeForDedupe(existingMsg.content) !== currentContent) return false
+
+          const existingTs = new Date(existingMsg.created_at || "").getTime()
+          if (Number.isFinite(currentTs) && Number.isFinite(existingTs)) {
+            return Math.abs(currentTs - existingTs) <= 90000
+          }
+          return true
+        })
+
+        if (duplicateByTextWindow) {
+          continue
         }
+
+        deduplicatedMessages.push(currentMsg)
       }
 
-      // LEI INVIOLÁVEL: Filtra por data mas mantém ordem cronológica
+      // LEI INVIOLÃVEL: Filtra por data mas mantÃ©m ordem cronolÃ³gica
       let finalMessages = deduplicatedMessages.filter((m) => {
         if (!start && !end) return true
         if (!m.created_at) return false
@@ -1352,8 +1687,8 @@ export async function GET(req: Request) {
         return true
       })
 
-      // LEI INVIOLÁVEL: Reordena após filtro para garantir ordem correta
-      // Isso é crítico porque o filtro pode ter removido mensagens e a ordem pode ter sido afetada
+      // LEI INVIOLÃVEL: Reordena apÃ³s filtro para garantir ordem correta
+      // Isso Ã© crÃ­tico porque o filtro pode ter removido mensagens e a ordem pode ter sido afetada
       finalMessages.sort((a, b) => {
         // 1) Ordena por timestamp se ambos tiverem
         if (a.created_at && b.created_at) {
@@ -1373,15 +1708,15 @@ export async function GET(req: Request) {
 
       const last_id = Math.max(...items.map((i) => i.id))
 
-      // Extrai número de telefone do session_id
+      // Extrai nÃºmero de telefone do session_id
       let numero: string | null = null
       if (session_id.endsWith("@s.whatsapp.net")) {
         numero = session_id.replace("@s.whatsapp.net", "")
       } else if (/^\d+$/.test(session_id)) {
-        // Se session_id contém apenas dígitos, é o número limpo
+        // Se session_id contÃ©m apenas dÃ­gitos, Ã© o nÃºmero limpo
         numero = session_id
       } else {
-        // Tenta extrair números do session_id
+        // Tenta extrair nÃºmeros do session_id
         const digitsMatch = session_id.match(/(\d{10,15})/)
         if (digitsMatch) {
           numero = digitsMatch[1]
@@ -1398,16 +1733,18 @@ export async function GET(req: Request) {
         last_id,
         error: hasError,
         success: hasSuccess,
-        formData: formData || undefined, // Dados do formulário se disponíveis
+        formData: formData || undefined, // Dados do formulÃ¡rio se disponÃ­veis
       }
     })
 
     const result = sessions.filter((s) => s.messages.length > 0).sort((a, b) => b.last_id - a.last_id)
 
-    console.log("[v0] ChatsAPI: Processadas", result.length, "sessões com mensagens")
+    console.log("[v0] ChatsAPI: Processadas", result.length, "sessÃµes com mensagens")
     console.log("[v0] ChatsAPI: Retornando dados com sucesso")
 
-    return NextResponse.json(result.map(({ last_id, ...rest }) => rest))
+    const payload = result.map(({ last_id, ...rest }) => rest)
+    writeChatsCache(cacheKey, payload)
+    return NextResponse.json(payload)
   } catch (e: any) {
     console.log("[v0] ChatsAPI: Erro geral:", e?.message)
     return NextResponse.json({ error: e?.message ?? "Erro ao consultar conversas" }, { status: 500 })

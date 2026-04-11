@@ -2,7 +2,7 @@
 
 export const dynamic = "force-dynamic"
 
-import { useState, useEffect } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -13,6 +13,7 @@ import {
   Trash2,
   Plus,
   Phone,
+  Clock,
   Pause,
   Play,
   Search,
@@ -21,8 +22,7 @@ import {
   FileText,
   AlertCircle,
   CheckCircle2,
-  Loader2,
-  AlertTriangle
+  Loader2
 } from "lucide-react"
 import { toast } from "sonner"
 import { useTenant } from "@/lib/contexts/TenantContext"
@@ -45,8 +45,25 @@ interface PausaRecord {
   pausar: boolean
   vaga: boolean
   agendamento: boolean
+  pausado_em?: string | null
   created_at: string
   updated_at: string
+}
+
+const formatPauseTime = (iso?: string | null) => {
+  if (!iso) return ""
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return String(iso)
+  try {
+    return new Intl.DateTimeFormat("pt-BR", {
+      dateStyle: "short",
+      timeStyle: "short",
+      timeZone: "America/Sao_Paulo",
+      hour12: false,
+    }).format(date)
+  } catch {
+    return date.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", hour12: false })
+  }
 }
 
 export default function PausasPage() {
@@ -55,23 +72,21 @@ export default function PausasPage() {
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
   const [novoNumero, setNovoNumero] = useState("")
-  const [novaPausa, setNovaPausa] = useState({
-    pausar: false,
+  const [statusFilter, setStatusFilter] = useState<"all" | "paused" | "active" | "scheduled">("all")
+  const defaultPausePayload = {
+    pausar: true,
     vaga: true,
-    agendamento: true,
-  })
+    agendamento: false,
+  }
+  const autoPromptTimerRef = useRef<number | null>(null)
+  const lastPromptedNumberRef = useRef("")
 
   // Estado para Modal de Confirmação Individual
   const [confirmPausaOpen, setConfirmPausaOpen] = useState(false)
 
-  // Estados para Importação em Massa
+  // Estados para Pausa em Massa
   const [importOpen, setImportOpen] = useState(false)
   const [importText, setImportText] = useState("")
-  const [importConfig, setImportConfig] = useState({
-    pausar: true,
-    vaga: false,
-    agendamento: true
-  })
   const [isImporting, setIsImporting] = useState(false)
   const [importProgress, setImportProgress] = useState(0)
   const [importStats, setImportStats] = useState<{ total: number, processed: number, success: number, errors: number } | null>(null)
@@ -120,7 +135,7 @@ export default function PausasPage() {
     setNovoNumero(formatted)
     setConfirmPausaOpen(true)
     // Reseta configs para o padrão seguro inicial se quiser
-    // setNovaPausa({ pausar: false, vaga: true, agendamento: true })
+    // setNovaPausa({ pausar: true, vaga: true, agendamento: false })
   }
 
   // Confirmar e Adicionar Pausa
@@ -134,14 +149,13 @@ export default function PausasPage() {
         },
         body: JSON.stringify({
           numero: novoNumero.trim(),
-          ...novaPausa,
+          ...defaultPausePayload,
         }),
       })
 
       if (response.ok) {
         toast.success("Pausa adicionada com sucesso")
         setNovoNumero("")
-        setNovaPausa({ pausar: false, vaga: true, agendamento: true })
         setConfirmPausaOpen(false)
         carregarPausas()
       } else {
@@ -189,15 +203,13 @@ export default function PausasPage() {
   }
 
   // Remover pausa
-  const removerPausa = async (id: number) => {
+  const removerPausa = async (numero: string) => {
     try {
-      const response = await fetch("/api/pausar", {
+      const response = await fetch(`/api/pausar?numero=${encodeURIComponent(numero)}`, {
         method: "DELETE",
         headers: {
-          "Content-Type": "application/json",
           "x-tenant-prefix": tenant?.prefix || ""
         },
-        body: JSON.stringify({ id }),
       })
 
       if (response.ok) {
@@ -212,7 +224,7 @@ export default function PausasPage() {
     }
   }
 
-  // Processar Importação em Massa
+  // Processar Pausa em Massa
   const processarImportacao = async () => {
     if (!importText.trim()) {
       toast.error("Cole a lista de números primeiro")
@@ -260,7 +272,7 @@ export default function PausasPage() {
           },
           body: JSON.stringify({
             numbers: batch,
-            ...importConfig
+            ...defaultPausePayload
           })
         })
 
@@ -300,9 +312,60 @@ export default function PausasPage() {
     carregarPausas()
   }, [tenant])
 
-  const pausasFiltradas = pausas.filter(pausa =>
-    pausa.numero.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  useEffect(() => {
+    if (confirmPausaOpen) return
+    if (!novoNumero.trim()) {
+      if (autoPromptTimerRef.current) {
+        window.clearTimeout(autoPromptTimerRef.current)
+        autoPromptTimerRef.current = null
+      }
+      lastPromptedNumberRef.current = ""
+      return
+    }
+
+    if (autoPromptTimerRef.current) {
+      window.clearTimeout(autoPromptTimerRef.current)
+    }
+
+    autoPromptTimerRef.current = window.setTimeout(() => {
+      const formatted = ensureBRPrefix(novoNumero)
+      const digits = formatted.replace(/\D/g, "")
+      if (digits.length < 8) return
+      if (lastPromptedNumberRef.current === digits) return
+      lastPromptedNumberRef.current = digits
+      setNovoNumero(formatted)
+      setConfirmPausaOpen(true)
+    }, 600)
+
+    return () => {
+      if (autoPromptTimerRef.current) {
+        window.clearTimeout(autoPromptTimerRef.current)
+        autoPromptTimerRef.current = null
+      }
+    }
+  }, [confirmPausaOpen, novoNumero])
+
+  const statusCounts = useMemo(() => {
+    const paused = pausas.filter((p) => p.pausar).length
+    const active = pausas.filter((p) => !p.pausar).length
+    const scheduled = pausas.filter((p) => p.pausar && p.agendamento).length
+    return { paused, active, scheduled }
+  }, [pausas])
+
+  const pausasFiltradas = pausas.filter((pausa) => {
+    const matchesSearch = pausa.numero.toLowerCase().includes(searchTerm.toLowerCase())
+    const isPaused = pausa.pausar === true
+    const isActive = !pausa.pausar
+    const isScheduled = pausa.pausar === true && pausa.agendamento === true
+
+    const matchesStatus =
+      statusFilter === "all" ||
+      (statusFilter === "paused" && isPaused) ||
+      (statusFilter === "active" && isActive) ||
+      (statusFilter === "scheduled" && isScheduled)
+
+    return matchesSearch && matchesStatus
+  })
 
   return (
     <div className="flex-1 space-y-6 p-6">
@@ -312,55 +375,27 @@ export default function PausasPage() {
           <p className="text-[var(--text-gray)]">Gerencie quando pausar a automação da IA para números específicos</p>
         </div>
 
-        {/* Botão de Importação em Massa */}
+        {/* Botao de Pausa em Massa */}
         <Dialog open={importOpen} onOpenChange={setImportOpen}>
           <DialogTrigger asChild>
             <Button className="bg-[var(--accent-green)] hover:bg-green-600 text-white font-bold shadow-lg shadow-green-900/20">
               <Upload className="w-4 h-4 mr-2" />
-              Importar em Massa
+              Pausar em Massa
             </Button>
           </DialogTrigger>
           <DialogContent className="max-w-2xl bg-[#121212] border-[#333] text-white">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2 text-xl">
-                <FileText className="w-5 h-5 text-yellow-500" />
-                Importação em Massa
+                <FileText className="w-5 h-5 text-green-500" />
+                Pausa em Massa
               </DialogTitle>
               <DialogDescription className="text-gray-400">
-                Cole uma lista de números para aplicar as configurações de pausa automaticamente.
+                Cole uma lista de numeros para pausar automaticamente todos eles.
                 O sistema adicionará o prefixo 55 se ausente e removerá duplicatas.
               </DialogDescription>
             </DialogHeader>
 
             <div className="grid gap-6 py-4">
-              {/* Configurações Globais */}
-              <div className="grid grid-cols-3 gap-4 p-4 bg-[#1a1a1a] rounded-lg border border-[#333]">
-                <div className="flex flex-col items-center gap-2">
-                  <Label>Pausar IA</Label>
-                  <Switch
-                    checked={importConfig.pausar}
-                    onCheckedChange={(c) => setImportConfig(prev => ({ ...prev, pausar: c }))}
-                    className="data-[state=checked]:bg-yellow-500"
-                  />
-                </div>
-                <div className="flex flex-col items-center gap-2">
-                  <Label>Vaga Disponível</Label>
-                  <Switch
-                    checked={importConfig.vaga}
-                    onCheckedChange={(c) => setImportConfig(prev => ({ ...prev, vaga: c }))}
-                    className="data-[state=checked]:bg-green-500"
-                  />
-                </div>
-                <div className="flex flex-col items-center gap-2">
-                  <Label>Agendamento</Label>
-                  <Switch
-                    checked={importConfig.agendamento}
-                    onCheckedChange={(c) => setImportConfig(prev => ({ ...prev, agendamento: c }))}
-                    className="data-[state=checked]:bg-blue-500"
-                  />
-                </div>
-              </div>
-
               {/* Área de Texto */}
               <div className="space-y-2">
                 <Label>Lista de Números (Excel, CSV, Texto)</Label>
@@ -406,14 +441,14 @@ export default function PausasPage() {
               <Button
                 onClick={processarImportacao}
                 disabled={isImporting || !importText.trim()}
-                className="bg-yellow-500 text-black hover:bg-yellow-600 font-bold"
+                className="bg-green-500 text-black hover:bg-green-600 font-bold"
               >
                 {isImporting ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Processando...
                   </>
                 ) : (
-                  'Iniciar Importação'
+                  'Pausar numeros'
                 )}
               </Button>
             </DialogFooter>
@@ -421,69 +456,24 @@ export default function PausasPage() {
         </Dialog>
       </div>
 
-      {/* MODAL DE ADIÇÃO INDIVIDUAL (CONFIRMAÇÃO) */}
+      {/* MODAL DE ADICAO INDIVIDUAL (CONFIRMACAO) */}
       <Dialog open={confirmPausaOpen} onOpenChange={setConfirmPausaOpen}>
         <DialogContent className="max-w-md bg-[#121212] border-[#333] text-white">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-xl">
-              <Pause className="w-5 h-5 text-yellow-500" />
-              Opções de Pausa
+              <Pause className="w-5 h-5 text-green-500" />
+              Confirmar numero
             </DialogTitle>
             <DialogDescription className="text-gray-400">
-              Configurando pausa para: <span className="text-white font-mono font-bold">{novoNumero}</span>
+              Confira se o numero esta correto. Ao confirmar, a automacao sera pausada imediatamente.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="flex flex-col gap-6 py-4">
-            <div className="space-y-4">
-              <div className="flex items-center justify-between p-3 bg-[#1a1a1a] rounded border border-[#333]">
-                <div className="space-y-0.5">
-                  <Label className="text-white text-base">Pausar Automação</Label>
-                  <p className="text-xs text-gray-500">Impede que a IA responda mensagens</p>
-                </div>
-                <Switch
-                  checked={novaPausa.pausar}
-                  onCheckedChange={(c) => setNovaPausa({ ...novaPausa, pausar: c })}
-                  className="data-[state=checked]:bg-yellow-500"
-                />
-              </div>
-
-              <div className="flex items-center justify-between p-3 bg-[#1a1a1a] rounded border border-[#333]">
-                <div className="space-y-0.5">
-                  <Label className="text-white text-base">Vaga Disponível</Label>
-                  <p className="text-xs text-gray-500">Define se há vaga para o lead</p>
-                </div>
-                <Switch
-                  checked={novaPausa.vaga}
-                  onCheckedChange={(c) => setNovaPausa({ ...novaPausa, vaga: c })}
-                  className="data-[state=checked]:bg-green-500"
-                />
-              </div>
-
-              <div className="flex items-center justify-between p-3 bg-[#1a1a1a] rounded border border-[#333]">
-                <div className="space-y-0.5">
-                  <Label className="text-white text-base">Agendamento Realizado</Label>
-                  <p className="text-xs text-gray-500">Marca como agendado confirmad</p>
-                </div>
-                <Switch
-                  checked={novaPausa.agendamento}
-                  onCheckedChange={(c) => setNovaPausa({ ...novaPausa, agendamento: c })}
-                  className="data-[state=checked]:bg-blue-500"
-                />
-              </div>
+          <div className="py-6">
+            <div className="rounded-lg border border-[#333] bg-[#1a1a1a] px-4 py-3 text-center">
+              <p className="text-xs text-gray-500 mb-1">Numero para pausar</p>
+              <p className="text-lg font-mono font-bold text-white">{novoNumero}</p>
             </div>
-
-            {/* ALERTA CONDICIONAL PARA AGENDAMENTO */}
-            {novaPausa.agendamento && (
-              <Alert className="bg-blue-900/20 border-blue-800 text-blue-200">
-                <AlertTriangle className="h-4 w-4 text-blue-400" />
-                <AlertTitle className="text-blue-400">Atenção</AlertTitle>
-                <AlertDescription className="text-xs mt-1">
-                  O lead precisa <strong>realmente estar agendado</strong>.
-                  Confirmar essa opção sem agendamento real pode enviar lembretes incorretos e ser inconveniente para o cliente.
-                </AlertDescription>
-              </Alert>
-            )}
           </div>
 
           <DialogFooter>
@@ -492,13 +482,13 @@ export default function PausasPage() {
               onClick={adicionarPausaConfirmada}
               className="bg-accent-green hover:bg-green-600 font-bold text-white shadow-lg shadow-green-900/20"
             >
-              Confirmar Pausa
+              Sim, pausar agora
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Formulário SIMPLIFICADO para adicionar nova pausa UNITÁRIA */}
+      {/* Formulario SIMPLIFICADO para adicionar nova pausa UNITARIA */}
       <Card className="bg-[var(--card-black)] border-[var(--border-gray)]">
         <CardHeader>
           <CardTitle className="text-[var(--pure-white)] flex items-center gap-2">
@@ -506,7 +496,7 @@ export default function PausasPage() {
             Adicionar Nova Pausa (Individual)
           </CardTitle>
           <CardDescription className="text-[var(--text-gray)]">
-            Digite o número para configurar a pausa
+            Digite o numero para pausar automaticamente
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -528,10 +518,10 @@ export default function PausasPage() {
             </div>
             <Button
               onClick={handlePreAddPausa}
-              className="bg-[var(--accent-yellow)] hover:bg-yellow-500 text-[var(--primary-black)] font-semibold mb-[2px]"
+              className="bg-[var(--accent-green)] hover:bg-green-500 text-[var(--primary-black)] font-semibold mb-[2px]"
             >
               <Plus className="h-4 w-4 mr-2" />
-              Configurar
+              Pausar
             </Button>
           </div>
         </CardContent>
@@ -543,10 +533,10 @@ export default function PausasPage() {
           <div className="flex items-center justify-between gap-4">
             <div>
               <CardTitle className="text-[var(--pure-white)]">
-                Pausas Ativas ({pausasFiltradas.length}{searchTerm ? ` de ${pausas.length}` : ''})
+                Pausas ({pausasFiltradas.length}{searchTerm ? ` de ${pausas.length}` : ''})
               </CardTitle>
               <CardDescription className="text-[var(--text-gray)]">
-                Números com automação pausada
+                Filtre por status para visualizar os números
               </CardDescription>
             </div>
             {/* Campo de Busca */}
@@ -568,11 +558,58 @@ export default function PausasPage() {
               )}
             </div>
           </div>
+          <div className="flex flex-wrap items-center gap-2 pt-3">
+            <span className="text-xs text-[var(--text-gray)] mr-1">Filtros:</span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setStatusFilter(statusFilter === "all" ? "paused" : "all")}
+              className={`text-xs ${statusFilter === "all"
+                ? "bg-[var(--border-gray)]/20 text-[var(--pure-white)] border-[var(--border-gray)]"
+                : "bg-transparent text-[var(--text-gray)] border-[var(--border-gray)]"
+                }`}
+            >
+              Todos ({pausas.length})
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setStatusFilter(statusFilter === "paused" ? "all" : "paused")}
+              className={`text-xs ${statusFilter === "paused"
+                ? "bg-green-500/20 text-green-400 border-green-500/40"
+                : "bg-transparent text-[var(--text-gray)] border-[var(--border-gray)]"
+                }`}
+            >
+              Pausados ({statusCounts.paused})
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setStatusFilter(statusFilter === "active" ? "all" : "active")}
+              className={`text-xs ${statusFilter === "active"
+                ? "bg-[var(--accent-green)]/20 text-[var(--accent-green)] border-[var(--accent-green)]/40"
+                : "bg-transparent text-[var(--text-gray)] border-[var(--border-gray)]"
+                }`}
+            >
+              Ativos ({statusCounts.active})
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setStatusFilter(statusFilter === "scheduled" ? "all" : "scheduled")}
+              className={`text-xs ${statusFilter === "scheduled"
+                ? "bg-blue-500/20 text-blue-400 border-blue-500/40"
+                : "bg-transparent text-[var(--text-gray)] border-[var(--border-gray)]"
+                }`}
+            >
+              Pausados com agendamento ({statusCounts.scheduled})
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           {loading ? (
             <div className="text-center py-8 text-[var(--text-gray)]">
-              <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2 text-yellow-500" />
+              <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2 text-green-500" />
               Carregando pausas...
             </div>
           ) : pausasFiltradas.length === 0 ? (
@@ -581,86 +618,97 @@ export default function PausasPage() {
             </div>
           ) : (
             <div className="space-y-4">
-              {pausasFiltradas.map((pausa) => (
-                <div
-                  key={pausa.id}
-                  className="flex items-center justify-between p-4 bg-[var(--secondary-black)] rounded-lg border border-[var(--border-gray)]"
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-2">
-                      <Phone className="h-4 w-4 text-[var(--accent-green)]" />
-                      <span className="font-mono text-[var(--pure-white)]">{pausa.numero}</span>
+              {pausasFiltradas.map((pausa) => {
+                const pauseTime = pausa.pausado_em || pausa.updated_at || pausa.created_at
+                return (
+                  <div
+                    key={pausa.id}
+                    className="flex items-center justify-between p-4 bg-[var(--secondary-black)] rounded-lg border border-[var(--border-gray)]"
+                  >
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-2">
+                          <Phone className="h-4 w-4 text-[var(--accent-green)]" />
+                          <span className="font-mono text-[var(--pure-white)]">{pausa.numero}</span>
+                        </div>
+                        <div className="flex gap-2">
+                          <Badge variant={pausa.pausar ? "outline" : "secondary"} className={pausa.pausar ? "border-green-500/50 text-green-400 bg-green-500/10" : ""}>
+                            {pausa.pausar ? (
+                              <>
+                                <Pause className="h-3 w-3 mr-1" />
+                                Pausado
+                              </>
+                            ) : (
+                              <>
+                                <Play className="h-3 w-3 mr-1" />
+                                Ativo
+                              </>
+                            )}
+                          </Badge>
+                          {pausa.vaga && (
+                            <Badge variant="outline" className="text-[var(--accent-green)] border-[var(--accent-green)]">
+                              Vaga
+                            </Badge>
+                          )}
+                          {pausa.agendamento && (
+                            <Badge variant="outline" className="text-blue-400 border-blue-400">
+                              Agendamento
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                      {pausa.pausar && pauseTime && (
+                        <div className="flex items-center gap-2 text-xs text-[var(--text-gray)]">
+                          <Clock className="h-3 w-3 text-green-400" />
+                          Pausado em {formatPauseTime(pauseTime)}
+                        </div>
+                      )}
                     </div>
-                    <div className="flex gap-2">
-                      <Badge variant={pausa.pausar ? "outline" : "secondary"} className={pausa.pausar ? "border-yellow-500/50 text-yellow-400 bg-yellow-500/10" : ""}>
-                        {pausa.pausar ? (
-                          <>
-                            <Pause className="h-3 w-3 mr-1" />
-                            Pausado
-                          </>
-                        ) : (
-                          <>
-                            <Play className="h-3 w-3 mr-1" />
-                            Ativo
-                          </>
-                        )}
-                      </Badge>
-                      {pausa.vaga && (
-                        <Badge variant="outline" className="text-[var(--accent-green)] border-[var(--accent-green)]">
-                          Vaga
-                        </Badge>
-                      )}
-                      {pausa.agendamento && (
-                        <Badge variant="outline" className="text-blue-400 border-blue-400">
-                          Agendamento
-                        </Badge>
-                      )}
+                    <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-6">
+                        <div className="flex flex-col items-center gap-1">
+                          <Label className="text-xs text-[var(--text-gray)] font-medium">Pausar</Label>
+                          <Switch
+                            checked={pausa.pausar}
+                            onCheckedChange={(checked) => {
+                              atualizarPausa(pausa.id, { pausar: checked })
+                            }}
+                            className="data-[state=checked]:bg-green-500"
+                          />
+                        </div>
+                        <div className="flex flex-col items-center gap-1">
+                          <Label className="text-xs text-[var(--text-gray)] font-medium">Vaga</Label>
+                          <Switch
+                            checked={pausa.vaga}
+                            onCheckedChange={(checked) => {
+                              atualizarPausa(pausa.id, { vaga: checked })
+                            }}
+                            className="data-[state=checked]:bg-[var(--accent-green)]"
+                          />
+                        </div>
+                        <div className="flex flex-col items-center gap-1">
+                          <Label className="text-xs text-[var(--text-gray)] font-medium">Agendamento</Label>
+                          <Switch
+                            checked={pausa.agendamento}
+                            onCheckedChange={(checked) => {
+                              atualizarPausa(pausa.id, { agendamento: checked })
+                            }}
+                            className="data-[state=checked]:bg-blue-500"
+                          />
+                        </div>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                      onClick={() => removerPausa(pausa.numero)}
+                        className="text-red-400 hover:text-red-300 hover:bg-red-400/10"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     </div>
                   </div>
-                  <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-6">
-                      <div className="flex flex-col items-center gap-1">
-                        <Label className="text-xs text-[var(--text-gray)] font-medium">Pausar</Label>
-                        <Switch
-                          checked={pausa.pausar}
-                          onCheckedChange={(checked) => {
-                            atualizarPausa(pausa.id, { pausar: checked })
-                          }}
-                          className="data-[state=checked]:bg-yellow-500"
-                        />
-                      </div>
-                      <div className="flex flex-col items-center gap-1">
-                        <Label className="text-xs text-[var(--text-gray)] font-medium">Vaga</Label>
-                        <Switch
-                          checked={pausa.vaga}
-                          onCheckedChange={(checked) => {
-                            atualizarPausa(pausa.id, { vaga: checked })
-                          }}
-                          className="data-[state=checked]:bg-[var(--accent-green)]"
-                        />
-                      </div>
-                      <div className="flex flex-col items-center gap-1">
-                        <Label className="text-xs text-[var(--text-gray)] font-medium">Agendamento</Label>
-                        <Switch
-                          checked={pausa.agendamento}
-                          onCheckedChange={(checked) => {
-                            atualizarPausa(pausa.id, { agendamento: checked })
-                          }}
-                          className="data-[state=checked]:bg-blue-500"
-                        />
-                      </div>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => removerPausa(pausa.id)}
-                      className="text-red-400 hover:text-red-300 hover:bg-red-400/10"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </CardContent>

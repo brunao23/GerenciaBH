@@ -61,11 +61,11 @@ export default function N8NLayout({ children }: { children: React.ReactNode }) {
             <div className="lg:hidden fixed top-0 left-0 right-0 z-50 bg-card-black border-b border-border-gray">
                 <div className="flex items-center justify-between p-4">
                     <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-gradient-to-br from-accent-yellow to-dark-yellow rounded-xl flex items-center justify-center">
+                        <div className="w-10 h-10 bg-gradient-to-br from-accent-green to-dark-green rounded-xl flex items-center justify-center">
                             <Workflow className="w-5 h-5 text-primary-black" />
                         </div>
                         <div>
-                            <h1 className="text-lg font-bold text-accent-yellow">N8N Manager</h1>
+                            <h1 className="text-lg font-bold text-accent-green">N8N Manager</h1>
                             <p className="text-xs text-text-gray">{currentPage?.title}</p>
                         </div>
                     </div>
@@ -91,11 +91,11 @@ export default function N8NLayout({ children }: { children: React.ReactNode }) {
                     {/* Logo */}
                     <div className="p-6 border-b border-border-gray">
                         <div className="flex items-center gap-3">
-                            <div className="w-12 h-12 bg-gradient-to-br from-accent-yellow to-dark-yellow rounded-xl flex items-center justify-center shadow-lg shadow-accent-yellow/30">
+                            <div className="w-12 h-12 bg-gradient-to-br from-accent-green to-dark-green rounded-xl flex items-center justify-center shadow-lg shadow-accent-green/30">
                                 <Workflow className="w-6 h-6 text-primary-black" />
                             </div>
                             <div>
-                                <h1 className="text-xl font-bold bg-gradient-to-r from-accent-yellow to-dark-yellow bg-clip-text text-transparent">
+                                <h1 className="text-xl font-bold bg-gradient-to-r from-accent-green to-dark-green bg-clip-text text-transparent">
                                     N8N Manager
                                 </h1>
                                 <p className="text-xs text-text-gray">Plataforma Completa</p>
@@ -120,7 +120,7 @@ export default function N8NLayout({ children }: { children: React.ReactNode }) {
                                         className={`
                                             w-full flex items-center gap-3 p-3 rounded-lg transition-all
                                             ${isActive
-                                                ? 'bg-gradient-to-r from-accent-yellow to-dark-yellow text-primary-black shadow-lg shadow-accent-yellow/30'
+                                                ? 'bg-gradient-to-r from-accent-green to-dark-green text-primary-black shadow-lg shadow-accent-green/30'
                                                 : 'text-text-gray hover:text-pure-white hover:bg-primary-black/50'}
                                         `}
                                     >
@@ -144,7 +144,7 @@ export default function N8NLayout({ children }: { children: React.ReactNode }) {
                     <div className="p-4 border-t border-border-gray">
                         <Button
                             variant="ghost"
-                            onClick={() => router.push('/admin/dashboard')}
+                            onClick={() => router.push('/admin/units')}
                             className="w-full justify-start text-text-gray hover:text-pure-white"
                         >
                             <LogOut className="w-5 h-5 mr-3" />
@@ -169,22 +169,22 @@ export default function N8NLayout({ children }: { children: React.ReactNode }) {
                     <div className="p-4 flex items-center justify-between">
                         <div className="flex items-center gap-2 text-sm">
                             <button
-                                onClick={() => router.push('/admin/dashboard')}
-                                className="text-text-gray hover:text-accent-yellow transition-colors"
+                                onClick={() => router.push('/admin/units')}
+                                className="text-text-gray hover:text-accent-green transition-colors"
                             >
                                 Admin
                             </button>
                             <ChevronRight className="w-4 h-4 text-text-gray" />
                             <button
                                 onClick={() => router.push('/admin/n8n/dashboard')}
-                                className="text-text-gray hover:text-accent-yellow transition-colors"
+                                className="text-text-gray hover:text-accent-green transition-colors"
                             >
                                 N8N
                             </button>
                             {currentPage && (
                                 <>
                                     <ChevronRight className="w-4 h-4 text-text-gray" />
-                                    <span className="text-accent-yellow font-semibold">
+                                    <span className="text-accent-green font-semibold">
                                         {currentPage.title}
                                     </span>
                                 </>

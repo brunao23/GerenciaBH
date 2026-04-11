@@ -326,6 +326,7 @@ BEGIN
       horario TEXT,
       status TEXT DEFAULT ''pendente'',
       observacoes TEXT,
+      observacao_marcacao TEXT,
       google_event_id TEXT,
       session_id TEXT,
       numero TEXT,
@@ -333,6 +334,12 @@ BEGIN
       updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
     )', v_agendamentos);
   EXECUTE format('CREATE INDEX IF NOT EXISTS idx_%I_contato ON public.%I(contato)', v_agendamentos, v_agendamentos);
+  IF to_regprocedure('public.create_agendamentos_webhook_trigger(text)') IS NOT NULL THEN
+    PERFORM public.create_agendamentos_webhook_trigger(v_agendamentos);
+  END IF;
+  IF to_regprocedure('public.create_agendamentos_schedule_trigger(text)') IS NOT NULL THEN
+    PERFORM public.create_agendamentos_schedule_trigger(v_agendamentos);
+  END IF;
 
   -- 2. Follow Normal
   EXECUTE format('
@@ -559,7 +566,8 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- VIEW para listar
-CREATE OR REPLACE VIEW public.v_empresa_tabelas AS
+DROP VIEW IF EXISTS public.v_empresa_tabelas;
+CREATE VIEW public.v_empresa_tabelas AS
 SELECT 
   e.id AS empresa_id,
   e.nome AS empresa_nome,

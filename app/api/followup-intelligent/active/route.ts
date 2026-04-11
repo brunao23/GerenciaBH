@@ -1,18 +1,20 @@
 import { NextResponse } from "next/server"
-import { createClient } from "@supabase/supabase-js"
+import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
+import { resolveChatHistoriesTable } from "@/lib/helpers/resolve-chat-table"
 
-// Cliente Supabase com Service Role para acesso administrativo
-function createServiceRoleClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
-  return createClient(supabaseUrl, supabaseServiceKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-      detectSessionInUrl: false
-    }
-  })
+function toDate(value: any): Date | null {
+  if (!value) return null
+  if (value instanceof Date) return value
+  if (typeof value === "string") {
+    const d = new Date(value)
+    return isNaN(d.getTime()) ? null : d
+  }
+  if (typeof value === "number") {
+    const ts = value < 1e12 ? value * 1000 : value
+    const d = new Date(ts)
+    return isNaN(d.getTime()) ? null : d
+  }
+  return null
 }
 
 /**
@@ -30,8 +32,8 @@ export async function GET(req: Request) {
       tenant = 'vox_bh'
     }
 
-    const supabase = createServiceRoleClient()
-    const chatHistoriesTable = `${tenant}n8n_chat_histories`
+    const supabase = createBiaSupabaseServerClient()
+    const chatHistoriesTable = await resolveChatHistoriesTable(supabase as any, tenant)
 
     // TODO: Verificar se followup_schedule deve ser por tenant (${tenant}_followup_schedule)
     // Por enquanto mantendo fixo como estava no original, assumindo que pode ser global ou experimental
@@ -56,16 +58,26 @@ export async function GET(req: Request) {
         // Buscar última mensagem da conversa
         const { data: lastMessage } = await supabase
           .from(chatHistoriesTable)
-          .select("message, created_at")
+          .select("message, created_at, id")
           .eq("session_id", followup.session_id)
           .order("id", { ascending: false })
           .limit(1)
           .maybeSingle()
 
+        const lastMessageTs =
+          toDate(lastMessage?.created_at) ||
+          toDate(lastMessage?.message?.created_at) ||
+          toDate(lastMessage?.message?.timestamp) ||
+          toDate(lastMessage?.message?.messageTimestamp) ||
+          toDate(lastMessage?.message?.key?.timestamp)
+
+        const lastInteractionAt = lastMessageTs?.toISOString() || followup.last_interaction_at || null
+
         return {
           ...followup,
           last_message: lastMessage?.message?.content || lastMessage?.message?.text || null,
-          last_message_at: lastMessage?.created_at || null
+          last_message_at: lastMessageTs?.toISOString() || null,
+          last_interaction_at: lastInteractionAt
         }
       })
     )

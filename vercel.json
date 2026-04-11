@@ -1,8 +1,16 @@
 {
-    "crons": [
-        {
-            "path": "/api/followup/cron",
-            "schedule": "0 9 * * *"
-        }
-    ]
+  "crons": [
+    {
+      "path": "/api/followup/cron",
+      "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/agent/tasks/process",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/admin/reports/weekly",
+      "schedule": "0 * * * *"
+    }
+  ]
 }

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Button } from "./ui/button"
 import {
   DropdownMenu,
@@ -19,12 +19,13 @@ import { useToast } from "@/hooks/use-toast"
 import { useTenantFetch } from "@/lib/hooks/useTenantFetch"
 import { useTenant } from "@/lib/contexts/TenantContext"
 
-type Notification = {
+type NotificationRecord = {
   id: string
   created_at: string
-  type: "message" | "error" | "agendamento" | "followup" | "victory"
+  type: string
   title: string | null
   description: string | null
+  message?: string | null
   read: boolean
   source_table?: string | null
   source_id?: string | null
@@ -50,78 +51,86 @@ function fmtBR(iso: string | undefined | null) {
 
 const onlyDigits = (s: string) => s.replace(/\D+/g, "")
 
+function normalizeType(type: string | null | undefined): "message" | "error" | "agendamento" | "followup" | "victory" {
+  const value = String(type || "").toLowerCase()
+
+  if (value.includes("erro") || value.includes("error")) return "error"
+  if (value.includes("agend")) return "agendamento"
+  if (value.includes("follow")) return "followup"
+  if (value.includes("victory") || value.includes("ganho") || value.includes("convers")) return "victory"
+
+  return "message"
+}
+
 export default function NotificationsMenu() {
   const tenantFetch = useTenantFetch()
-  const { tenant, loading } = useTenant() // Adicionar tenant e loading
-  const [items, setItems] = useState<Notification[]>([])
+  const { tenant, loading } = useTenant()
+  const [items, setItems] = useState<NotificationRecord[]>([])
   const [unread, setUnread] = useState<number>(0)
   const [markingAllRead, setMarkingAllRead] = useState(false)
   const [clearingAll, setClearingAll] = useState(false)
   const [supa, setSupa] = useState<ReturnType<typeof supabaseClient> | null>(null)
+  const channelScope = useRef(`menu-${Math.random().toString(36).slice(2, 10)}`)
   const router = useRouter()
   const { toast } = useToast()
 
-  const refresh = async () => {
-    // Não buscar se tenant ainda está carregando
-    if (loading || !tenant) {
-      console.log("[v0] NotificationsMenu: Aguardando tenant carregar...")
-      return
-    }
+  const notificationsTable = useMemo(() => {
+    if (!tenant?.prefix) return null
+    return `${tenant.prefix}_notifications`
+  }, [tenant?.prefix])
 
-    console.log("[v0] NotificationsMenu: Iniciando refresh...")
-    const res = await tenantFetch("/api/supabase/notifications?limit=30")
-    const data = await res.json()
-    console.log("[v0] NotificationsMenu: Dados recebidos:", {
-      itemsCount: Array.isArray(data.items) ? data.items.length : 0,
-      unreadCount: data.unread,
-      items: data.items?.slice(0, 3), // Primeiros 3 para debug
-    })
-    setItems(Array.isArray(data.items) ? data.items : [])
-    setUnread(typeof data.unread === "number" ? data.unread : 0)
-  }
+  const refresh = useCallback(async () => {
+    if (loading || !tenant) return
+
+    try {
+      const res = await tenantFetch("/api/supabase/notifications?limit=30")
+      const data = await res.json().catch(() => ({}))
+
+      if (!res.ok) {
+        throw new Error(data?.error || "Falha ao carregar notificacoes")
+      }
+
+      setItems(Array.isArray(data.items) ? data.items : [])
+      setUnread(typeof data.unread === "number" ? data.unread : 0)
+    } catch (error: any) {
+      toast({
+        title: "Falha ao carregar notificacoes",
+        description: error?.message || "Tente novamente em alguns instantes.",
+        variant: "destructive",
+      })
+    }
+  }, [loading, tenant, tenantFetch, toast])
 
   useEffect(() => {
     try {
       const client = supabaseClient()
       setSupa(client)
     } catch (error) {
-      console.error("[v0] Failed to initialize Supabase client:", error)
-      return
+      console.error("[notifications-menu] Failed to initialize Supabase client:", error)
     }
   }, [])
 
   useEffect(() => {
-    // Aguardar tenant e supabase estarem prontos
-    if (!supa || loading || !tenant) {
-      console.log("[v0] NotificationsMenu: Aguardando inicialização...", { supa: !!supa, loading, tenant: !!tenant })
-      return
-    }
+    if (!supa || loading || !tenant || !notificationsTable) return
 
     refresh()
-    const ch = supa
-      .channel("realtime:notifications")
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications" }, () => {
+
+    const channel = supa
+      .channel(`realtime:${channelScope.current}:${notificationsTable}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: notificationsTable }, () => {
         refresh()
       })
       .subscribe()
+
     return () => {
-      supa.removeChannel(ch)
+      supa.removeChannel(channel)
     }
-  }, [supa, loading, tenant])
+  }, [supa, loading, tenant, notificationsTable, refresh])
 
   const markAllRead = async () => {
-    console.log("[v0] markAllRead: BOTÃO CLICADO! unread:", unread, "markingAllRead:", markingAllRead)
-
-    if (markingAllRead) {
-      console.log("[v0] markAllRead: Já está marcando, saindo...")
-      return
-    }
-
-    console.log("[v0] markAllRead: Continuando com a marcação...")
+    if (markingAllRead) return
 
     setMarkingAllRead(true)
-    console.log("[v0] Marcando todas as notificações como lidas...")
-
     try {
       const response = await tenantFetch("/api/supabase/notifications", {
         method: "PATCH",
@@ -129,31 +138,25 @@ export default function NotificationsMenu() {
         body: JSON.stringify({ all: true }),
       })
 
-      console.log("[v0] Resposta da API:", response.status, response.statusText)
-
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        console.error("[v0] Erro na resposta da API:", errorData)
+        const errorData = await response.json().catch(() => ({} as any))
         throw new Error(errorData.error || `Erro ${response.status}: ${response.statusText}`)
       }
 
       const result = await response.json()
-      console.log("[v0] Resultado da API:", result)
-
       if (result.ok) {
         toast({
           title: "Sucesso",
-          description: `${result.updated || 0} notificações marcadas como lidas`,
+          description: `${result.updated || 0} notificacoes marcadas como lidas`,
         })
         await refresh()
       } else {
         throw new Error(result.error || "Erro desconhecido")
       }
     } catch (error) {
-      console.error("[v0] Erro ao marcar notificações como lidas:", error)
       toast({
         title: "Erro",
-        description: error instanceof Error ? error.message : "Erro ao marcar notificações como lidas",
+        description: error instanceof Error ? error.message : "Erro ao marcar notificacoes como lidas",
         variant: "destructive",
       })
     } finally {
@@ -162,16 +165,9 @@ export default function NotificationsMenu() {
   }
 
   const clearAll = async () => {
-    console.log("[v0] clearAll: BOTÃO CLICADO!")
-
-    if (clearingAll) {
-      console.log("[v0] clearAll: Já está limpando, saindo...")
-      return
-    }
+    if (clearingAll) return
 
     setClearingAll(true)
-    console.log("[v0] Limpando todas as notificações...")
-
     try {
       const response = await tenantFetch("/api/supabase/notifications", {
         method: "DELETE",
@@ -179,31 +175,25 @@ export default function NotificationsMenu() {
         body: JSON.stringify({ all: true }),
       })
 
-      console.log("[v0] Resposta da API (DELETE):", response.status, response.statusText)
-
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        console.error("[v0] Erro na resposta da API (DELETE):", errorData)
+        const errorData = await response.json().catch(() => ({} as any))
         throw new Error(errorData.error || `Erro ${response.status}: ${response.statusText}`)
       }
 
       const result = await response.json()
-      console.log("[v0] Resultado da API (DELETE):", result)
-
       if (result.ok) {
         toast({
           title: "Sucesso",
-          description: `${result.deleted || 0} notificações removidas`,
+          description: `${result.deleted || 0} notificacoes removidas`,
         })
         await refresh()
       } else {
         throw new Error(result.error || "Erro desconhecido")
       }
     } catch (error) {
-      console.error("[v0] Erro ao limpar notificações:", error)
       toast({
         title: "Erro",
-        description: error instanceof Error ? error.message : "Erro ao limpar notificações",
+        description: error instanceof Error ? error.message : "Erro ao limpar notificacoes",
         variant: "destructive",
       })
     } finally {
@@ -211,14 +201,16 @@ export default function NotificationsMenu() {
     }
   }
 
-  const clickNotification = async (n: Notification) => {
+  const clickNotification = async (n: NotificationRecord) => {
     await tenantFetch("/api/supabase/notifications", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ids: [n.id] }),
     }).catch(() => null)
 
-    if (n.type === "message" || n.type === "error" || n.type === "victory") {
+    const tone = normalizeType(n.type)
+
+    if (tone === "message" || tone === "error" || tone === "victory") {
       if (n.session_id) {
         const qs = new URLSearchParams()
         qs.set("session", n.session_id)
@@ -236,12 +228,12 @@ export default function NotificationsMenu() {
       return
     }
 
-    if (n.type === "agendamento") {
+    if (tone === "agendamento") {
       router.push("/agendamentos")
       return
     }
 
-    if (n.type === "followup") {
+    if (tone === "followup") {
       if (n.numero) {
         const qs = new URLSearchParams()
         qs.set("numero", onlyDigits(n.numero))
@@ -255,8 +247,8 @@ export default function NotificationsMenu() {
 
   const hasUnread = unread > 0
 
-  const IconFor = ({ type }: { type: Notification["type"] }) => {
-    switch (type) {
+  const IconFor = ({ type }: { type: string }) => {
+    switch (normalizeType(type)) {
       case "error":
         return <AlertTriangle className="h-4 w-4 text-red-600" />
       case "agendamento":
@@ -273,15 +265,20 @@ export default function NotificationsMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button size="icon" variant="ghost" aria-label="Notificações" className="relative">
+        <Button
+          size="icon"
+          variant="ghost"
+          aria-label="Notificacoes"
+          className="relative border border-transparent hover:border-accent-green/40 hover:bg-accent-green/10"
+        >
           <Bell className="h-5 w-5" />
           {hasUnread ? (
-            <span className="absolute -top-0.5 -right-0.5 inline-flex h-2.5 w-2.5 rounded-full bg-red-500" />
+            <span className="absolute -top-0.5 -right-0.5 inline-flex h-2.5 w-2.5 rounded-full bg-red-500 shadow-[0_0_12px_rgba(239,68,68,.8)]" />
           ) : null}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-[360px] p-0">
-        <div className="flex items-center justify-between px-3 py-2 bg-muted/20">
+      <DropdownMenuContent align="end" className="w-[380px] p-0 border-accent-green/20 bg-card/95 backdrop-blur-xl">
+        <div className="flex items-center justify-between px-3 py-2 bg-accent-green/5">
           <Button variant="ghost" size="sm" onClick={refresh} className="text-xs px-2 py-1 h-7">
             Atualizar
           </Button>
@@ -289,15 +286,11 @@ export default function NotificationsMenu() {
             <Button
               variant="secondary"
               size="sm"
-              onClick={(e) => {
-                console.log("[v0] CLIQUE DO BOTÃO DETECTADO! Event:", e.type)
-                console.log("[v0] Estado atual - unread:", unread, "markingAllRead:", markingAllRead)
-                markAllRead()
-              }}
+              onClick={markAllRead}
               disabled={markingAllRead}
-              className="bg-green-600 hover:bg-green-700 text-white text-xs px-2 py-1 h-7 min-w-0 whitespace-nowrap"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-2 py-1 h-7 min-w-0 whitespace-nowrap"
             >
-              {markingAllRead ? "Marcando..." : "Marcar lidas"}
+              {markingAllRead ? "Marcando..." : "Marcar como lidas"}
             </Button>
             <Button
               variant="secondary"
@@ -313,24 +306,25 @@ export default function NotificationsMenu() {
         </div>
         <DropdownMenuSeparator />
         <div className="flex items-center justify-between px-3 py-2">
-          <DropdownMenuLabel className="p-0">Notificações</DropdownMenuLabel>
-          <div className="text-xs text-muted-foreground">{unread} não lida(s)</div>
+          <DropdownMenuLabel className="p-0">Notificacoes</DropdownMenuLabel>
+          <div className="text-xs text-muted-foreground">{unread} nao lida(s)</div>
         </div>
         <DropdownMenuSeparator />
         <ScrollArea className="max-h-[360px]">
           <div className="px-1 py-1">
             {items.length === 0 ? (
-              <div className="px-3 py-6 text-sm text-muted-foreground">Sem notificações.</div>
+              <div className="px-3 py-6 text-sm text-muted-foreground">Sem notificacoes.</div>
             ) : (
               items.map((n) => {
+                const type = normalizeType(n.type)
                 const tone =
-                  n.type === "error"
+                  type === "error"
                     ? "bg-red-50"
-                    : n.type === "victory"
+                    : type === "victory"
                       ? "bg-emerald-50"
-                      : n.type === "agendamento"
+                      : type === "agendamento"
                         ? "bg-sky-50"
-                        : n.type === "followup"
+                        : type === "followup"
                           ? "bg-purple-50"
                           : ""
 
@@ -348,14 +342,16 @@ export default function NotificationsMenu() {
                         <div
                           className={cn(
                             "text-sm",
-                            n.type === "error" ? "text-red-700 font-medium" : "",
-                            n.type === "victory" ? "text-emerald-700 font-medium" : "font-medium",
+                            type === "error" ? "text-red-700 font-medium" : "",
+                            type === "victory" ? "text-emerald-700 font-medium" : "font-medium",
                           )}
                         >
-                          {n.title ?? n.type}
+                          {n.title ?? n.type ?? "Notificacao"}
                         </div>
-                        {n.description ? (
-                          <div className="text-xs text-muted-foreground truncate max-w-[280px]">{n.description}</div>
+                        {n.description || n.message ? (
+                          <div className="text-xs text-muted-foreground truncate max-w-[300px]">
+                            {n.description ?? n.message}
+                          </div>
                         ) : null}
                         <div className="text-[11px] text-muted-foreground mt-0.5">{fmtBR(n.created_at)}</div>
                       </div>
@@ -369,7 +365,7 @@ export default function NotificationsMenu() {
         <DropdownMenuSeparator />
         <div className="px-3 py-2 text-center">
           <div className="text-xs text-muted-foreground">
-            {items.length > 0 ? `Mostrando ${items.length} notificações` : "Nenhuma notificação"}
+            {items.length > 0 ? `Mostrando ${items.length} notificacoes` : "Nenhuma notificacao"}
           </div>
         </div>
       </DropdownMenuContent>

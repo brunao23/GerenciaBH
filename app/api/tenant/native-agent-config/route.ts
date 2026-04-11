@@ -1,0 +1,713 @@
+import { NextResponse } from "next/server"
+import { resolveTenant } from "@/lib/helpers/resolve-tenant"
+import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
+import {
+  getNativeAgentConfigForTenant,
+  sanitizeNativeAgentConfigForResponse,
+  updateNativeAgentConfigForTenant,
+  validateNativeAgentConfig,
+  type NativeAgentConfig,
+} from "@/lib/helpers/native-agent-config"
+import { notifyAdminUpdate } from "@/lib/services/tenant-notifications"
+
+function mergeSecret(current: string | undefined, incoming: any): string | undefined {
+  if (incoming === undefined || incoming === null) return current
+  const value = String(incoming).trim()
+  if (!value) return undefined
+  if (value === "***") return current
+  return value
+}
+
+function toBool(value: any, fallback: boolean): boolean {
+  if (value === undefined || value === null) return fallback
+  if (typeof value === "boolean") return value
+  const text = String(value).trim().toLowerCase()
+  if (text === "true") return true
+  if (text === "false") return false
+  return fallback
+}
+
+function toOptionalText(value: any): string | undefined {
+  const text = String(value ?? "").trim()
+  return text ? text : undefined
+}
+
+function toGoogleAuthMode(value: any, fallback: "service_account" | "oauth_user") {
+  const text = String(value ?? "").trim().toLowerCase()
+  if (text === "oauth_user") return "oauth_user"
+  if (text === "service_account") return "service_account"
+  return fallback
+}
+
+function toConversationTone(
+  value: any,
+  fallback: "consultivo" | "acolhedor" | "direto" | "formal",
+) {
+  const text = String(value ?? "").trim().toLowerCase()
+  if (text === "consultivo" || text === "acolhedor" || text === "direto" || text === "formal") {
+    return text
+  }
+  return fallback
+}
+
+function toAudioProvider(
+  value: any,
+  fallback: "elevenlabs" | "custom_http",
+): "elevenlabs" | "custom_http" {
+  const text = String(value ?? "").trim().toLowerCase()
+  if (text === "custom_http") return "custom_http"
+  if (text === "elevenlabs") return "elevenlabs"
+  return fallback
+}
+
+function toUrlList(value: any, fallback: string[]): string[] {
+  if (value === undefined || value === null) return fallback
+  if (Array.isArray(value)) {
+    const list = value
+      .map((v) => String(v || "").trim())
+      .filter(Boolean)
+    return Array.from(new Set(list)).slice(0, 20)
+  }
+
+  const text = String(value || "").trim()
+  if (!text) return []
+  const list = text
+    .split(/[\n,;]+/g)
+    .map((v) => String(v || "").trim())
+    .filter(Boolean)
+  return Array.from(new Set(list)).slice(0, 20)
+}
+
+function toNumber(value: any, fallback: number, min: number, max: number): number {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return fallback
+  if (numeric < min) return min
+  if (numeric > max) return max
+  return Math.floor(numeric)
+}
+
+function toBusinessDays(value: any, fallback: number[]): number[] {
+  if (Array.isArray(value)) {
+    const days = value
+      .map((v) => Number(v))
+      .filter((v) => Number.isInteger(v) && v >= 1 && v <= 7)
+    return days.length ? Array.from(new Set(days)) : fallback
+  }
+
+  const text = String(value || "").trim()
+  if (!text) return fallback
+  const days = text
+    .split(/[^0-9]+/g)
+    .map((v) => Number(v))
+    .filter((v) => Number.isInteger(v) && v >= 1 && v <= 7)
+  return days.length ? Array.from(new Set(days)) : fallback
+}
+
+function toFollowupBusinessDays(value: any, fallback: number[]): number[] {
+  if (Array.isArray(value)) {
+    const days = value
+      .map((v) => Number(v))
+      .filter((v) => Number.isInteger(v) && v >= 0 && v <= 6)
+    return days.length ? Array.from(new Set(days)) : fallback
+  }
+
+  const text = String(value || "").trim()
+  if (!text) return fallback
+  const days = text
+    .split(/[^0-9]+/g)
+    .map((v) => Number(v))
+    .filter((v) => Number.isInteger(v) && v >= 0 && v <= 6)
+  return days.length ? Array.from(new Set(days)) : fallback
+}
+
+function toIsoDateList(value: any, fallback: string[]): string[] {
+  if (value === undefined || value === null) return fallback
+  const list = Array.isArray(value)
+    ? value
+    : String(value || "")
+      .split(/[\n,; ]+/g)
+      .map((v) => v.trim())
+
+  return Array.from(
+    new Set(
+      list
+        .map((v) => String(v || "").trim())
+        .filter((v) => /^\d{4}-\d{2}-\d{2}$/.test(v)),
+    ),
+  ).slice(0, 365)
+}
+
+function normalizeTimeRange(value: string): string | null {
+  const match = String(value || "")
+    .trim()
+    .match(/^([01]\d|2[0-3]):([0-5]\d)\s*-\s*([01]\d|2[0-3]):([0-5]\d)$/)
+  if (!match) return null
+  const start = Number(match[1]) * 60 + Number(match[2])
+  const end = Number(match[3]) * 60 + Number(match[4])
+  if (end <= start) return null
+  return `${match[1]}:${match[2]}-${match[3]}:${match[4]}`
+}
+
+function toTimeRangeList(value: any, fallback: string[]): string[] {
+  if (value === undefined || value === null) return fallback
+  const list = Array.isArray(value)
+    ? value
+    : String(value || "")
+      .split(/[\n,;]+/g)
+      .map((v) => v.trim())
+
+  return Array.from(
+    new Set(
+      list
+        .map((v) => normalizeTimeRange(String(v || "")))
+        .filter((v): v is string => Boolean(v)),
+    ),
+  ).slice(0, 200)
+}
+
+function toPhoneList(value: any, fallback: string[]): string[] {
+  if (value === undefined || value === null) return fallback
+  const rawList = Array.isArray(value)
+    ? value
+    : String(value || "")
+      .split(/[\n,; ]+/g)
+      .map((v) => v.trim())
+
+  const numbers = rawList
+    .map((entry) => String(entry || "").replace(/\D/g, ""))
+    .filter((digits) => digits.length >= 10 && digits.length <= 15)
+    .map((digits) => (digits.startsWith("55") ? digits : `55${digits}`))
+
+  return Array.from(new Set(numbers)).slice(0, 500)
+}
+
+function toFollowupIntervals(value: any, fallback: number[]): number[] {
+  if (value === undefined || value === null) return fallback
+  const rawList = Array.isArray(value)
+    ? value
+    : String(value || "")
+      .split(/[\n,; ]+/g)
+      .map((v) => v.trim())
+
+  const values = rawList
+    .map((entry) => Number(entry))
+    .filter((num) => Number.isFinite(num))
+    .map((num) => Math.floor(num))
+    .filter((num) => num >= 1 && num <= 60 * 24 * 30)
+
+  const deduped = Array.from(new Set(values)).sort((a, b) => a - b)
+  return deduped.length > 0 ? deduped : fallback
+}
+
+function toFollowupPlan(
+  value: any,
+  fallback: Array<{ enabled: boolean; minutes: number }>,
+): Array<{ enabled: boolean; minutes: number }> {
+  if (value === undefined || value === null) return fallback
+  if (!Array.isArray(value)) return fallback
+
+  const parsed = value
+    .map((entry) => {
+      const raw = entry && typeof entry === "object" ? entry : {}
+      const enabled = toBool((raw as any).enabled, true)
+      const minutes = toNumber((raw as any).minutes, 0, 1, 60 * 24 * 30)
+      if (!Number.isFinite(minutes) || minutes <= 0) return null
+      return { enabled, minutes }
+    })
+    .filter((entry): entry is { enabled: boolean; minutes: number } => Boolean(entry))
+    .slice(0, 20)
+
+  return parsed.length ? parsed : fallback
+}
+
+function normalizeNotificationTarget(value: any): string | null {
+  const text = String(value || "").trim()
+  if (!text) return null
+
+  if (/@g\.us$/i.test(text) || /@lid$/i.test(text)) {
+    return text
+  }
+
+  const groupSuffixMatch = text.match(/^(.+)-group$/i)
+  if (groupSuffixMatch?.[1]) {
+    const normalizedGroup = String(groupSuffixMatch[1]).replace(/[^0-9-]/g, "")
+    if (normalizedGroup.length >= 8) {
+      return `${normalizedGroup}-group`
+    }
+  }
+
+  const waMeMatch = text.match(/wa\.me\/(\d{10,15})/i)
+  if (waMeMatch?.[1]) {
+    const digits = waMeMatch[1]
+    return digits.startsWith("55") ? digits : `55${digits}`
+  }
+
+  const groupCandidate = text.replace(/[^0-9-]/g, "")
+  if (/^\d{8,}-\d{2,}$/.test(groupCandidate)) {
+    return `${groupCandidate}-group`
+  }
+
+  const digits = text.replace(/\D/g, "")
+  if (digits.length < 10 || digits.length > 15) return null
+  return digits.startsWith("55") ? digits : `55${digits}`
+}
+
+function toNotificationTargets(value: any, fallback: string[]): string[] {
+  if (value === undefined || value === null) return fallback
+  const rawList = Array.isArray(value)
+    ? value
+    : String(value || "")
+      .split(/[\n,;]+/g)
+      .map((v) => v.trim())
+
+  const targets = rawList
+    .map((entry) => normalizeNotificationTarget(entry))
+    .filter((entry): entry is string => Boolean(entry))
+
+  return Array.from(new Set(targets)).slice(0, 100)
+}
+
+export async function GET(req: Request) {
+  try {
+    const tenantInfo = await getTenantFromRequest().catch(() => null)
+    const tenant =
+      tenantInfo?.logicalTenant ||
+      tenantInfo?.rawTenant ||
+      tenantInfo?.tenant ||
+      (await resolveTenant(req))
+    const config = await getNativeAgentConfigForTenant(tenant)
+
+    return NextResponse.json({
+      success: true,
+      config: config ? sanitizeNativeAgentConfigForResponse(config) : null,
+    })
+  } catch (error: any) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: error?.message || "failed_to_load_native_agent_config",
+      },
+      { status: 401 },
+    )
+  }
+}
+
+export async function POST(req: Request) {
+  try {
+    const tenantInfo = await getTenantFromRequest().catch(() => null)
+    const tenant =
+      tenantInfo?.logicalTenant ||
+      tenantInfo?.rawTenant ||
+      tenantInfo?.tenant ||
+      (await resolveTenant(req))
+    const isAdminUpdate = Boolean(tenantInfo?.session?.isAdmin)
+    const body = await req.json()
+
+    const current = (await getNativeAgentConfigForTenant(tenant)) || {
+      enabled: false,
+      autoReplyEnabled: true,
+      geminiModel: "gemini-2.5-flash",
+      timezone: "America/Sao_Paulo",
+      useFirstNamePersonalization: true,
+      autoLearningEnabled: true,
+      followupEnabled: true,
+      remindersEnabled: true,
+      schedulingEnabled: true,
+      blockGroupMessages: true,
+      autoPauseOnHumanIntervention: false,
+      conversationTone: "consultivo" as const,
+      humanizationLevelPercent: 75,
+      firstNameUsagePercent: 65,
+      moderateEmojiEnabled: true,
+      sentenceConnectorsEnabled: true,
+      allowLanguageVices: false,
+      deepInteractionAnalysisEnabled: true,
+      preciseFirstMessageEnabled: true,
+      responseDelayMinSeconds: 0,
+      responseDelayMaxSeconds: 0,
+      inboundMessageBufferSeconds: 8,
+      zapiDelayMessageSeconds: 2,
+      zapiDelayTypingSeconds: 3,
+      splitLongMessagesEnabled: true,
+      messageBlockMaxChars: 280,
+      testModeEnabled: false,
+      testAllowedNumbers: [],
+      toolNotificationsEnabled: false,
+      toolNotificationTargets: [],
+      notifyOnScheduleSuccess: true,
+      notifyOnScheduleError: true,
+      notifyOnHumanHandoff: true,
+      collectEmailForScheduling: false,
+      generateMeetForOnlineAppointments: false,
+      audioRepliesEnabled: false,
+      audioProvider: "elevenlabs" as const,
+      audioModelId: "eleven_multilingual_v2",
+      audioOutputFormat: "mp3_44100_128",
+      audioEveryNMessages: 5,
+      audioMinChars: 1,
+      audioMaxChars: 600,
+      audioCustomAuthHeader: "Authorization",
+      audioWaveformEnabled: true,
+      webhookEnabled: true,
+      webhookPrimaryUrl: undefined,
+      webhookExtraUrls: [],
+      googleCalendarEnabled: false,
+      googleAuthMode: "service_account" as const,
+      calendarEventDurationMinutes: 50,
+      calendarMinLeadMinutes: 15,
+      calendarBufferMinutes: 0,
+      calendarMaxAdvanceDays: 30,
+      calendarMaxAdvanceWeeks: 0,
+      calendarMaxAppointmentsPerDay: 0,
+      allowOverlappingAppointments: false,
+      calendarBlockedDates: [],
+      calendarBlockedTimeRanges: [],
+      calendarBusinessStart: "08:00",
+      calendarBusinessEnd: "20:00",
+      calendarBusinessDays: [1, 2, 3, 4, 5, 6],
+      followupIntervalsMinutes: [15, 60, 360, 1440, 2880, 4320, 7200],
+      followupBusinessStart: "07:00",
+      followupBusinessEnd: "23:00",
+      followupBusinessDays: [0, 1, 2, 3, 4, 5, 6],
+      followupPlan: [
+        { enabled: true, minutes: 15 },
+        { enabled: true, minutes: 60 },
+        { enabled: true, minutes: 360 },
+        { enabled: true, minutes: 1440 },
+        { enabled: true, minutes: 2880 },
+        { enabled: true, minutes: 4320 },
+        { enabled: true, minutes: 7200 },
+      ],
+    }
+
+    const nextConfig: NativeAgentConfig = {
+      enabled: toBool(body?.enabled, current.enabled),
+      autoReplyEnabled: toBool(body?.autoReplyEnabled, current.autoReplyEnabled),
+      geminiApiKey: mergeSecret(current.geminiApiKey, body?.geminiApiKey),
+      geminiModel: toOptionalText(body?.geminiModel) || current.geminiModel || "gemini-2.5-flash",
+      promptBase: body?.promptBase !== undefined ? toOptionalText(body.promptBase) : current.promptBase,
+      timezone: toOptionalText(body?.timezone) || current.timezone || "America/Sao_Paulo",
+      useFirstNamePersonalization: toBool(
+        body?.useFirstNamePersonalization,
+        current.useFirstNamePersonalization,
+      ),
+      autoLearningEnabled: toBool(body?.autoLearningEnabled, current.autoLearningEnabled),
+      followupEnabled: toBool(body?.followupEnabled, current.followupEnabled),
+      remindersEnabled: toBool(body?.remindersEnabled, current.remindersEnabled),
+      schedulingEnabled: toBool(body?.schedulingEnabled, current.schedulingEnabled),
+      blockGroupMessages: toBool(body?.blockGroupMessages, current.blockGroupMessages),
+      autoPauseOnHumanIntervention: toBool(
+        body?.autoPauseOnHumanIntervention,
+        current.autoPauseOnHumanIntervention,
+      ),
+      conversationTone: toConversationTone(body?.conversationTone, current.conversationTone),
+      humanizationLevelPercent: toNumber(
+        body?.humanizationLevelPercent,
+        current.humanizationLevelPercent,
+        0,
+        100,
+      ),
+      firstNameUsagePercent: toNumber(
+        body?.firstNameUsagePercent,
+        current.firstNameUsagePercent,
+        0,
+        100,
+      ),
+      moderateEmojiEnabled: toBool(body?.moderateEmojiEnabled, current.moderateEmojiEnabled),
+      sentenceConnectorsEnabled: toBool(
+        body?.sentenceConnectorsEnabled,
+        current.sentenceConnectorsEnabled,
+      ),
+      allowLanguageVices: toBool(body?.allowLanguageVices, current.allowLanguageVices),
+      deepInteractionAnalysisEnabled: toBool(
+        body?.deepInteractionAnalysisEnabled,
+        current.deepInteractionAnalysisEnabled,
+      ),
+      preciseFirstMessageEnabled: toBool(
+        body?.preciseFirstMessageEnabled,
+        current.preciseFirstMessageEnabled,
+      ),
+      responseDelayMinSeconds: toNumber(
+        body?.responseDelayMinSeconds,
+        current.responseDelayMinSeconds,
+        0,
+        600,
+      ),
+      responseDelayMaxSeconds: toNumber(
+        body?.responseDelayMaxSeconds,
+        current.responseDelayMaxSeconds,
+        0,
+        600,
+      ),
+      inboundMessageBufferSeconds: toNumber(
+        body?.inboundMessageBufferSeconds,
+        current.inboundMessageBufferSeconds,
+        0,
+        120,
+      ),
+      zapiDelayMessageSeconds: toNumber(
+        body?.zapiDelayMessageSeconds,
+        current.zapiDelayMessageSeconds,
+        1,
+        15,
+      ),
+      zapiDelayTypingSeconds: toNumber(
+        body?.zapiDelayTypingSeconds,
+        current.zapiDelayTypingSeconds,
+        0,
+        15,
+      ),
+      splitLongMessagesEnabled: toBool(
+        body?.splitLongMessagesEnabled,
+        current.splitLongMessagesEnabled,
+      ),
+      messageBlockMaxChars: toNumber(
+        body?.messageBlockMaxChars,
+        current.messageBlockMaxChars,
+        80,
+        1200,
+      ),
+      testModeEnabled: toBool(body?.testModeEnabled, current.testModeEnabled),
+      testAllowedNumbers:
+        body?.testAllowedNumbers !== undefined
+          ? toPhoneList(body.testAllowedNumbers, [])
+          : current.testAllowedNumbers,
+      toolNotificationsEnabled: toBool(
+        body?.toolNotificationsEnabled,
+        current.toolNotificationsEnabled,
+      ),
+      toolNotificationTargets:
+        body?.toolNotificationTargets !== undefined
+          ? toNotificationTargets(body.toolNotificationTargets, [])
+          : current.toolNotificationTargets,
+      notifyOnScheduleSuccess: toBool(
+        body?.notifyOnScheduleSuccess,
+        current.notifyOnScheduleSuccess,
+      ),
+      notifyOnScheduleError: toBool(body?.notifyOnScheduleError, current.notifyOnScheduleError),
+      notifyOnHumanHandoff: toBool(body?.notifyOnHumanHandoff, current.notifyOnHumanHandoff),
+      collectEmailForScheduling: toBool(
+        body?.collectEmailForScheduling,
+        current.collectEmailForScheduling,
+      ),
+      generateMeetForOnlineAppointments: toBool(
+        body?.generateMeetForOnlineAppointments,
+        current.generateMeetForOnlineAppointments,
+      ),
+      audioRepliesEnabled: toBool(body?.audioRepliesEnabled, current.audioRepliesEnabled === true),
+      audioProvider: toAudioProvider(body?.audioProvider, current.audioProvider || "elevenlabs"),
+      audioApiKey: mergeSecret(current.audioApiKey, body?.audioApiKey),
+      audioVoiceId:
+        body?.audioVoiceId !== undefined ? toOptionalText(body.audioVoiceId) : current.audioVoiceId,
+      audioModelId:
+        body?.audioModelId !== undefined
+          ? toOptionalText(body.audioModelId)
+          : current.audioModelId,
+      audioOutputFormat:
+        body?.audioOutputFormat !== undefined
+          ? toOptionalText(body.audioOutputFormat)
+          : current.audioOutputFormat,
+      audioEveryNMessages: toNumber(
+        body?.audioEveryNMessages,
+        current.audioEveryNMessages || 5,
+        1,
+        20,
+      ),
+      audioMinChars: toNumber(body?.audioMinChars, current.audioMinChars || 1, 1, 2000),
+      audioMaxChars: toNumber(body?.audioMaxChars, current.audioMaxChars || 600, 20, 4000),
+      audioCustomEndpoint:
+        body?.audioCustomEndpoint !== undefined
+          ? toOptionalText(body.audioCustomEndpoint)
+          : current.audioCustomEndpoint,
+      audioCustomAuthHeader:
+        body?.audioCustomAuthHeader !== undefined
+          ? toOptionalText(body.audioCustomAuthHeader)
+          : current.audioCustomAuthHeader,
+      audioCustomAuthToken: mergeSecret(current.audioCustomAuthToken, body?.audioCustomAuthToken),
+      audioWaveformEnabled: toBool(
+        body?.audioWaveformEnabled,
+        current.audioWaveformEnabled !== false,
+      ),
+      webhookEnabled: toBool(body?.webhookEnabled, current.webhookEnabled),
+      webhookSecret: mergeSecret(current.webhookSecret, body?.webhookSecret),
+      webhookAllowedInstanceId:
+        body?.webhookAllowedInstanceId !== undefined
+          ? toOptionalText(body.webhookAllowedInstanceId)
+          : current.webhookAllowedInstanceId,
+      webhookPrimaryUrl:
+        body?.webhookPrimaryUrl !== undefined
+          ? toOptionalText(body.webhookPrimaryUrl)
+          : current.webhookPrimaryUrl,
+      webhookExtraUrls: toUrlList(body?.webhookExtraUrls, current.webhookExtraUrls || []),
+      googleCalendarEnabled: toBool(body?.googleCalendarEnabled, current.googleCalendarEnabled),
+      googleCalendarId: body?.googleCalendarId !== undefined
+        ? toOptionalText(body.googleCalendarId)
+        : current.googleCalendarId,
+      googleAuthMode: toGoogleAuthMode(body?.googleAuthMode, current.googleAuthMode),
+      googleServiceAccountEmail: body?.googleServiceAccountEmail !== undefined
+        ? toOptionalText(body.googleServiceAccountEmail)
+        : current.googleServiceAccountEmail,
+      googleServiceAccountPrivateKey: mergeSecret(
+        current.googleServiceAccountPrivateKey,
+        body?.googleServiceAccountPrivateKey,
+      ),
+      googleDelegatedUser: body?.googleDelegatedUser !== undefined
+        ? toOptionalText(body.googleDelegatedUser)
+        : current.googleDelegatedUser,
+      googleOAuthClientId:
+        body?.googleOAuthClientId !== undefined
+          ? toOptionalText(body.googleOAuthClientId)
+          : current.googleOAuthClientId,
+      googleOAuthClientSecret: mergeSecret(
+        current.googleOAuthClientSecret,
+        body?.googleOAuthClientSecret,
+      ),
+      googleOAuthRefreshToken: mergeSecret(
+        current.googleOAuthRefreshToken,
+        body?.googleOAuthRefreshToken,
+      ),
+      googleOAuthTokenScope:
+        body?.googleOAuthTokenScope !== undefined
+          ? toOptionalText(body.googleOAuthTokenScope)
+          : current.googleOAuthTokenScope,
+      googleOAuthConnectedAt:
+        body?.googleOAuthConnectedAt !== undefined
+          ? toOptionalText(body.googleOAuthConnectedAt)
+          : current.googleOAuthConnectedAt,
+      calendarEventDurationMinutes: toNumber(
+        body?.calendarEventDurationMinutes,
+        current.calendarEventDurationMinutes,
+        5,
+        240,
+      ),
+      calendarMinLeadMinutes: toNumber(
+        body?.calendarMinLeadMinutes,
+        current.calendarMinLeadMinutes,
+        0,
+        10080,
+      ),
+      calendarBufferMinutes: toNumber(
+        body?.calendarBufferMinutes,
+        current.calendarBufferMinutes,
+        0,
+        180,
+      ),
+      calendarMaxAdvanceDays: toNumber(
+        body?.calendarMaxAdvanceDays,
+        current.calendarMaxAdvanceDays,
+        0,
+        365,
+      ),
+      calendarMaxAdvanceWeeks: toNumber(
+        body?.calendarMaxAdvanceWeeks,
+        current.calendarMaxAdvanceWeeks,
+        0,
+        52,
+      ),
+      calendarMaxAppointmentsPerDay: toNumber(
+        body?.calendarMaxAppointmentsPerDay,
+        current.calendarMaxAppointmentsPerDay,
+        0,
+        300,
+      ),
+      allowOverlappingAppointments: toBool(
+        body?.allowOverlappingAppointments,
+        current.allowOverlappingAppointments,
+      ),
+      calendarBlockedDates:
+        body?.calendarBlockedDates !== undefined
+          ? toIsoDateList(body.calendarBlockedDates, current.calendarBlockedDates || [])
+          : current.calendarBlockedDates,
+      calendarBlockedTimeRanges:
+        body?.calendarBlockedTimeRanges !== undefined
+          ? toTimeRangeList(body.calendarBlockedTimeRanges, current.calendarBlockedTimeRanges || [])
+          : current.calendarBlockedTimeRanges,
+      calendarBusinessStart:
+        body?.calendarBusinessStart !== undefined
+          ? toOptionalText(body.calendarBusinessStart) || current.calendarBusinessStart
+          : current.calendarBusinessStart,
+      calendarBusinessEnd:
+        body?.calendarBusinessEnd !== undefined
+          ? toOptionalText(body.calendarBusinessEnd) || current.calendarBusinessEnd
+          : current.calendarBusinessEnd,
+      calendarBusinessDays:
+        body?.calendarBusinessDays !== undefined
+          ? toBusinessDays(body.calendarBusinessDays, current.calendarBusinessDays)
+          : current.calendarBusinessDays,
+      followupIntervalsMinutes:
+        body?.followupIntervalsMinutes !== undefined
+          ? toFollowupIntervals(body.followupIntervalsMinutes, current.followupIntervalsMinutes)
+          : current.followupIntervalsMinutes,
+      followupBusinessStart:
+        body?.followupBusinessStart !== undefined
+          ? toOptionalText(body.followupBusinessStart) || current.followupBusinessStart
+          : current.followupBusinessStart,
+      followupBusinessEnd:
+        body?.followupBusinessEnd !== undefined
+          ? toOptionalText(body.followupBusinessEnd) || current.followupBusinessEnd
+          : current.followupBusinessEnd,
+      followupBusinessDays:
+        body?.followupBusinessDays !== undefined
+          ? toFollowupBusinessDays(body.followupBusinessDays, current.followupBusinessDays)
+          : current.followupBusinessDays,
+      followupPlan:
+        body?.followupPlan !== undefined
+          ? toFollowupPlan(
+            body.followupPlan,
+            Array.isArray(current.followupPlan)
+              ? current.followupPlan
+              : (current.followupIntervalsMinutes || []).map((minutes) => ({
+                enabled: true,
+                minutes: Number(minutes) || 15,
+              })),
+          )
+          : current.followupPlan,
+    }
+
+    if (body?.followupPlan !== undefined && Array.isArray(nextConfig.followupPlan)) {
+      const enabledIntervals = Array.from(
+        new Set(
+          nextConfig.followupPlan
+            .filter((entry) => entry?.enabled !== false)
+            .map((entry) => Number(entry?.minutes))
+            .filter((minutes) => Number.isFinite(minutes) && minutes >= 1 && minutes <= 60 * 24 * 30)
+            .map((minutes) => Math.floor(minutes)),
+        ),
+      ).sort((a, b) => a - b)
+
+      if (enabledIntervals.length > 0) {
+        nextConfig.followupIntervalsMinutes = enabledIntervals
+      }
+    }
+
+    const validationError = validateNativeAgentConfig(nextConfig)
+    if (validationError) {
+      return NextResponse.json({ success: false, error: validationError }, { status: 400 })
+    }
+
+    await updateNativeAgentConfigForTenant(tenant, nextConfig)
+
+    if (isAdminUpdate) {
+      await notifyAdminUpdate({
+        tenant,
+        title: "Atualizacao do agente nativo",
+        message: "Administrador atualizou configuracoes do agente de IA nativo.",
+      }).catch((error) => {
+        console.error("[tenant][native-agent-config] erro ao notificar unidade:", error)
+      })
+    }
+
+    return NextResponse.json({
+      success: true,
+      config: sanitizeNativeAgentConfigForResponse(nextConfig),
+    })
+  } catch (error: any) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: error?.message || "failed_to_save_native_agent_config",
+      },
+      { status: 500 },
+    )
+  }
+}

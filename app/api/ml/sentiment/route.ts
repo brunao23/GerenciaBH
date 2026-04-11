@@ -4,8 +4,9 @@
  */
 
 import { NextResponse } from 'next/server'
-import { getTenantFromSession } from '@/lib/auth/tenant'
+import { resolveTenant } from '@/lib/helpers/resolve-tenant'
 import { createBiaSupabaseServerClient } from '@/lib/supabase/bia-client'
+import { resolveChatHistoriesTable } from '@/lib/helpers/resolve-chat-table'
 
 // Palavras-chave para análise de sentimento (português)
 const POSITIVE_KEYWORDS = [
@@ -181,7 +182,12 @@ export async function GET(req: Request) {
         }
 
         // Obter tenant da sessão
-        const tenant = await getTenantFromSession(req)
+        let tenant: string
+        try {
+            tenant = await resolveTenant(req)
+        } catch (error: any) {
+            return NextResponse.json({ error: error?.message || "Unauthorized" }, { status: 401 })
+        }
         if (!tenant) {
             return NextResponse.json(
                 { error: 'Tenant não encontrado' },
@@ -191,13 +197,7 @@ export async function GET(req: Request) {
 
         const supabase = createBiaSupabaseServerClient()
 
-        // Detectar nome correto da tabela
-        let chatTable = `${tenant}n8n_chat_histories`
-        const testResult = await supabase.from(chatTable).select("id").limit(1)
-
-        if (testResult.error && testResult.error.message.includes('does not exist')) {
-            chatTable = `${tenant}_n8n_chat_histories`
-        }
+        const chatTable = await resolveChatHistoriesTable(supabase as any, tenant)
 
         // Buscar mensagens do lead
         const { data: messages, error } = await supabase
@@ -249,7 +249,12 @@ export async function POST(req: Request) {
         }
 
         // Obter tenant da sessão
-        const tenant = await getTenantFromSession(req)
+        let tenant: string
+        try {
+            tenant = await resolveTenant(req)
+        } catch (error: any) {
+            return NextResponse.json({ error: error?.message || "Unauthorized" }, { status: 401 })
+        }
         if (!tenant) {
             return NextResponse.json(
                 { error: 'Tenant não encontrado' },
@@ -259,13 +264,7 @@ export async function POST(req: Request) {
 
         const supabase = createBiaSupabaseServerClient()
 
-        // Detectar nome correto da tabela
-        let chatTable = `${tenant}n8n_chat_histories`
-        const testResult = await supabase.from(chatTable).select("id").limit(1)
-
-        if (testResult.error && testResult.error.message.includes('does not exist')) {
-            chatTable = `${tenant}_n8n_chat_histories`
-        }
+        const chatTable = await resolveChatHistoriesTable(supabase as any, tenant)
 
         // Analisar cada lead
         const results = []

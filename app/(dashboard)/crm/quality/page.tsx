@@ -89,13 +89,13 @@ export default function QualityAnalysisPage() {
 
     const getQualityColor = (score: number) => {
         if (score >= 90) return 'text-emerald-400'
-        if (score >= 70) return 'text-yellow-400'
+        if (score >= 70) return 'text-green-400'
         return 'text-red-400'
     }
 
     const getQualityBadge = (score: number) => {
         if (score >= 90) return <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30">Excelente</Badge>
-        if (score >= 70) return <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30">Bom</Badge>
+        if (score >= 70) return <Badge className="bg-green-500/20 text-green-400 border-green-500/30">Bom</Badge>
         return <Badge className="bg-red-500/20 text-red-400 border-red-500/30">Precisa Atenção</Badge>
     }
 
@@ -104,7 +104,7 @@ export default function QualityAnalysisPage() {
             case 'high':
                 return <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30">Alta</Badge>
             case 'medium':
-                return <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30">Média</Badge>
+                return <Badge className="bg-green-500/20 text-green-400 border-green-500/30">Média</Badge>
             default:
                 return <Badge className="bg-red-500/20 text-red-400 border-red-500/30">Baixa</Badge>
         }
@@ -201,7 +201,7 @@ export default function QualityAnalysisPage() {
                             <CardTitle className="text-sm font-medium text-text-gray">Grupos Duplicados</CardTitle>
                         </CardHeader>
                         <CardContent>
-                            <div className="text-3xl font-bold text-yellow-400">{statistics.duplicateGroups}</div>
+                            <div className="text-3xl font-bold text-green-400">{statistics.duplicateGroups}</div>
                             <p className="text-xs text-text-gray mt-1">
                                 {statistics.duplicateLeads} leads afetados
                             </p>
@@ -223,9 +223,9 @@ export default function QualityAnalysisPage() {
             )}
 
             {statistics && statistics.dataQualityScore < 70 && (
-                <Alert className="bg-yellow-500/10 border-yellow-500/30">
-                    <AlertTriangle className="h-4 w-4 text-yellow-400" />
-                    <AlertTitle className="text-yellow-400">Atenção: Qualidade de Dados Baixa</AlertTitle>
+                <Alert className="bg-green-500/10 border-green-500/30">
+                    <AlertTriangle className="h-4 w-4 text-green-400" />
+                    <AlertTitle className="text-green-400">Atenção: Qualidade de Dados Baixa</AlertTitle>
                     <AlertDescription className="text-text-gray">
                         Foram detectados {statistics.duplicateGroups} grupos de duplicatas e {statistics.multiFunnelCount} leads em múltiplos funis. 
                         Recomendamos revisar e consolidar os dados para melhorar a precisão do CRM.
@@ -254,7 +254,7 @@ export default function QualityAnalysisPage() {
                                         <div className="flex items-start justify-between mb-3">
                                             <div className="flex-1">
                                                 <div className="flex items-center gap-3 mb-2">
-                                                    <Badge variant="outline" className="border-yellow-500/30 text-yellow-400">
+                                                    <Badge variant="outline" className="border-green-500/30 text-green-400">
                                                         {group.leads.length} duplicatas
                                                     </Badge>
                                                     {getConfidenceBadge(group.confidence)}
@@ -356,7 +356,7 @@ export default function QualityAnalysisPage() {
                                                         <Badge 
                                                             key={status} 
                                                             variant="outline" 
-                                                            className="border-yellow-500/30 text-yellow-400"
+                                                            className="border-green-500/30 text-green-400"
                                                         >
                                                             {status}
                                                         </Badge>

@@ -62,7 +62,7 @@ export default function SwitchClientPage() {
 
             // Redirecionar para dashboard da unidade
             setTimeout(() => {
-                window.location.href = "/"
+                window.location.href = "/dashboard"
             }, 500)
         } catch (error) {
             console.error("Erro ao trocar unidade:", error)
@@ -86,7 +86,7 @@ export default function SwitchClientPage() {
                         </Button>
 
                         <div className="flex items-center gap-4">
-                            <div className="w-16 h-16 bg-gradient-to-br from-accent-yellow to-dark-yellow rounded-2xl flex items-center justify-center shadow-lg shadow-accent-yellow/30">
+                            <div className="w-16 h-16 bg-gradient-to-br from-accent-green to-dark-green rounded-2xl flex items-center justify-center shadow-lg shadow-accent-green/30">
                                 <Building2 className="h-8 w-8 text-primary-black" />
                             </div>
                             <div>

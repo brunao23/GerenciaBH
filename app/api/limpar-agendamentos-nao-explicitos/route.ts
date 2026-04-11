@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { resolveChatHistoriesTable } from "@/lib/helpers/resolve-chat-table"
 
 // Cliente Supabase com Service Role para acesso administrativo
 function createServiceRoleClient() {
@@ -108,7 +109,7 @@ export async function POST(request: NextRequest) {
 
     const supabase = createServiceRoleClient()
     const agendamentosTable = `${tenant}_agendamentos`
-    const chatHistoriesTable = `${tenant}n8n_chat_histories`
+    const chatHistoriesTable = await resolveChatHistoriesTable(supabase as any, tenant)
 
     // Buscar todos os agendamentos
     const { data: agendamentos, error: agendamentosError } = await supabase

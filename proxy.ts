@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+﻿import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { jwtVerify } from 'jose'
 
@@ -13,26 +13,26 @@ interface SessionData {
     userId: string
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
     const { pathname } = request.nextUrl
 
-    // Rotas públicas - permitir sem autenticação
+    // Rotas pÃºblicas - permitir sem autenticaÃ§Ã£o
     const publicRoutes = ['/login', '/register', '/admin/login']
     if (publicRoutes.includes(pathname)) {
         return NextResponse.next()
     }
 
-    // Permitir APIs - autenticação é feita dentro delas
+    // Permitir APIs - autenticaÃ§Ã£o Ã© feita dentro delas
     if (pathname.startsWith('/api/')) {
         return NextResponse.next()
     }
 
-    // Permitir arquivos estáticos
+    // Permitir arquivos estÃ¡ticos
     if (pathname.startsWith('/_next/') || pathname.includes('.')) {
         return NextResponse.next()
     }
 
-    // TODAS as outras rotas precisam de autenticação
+    // TODAS as outras rotas precisam de autenticaÃ§Ã£o
     const token = request.cookies.get('auth-token')?.value
 
     if (!token) {
@@ -42,12 +42,12 @@ export async function middleware(request: NextRequest) {
     }
 
     try {
-        // Verificar se o token é válido
+        // Verificar se o token Ã© vÃ¡lido
         const { payload } = await jwtVerify(token, JWT_SECRET)
         const session = payload as unknown as SessionData
 
         if (!session || !session.unitPrefix) {
-            // Token inválido - limpar e redirecionar
+            // Token invÃ¡lido - limpar e redirecionar
             const loginUrl = pathname.startsWith('/admin') ? '/admin/login' : '/login'
             const response = NextResponse.redirect(new URL(loginUrl, request.url))
             response.cookies.delete('auth-token')
@@ -59,11 +59,11 @@ export async function middleware(request: NextRequest) {
             return NextResponse.redirect(new URL('/dashboard', request.url))
         }
 
-        // Token válido - permitir acesso
+        // Token vÃ¡lido - permitir acesso
         return NextResponse.next()
     } catch (error) {
         // Erro ao verificar token - limpar e redirecionar
-        console.error('[Middleware] Erro ao verificar token:', error)
+        console.error('[Proxy] Erro ao verificar token:', error)
         const loginUrl = pathname.startsWith('/admin') ? '/admin/login' : '/login'
         const response = NextResponse.redirect(new URL(loginUrl, request.url))
         response.cookies.delete('auth-token')
@@ -84,3 +84,4 @@ export const config = {
         '/((?!api|_next/static|_next/image|favicon.ico|.*\\.).*)',
     ],
 }
+

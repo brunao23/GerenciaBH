@@ -84,6 +84,11 @@ export async function POST(req: Request) {
                     { status: 500 }
                 )
             }
+
+            const { error: webhookTriggerError } = await supabase.rpc('ensure_agendamentos_webhook_triggers')
+            if (webhookTriggerError) {
+                console.warn('[Register] Aviso ao vincular webhook de agendamentos:', webhookTriggerError.message)
+            }
         } catch (error) {
             console.error('[Register] Erro ao executar create_new_unit:', error)
             // Rollback

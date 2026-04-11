@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
-import { getTenantFromSession, isValidTenant } from "@/lib/auth/tenant"
+import { isValidTenant } from "@/lib/auth/tenant"
+import { resolveTenant } from "@/lib/helpers/resolve-tenant"
+import { resolveChatHistoriesTable } from "@/lib/helpers/resolve-chat-table"
 
 interface CRMCard {
     id: string
@@ -8,7 +10,7 @@ interface CRMCard {
     name: string
     lastMessage: string
     lastInteraction: string
-    status: 'entrada' | 'atendimento' | 'qualificacao' | 'sem_resposta' | 'agendado' | 'follow_up' | 'em_follow_up' | 'em_negociacao' | 'ganhos' | 'perdido'
+    status: string
     unreadCount: number
     tags: string[]
     sentiment: 'positive' | 'neutral' | 'negative'
@@ -53,13 +55,128 @@ interface CRMColumn {
     cards: CRMCard[]
 }
 
+interface FunnelColumn {
+    id: string
+    title: string
+    order: number
+    color?: string
+}
+
+const DEFAULT_FUNNEL_COLUMNS: FunnelColumn[] = [
+    { id: "entrada", title: "Entrada", order: 0, color: "#3b82f6" },
+    { id: "atendimento", title: "Em Atendimento", order: 1, color: "#eab308" },
+    { id: "qualificacao", title: "Qualificacao", order: 2, color: "#a855f7" },
+    { id: "sem_resposta", title: "Sem Resposta (+24h)", order: 3, color: "#6b7280" },
+    { id: "agendado", title: "Agendado", order: 4, color: "#14b8a6" },
+    { id: "follow_up", title: "Follow-up Necessario", order: 5, color: "#f97316" },
+    { id: "em_follow_up", title: "Em Follow-Up (Automatico)", order: 6, color: "#8b5cf6" },
+    { id: "em_negociacao", title: "Em Negociacao", order: 7, color: "#f59e0b" },
+    { id: "ganhos", title: "Ganhos / Convertidos", order: 8, color: "#10b981" },
+    { id: "perdido", title: "Perdidos / Desqualificados", order: 9, color: "#ef4444" },
+]
+
+const BLOCKED_LEAD_NAMES = new Set([
+    "bot",
+    "assistente",
+    "atendente",
+    "sistema",
+    "ia",
+    "ai",
+    "chatbot",
+    "virtual",
+    "automatico",
+    "vox",
+    "robo",
+    "lead",
+])
+
+function normalizePhone(value: string): string {
+    return String(value || "")
+        .replace(/\D/g, "")
+        .replace(/^55/, "")
+        .replace(/^0/, "")
+        .slice(-11)
+}
+
+function normalizeLeadNameCandidate(value: unknown): string {
+    if (!value) return ""
+    const raw = String(value).trim().replace(/\s+/g, " ")
+    if (!raw || raw.length < 2) return ""
+    if (raw.includes("@")) return ""
+    if (/^\d+$/.test(raw)) return ""
+
+    const firstName = raw.split(" ")[0]
+    if (!firstName || firstName.length < 2) return ""
+
+    const normalizedFirst = firstName
+        .replace(/[^\p{L}'-]/gu, "")
+        .trim()
+
+    if (!normalizedFirst || normalizedFirst.length < 2) return ""
+    if (BLOCKED_LEAD_NAMES.has(normalizedFirst.toLowerCase())) return ""
+
+    return normalizedFirst.charAt(0).toUpperCase() + normalizedFirst.slice(1).toLowerCase()
+}
+
+function isGenericLeadName(name: string, phone: string): boolean {
+    const normalizedName = String(name || "").trim().toLowerCase()
+    if (!normalizedName) return true
+    if (normalizedName.startsWith("lead ")) return true
+    const normalizedPhone = normalizePhone(phone)
+    return !!normalizedPhone && normalizedName === normalizedPhone
+}
+
+function normalizeFunnelColumns(rawColumns: any): FunnelColumn[] {
+    if (!Array.isArray(rawColumns)) return []
+
+    const unique = new Map<string, FunnelColumn>()
+
+    for (const [index, column] of rawColumns.entries()) {
+        if (!column || typeof column !== "object") continue
+
+        const id = String(column.id || "").trim()
+        const title = String(column.title || "").trim()
+        if (!id || !title) continue
+
+        unique.set(id, {
+            id,
+            title,
+            order: Number.isFinite(column.order) ? Number(column.order) : index,
+            color: column.color ? String(column.color) : undefined,
+        })
+    }
+
+    return Array.from(unique.values()).sort((a, b) => a.order - b.order)
+}
+
+function getEffectiveFunnelColumns(savedColumns: FunnelColumn[]): FunnelColumn[] {
+    if (savedColumns.length > 0) return savedColumns
+    return DEFAULT_FUNNEL_COLUMNS.map((column) => ({ ...column }))
+}
+
+function humanizeStatusId(status: string): string {
+    const clean = String(status || "").trim()
+    if (!clean) return "Sem Status"
+    return clean
+        .replace(/_/g, " ")
+        .replace(/\b\w/g, (char) => char.toUpperCase())
+}
+
+function buildKanbanColumns(funnelColumns: FunnelColumn[]): CRMColumn[] {
+    return funnelColumns.map((column) => ({
+        id: column.id,
+        title: column.title,
+        cards: [],
+    }))
+}
+
 function cleanHumanMessage(text: string): string {
     if (!text || typeof text !== 'string') return ""
 
     try {
         let s = String(text).replace(/\r/g, '')
 
-        // LEI INVIOLÁVEL: Remove COMPLETAMENTE qualquer bloco JSON que contenha prompt/regras
+        // LEI INVIOLÃVEL: Remove COMPLETAMENTE qualquer bloco JSON que contenha prompt/regras
         while (s.includes('"rules"') || s.includes('"inviolaveis"') || s.includes('"prompt"') || s.includes('"variaveis"') || s.includes('"contexto"') || s.includes('"geracao_de_mensagem"') || s.includes('"modelos_de_saida"')) {
             s = s.replace(/\{[\s\S]{0,50000}?"rules"[\s\S]{0,50000}?\}/gi, "")
             s = s.replace(/\{[\s\S]{0,50000}?"inviolaveis"[\s\S]{0,50000}?\}/gi, "")
@@ -72,12 +189,12 @@ function cleanHumanMessage(text: string): string {
             if (!s.includes('"rules"') && !s.includes('"inviolaveis"') && !s.includes('"prompt"') && !s.includes('"variaveis"')) break
         }
 
-        // Remove TODAS as seções de regras
+        // Remove TODAS as seÃ§Ãµes de regras
         s = s.replace(/inviolaveis[\s\S]{0,10000}?\]/gi, "")
         s = s.replace(/Sempre chame[\s\S]{0,5000}?/gi, "")
         s = s.replace(/Use no maximo[\s\S]{0,500}?caracteres[\s\S]{0,500}?/gi, "")
         s = s.replace(/Use emojis[\s\S]{0,500}?/gi, "")
-        s = s.replace(/Use vícios[\s\S]{0,500}?/gi, "")
+        s = s.replace(/Use vÃ­cios[\s\S]{0,500}?/gi, "")
         s = s.replace(/Nunca use[\s\S]{0,500}?/gi, "")
         s = s.replace(/Sempre finalize[\s\S]{0,500}?/gi, "")
         s = s.replace(/Sempre diga[\s\S]{0,500}?/gi, "")
@@ -85,17 +202,17 @@ function cleanHumanMessage(text: string): string {
         s = s.replace(/Jamais[\s\S]{0,500}?/gi, "")
         s = s.replace(/maior escola[\s\S]{0,500}?/gi, "")
 
-        // LEI INVIOLÁVEL: Remove resquícios específicos de prompts/formulários
+        // LEI INVIOLÃVEL: Remove resquÃ­cios especÃ­ficos de prompts/formulÃ¡rios
         s = s.replace(/por\s+mensagem[.\s]*[-]{2,}[,\s]*\}?/gi, "")
         s = s.replace(/por\s+mensagem[.\s]*\}?/gi, "")
         s = s.replace(/[-]{3,}[,\s]*\}?/g, "")
         s = s.replace(/^[-\s,\.]+$/gm, "")
         s = s.replace(/,\s*\}\s*$/g, "")
         s = s.replace(/\}\s*$/g, "")
-        s = s.replace(/^[^a-zA-ZáàâãéêíóôõúçÁÀÂÃÉÊÍÓÔÕÚÇ]*$/gm, "")
+        s = s.replace(/^[^a-zA-ZÃ¡Ã Ã¢Ã£Ã©ÃªÃ­Ã³Ã´ÃµÃºÃ§ÃÃ€Ã‚ÃƒÃ‰ÃŠÃÃ“Ã”Ã•ÃšÃ‡]*$/gm, "")
 
         // Tenta extrair mensagem do cliente
-        const messageMatch = s.match(/Mensagem do cliente\/lead:\s*(.*?)(?:\s+Para \d{4}|\s+Sua mem[óo]ria|\s+Hor[áa]rio|\s+Dia da semana|\s+lembre-se|\s+\{|por\s+mensagem|[-]{2,}|$)/is)
+        const messageMatch = s.match(/Mensagem do cliente\/lead:\s*(.*?)(?:\s+Para \d{4}|\s+Sua mem[Ã³o]ria|\s+Hor[Ã¡a]rio|\s+Dia da semana|\s+lembre-se|\s+\{|por\s+mensagem|[-]{2,}|$)/is)
         if (messageMatch && messageMatch[1]) {
             s = messageMatch[1].trim()
             s = s.replace(/por\s+mensagem[.\s]*[-]{2,}[,\s]*\}?/gi, "")
@@ -103,13 +220,13 @@ function cleanHumanMessage(text: string): string {
             s = s.replace(/,\s*\}\s*$/g, "")
             s = s.replace(/\}\s*$/g, "")
             if (s.length > 0 && !s.match(/^(rules|inviolaveis|Sempre|Nunca|Use|Jamais|por\s+mensagem)/i)) {
-                const cleaned = s.replace(/^Sua mem[óo]ria:\s*/gi, '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').replace(/\s{2,}/g, ' ').trim()
+                const cleaned = s.replace(/^Sua mem[Ã³o]ria:\s*/gi, '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').replace(/\s{2,}/g, ' ').trim()
                 if (cleaned.match(/^[-\s,\.\}]+$/) || cleaned.length < 3) return ""
                 return cleaned
             }
         }
 
-        const altMatch = s.match(/Mensagem do cliente\/usuário\/lead:\s*(.*?)(?:\s+Para \d{4}|\s+Sua mem[óo]ria|\s+Hor[áa]rio|\s+Dia da semana|\s+lembre-se|\s+\{|por\s+mensagem|[-]{2,}|$)/is)
+        const altMatch = s.match(/Mensagem do cliente\/usuÃ¡rio\/lead:\s*(.*?)(?:\s+Para \d{4}|\s+Sua mem[Ã³o]ria|\s+Hor[Ã¡a]rio|\s+Dia da semana|\s+lembre-se|\s+\{|por\s+mensagem|[-]{2,}|$)/is)
         if (altMatch && altMatch[1]) {
             s = altMatch[1].trim()
             s = s.replace(/por\s+mensagem[.\s]*[-]{2,}[,\s]*\}?/gi, "")
@@ -117,23 +234,23 @@ function cleanHumanMessage(text: string): string {
             s = s.replace(/,\s*\}\s*$/g, "")
             s = s.replace(/\}\s*$/g, "")
             if (s.length > 0 && !s.match(/^(rules|inviolaveis|Sempre|Nunca|Use|Jamais|por\s+mensagem)/i)) {
-                const cleaned = s.replace(/^Sua mem[óo]ria:\s*/gi, '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').replace(/\s{2,}/g, ' ').trim()
+                const cleaned = s.replace(/^Sua mem[Ã³o]ria:\s*/gi, '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').replace(/\s{2,}/g, ' ').trim()
                 if (cleaned.match(/^[-\s,\.\}]+$/) || cleaned.length < 3) return ""
                 return cleaned
             }
         }
 
         // Limpeza final
-        s = s.replace(/^Sua mem[óo]ria:\s*/gi, '')
+        s = s.replace(/^Sua mem[Ã³o]ria:\s*/gi, '')
         s = s.replace(/\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?[+-]\d{2}:\d{2}\b/g, '')
         s = s.replace(/,\s*(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s*\.?/gi, '')
-        s = s.replace(/^Nome do cliente\/usuário\/lead:.*$/gim, '')
-        s = s.replace(/^Para \d{4} no cartão de memória:.*$/gim, '')
-        s = s.replace(/^Horário mensagem:.*$/gim, '')
+        s = s.replace(/^Nome do cliente\/usuÃ¡rio\/lead:.*$/gim, '')
+        s = s.replace(/^Para \d{4} no cartÃ£o de memÃ³ria:.*$/gim, '')
+        s = s.replace(/^HorÃ¡rio mensagem:.*$/gim, '')
         s = s.replace(/^Dia da semana:.*$/gim, '')
-        s = s.replace(/lembre-se\s*dessa\s*informação:.*$/gim, '')
+        s = s.replace(/lembre-se\s*dessa\s*informaÃ§Ã£o:.*$/gim, '')
 
-        // LEI INVIOLÁVEL: Remove resquícios finais de prompts/formulários
+        // LEI INVIOLÃVEL: Remove resquÃ­cios finais de prompts/formulÃ¡rios
         s = s.replace(/por\s+mensagem[.\s]*[-]{2,}[,\s]*\}?/gi, "")
         s = s.replace(/[-]{3,}[,\s]*\}?/g, "")
         s = s.replace(/,\s*\}\s*$/g, "")
@@ -142,12 +259,12 @@ function cleanHumanMessage(text: string): string {
 
         s = s.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').replace(/\s{2,}/g, ' ').trim()
 
-        // VALIDAÇÃO FINAL: Se encontrar QUALQUER resquício de prompt, retorna VAZIO
-        if (s.match(/(rules|inviolaveis|Sempre chame|Sempre diga|Sempre utilize|Nunca use|Sempre finalize|Use emojis|Use vícios|Jamais|maior escola|América Latina|Use no maximo|caracteres por mensagem|por\s+mensagem)/i)) {
+        // VALIDAÃ‡ÃƒO FINAL: Se encontrar QUALQUER resquÃ­cio de prompt, retorna VAZIO
+        if (s.match(/(rules|inviolaveis|Sempre chame|Sempre diga|Sempre utilize|Nunca use|Sempre finalize|Use emojis|Use vÃ­cios|Jamais|maior escola|AmÃ©rica Latina|Use no maximo|caracteres por mensagem|por\s+mensagem)/i)) {
             return ""
         }
 
-        // LEI INVIOLÁVEL: Se a mensagem final é só caracteres especiais ou resquícios, retorna vazio
+        // LEI INVIOLÃVEL: Se a mensagem final Ã© sÃ³ caracteres especiais ou resquÃ­cios, retorna vazio
         if (s.match(/^[-\s,\.\}]+$/) || s.match(/^por\s+mensagem/i) || s.length < 3) {
             return ""
         }
@@ -165,8 +282,8 @@ function cleanAIMessage(text: string): string {
     try {
         let s = String(text).replace(/\r/g, '')
 
-        // LEI INVIOLÁVEL: Remove TODAS as chamadas de ferramentas/tools da IA
-        // Remove blocos [Used tools: ...] com loop até remover tudo
+        // LEI INVIOLÃVEL: Remove TODAS as chamadas de ferramentas/tools da IA
+        // Remove blocos [Used tools: ...] com loop atÃ© remover tudo
         let iterations = 0
         while ((s.includes('[Used tools') || s.includes('[Tool:') || s.includes('Input:') || s.includes('Result:')) && iterations < 10) {
             s = s.replace(/\[Used\s+tools?[\s\S]{0,50000}?\]/gi, "")
@@ -190,13 +307,13 @@ function cleanAIMessage(text: string): string {
         s = s.replace(/\["[\d:]+"(?:,"[\d:]+")*\]/g, "")
         s = s.replace(/Quinta\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
         s = s.replace(/Sexta\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
-        s = s.replace(/Sábado\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
+        s = s.replace(/SÃ¡bado\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
         s = s.replace(/Segunda\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
-        s = s.replace(/Terça\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
+        s = s.replace(/TerÃ§a\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
         s = s.replace(/Quarta\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
 
-        // Limpeza padrão
-        s = s.replace(/Hoje é:\s*[^.]+\./gi, '')
+        // Limpeza padrÃ£o
+        s = s.replace(/Hoje Ã©:\s*[^.]+\./gi, '')
         s = s.replace(/Dia da semana:\s*[^.]+\./gi, '')
         s = s.replace(/,\s*\./g, '.')
         s = s.replace(/\.{2,}/g, '.')
@@ -204,7 +321,7 @@ function cleanAIMessage(text: string): string {
         s = s.replace(/\n{3,}/g, '\n\n')
         s = s.replace(/\s{2,}/g, ' ')
 
-        // Se ainda contém estruturas de ferramentas, tenta extrair apenas a mensagem real
+        // Se ainda contÃ©m estruturas de ferramentas, tenta extrair apenas a mensagem real
         if (s.match(/\[Used\s+tools?|\[Tool:|Input:|Result:|"disponiveis"/i)) {
             // Divide por linhas e filtra apenas linhas conversacionais
             const lines = s.split(/\n/)
@@ -237,7 +354,7 @@ function cleanAIMessage(text: string): string {
             }
         }
 
-        // Validação final: se muito curta ou só caracteres especiais, retorna vazio
+        // ValidaÃ§Ã£o final: se muito curta ou sÃ³ caracteres especiais, retorna vazio
         const cleaned = s.trim()
         if (cleaned.length < 3) return ""
         if (cleaned.match(/^[\d\s:,\[\]\{\}"]+$/)) return ""
@@ -249,7 +366,7 @@ function cleanAIMessage(text: string): string {
     }
 }
 
-// Extrai informações estruturadas do formulário quando presente no prompt
+// Extrai informaÃ§Ãµes estruturadas do formulÃ¡rio quando presente no prompt
 function extractFormData(text: string): {
     nome?: string
     primeiroNome?: string
@@ -300,40 +417,112 @@ function extractFormData(text: string): {
     return null
 }
 
+function extractNameFromMessageMeta(msg: any): string | null {
+    if (!msg || typeof msg !== 'object') return null
+
+    const candidates = [
+        msg.pushName,
+        msg.senderName,
+        msg.contactName,
+        msg.name,
+        msg.fromName,
+        msg.notifyName,
+        msg.authorName,
+        msg.chatName,
+        msg.userName,
+        msg.sender?.name,
+        msg.sender?.pushName,
+        msg.contact?.name,
+        msg.contact?.pushName,
+        msg.data?.pushName,
+        msg.data?.senderName,
+    ]
+
+    for (const candidate of candidates) {
+        const normalized = normalizeLeadNameCandidate(candidate)
+        if (normalized) return normalized
+    }
+
+    return null
+}
+
+function chunkArray<T>(arr: T[], size: number): T[][] {
+    const chunks: T[][] = []
+    for (let i = 0; i < arr.length; i += size) {
+        chunks.push(arr.slice(i, i + size))
+    }
+    return chunks
+}
+
+function isMissingTableError(error: any): boolean {
+    const message = String(error?.message || "").toLowerCase()
+    const code = String(error?.code || "")
+    return code === "42P01" || message.includes("does not exist") || message.includes("relation")
+}
+
 function extractContactName(messages: any[]): string {
-    if (!messages || messages.length === 0) return ''
+    if (!messages || messages.length === 0) return ""
 
     for (const msg of messages) {
         if (!msg || !msg.message) continue
 
         try {
-            const content = String(msg.message?.content || msg.message?.text || '')
+            const metaName = extractNameFromMessageMeta(msg.message)
+            if (metaName) return metaName
+
+            const content = String(msg.message?.content || msg.message?.text || "")
             if (!content || content.trim().length < 3) continue
 
             const patterns = [
-                /nome\s+(?:do\s+)?(?:cliente|lead|usuário|contato):\s*([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Ú][a-zà-ú]+)?)/i,
-                /(?:oi|olá|bom\s+dia|boa\s+tarde|boa\s+noite),?\s+([A-ZÀ-Ú][a-zà-ú]+)/i,
-                /meu\s+nome\s+é\s+([A-ZÀ-Ú][a-zà-ú]+)/i
+                /"PrimeiroNome"\s*:\s*"([^"]+)"/i,
+                /"Nome"\s*:\s*"([^"]+)"/i,
+                /nome\s+(?:do\s+)?(?:cliente|lead|usuario|contato):\s*([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Ú][a-zà-ú]+)?)/i,
+                /(?:oi|ola|bom\s+dia|boa\s+tarde|boa\s+noite),?\s+([A-ZÀ-Ú][a-zà-ú]+)/i,
+                /(?:meu\s+nome\s+(?:e|é)|me\s+chamo|pode\s+me\s+chamar\s+de)\s+([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Ú][a-zà-ú]+)?)/i,
             ]
+
             for (const pattern of patterns) {
                 const match = content.match(pattern)
-                if (match && match[1]) return match[1].trim()
+                if (!match || !match[1]) continue
+                const normalized = normalizeLeadNameCandidate(match[1])
+                if (normalized) return normalized
             }
         } catch (e) {
-            console.warn('[extractContactName] Erro ao processar mensagem:', e)
+            console.warn("[extractContactName] Erro ao processar mensagem:", e)
             continue
         }
     }
-    return ''
+
+    return ""
 }
 
-// LEI INVIOLÁVEL: Extrai data do TEXTO com 100% de precisão
+function resolveLeadDisplayName(
+    messages: any[],
+    formData: { nome?: string; primeiroNome?: string } | null,
+    phone: string,
+): string {
+    const fromForm = [
+        normalizeLeadNameCandidate(formData?.primeiroNome),
+        normalizeLeadNameCandidate(formData?.nome),
+        normalizeLeadNameCandidate(formData?.nome?.split(" ")[0]),
+    ].find(Boolean) || ""
+
+    if (fromForm) return fromForm
+
+    const fromMessages = extractContactName(messages)
+    if (fromMessages) return fromMessages
+
+    const lastDigits = normalizePhone(phone).slice(-4)
+    return `Lead ${lastDigits || "novo"}`
+}
+
+// LEI INVIOLÃVEL: Extrai data do TEXTO com 100% de precisÃ£o
 function extractDateFromText(text: string): Date | null {
     if (!text || typeof text !== 'string') return null
 
     try {
 
-        // Remove timestamps de prompts para não pegar data errada
+        // Remove timestamps de prompts para nÃ£o pegar data errada
         if (text.match(/(rules|inviolaveis|Sempre chame|por\s+mensagem)/i)) {
             const promptSection = text.match(/(rules|inviolaveis|Sempre chame|por\s+mensagem)[\s\S]*?$/i)
             if (promptSection) {
@@ -342,15 +531,15 @@ function extractDateFromText(text: string): Date | null {
             }
         }
 
-        // 1) "Horário mensagem: 2025-08-05T08:30:39.578-03:00" (mais específico)
-        const m1 = text.match(/Hor[áa]rio(?:\s+da)?\s+mensagem:\s*([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,3})?(?:[+-][0-9]{2}:[0-9]{2}|Z)?)/i)
+        // 1) "HorÃ¡rio mensagem: 2025-08-05T08:30:39.578-03:00" (mais especÃ­fico)
+        const m1 = text.match(/Hor[Ã¡a]rio(?:\s+da)?\s+mensagem:\s*([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,3})?(?:[+-][0-9]{2}:[0-9]{2}|Z)?)/i)
         if (m1?.[1]) {
             const d = new Date(m1[1])
             if (!isNaN(d.getTime()) && d.getFullYear() >= 2020 && d.getFullYear() <= 2100) return d
         }
 
-        // 2) "Hoje é: 2025-08-05T08:30:39.578-03:00"
-        const m2 = text.match(/Hoje\s*[ée]:\s*([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,3})?(?:[+-][0-9]{2}:[0-9]{2}|Z)?)/i)
+        // 2) "Hoje Ã©: 2025-08-05T08:30:39.578-03:00"
+        const m2 = text.match(/Hoje\s*[Ã©e]:\s*([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,3})?(?:[+-][0-9]{2}:[0-9]{2}|Z)?)/i)
         if (m2?.[1]) {
             const d = new Date(m2[1])
             if (!isNaN(d.getTime()) && d.getFullYear() >= 2020 && d.getFullYear() <= 2100) return d
@@ -402,17 +591,17 @@ function extractDateFromText(text: string): Date | null {
     return null
 }
 
-// SOLUÇÃO: Extrai data do TEXTO da última mensagem do lead
+// SOLUÃ‡ÃƒO: Extrai data do TEXTO da Ãºltima mensagem do lead
 function getLastLeadMessageTimestamp(messages: any[], debug: boolean = false): string {
     if (!messages || messages.length === 0) {
         return new Date().toISOString()
     }
 
     const sorted = [...messages]
-        .filter(m => m && m.id != null) // Filtra mensagens inválidas
+        .filter(m => m && m.id != null) // Filtra mensagens invÃ¡lidas
         .sort((a, b) => (a.id || 0) - (b.id || 0))
 
-    // Procura última mensagem do LEAD
+    // Procura Ãºltima mensagem do LEAD
     for (let i = sorted.length - 1; i >= 0; i--) {
         const msg = sorted[i]
         if (!msg || !msg.message) continue
@@ -423,21 +612,21 @@ function getLastLeadMessageTimestamp(messages: any[], debug: boolean = false): s
                 const content = String(msg.message?.content || msg.message?.text || '')
 
                 if (debug) {
-                    console.log('\n[getLastLeadMessageTimestamp] Última mensagem do LEAD')
+                    console.log('\n[getLastLeadMessageTimestamp] Ãšltima mensagem do LEAD')
                     console.log('ID:', msg.id)
-                    console.log('Conteúdo (300 chars):', content.substring(0, 300))
+                    console.log('ConteÃºdo (300 chars):', content.substring(0, 300))
                 }
 
                 // Extrai data do TEXTO
                 const extractedDate = extractDateFromText(content)
                 if (extractedDate) {
-                    if (debug) console.log('✓ Data extraída do TEXTO:', extractedDate.toISOString())
+                    if (debug) console.log('âœ“ Data extraÃ­da do TEXTO:', extractedDate.toISOString())
                     return extractedDate.toISOString()
                 }
 
                 // Fallback: created_at
                 if (msg.created_at) {
-                    if (debug) console.log('⚠ Usando created_at:', msg.created_at)
+                    if (debug) console.log('âš  Usando created_at:', msg.created_at)
                     return msg.created_at
                 }
             }
@@ -447,18 +636,18 @@ function getLastLeadMessageTimestamp(messages: any[], debug: boolean = false): s
         }
     }
 
-    // Fallback: última mensagem qualquer
+    // Fallback: Ãºltima mensagem qualquer
     if (sorted.length > 0) {
         try {
             const last = sorted[sorted.length - 1]
             if (last && last.message) {
                 const content = String(last.message?.content || last.message?.text || '')
 
-                if (debug) console.log('\n[Fallback] Usando última mensagem qualquer')
+                if (debug) console.log('\n[Fallback] Usando Ãºltima mensagem qualquer')
 
                 const extractedDate = extractDateFromText(content)
                 if (extractedDate) {
-                    if (debug) console.log('✓ Data extraída do TEXTO:', extractedDate.toISOString())
+                    if (debug) console.log('âœ“ Data extraÃ­da do TEXTO:', extractedDate.toISOString())
                     return extractedDate.toISOString()
                 }
 
@@ -478,28 +667,50 @@ export async function GET(req: Request) {
     try {
         const supabase = createBiaSupabaseServerClient()
 
-        // 1. Identificar Unidade (Tenant) da sessão JWT
-        const tenant = await getTenantFromSession('vox_bh')
+        // 1. Identificar Unidade (Tenant) da sessÃ£o JWT
+        let tenant: string
+        try {
+            tenant = await resolveTenant(req)
+        } catch (error: any) {
+            return NextResponse.json({ error: error?.message || "Unauthorized" }, { status: 401 })
+        }
         console.log(`[CRM] Iniciando busca de TODOS os leads... Unidade: ${tenant}`)
 
         // Validar tenant
-        if (!isValidTenant(tenant)) return NextResponse.json({ error: 'Tenant inválido' }, { status: 400 })
+        if (!isValidTenant(tenant)) return NextResponse.json({ error: 'Tenant invÃ¡lido' }, { status: 400 })
 
         // Detectar automaticamente o nome correto da tabela de chat
-        // Suporta: vox_bhn8n_chat_histories E vox_maceio_n8n_chat_histories
-        let chatTable = `${tenant}n8n_chat_histories`
-        const testResult = await supabase.from(chatTable).select("id").limit(1)
-
-        if (testResult.error && testResult.error.message.includes('does not exist')) {
-            chatTable = `${tenant}_n8n_chat_histories`
-            console.log(`[CRM] Usando tabela com underscore: ${chatTable}`)
-        }
+        const chatTable = await resolveChatHistoriesTable(supabase as any, tenant)
+        console.log(`[CRM] Usando tabela de chats: ${chatTable}`)
 
         const statusTable = `${tenant}_crm_lead_status`
-        // Follow-up Schedule é genérica (tabela pública não particionada ainda OU a migration não foi pedida).
-        // Manter fallback para 'followup_schedule' para evitar quebras se a tabela tenant não existir.
+        const funnelConfigTable = `${tenant}_crm_funnel_config`
+        // Follow-up Schedule Ã© genÃ©rica (tabela pÃºblica nÃ£o particionada ainda OU a migration nÃ£o foi pedida).
+        // Manter fallback para 'followup_schedule' para evitar quebras se a tabela tenant nÃ£o existir.
         const followupTable = `followup_schedule`
-        const pauseTable = `${tenant}_pausar` // Correção: de pausar_robsonvox para {tenant}_pausar
+        const pauseTable = `${tenant}_pausar` // CorreÃ§Ã£o: de pausar_robsonvox para {tenant}_pausar
+
+        let savedFunnelColumns: FunnelColumn[] = []
+        try {
+            const { data: funnelConfigRow, error: funnelError } = await supabase
+                .from(funnelConfigTable)
+                .select("columns")
+                .order("created_at", { ascending: false })
+                .limit(1)
+                .maybeSingle()
+
+            if (funnelError) {
+                if (!isMissingTableError(funnelError) && funnelError.code !== "PGRST116") {
+                    console.warn(`[CRM] Erro ao buscar funil salvo (${funnelConfigTable}):`, funnelError.message)
+                }
+            } else {
+                savedFunnelColumns = normalizeFunnelColumns(funnelConfigRow?.columns)
+            }
+        } catch (funnelErr: any) {
+            console.warn("[CRM] Erro ao carregar configuracao de funil:", funnelErr?.message || funnelErr)
+        }
+
+        const effectiveFunnelColumns = getEffectiveFunnelColumns(savedFunnelColumns)
 
         // Verificar se a tabela existe antes de fazer a consulta
         const { data: testQuery, error: testError } = await supabase
@@ -511,7 +722,7 @@ export async function GET(req: Request) {
             console.error(`[CRM] Erro ao acessar tabela ${chatTable}:`, testError)
             return NextResponse.json(
                 {
-                    error: `Tabela de histórico de chats não encontrada (${chatTable})`,
+                    error: `Tabela de histÃ³rico de chats nÃ£o encontrada (${chatTable})`,
                     details: testError.message,
                     code: testError.code
                 },
@@ -519,14 +730,15 @@ export async function GET(req: Request) {
             )
         }
 
-        let allChats: any[] = []
+        const sessionMap = new Map<string, any[]>()
+        let totalRecords = 0
         let page = 0
         const pageSize = 1000
         const maxRecords = 50000 // Limite alto para mostrar tudo
         let hasMore = true
 
-        while (hasMore && allChats.length < maxRecords) {
-            // Buscar apenas campos necessários para melhor performance
+        while (hasMore && totalRecords < maxRecords) {
+            // Buscar apenas campos necessÃ¡rios para melhor performance
             const { data: chats, error } = await supabase
                 .from(chatTable)
                 .select("session_id, message, id, created_at")
@@ -537,7 +749,7 @@ export async function GET(req: Request) {
                 console.error('[CRM] Erro ao buscar chats:', error)
                 return NextResponse.json(
                     {
-                        error: 'Erro ao buscar histórico de chats',
+                        error: 'Erro ao buscar histÃ³rico de chats',
                         details: error.message,
                         code: error.code
                     },
@@ -546,25 +758,45 @@ export async function GET(req: Request) {
             }
 
             if (chats && chats.length > 0) {
-                allChats = allChats.concat(chats)
-                console.log(`[CRM] Página ${page + 1}: ${chats.length} registros (Total: ${allChats.length}/${maxRecords})`)
+                totalRecords += chats.length
+                for (const chat of chats) {
+                    const rawSessionId = String(chat.session_id || "").trim()
+                    if (!rawSessionId || rawSessionId === "undefined" || rawSessionId === "null") {
+                        continue
+                    }
+                    const sessionId = rawSessionId
+                    if (!sessionMap.has(sessionId)) sessionMap.set(sessionId, [])
+                    sessionMap.get(sessionId)!.push(chat)
+                }
+                console.log(`[CRM] PÃ¡gina ${page + 1}: ${chats.length} registros (Total: ${totalRecords}/${maxRecords})`)
                 page++
-                hasMore = chats.length === pageSize && allChats.length < maxRecords
+                hasMore = chats.length === pageSize && totalRecords < maxRecords
             } else {
                 hasMore = false
             }
         }
 
-        console.log(`[CRM] Total de registros carregados: ${allChats.length}`)
+        console.log(`[CRM] Total de registros carregados: ${totalRecords}`)
 
-        const sessionMap = new Map<string, any[]>()
-        allChats.forEach(chat => {
-            const sessionId = chat.session_id || 'unknown'
-            if (!sessionMap.has(sessionId)) sessionMap.set(sessionId, [])
-            sessionMap.get(sessionId)!.push(chat)
-        })
+        console.log(`[CRM] Total de sessÃµes Ãºnicas: ${sessionMap.size}`)
 
-        console.log(`[CRM] Total de sessões únicas: ${sessionMap.size}`)
+        const sessionIds = Array.from(sessionMap.keys())
+        const followUpPhoneCandidates = new Set<string>()
+        for (const sessionId of sessionIds) {
+            let rawPhone = sessionId
+            if (rawPhone.includes("@")) rawPhone = rawPhone.split("@")[0]
+            const rawDigits = String(rawPhone || "").replace(/\D/g, "")
+            if (rawDigits) {
+                followUpPhoneCandidates.add(rawDigits)
+            }
+            const normalized = normalizePhone(rawDigits)
+            if (normalized) {
+                followUpPhoneCandidates.add(normalized)
+                if (rawDigits && !rawDigits.startsWith("55")) {
+                    followUpPhoneCandidates.add(`55${normalized}`)
+                }
+            }
+        }
 
         // Buscar TODOS os follow-ups ativos ANTES de processar cards
         const followUpMapForStatus = new Map<string, {
@@ -576,15 +808,29 @@ export async function GET(req: Request) {
         }>()
 
         try {
-            const { data: activeFollowups, error: followUpError } = await supabase
-                .from(followupTable)
-                .select("*")
-                .eq("is_active", true)
+            let followUpTableAvailable = true
 
-            if (!followUpError && activeFollowups) {
-                for (const followup of activeFollowups) {
-                    const normalizedPhone = followup.phone_number?.replace(/\D/g, '').replace(/^55/, '').slice(-11) || ''
-                    if (normalizedPhone) {
+            if (sessionIds.length > 0) {
+                for (const chunk of chunkArray(sessionIds, 200)) {
+                    const { data: activeFollowups, error: followUpError } = await supabase
+                        .from(followupTable)
+                        .select("*")
+                        .in("session_id", chunk)
+                        .eq("is_active", true)
+
+                    if (followUpError) {
+                        if (isMissingTableError(followUpError)) {
+                            followUpTableAvailable = false
+                            console.warn(`[CRM] Tabela de followup ${followupTable} nÃ£o encontrada.`)
+                        } else {
+                            console.warn(`[CRM] Erro ao buscar follow-ups por session_id:`, followUpError.message)
+                        }
+                        break
+                    }
+
+                    for (const followup of activeFollowups || []) {
+                        const normalizedPhone = normalizePhone(followup.phone_number || followup.session_id || "")
+                        if (!normalizedPhone) continue
                         followUpMapForStatus.set(normalizedPhone, {
                             isActive: followup.is_active || false,
                             attemptCount: followup.attempt_count || 0,
@@ -594,16 +840,85 @@ export async function GET(req: Request) {
                         })
                     }
                 }
-                console.log(`[CRM] Follow-ups ativos carregados: ${followUpMapForStatus.size} leads`)
-            } else if (followUpError) {
-                console.warn(`[CRM] Tabela de followup ${followupTable} não encontrada ou erro:`, followUpError.message)
             }
+
+            const phoneCandidateList = Array.from(followUpPhoneCandidates)
+            if (followUpTableAvailable && phoneCandidateList.length > 0) {
+                for (const chunk of chunkArray(phoneCandidateList, 200)) {
+                    const { data: activeFollowups, error: followUpError } = await supabase
+                        .from(followupTable)
+                        .select("*")
+                        .in("phone_number", chunk)
+                        .eq("is_active", true)
+
+                    if (followUpError) {
+                        if (isMissingTableError(followUpError)) {
+                            console.warn(`[CRM] Tabela de followup ${followupTable} nÃ£o encontrada.`)
+                        } else {
+                            console.warn(`[CRM] Erro ao buscar follow-ups por phone_number:`, followUpError.message)
+                        }
+                        break
+                    }
+
+                    for (const followup of activeFollowups || []) {
+                        const normalizedPhone = normalizePhone(followup.phone_number || followup.session_id || "")
+                        if (!normalizedPhone) continue
+                        followUpMapForStatus.set(normalizedPhone, {
+                            isActive: followup.is_active || false,
+                            attemptCount: followup.attempt_count || 0,
+                            nextFollowUpAt: followup.next_followup_at || null,
+                            lastInteractionAt: followup.last_interaction_at || followup.created_at,
+                            sessionId: followup.session_id || ''
+                        })
+                    }
+                }
+            }
+
+            console.log(`[CRM] Follow-ups ativos carregados: ${followUpMapForStatus.size} leads`)
         } catch (followUpErr: any) {
             console.warn('[CRM] Erro ao buscar follow-ups para status (continuando sem):', followUpErr.message)
         }
 
+        // Buscar status salvos em lote para evitar N+1 queries (principal gargalo)
+        const statusMap = new Map<string, {
+            status: string | null
+        }>()
+        let statusTableAvailable = true
+
+        if (sessionIds.length > 0) {
+            const chunkSize = 200
+            for (const chunk of chunkArray(sessionIds, chunkSize)) {
+                try {
+                    const { data: statusRows, error: statusError } = await supabase
+                        .from(statusTable)
+                        .select("lead_id, status")
+                        .in("lead_id", chunk)
+
+                    if (statusError) {
+                        if (isMissingTableError(statusError)) {
+                            statusTableAvailable = false
+                            console.warn(`[CRM] Tabela de status ${statusTable} nÃ£o encontrada. Ignorando status salvos.`)
+                            break
+                        }
+                        console.warn(`[CRM] Erro ao buscar status em lote:`, statusError.message)
+                        break
+                    }
+
+                    for (const row of statusRows || []) {
+                        statusMap.set(row.lead_id, {
+                            status: row.status || null,
+                        })
+                    }
+                } catch (e: any) {
+                    console.warn('[CRM] Erro ao buscar status em lote:', e?.message || e)
+                    break
+                }
+            }
+        }
+
         const cards: CRMCard[] = []
         let debugCount = 0
+        const now = new Date()
 
         for (const [sessionId, rawMessages] of sessionMap.entries()) {
             if (!rawMessages || rawMessages.length === 0) {
@@ -618,7 +933,7 @@ export async function GET(req: Request) {
                 continue
             }
 
-            // Extrai dados do formulário da primeira mensagem que contém prompt
+            // Extrai dados do formulÃ¡rio da primeira mensagem que contÃ©m prompt
             let formData: any = null
             try {
                 for (const msg of messages) {
@@ -634,36 +949,37 @@ export async function GET(req: Request) {
                             }
                         }
                     } catch (e) {
-                        console.warn(`[CRM] Erro ao extrair formData da mensagem da sessão ${sessionId}:`, e)
+                        console.warn(`[CRM] Erro ao extrair formData da mensagem da sessÃ£o ${sessionId}:`, e)
                         continue
                     }
                 }
             } catch (e) {
-                console.warn(`[CRM] Erro ao processar formData da sessão ${sessionId}:`, e)
+                console.warn(`[CRM] Erro ao processar formData da sessÃ£o ${sessionId}:`, e)
             }
 
             const enableDebug = debugCount < 3
             if (enableDebug) {
-                console.log(`\nDEBUG SESSÃO ${debugCount + 1}: ${sessionId} (${tenant})`)
+                console.log(`\nDEBUG SESSÃƒO ${debugCount + 1}: ${sessionId} (${tenant})`)
             }
 
             const lastTimeStr = getLastLeadMessageTimestamp(messages, enableDebug)
             const lastTime = new Date(lastTimeStr)
-            const now = new Date()
             const hoursSinceLast = (now.getTime() - lastTime.getTime()) / (1000 * 60 * 60)
 
-            const messageContents = messages
-                .filter(m => m && m.message) // Filtra mensagens inválidas
+            const recentMessages = messages.slice(-30)
+
+            const messageContents = recentMessages
+                .filter(m => m && m.message) // Filtra mensagens invÃ¡lidas
                 .map(m => {
                     try {
                         const rawContent = String(m.message?.content || m.message?.text || '')
-                        // LEI INVIOLÁVEL: Normalização robusta de role
+                        // LEI INVIOLÃVEL: NormalizaÃ§Ã£o robusta de role
                         const type = String(m.message?.type ?? "").toLowerCase()
                         const roleStr = String(m.message?.role ?? "").toLowerCase()
                         const isUser = type === "human" || type === "user" || roleStr === "user" || roleStr === "human"
                         return isUser ? cleanHumanMessage(rawContent) : cleanAIMessage(rawContent)
                     } catch (e) {
-                        console.warn(`[CRM] Erro ao processar mensagem da sessão ${sessionId}:`, e)
+                        console.warn(`[CRM] Erro ao processar mensagem da sessÃ£o ${sessionId}:`, e)
                         return ""
                     }
                 })
@@ -671,73 +987,38 @@ export async function GET(req: Request) {
 
             const fullText = messageContents.length > 0 ? messageContents.join(' ').toLowerCase() : ""
 
-            // Buscar status salvo do lead (se existir) com informações de override manual
+            // Buscar status salvo do lead (se existir)
             let savedStatus: string | null = null
-            let manualOverride: boolean = false
-            let manualOverrideAt: string | null = null
-
-            try {
-                const { data: statusData, error: statusError } = await supabase
-                    .from(statusTable)
-                    .select("status, manual_override, manual_override_at")
-                    .eq("lead_id", sessionId)
-                    .maybeSingle()
-
-                if (statusError && statusError.code !== 'PGRST116') {
-                    // PGRST116 = tabela não encontrada, ignora
-                    console.warn(`[CRM] Erro ao buscar status do lead ${sessionId}:`, statusError.message)
-                } else if (statusData) {
-                    savedStatus = statusData.status || null
-                    manualOverride = statusData.manual_override || false
-                    manualOverrideAt = statusData.manual_override_at || null
+            if (statusTableAvailable) {
+                const statusEntry = statusMap.get(sessionId)
+                if (statusEntry?.status) {
+                    savedStatus = String(statusEntry.status).trim() || null
                 }
-            } catch (e: any) {
-                // Ignora erro se tabela não existir ainda
             }
 
-            // Extrair número do telefone do sessionId primeiro
+            // Extrair numero do telefone do sessionId primeiro
             let numero = sessionId
             if (numero.includes('@')) numero = numero.split('@')[0]
 
-            // Verificar se lead tem follow-up ativo ANTES de determinar status
-            const normalizedPhoneForStatus = numero.replace(/\D/g, '').replace(/^55/, '').slice(-11)
+            // Verificar se lead tem follow-up ativo antes de determinar status
+            const normalizedPhoneForStatus = normalizePhone(numero)
             const hasActiveFollowUp = followUpMapForStatus.has(normalizedPhoneForStatus)
 
-            // Define variáveis de classificação no escopo correto
+            // Define variaveis de classificacao no escopo correto
             const isSuccess = /agendad|confirmad|marcad|fechad|contrat/i.test(fullText)
-            const isNegociacao = /negoci|proposta|orçamento|valor|preço|investimento/i.test(fullText)
-            const isPerdido = /não.*interess|desist|cancel|não.*quero|não.*vou/i.test(fullText)
+            const isNegociacao = /negoci|proposta|orÃ§amento|valor|preÃ§o|investimento/i.test(fullText)
+            const isPerdido = /nÃ£o.*interess|desist|cancel|nÃ£o.*quero|nÃ£o.*vou/i.test(fullText)
 
-            // LÓGICA HÍBRIDA INTELIGENTE: Determinar status com sistema automático + manual
-            let status: CRMCard['status'] = 'atendimento'
-            let shouldAutoClassify = true
+            // IA-first com estabilidade: se o lead ja tem status salvo, mantemos o status salvo.
+            // A IA classifica apenas leads sem status persistido.
+            let status = savedStatus || "atendimento"
+            const savedStatusIsTerminal = status === "ganhos" || status === "perdido"
 
-            // Verificar se movimento manual é recente (últimas 24 horas)
-            const manualOverrideHoursAgo = manualOverrideAt
-                ? (now.getTime() - new Date(manualOverrideAt).getTime()) / (1000 * 60 * 60)
-                : Infinity
-
-            const isRecentManualMove = manualOverride && manualOverrideHoursAgo < 24
-
-            // Prioridade 1: Follow-up ativo SEMPRE sobrescreve (crítico para o sistema)
-            if (hasActiveFollowUp) {
-                status = 'em_follow_up'
-                shouldAutoClassify = false
-            }
-            // Prioridade 2: Se tem movimento manual recente (< 24h), RESPEITAR (exceto follow-up)
-            else if (isRecentManualMove && savedStatus) {
-                status = savedStatus as CRMCard['status']
-                shouldAutoClassify = false
-            }
-            // Prioridade 3: Se tem status salvo (mas manual antigo), usar como base mas permitir auto-classificação
-            else if (savedStatus) {
-                status = savedStatus as CRMCard['status']
-            }
-
-            // Prioridade 4: Classificação automática inteligente (se não foi manual recente ou não tem status)
-            if (shouldAutoClassify || !savedStatus) {
-                // Classificação automática baseada no conteúdo
-                // LEI INVIOLÁVEL: Normalização robusta para verificar se última mensagem é da IA
+            if (hasActiveFollowUp && !savedStatusIsTerminal) {
+                status = "em_follow_up"
+            } else if (!savedStatus) {
+                // Classificacao automatica baseada no conteudo
+                // LEI INVIOLAVEL: Normalizacao robusta para verificar se ultima mensagem e da IA
                 const lastMsgTypeForAI = String(lastMsg.message?.type ?? "").toLowerCase()
                 const lastMsgRoleForAI = String(lastMsg.message?.role ?? "").toLowerCase()
                 const lastIsAI = lastMsgTypeForAI === 'ai' || lastMsgTypeForAI === 'bot' || lastMsgTypeForAI === 'assistant' ||
@@ -752,8 +1033,8 @@ export async function GET(req: Request) {
                 else if (messages.length > 10 && !isSuccess) status = 'qualificacao'
                 else status = 'atendimento'
 
-                // Se auto-classificou e mudou do status anterior, salvar classificação automática
-                if (!savedStatus || savedStatus !== status) {
+                // Salvar classificacao automatica inicial
+                if (statusTableAvailable) {
                     supabase
                         .from(statusTable)
                         .upsert({
@@ -761,38 +1042,38 @@ export async function GET(req: Request) {
                             status: status,
                             auto_classified: true,
                             last_auto_classification_at: now.toISOString(),
-                            manual_override: false, // Não é manual
+                            manual_override: false,
                             updated_at: now.toISOString()
                         }, {
                             onConflict: 'lead_id'
                         })
                         .then(({ error }) => {
                             if (error) {
-                                console.warn(`[CRM] Erro ao salvar auto-classificação para ${sessionId}:`, error)
+                                console.warn(`[CRM] Erro ao salvar auto-classificacao para ${sessionId}:`, error)
                             }
                         })
                 }
             }
 
-            // numero já foi definido acima, apenas garantir que está correto
+            // numero ja foi definido acima, apenas garantir que esta correto
             if (!numero) {
                 numero = sessionId
                 if (numero.includes('@')) numero = numero.split('@')[0]
             }
-            // Usa nome do formulário se disponível, senão tenta extrair das mensagens
-            const name = formData?.primeiroNome || formData?.nome?.split(' ')[0] || extractContactName(messages) || `Lead ${numero.slice(-4)}`
+
+            const name = resolveLeadDisplayName(messages, formData, numero)
 
             let sentiment: 'positive' | 'neutral' | 'negative' = 'neutral'
-            if (/ótimo|excelente|bom|gostei/i.test(fullText)) sentiment = 'positive'
-            if (/ruim|péssimo|não quero|pare/i.test(fullText)) sentiment = 'negative'
+            if (/Ã³timo|excelente|bom|gostei/i.test(fullText)) sentiment = 'positive'
+            if (/ruim|pÃ©ssimo|nÃ£o quero|pare/i.test(fullText)) sentiment = 'negative'
 
             const messageHistory = messages
                 .slice(-10)
-                .filter(m => m && m.message) // Filtra mensagens inválidas
+                .filter(m => m && m.message) // Filtra mensagens invÃ¡lidas
                 .map(m => {
                     try {
                         const rawContent = String(m.message?.content || m.message?.text || '')
-                        // LEI INVIOLÁVEL: Normalização robusta de role
+                        // LEI INVIOLÃVEL: NormalizaÃ§Ã£o robusta de role
                         const type = String(m.message?.type ?? "").toLowerCase()
                         const roleStr = String(m.message?.role ?? "").toLowerCase()
                         const isUser = type === "human" || type === "user" || roleStr === "user" || roleStr === "human"
@@ -800,7 +1081,7 @@ export async function GET(req: Request) {
 
                         const cleanedContent = isUser ? cleanHumanMessage(rawContent) : cleanAIMessage(rawContent)
 
-                        // Remove mensagens vazias ou inválidas
+                        // Remove mensagens vazias ou invÃ¡lidas
                         if (!cleanedContent || cleanedContent.trim().length < 3) return null
 
                         const timestamp = extractDateFromText(rawContent) || new Date(m.created_at || new Date())
@@ -811,27 +1092,27 @@ export async function GET(req: Request) {
                 })
                 .filter((m): m is { content: string; type: string; timestamp: string } => m !== null)
 
-            let lastMsgFinal = "Mensagem não disponível"
-            let firstMsgFinal = "Mensagem não disponível"
+            let lastMsgFinal = "Mensagem nÃ£o disponÃ­vel"
+            let firstMsgFinal = "Mensagem nÃ£o disponÃ­vel"
 
             try {
                 const lastMsgContent = String(lastMsg.message?.content || lastMsg.message?.text || '')
-                // LEI INVIOLÁVEL: Normalização robusta
+                // LEI INVIOLÃVEL: NormalizaÃ§Ã£o robusta
                 const lastMsgType = String(lastMsg.message?.type ?? "").toLowerCase()
                 const lastMsgRoleStr = String(lastMsg.message?.role ?? "").toLowerCase()
                 const lastMsgIsUser = lastMsgType === "human" || lastMsgType === "user" || lastMsgRoleStr === "user" || lastMsgRoleStr === "human"
                 const lastMsgCleaned = lastMsgIsUser ? cleanHumanMessage(lastMsgContent) : cleanAIMessage(lastMsgContent)
-                lastMsgFinal = lastMsgCleaned && lastMsgCleaned.trim().length >= 3 ? lastMsgCleaned : "Mensagem não disponível"
+                lastMsgFinal = lastMsgCleaned && lastMsgCleaned.trim().length >= 3 ? lastMsgCleaned : "Mensagem nÃ£o disponÃ­vel"
             } catch (e) { }
 
             try {
                 const firstMsgContent = String(firstMsg.message?.content || firstMsg.message?.text || '')
-                // LEI INVIOLÁVEL: Normalização robusta
+                // LEI INVIOLÃVEL: NormalizaÃ§Ã£o robusta
                 const firstMsgType = String(firstMsg.message?.type ?? "").toLowerCase()
                 const firstMsgRoleStr = String(firstMsg.message?.role ?? "").toLowerCase()
                 const firstMsgIsUser = firstMsgType === "human" || firstMsgType === "user" || firstMsgRoleStr === "user" || firstMsgRoleStr === "human"
                 const firstMsgCleaned = firstMsgIsUser ? cleanHumanMessage(firstMsgContent) : cleanAIMessage(firstMsgContent)
-                firstMsgFinal = firstMsgCleaned && firstMsgCleaned.trim().length >= 3 ? firstMsgCleaned : "Mensagem não disponível"
+                firstMsgFinal = firstMsgCleaned && firstMsgCleaned.trim().length >= 3 ? firstMsgCleaned : "Mensagem nÃ£o disponÃ­vel"
             } catch (e) { }
 
             // Contar mensagens do lead vs IA de forma precisa ANTES de criar o card
@@ -845,7 +1126,7 @@ export async function GET(req: Request) {
                     const type = String(msg.message?.type ?? "").toLowerCase()
                     const roleStr = String(msg.message?.role ?? "").toLowerCase()
 
-                    // Identificar se é mensagem do lead (human/user) ou da IA
+                    // Identificar se Ã© mensagem do lead (human/user) ou da IA
                     const isFromLead = type === "human" || type === "user" ||
                         roleStr === "user" || roleStr === "human" ||
                         (!type.includes("ai") && !type.includes("bot") && !type.includes("assistant") &&
@@ -882,25 +1163,16 @@ export async function GET(req: Request) {
             debugCount++
         }
 
-        // LEI INVIOLÁVEL: Deduplicação por número de telefone - cada lead aparece apenas UMA vez no status mais recente
-        console.log(`[CRM] Total de cards antes da deduplicação: ${cards.length}`)
+        // LEI INVIOLÃVEL: DeduplicaÃ§Ã£o por nÃºmero de telefone - cada lead aparece apenas UMA vez no status mais recente
+        console.log(`[CRM] Total de cards antes da deduplicaÃ§Ã£o: ${cards.length}`)
         const leadMap = new Map<string, CRMCard>()
 
-        // Normaliza número de telefone para comparação
-        const normalizePhoneForDedup = (phone: string): string => {
-            return phone
-                .replace(/\D/g, '') // Remove tudo que não é dígito
-                .replace(/^55/, '') // Remove código do país
-                .replace(/^0/, '') // Remove zero inicial
-                .slice(-11) // Pega últimos 11 dígitos (celular) ou 10 (fixo)
-        }
-
-        // Agrupa por telefone e mantém apenas o mais recente
+        // Agrupa por telefone e mantem o card mais util (mais recente e com nome real)
         for (const card of cards) {
-            const normalizedPhone = normalizePhoneForDedup(card.numero)
+            const normalizedPhone = normalizePhone(card.numero)
 
             if (!normalizedPhone || normalizedPhone.length < 8) {
-                // Se não conseguiu normalizar, mantém como está (pode ser sessionId estranho)
+                // Se nÃ£o conseguiu normalizar, mantÃ©m como estÃ¡ (pode ser sessionId estranho)
                 const key = card.id
                 if (!leadMap.has(key)) {
                     leadMap.set(key, card)
@@ -908,7 +1180,9 @@ export async function GET(req: Request) {
                     const existing = leadMap.get(key)!
                     const existingDate = new Date(existing.lastInteraction)
                     const newDate = new Date(card.lastInteraction)
-                    if (newDate > existingDate) {
+                    const existingGeneric = isGenericLeadName(existing.name, existing.numero)
+                    const newGeneric = isGenericLeadName(card.name, card.numero)
+                    if ((existingGeneric && !newGeneric) || newDate > existingDate) {
                         leadMap.set(key, card)
                     }
                 }
@@ -921,9 +1195,10 @@ export async function GET(req: Request) {
                 const existing = leadMap.get(normalizedPhone)!
                 const existingDate = new Date(existing.lastInteraction)
                 const newDate = new Date(card.lastInteraction)
+                const existingGeneric = isGenericLeadName(existing.name, existing.numero)
+                const newGeneric = isGenericLeadName(card.name, card.numero)
 
-                // Mantém o lead mais recente (com última interação mais recente)
-                if (newDate > existingDate) {
+                if ((existingGeneric && !newGeneric) || newDate > existingDate) {
                     leadMap.set(normalizedPhone, card)
                 }
             }
@@ -931,9 +1206,9 @@ export async function GET(req: Request) {
 
         // Converte de volta para array
         const deduplicatedCards = Array.from(leadMap.values())
-        console.log(`[CRM] Total de cards após deduplicação: ${deduplicatedCards.length} (removidos: ${cards.length - deduplicatedCards.length})`)
+        console.log(`[CRM] Total de cards apÃ³s deduplicaÃ§Ã£o: ${deduplicatedCards.length} (removidos: ${cards.length - deduplicatedCards.length})`)
 
-        // Buscar informações de follow-up ativo ANTES de determinar status
+        // Buscar informaÃ§Ãµes de follow-up ativo ANTES de determinar status
         const followUpMap = new Map<string, {
             isActive: boolean
             attemptCount: number
@@ -942,23 +1217,50 @@ export async function GET(req: Request) {
             sessionId: string
         }>()
 
-        const phoneNumbersForFollowUp = deduplicatedCards.map(card => {
-            const normalized = card.numero.replace(/\D/g, '').replace(/^55/, '').slice(-11)
-            return normalized
-        }).filter(Boolean)
+        const sessionIdsForFollowUp = deduplicatedCards
+            .map(card => String(card.id || "").trim())
+            .filter(Boolean)
 
-        if (phoneNumbersForFollowUp.length > 0) {
+        const phoneCandidatesForFollowUp = new Set<string>()
+        for (const card of deduplicatedCards) {
+            const rawDigits = String(card.numero || "").replace(/\D/g, "")
+            if (rawDigits) {
+                phoneCandidatesForFollowUp.add(rawDigits)
+            }
+            const normalized = normalizePhone(rawDigits)
+            if (normalized) {
+                phoneCandidatesForFollowUp.add(normalized)
+                if (rawDigits && !rawDigits.startsWith("55")) {
+                    phoneCandidatesForFollowUp.add(`55${normalized}`)
+                }
+            }
+        }
+
+        if (sessionIdsForFollowUp.length > 0 || phoneCandidatesForFollowUp.size > 0) {
             try {
-                // Buscar todos os follow-ups ativos
-                const { data: activeFollowups, error: followUpError } = await supabase
-                    .from(followupTable)
-                    .select("*")
-                    .eq("is_active", true)
+                let followUpTableAvailable = true
 
-                if (!followUpError && activeFollowups) {
-                    for (const followup of activeFollowups) {
-                        const normalizedPhone = followup.phone_number?.replace(/\D/g, '').replace(/^55/, '').slice(-11) || ''
-                        if (normalizedPhone && phoneNumbersForFollowUp.includes(normalizedPhone)) {
+                if (sessionIdsForFollowUp.length > 0) {
+                    for (const chunk of chunkArray(sessionIdsForFollowUp, 200)) {
+                        const { data: activeFollowups, error: followUpError } = await supabase
+                            .from(followupTable)
+                            .select("*")
+                            .in("session_id", chunk)
+                            .eq("is_active", true)
+
+                        if (followUpError) {
+                            if (isMissingTableError(followUpError)) {
+                                followUpTableAvailable = false
+                                console.warn(`[CRM] Tabela de followup ${followupTable} nÃ£o encontrada.`)
+                            } else {
+                                console.warn(`[CRM] Erro ao buscar informaÃ§Ãµes de follow-up por session_id:`, followUpError.message)
+                            }
+                            break
+                        }
+
+                        for (const followup of activeFollowups || []) {
+                            const normalizedPhone = normalizePhone(followup.phone_number || followup.session_id || "")
+                            if (!normalizedPhone) continue
                             followUpMap.set(normalizedPhone, {
                                 isActive: followup.is_active || false,
                                 attemptCount: followup.attempt_count || 0,
@@ -968,16 +1270,49 @@ export async function GET(req: Request) {
                             })
                         }
                     }
-                    console.log(`[CRM] Informações de follow-up carregadas para ${followUpMap.size} leads`)
                 }
+
+                const phoneCandidateList = Array.from(phoneCandidatesForFollowUp)
+                if (followUpTableAvailable && phoneCandidateList.length > 0) {
+                    for (const chunk of chunkArray(phoneCandidateList, 200)) {
+                        const { data: activeFollowups, error: followUpError } = await supabase
+                            .from(followupTable)
+                            .select("*")
+                            .in("phone_number", chunk)
+                            .eq("is_active", true)
+
+                        if (followUpError) {
+                            if (isMissingTableError(followUpError)) {
+                                console.warn(`[CRM] Tabela de followup ${followupTable} nÃ£o encontrada.`)
+                            } else {
+                                console.warn(`[CRM] Erro ao buscar informaÃ§Ãµes de follow-up por phone_number:`, followUpError.message)
+                            }
+                            break
+                        }
+
+                        for (const followup of activeFollowups || []) {
+                            const normalizedPhone = normalizePhone(followup.phone_number || followup.session_id || "")
+                            if (!normalizedPhone) continue
+                            followUpMap.set(normalizedPhone, {
+                                isActive: followup.is_active || false,
+                                attemptCount: followup.attempt_count || 0,
+                                nextFollowUpAt: followup.next_followup_at || null,
+                                lastInteractionAt: followup.last_interaction_at || followup.created_at,
+                                sessionId: followup.session_id || ''
+                            })
+                        }
+                    }
+                }
+
+                console.log(`[CRM] InformaÃ§Ãµes de follow-up carregadas para ${followUpMap.size} leads`)
             } catch (followUpErr: any) {
-                console.warn('[CRM] Erro ao buscar informações de follow-up (continuando sem):', followUpErr.message)
+                console.warn('[CRM] Erro ao buscar informaÃ§Ãµes de follow-up (continuando sem):', followUpErr.message)
             }
         }
 
         // Buscar status de pausa para todos os leads
         const phoneNumbers = deduplicatedCards.map(card => {
-            const normalized = card.numero.replace(/\D/g, '').replace(/^55/, '').slice(-11)
+            const normalized = normalizePhone(card.numero)
             return normalized
         }).filter(Boolean)
 
@@ -993,7 +1328,9 @@ export async function GET(req: Request) {
 
                 if (!pauseError && pauseStatuses) {
                     for (const pauseStatus of pauseStatuses) {
-                        pauseStatusMap.set(pauseStatus.numero, {
+                        const normalizedPausePhone = normalizePhone(pauseStatus.numero || "")
+                        if (!normalizedPausePhone) continue
+                        pauseStatusMap.set(normalizedPausePhone, {
                             pausar: pauseStatus.pausar || false,
                             vaga: pauseStatus.vaga !== undefined ? pauseStatus.vaga : true,
                             agendamento: pauseStatus.agendamento !== undefined ? pauseStatus.agendamento : true
@@ -1006,57 +1343,57 @@ export async function GET(req: Request) {
             }
         }
 
-        // Definir e popular as colunas do Kanban
-        const columns: CRMColumn[] = [
-            { id: "entrada", title: "Entrada", cards: [] },
-            { id: "atendimento", title: "Em Atendimento", cards: [] },
-            { id: "qualificacao", title: "Qualificação", cards: [] },
-            { id: "sem_resposta", title: "Sem Resposta (+24h)", cards: [] },
-            { id: "agendado", title: "Agendado", cards: [] },
-            { id: "follow_up", title: "Follow-up Necessário", cards: [] },
-            { id: "em_follow_up", title: "Em Follow-Up (Automático)", cards: [] },
-            { id: "em_negociacao", title: "Em Negociação", cards: [] },
-            { id: "ganhos", title: "Ganhos / Convertidos", cards: [] },
-            { id: "perdido", title: "Perdidos / Desqualificados", cards: [] }
-        ]
+        const columns = buildKanbanColumns(effectiveFunnelColumns)
+        const columnMap = new Map<string, CRMColumn>(columns.map((column) => [column.id, column]))
 
-        deduplicatedCards.forEach(card => {
-            // Anexar informações extras
-            const normalizedPhone = card.numero.replace(/\D/g, '').replace(/^55/, '').slice(-11)
+        deduplicatedCards.forEach((card) => {
+            const normalizedPhone = normalizePhone(card.numero)
 
-            // Pausa
             if (pauseStatusMap.has(normalizedPhone)) {
                 card.pauseStatus = pauseStatusMap.get(normalizedPhone)
                 card.isPaused = card.pauseStatus?.pausar || false
             }
 
-            // Follow-up
             if (followUpMap.has(normalizedPhone)) {
                 card.followUpInfo = {
                     ...followUpMap.get(normalizedPhone)!,
                     etapa: 0,
                     etapaName: "Em andamento",
-                    etapaInterval: "Automático"
+                    etapaInterval: "Automatico"
                 }
             }
 
-            // Distribuir nas colunas
-            const column = columns.find(c => c.id === card.status)
-            if (column) {
-                column.cards.push(card)
-            } else {
-                // Fallback para atendimento se status for desconhecido
-                const fallback = columns.find(c => c.id === 'atendimento')
-                if (fallback) fallback.cards.push(card)
+            if (!columnMap.has(card.status)) {
+                const dynamicColumn: CRMColumn = {
+                    id: card.status,
+                    title: humanizeStatusId(card.status),
+                    cards: [],
+                }
+                columns.push(dynamicColumn)
+                columnMap.set(card.status, dynamicColumn)
+            }
+
+            columnMap.get(card.status)!.cards.push(card)
+        })
+
+        columns.forEach((column) => {
+            column.cards.sort((a, b) => new Date(b.lastInteraction).getTime() - new Date(a.lastInteraction).getTime())
+        })
+
+        const responseFunnelConfig = columns.map((column, index) => {
+            const saved = effectiveFunnelColumns.find((item) => item.id === column.id)
+            return {
+                id: column.id,
+                title: column.title,
+                order: index,
+                color: saved?.color,
             }
         })
 
-        // Ordenar cards dentro de cada coluna (mais recente primeiro)
-        columns.forEach(col => {
-            col.cards.sort((a, b) => new Date(b.lastInteraction).getTime() - new Date(a.lastInteraction).getTime())
+        return NextResponse.json({
+            columns,
+            funnelConfig: responseFunnelConfig,
         })
-
-        return NextResponse.json({ columns })
 
     } catch (error: any) {
         console.error('[CRM] Erro fatal na API:', error)

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
-import { getTenantFromSession, isValidTenant } from "@/lib/auth/tenant"
+import { isValidTenant } from "@/lib/auth/tenant"
+import { resolveTenant } from "@/lib/helpers/resolve-tenant"
 
 interface FunnelColumn {
   id: string
@@ -9,22 +10,27 @@ interface FunnelColumn {
   color?: string
 }
 
-// GET - Buscar configuração do funil
+// GET - Buscar configuraÃ§Ã£o do funil
 export async function GET(req: Request) {
   try {
-    // Identificar Unidade (Tenant) da sessão JWT
-    const tenant = await getTenantFromSession('vox_bh')
+    // Identificar Unidade (Tenant) da sessÃ£o JWT
+    let tenant: string
+    try {
+      tenant = await resolveTenant(req)
+    } catch (error: any) {
+      return NextResponse.json({ error: error?.message || "Unauthorized" }, { status: 401 })
+    }
 
     // Validar tenant
     if (!isValidTenant(tenant)) {
-      return NextResponse.json({ error: 'Tenant inválido' }, { status: 400 })
+      return NextResponse.json({ error: 'Tenant invÃ¡lido' }, { status: 400 })
     }
 
     const funnelConfigTable = `${tenant}_crm_funnel_config`
 
     const supabase = createBiaSupabaseServerClient()
 
-    // Buscar configuração salva ou retornar padrão
+    // Buscar configuraÃ§Ã£o salva ou retornar padrÃ£o
     const { data: config, error } = await supabase
       .from(funnelConfigTable)
       .select("*")
@@ -32,23 +38,24 @@ export async function GET(req: Request) {
       .limit(1)
       .maybeSingle()
 
-    // Se erro e não for "não encontrado" ou "tabela não existe", loga
+    // Se erro e nÃ£o for "nÃ£o encontrado" ou "tabela nÃ£o existe", loga
     if (error && error.code !== 'PGRST116' && !error.message?.includes('does not exist')) {
-      console.error(`[CRM Funnel] Erro ao buscar configuração (${tenant}):`, error)
+      console.error(`[CRM Funnel] Erro ao buscar configuraÃ§Ã£o (${tenant}):`, error)
     }
 
-    // Se não tem configuração, retorna padrão
+    // Se nÃ£o tem configuraÃ§Ã£o, retorna padrÃ£o
     if (!config) {
       const defaultColumns: FunnelColumn[] = [
-        { id: 'entrada', title: 'Entrada de Leads', order: 0, color: '#3b82f6' },
+        { id: 'entrada', title: 'Entrada', order: 0, color: '#3b82f6' },
         { id: 'atendimento', title: 'Em Atendimento', order: 1, color: '#eab308' },
-        { id: 'qualificacao', title: 'Qualificação', order: 2, color: '#a855f7' },
-        { id: 'em_negociacao', title: 'Em Negociação', order: 3, color: '#f59e0b' },
-        { id: 'ganhos', title: 'Ganhos', order: 4, color: '#10b981' },
-        { id: 'perdido', title: 'Perdido', order: 5, color: '#ef4444' },
-        { id: 'sem_resposta', title: 'Sem Resposta', order: 6, color: '#6b7280' },
-        { id: 'follow_up', title: 'Fazer Follow-up', order: 7, color: '#f97316' },
-        { id: 'agendado', title: 'Agendado', order: 8, color: '#14b8a6' }
+        { id: 'qualificacao', title: 'Qualificacao', order: 2, color: '#a855f7' },
+        { id: 'sem_resposta', title: 'Sem Resposta (+24h)', order: 3, color: '#6b7280' },
+        { id: 'agendado', title: 'Agendado', order: 4, color: '#14b8a6' },
+        { id: 'follow_up', title: 'Follow-up Necessario', order: 5, color: '#f97316' },
+        { id: 'em_follow_up', title: 'Em Follow-Up (Automatico)', order: 6, color: '#8b5cf6' },
+        { id: 'em_negociacao', title: 'Em Negociacao', order: 7, color: '#f59e0b' },
+        { id: 'ganhos', title: 'Ganhos / Convertidos', order: 8, color: '#10b981' },
+        { id: 'perdido', title: 'Perdidos / Desqualificados', order: 9, color: '#ef4444' }
       ]
 
       return NextResponse.json({
@@ -67,7 +74,7 @@ export async function GET(req: Request) {
   }
 }
 
-// POST - Salvar configuração do funil
+// POST - Salvar configuraÃ§Ã£o do funil
 export async function POST(req: Request) {
   try {
     const body = await req.json()
@@ -75,25 +82,30 @@ export async function POST(req: Request) {
 
     if (!columns || !Array.isArray(columns)) {
       return NextResponse.json(
-        { error: "Colunas são obrigatórias" },
+        { error: "Colunas sÃ£o obrigatÃ³rias" },
         { status: 400 }
       )
     }
 
-    // Identificar Unidade (Tenant) da sessão JWT
-    const tenant = await getTenantFromSession('vox_bh')
-    console.log(`[CRM Funnel] Salvando configuração... Unidade: ${tenant}`)
+    // Identificar Unidade (Tenant) da sessÃ£o JWT
+    let tenant: string
+    try {
+      tenant = await resolveTenant(req)
+    } catch (error: any) {
+      return NextResponse.json({ error: error?.message || "Unauthorized" }, { status: 401 })
+    }
+    console.log(`[CRM Funnel] Salvando configuraÃ§Ã£o... Unidade: ${tenant}`)
 
     // Validar tenant
     if (!isValidTenant(tenant)) {
-      return NextResponse.json({ error: 'Tenant inválido' }, { status: 400 })
+      return NextResponse.json({ error: 'Tenant invÃ¡lido' }, { status: 400 })
     }
 
     const funnelConfigTable = `${tenant}_crm_funnel_config`
 
     const supabase = createBiaSupabaseServerClient()
 
-    // Buscar configuração existente
+    // Buscar configuraÃ§Ã£o existente
     const { data: existing, error: fetchError } = await supabase
       .from(funnelConfigTable)
       .select("id")
@@ -101,9 +113,9 @@ export async function POST(req: Request) {
       .limit(1)
       .maybeSingle()
 
-    // Se erro e não for "não encontrado" ou "tabela não existe", lança erro
+    // Se erro e nÃ£o for "nÃ£o encontrado" ou "tabela nÃ£o existe", lanÃ§a erro
     if (fetchError && fetchError.code !== 'PGRST116' && !fetchError.message?.includes('does not exist')) {
-      console.error(`[CRM Funnel] Erro ao buscar configuração existente (${tenant}):`, fetchError)
+      console.error(`[CRM Funnel] Erro ao buscar configuraÃ§Ã£o existente (${tenant}):`, fetchError)
       throw fetchError
     }
 
@@ -122,7 +134,7 @@ export async function POST(req: Request) {
         if (error.message?.includes('does not exist')) {
           return NextResponse.json({
             success: false,
-            error: "Tabela não encontrada. Execute a migração SQL primeiro.",
+            error: "Tabela nÃ£o encontrada. Execute a migraÃ§Ã£o SQL primeiro.",
             details: error.message
           }, { status: 400 })
         }
@@ -145,7 +157,7 @@ export async function POST(req: Request) {
         if (error.message?.includes('does not exist')) {
           return NextResponse.json({
             success: false,
-            error: "Tabela não encontrada. Execute a migração SQL primeiro.",
+            error: "Tabela nÃ£o encontrada. Execute a migraÃ§Ã£o SQL primeiro.",
             details: error.message
           }, { status: 400 })
         }

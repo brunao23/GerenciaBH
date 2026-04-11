@@ -35,7 +35,7 @@ export default function AdminLoginPage() {
             }
 
             // Sucesso - redirecionar para painel admin
-            router.push("/admin/dashboard")
+            router.push("/admin/units")
             router.refresh()
         } catch (err) {
             setError("Erro ao conectar com o servidor")
@@ -48,10 +48,10 @@ export default function AdminLoginPage() {
             <Card className="w-full max-w-md genial-card">
                 <CardHeader className="text-center">
                     <div className="mb-4">
-                        <h1 className="text-3xl font-bold bg-gradient-to-r from-accent-yellow to-dark-yellow bg-clip-text text-transparent">
+                        <h1 className="text-3xl font-bold bg-gradient-to-r from-accent-green to-dark-green bg-clip-text text-transparent">
                             GerencIA Admin
                         </h1>
-                        <p className="text-sm text-text-gray mt-1">CORE LION AI</p>
+                        <p className="text-sm text-text-gray mt-1">Genial Labs AI</p>
                     </div>
                     <CardTitle className="text-2xl text-pure-white">Acesso Administrativo</CardTitle>
                     <CardDescription className="text-text-gray">
@@ -73,7 +73,7 @@ export default function AdminLoginPage() {
                             <Input
                                 id="username"
                                 type="text"
-                                placeholder="corelion_admin"
+                                placeholder="genial_admin"
                                 value={username}
                                 onChange={(e) => setUsername(e.target.value)}
                                 required
@@ -99,7 +99,7 @@ export default function AdminLoginPage() {
                         <Button
                             type="submit"
                             disabled={loading}
-                            className="w-full bg-gradient-to-r from-accent-yellow to-dark-yellow text-primary-black font-semibold hover:opacity-90"
+                            className="w-full bg-gradient-to-r from-accent-green to-dark-green text-primary-black font-semibold hover:opacity-90"
                         >
                             {loading ? "Entrando..." : "Entrar como Admin"}
                         </Button>

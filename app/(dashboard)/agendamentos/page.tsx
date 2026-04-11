@@ -9,7 +9,7 @@ import { Button } from "../../../components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../../components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../../components/ui/table"
 import { FollowUpScheduler } from "../../../components/follow-up-scheduler"
-import { Calendar, Search, Sparkles, RefreshCw, Filter, Clock, User, FileText, Edit2, Trash2, X, Save } from "lucide-react"
+import { Calendar, Search, Sparkles, RefreshCw, Filter, Clock, User, FileText, Edit2, Trash2, X, Save, Plus, Send } from "lucide-react"
 import { toast } from "sonner"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../../../components/ui/dialog"
 import { Textarea } from "../../../components/ui/textarea"
@@ -17,7 +17,7 @@ import { Label } from "../../../components/ui/label"
 import { useTenant } from "@/lib/contexts/TenantContext"
 
 type Agendamento = {
-  id: number
+  id: string | number
   timestamp?: string
   nome: string | null
   nome_responsavel?: string | null
@@ -25,11 +25,15 @@ type Agendamento = {
   horario: string | null
   dia: string | null
   observacoes: string | null
+  observacao_marcacao?: string | null
   contato: string | null
   status: string | null
   editado_manual?: boolean
   updated_at?: string
 }
+
+const ERRO_DATA_HORARIO_REGEX = /erro:\s*data\s*ou\s*hor.?rio\s*vazios/i
+const STATUS_REQUER_DIA_HORARIO = new Set(["agendado", "confirmado"])
 
 export default function AgendamentosPage() {
   const { tenant } = useTenant()
@@ -45,10 +49,72 @@ export default function AgendamentosPage() {
   const [loading, setLoading] = useState(true)
   const [editingAgendamento, setEditingAgendamento] = useState<Agendamento | null>(null)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
-  const [deletingId, setDeletingId] = useState<number | null>(null)
-  const [pendingChanges, setPendingChanges] = useState<Map<number, Agendamento>>(new Map())
+  const [deletingId, setDeletingId] = useState<string | number | null>(null)
+  const [pendingChanges, setPendingChanges] = useState<Map<string | number, Agendamento>>(new Map())
   const [saving, setSaving] = useState(false)
   const [savingModal, setSavingModal] = useState(false)
+  const [savingWithWebhook, setSavingWithWebhook] = useState(false)
+  const [savingInlineIds, setSavingInlineIds] = useState<Set<string | number>>(new Set())
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [newAgendamento, setNewAgendamento] = useState({
+    nome: "",
+    contato: "",
+    dia: "",
+    horario: "",
+    status: "pendente",
+    observacao_marcacao: "agendamento_manual",
+    observacoes: "",
+  })
+
+  const resetNewAgendamento = () => {
+    setNewAgendamento({
+      nome: "",
+      contato: "",
+      dia: "",
+      horario: "",
+      status: "pendente",
+      observacao_marcacao: "agendamento_manual",
+      observacoes: "",
+    })
+  }
+
+  const normalizeDiaForValidation = (value: string | null | undefined) => {
+    const dia = String(value ?? "").trim()
+    if (!dia) return ""
+    if (dia.toLowerCase() === "a definir") return ""
+    if (ERRO_DATA_HORARIO_REGEX.test(dia)) return ""
+    return dia
+  }
+
+  const normalizeTimeInputValue = (value: string | null | undefined) => {
+    const raw = String(value ?? "").trim()
+    if (!raw) return ""
+    if (raw.toLowerCase() === "a definir") return ""
+    if (ERRO_DATA_HORARIO_REGEX.test(raw)) return ""
+
+    const match = raw.match(/^([01]?\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?$/)
+    if (!match) return ""
+
+    const hh = match[1].padStart(2, "0")
+    const mm = match[2]
+    return `${hh}:${mm}`
+  }
+
+  const buildHorarioForApi = (value: string | null | undefined) => {
+    const normalized = normalizeTimeInputValue(value)
+    return normalized ? `${normalized}:00` : ""
+  }
+
+  const statusPrecisaDiaHorario = (statusValue: string | null | undefined) =>
+    STATUS_REQUER_DIA_HORARIO.has(String(statusValue || "").toLowerCase())
+
+  const hasDiaHorarioDefinidos = (
+    diaValue: string | null | undefined,
+    horarioValue: string | null | undefined
+  ) => {
+    return Boolean(normalizeDiaForValidation(diaValue)) && Boolean(normalizeTimeInputValue(horarioValue))
+  }
 
   const fetchData = useCallback(() => {
     if (!tenant) return
@@ -87,10 +153,20 @@ export default function AgendamentosPage() {
     setIsEditModalOpen(true)
   }
 
-  const handleSaveEdit = async () => {
+  const handleSaveEdit = async (options?: { sendWebhook?: boolean }) => {
     if (!editingAgendamento) return
+    const shouldSendWebhook = Boolean(options?.sendWebhook)
+
+    if (
+      statusPrecisaDiaHorario(editingAgendamento.status) &&
+      !hasDiaHorarioDefinidos(editingAgendamento.dia, editingAgendamento.horario)
+    ) {
+      toast.error("Para status Agendado/Confirmado, preencha data e horário válidos.")
+      return
+    }
 
     setSavingModal(true)
+    setSavingWithWebhook(shouldSendWebhook)
     try {
       const response = await fetch("/api/supabase/agendamentos", {
         method: "PUT",
@@ -105,16 +181,26 @@ export default function AgendamentosPage() {
           status: editingAgendamento.status,
           dia: editingAgendamento.dia,
           horario: editingAgendamento.horario,
+          observacao_marcacao: editingAgendamento.observacao_marcacao || "nenhuma",
           observacoes: editingAgendamento.observacoes,
+          send_webhook_manual: shouldSendWebhook,
         }),
       })
 
+      const result = await response.json().catch(() => ({} as any))
       if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || "Erro ao atualizar agendamento")
+        throw new Error(result.error || "Erro ao atualizar agendamento")
       }
 
-      toast.success("Agendamento atualizado com sucesso!")
+      if (shouldSendWebhook) {
+        if (result?.webhookSent === false) {
+          toast.warning("Agendamento salvo, mas o webhook não confirmou envio.")
+        } else {
+          toast.success("Agendamento salvo e webhook enviado com sucesso!")
+        }
+      } else {
+        toast.success("Agendamento atualizado com sucesso!")
+      }
       // Remove das alterações pendentes se existir
       setPendingChanges(prev => {
         const newMap = new Map(prev)
@@ -129,12 +215,66 @@ export default function AgendamentosPage() {
       toast.error(error.message || "Erro ao atualizar agendamento")
     } finally {
       setSavingModal(false)
+      setSavingWithWebhook(false)
+    }
+  }
+
+  const handleCreate = async () => {
+    if (!tenant) return
+    const contato = newAgendamento.contato.trim()
+    if (!contato) {
+      toast.error("Contato Ã© obrigatÃ³rio")
+      return
+    }
+
+    const horarioFinal = buildHorarioForApi(newAgendamento.horario)
+    if (
+      statusPrecisaDiaHorario(newAgendamento.status) &&
+      !hasDiaHorarioDefinidos(newAgendamento.dia, horarioFinal)
+    ) {
+      toast.error("Para status Agendado/Confirmado, preencha data e horário válidos.")
+      return
+    }
+
+    setCreating(true)
+    try {
+      const response = await fetch("/api/supabase/agendamentos", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-tenant-prefix": tenant.prefix,
+        },
+        body: JSON.stringify({
+          nome: newAgendamento.nome,
+          contato,
+          status: newAgendamento.status,
+          dia: newAgendamento.dia,
+          horario: horarioFinal,
+          observacao_marcacao: newAgendamento.observacao_marcacao,
+          observacoes: newAgendamento.observacoes,
+        }),
+      })
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({} as any))
+        throw new Error(error.error || "Erro ao criar agendamento")
+      }
+
+      toast.success("Agendamento criado com sucesso!")
+      setIsCreateModalOpen(false)
+      resetNewAgendamento()
+      fetchData()
+    } catch (error: any) {
+      console.error("Erro ao criar agendamento:", error)
+      toast.error(error.message || "Erro ao criar agendamento")
+    } finally {
+      setCreating(false)
     }
   }
 
   // Função auxiliar para comparar dois agendamentos
   const hasRowChanged = (original: Agendamento, updated: Agendamento): boolean => {
-    const fieldsToCompare: (keyof Agendamento)[] = ['nome', 'contato', 'status', 'dia', 'horario', 'observacoes']
+    const fieldsToCompare: (keyof Agendamento)[] = ['nome', 'contato', 'status', 'dia', 'horario', 'observacao_marcacao', 'observacoes']
     return fieldsToCompare.some(field => {
       const origValue = String(original[field] || '').trim()
       const updValue = String(updated[field] || '').trim()
@@ -143,7 +283,7 @@ export default function AgendamentosPage() {
   }
 
   // Atualiza um agendamento localmente e marca como alterado
-  const handleFieldChange = (id: number, field: keyof Agendamento, value: any) => {
+  const handleFieldChange = (id: string | number, field: keyof Agendamento, value: any) => {
     const updatedRows = rows.map(row => {
       if (row.id === id) {
         return { ...row, [field]: value }
@@ -178,6 +318,82 @@ export default function AgendamentosPage() {
     }
   }
 
+  const handleInlineSelectSave = async (
+    id: string | number,
+    field: "status" | "observacao_marcacao",
+    value: string
+  ) => {
+    if (!tenant) return
+    const currentRow = rows.find(r => r.id === id)
+    if (!currentRow) return
+
+    if (
+      field === "status" &&
+      statusPrecisaDiaHorario(value) &&
+      !hasDiaHorarioDefinidos(currentRow.dia, currentRow.horario)
+    ) {
+      toast.error("Para marcar como Agendado/Confirmado, preencha data e horário válidos.")
+      return
+    }
+
+    const currentValue = String((currentRow as any)[field] || "")
+    const nextValue = String(value || "")
+    if (currentValue === nextValue) return
+
+    const optimisticRow = { ...currentRow, [field]: value } as Agendamento
+    setRows(prev => prev.map(r => (r.id === id ? optimisticRow : r)))
+
+    setSavingInlineIds(prev => {
+      const next = new Set(prev)
+      next.add(id)
+      return next
+    })
+
+    try {
+      const response = await fetch("/api/supabase/agendamentos", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "x-tenant-prefix": tenant.prefix,
+        },
+        body: JSON.stringify({
+          id,
+          [field]: value,
+        }),
+      })
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({} as any))
+        throw new Error(error.error || "Erro ao salvar alteração")
+      }
+
+      const originalRow = originalRows.find(r => r.id === id)
+      const nextOriginalRow = (originalRow
+        ? { ...originalRow, [field]: value }
+        : optimisticRow) as Agendamento
+
+      setOriginalRows(prev => prev.map(r => (r.id === id ? nextOriginalRow : r)))
+      setPendingChanges(prev => {
+        const next = new Map(prev)
+        if (hasRowChanged(nextOriginalRow, optimisticRow)) {
+          next.set(id, optimisticRow)
+        } else {
+          next.delete(id)
+        }
+        return next
+      })
+    } catch (error: any) {
+      setRows(prev => prev.map(r => (r.id === id ? currentRow : r)))
+      toast.error(error.message || "Erro ao salvar alteração")
+    } finally {
+      setSavingInlineIds(prev => {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
+    }
+  }
+
   // Salva todas as alterações pendentes
   const handleSaveAllChanges = async () => {
     if (pendingChanges.size === 0) {
@@ -207,6 +423,7 @@ export default function AgendamentosPage() {
               status: agendamento.status,
               dia: agendamento.dia,
               horario: agendamento.horario,
+              observacao_marcacao: agendamento.observacao_marcacao || "nenhuma",
               observacoes: agendamento.observacoes,
             }),
           })
@@ -246,7 +463,7 @@ export default function AgendamentosPage() {
     }
   }
 
-  const handleDelete = async (id: number) => {
+  const handleDelete = async (id: string | number) => {
     if (!confirm("Tem certeza que deseja excluir este agendamento? Esta ação não pode ser desfeita.")) {
       return
     }
@@ -368,7 +585,15 @@ export default function AgendamentosPage() {
     })
   }, [rows, q, status])
 
-  const statuses = ["pendente", "confirmado", "cancelado"]
+  const statuses = ["pendente", "confirmado", "agendado", "cancelado"]
+  const marcacaoOptions = [
+    { value: "nenhuma", label: "Sem marcacao" },
+    { value: "agendamento_manual", label: "Agendamento manual" },
+    { value: "reagendado", label: "Reagendado" },
+    { value: "confirmado_manual", label: "Confirmado manual" },
+    { value: "outro", label: "Outro" },
+  ]
+  const getMarcacaoValue = (value?: string | null) => (value && value.trim() ? value : "nenhuma")
 
   const getStatusBadge = (status: string | null) => {
     const statusLower = (status ?? "").toLowerCase()
@@ -377,7 +602,7 @@ export default function AgendamentosPage() {
       case "agendado":
         return <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/30">Confirmado</Badge>
       case "pendente":
-        return <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30 hover:bg-yellow-500/30">Pendente</Badge>
+        return <Badge className="bg-green-500/20 text-green-400 border-green-500/30 hover:bg-green-500/30">Pendente</Badge>
       case "cancelado":
         return <Badge className="bg-red-500/20 text-red-400 border-red-500/30 hover:bg-red-500/30">Cancelado</Badge>
       default:
@@ -396,6 +621,153 @@ export default function AgendamentosPage() {
           <p className="text-text-gray mt-1">Gerencie sua agenda e follow-ups automáticos</p>
         </div>
         <div className="flex gap-2">
+          <Dialog
+            open={isCreateModalOpen}
+            onOpenChange={(open) => {
+              setIsCreateModalOpen(open)
+              if (!open) resetNewAgendamento()
+            }}
+          >
+            <DialogTrigger asChild>
+              <Button className="bg-accent-green hover:bg-accent-green/80 text-black font-semibold shadow-lg shadow-accent-green/20">
+                <Plus className="w-4 h-4 mr-2" />
+                Novo agendamento
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="bg-card-black border-border-gray text-pure-white max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Adicionar agendamento manual</DialogTitle>
+              </DialogHeader>
+
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="novo-nome" className="text-pure-white">Nome</Label>
+                    <Input
+                      id="novo-nome"
+                      value={newAgendamento.nome}
+                      onChange={(e) => setNewAgendamento({ ...newAgendamento, nome: e.target.value })}
+                      className="bg-primary-black border-border-gray text-pure-white"
+                      placeholder="Nome do lead"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="novo-contato" className="text-pure-white">Contato *</Label>
+                    <Input
+                      id="novo-contato"
+                      value={newAgendamento.contato}
+                      onChange={(e) => setNewAgendamento({ ...newAgendamento, contato: e.target.value })}
+                      className="bg-primary-black border-border-gray text-pure-white"
+                      placeholder="Telefone / WhatsApp"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="novo-dia" className="text-pure-white">Dia (DD/MM/AAAA)</Label>
+                    <Input
+                      id="novo-dia"
+                      value={newAgendamento.dia}
+                      onChange={(e) => setNewAgendamento({ ...newAgendamento, dia: e.target.value })}
+                      className="bg-primary-black border-border-gray text-pure-white"
+                      placeholder="DD/MM/AAAA"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="novo-horario" className="text-pure-white">HorÃ¡rio</Label>
+                    <Input
+                      id="novo-horario"
+                      type="time"
+                      value={normalizeTimeInputValue(newAgendamento.horario)}
+                      onChange={(e) => setNewAgendamento({ ...newAgendamento, horario: e.target.value })}
+                      className="bg-primary-black border-border-gray text-pure-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-pure-white">Status</Label>
+                  <Select
+                    value={newAgendamento.status}
+                    onValueChange={(value) => setNewAgendamento({ ...newAgendamento, status: value })}
+                  >
+                    <SelectTrigger className="bg-[#101218] border-border-gray/90 text-pure-white w-full data-[state=open]:bg-[#101218]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-[#101218] border-border-gray/90 text-pure-white z-[220] shadow-2xl">
+                      <SelectItem value="pendente">Pendente</SelectItem>
+                      <SelectItem value="confirmado">Confirmado</SelectItem>
+                      <SelectItem value="agendado">Agendado</SelectItem>
+                      <SelectItem value="cancelado">Cancelado</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-pure-white">Marcação manual</Label>
+                  <Select
+                    value={getMarcacaoValue(newAgendamento.observacao_marcacao)}
+                    onValueChange={(value) => setNewAgendamento({ ...newAgendamento, observacao_marcacao: value })}
+                  >
+                    <SelectTrigger className="bg-[#101218] border-border-gray/90 text-pure-white w-full data-[state=open]:bg-[#101218]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-[#101218] border-border-gray/90 text-pure-white z-[220] shadow-2xl">
+                      {marcacaoOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="novo-observacoes" className="text-pure-white">ObservaÃ§Ãµes</Label>
+                  <Textarea
+                    id="novo-observacoes"
+                    value={newAgendamento.observacoes}
+                    onChange={(e) => setNewAgendamento({ ...newAgendamento, observacoes: e.target.value })}
+                    className="bg-primary-black border-border-gray text-pure-white min-h-[100px]"
+                    placeholder="ObservaÃ§Ãµes sobre o agendamento"
+                    maxLength={500}
+                  />
+                  <p className="text-xs text-text-gray text-right">
+                    {newAgendamento.observacoes.length}/500 caracteres
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-border-gray">
+                <Button
+                  variant="outline"
+                  onClick={() => setIsCreateModalOpen(false)}
+                  className="border-border-gray text-pure-white hover:bg-secondary-black min-w-[100px]"
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={handleCreate}
+                  type="button"
+                  disabled={creating}
+                  className="bg-accent-green hover:bg-accent-green/80 text-black font-semibold min-w-[170px] shadow-lg shadow-accent-green/20 disabled:opacity-50"
+                >
+                  {creating ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                      Salvando...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4 mr-2" />
+                      Criar agendamento
+                    </>
+                  )}
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+
           <Button
             onClick={fetchData}
             disabled={loading}
@@ -440,13 +812,13 @@ export default function AgendamentosPage() {
                   </div>
 
                   <Select value={status} onValueChange={setStatus}>
-                    <SelectTrigger className="w-[160px] bg-secondary-black border-border-gray text-pure-white">
+                    <SelectTrigger className="w-[160px] bg-[#101218] border-border-gray/90 text-pure-white data-[state=open]:bg-[#101218]">
                       <div className="flex items-center gap-2">
                         <Filter className="w-4 h-4 text-accent-green" />
                         <SelectValue placeholder="Status" />
                       </div>
                     </SelectTrigger>
-                    <SelectContent className="bg-card-black border-border-gray">
+                    <SelectContent className="bg-[#101218] border-border-gray/90 text-pure-white shadow-2xl">
                       <SelectItem value="todos">Todos</SelectItem>
                       {statuses.map((s) => (
                         <SelectItem key={s} value={s}>
@@ -463,14 +835,14 @@ export default function AgendamentosPage() {
                       type="date"
                       value={dayStart}
                       onChange={(e) => setDayStart(e.target.value)}
-                      className="w-32 bg-transparent border-none h-8 text-xs"
+                      className="w-32 bg-[#101218] border border-border-gray/80 h-8 text-xs text-pure-white"
                     />
                     <span className="text-text-gray">-</span>
                     <Input
                       type="date"
                       value={dayEnd}
                       onChange={(e) => setDayEnd(e.target.value)}
-                      className="w-32 bg-transparent border-none h-8 text-xs"
+                      className="w-32 bg-[#101218] border border-border-gray/80 h-8 text-xs text-pure-white"
                     />
                   </div>
 
@@ -500,6 +872,21 @@ export default function AgendamentosPage() {
                     )}
                     IA Detect
                   </Button>
+                  {pendingChanges.size > 0 && (
+                    <Button
+                      size="sm"
+                      onClick={handleSaveAllChanges}
+                      disabled={saving}
+                      className="bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white shadow-lg shadow-emerald-500/20 border-none"
+                    >
+                      {saving ? (
+                        <RefreshCw className="w-4 h-4 animate-spin mr-2" />
+                      ) : (
+                        <Save className="w-4 h-4 mr-2" />
+                      )}
+                      Salvar {pendingChanges.size} alteração(ões)
+                    </Button>
+                  )}
                 </div>
               </div>
 
@@ -540,6 +927,7 @@ export default function AgendamentosPage() {
                     </TableHead>
                     <TableHead className="text-pure-white font-semibold">Contato</TableHead>
                     <TableHead className="text-pure-white font-semibold">Status</TableHead>
+                    <TableHead className="text-pure-white font-semibold w-[190px]">Marcação</TableHead>
                     <TableHead className="text-pure-white font-semibold w-[300px]">
                       <div className="flex items-center gap-2">
                         <FileText className="w-4 h-4 text-accent-green" />
@@ -552,7 +940,7 @@ export default function AgendamentosPage() {
                 <TableBody>
                   {loading ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="h-24 text-center">
+                      <TableCell colSpan={8} className="h-24 text-center">
                         <div className="flex justify-center items-center gap-2 text-text-gray">
                           <RefreshCw className="w-5 h-5 animate-spin" />
                           Carregando agendamentos...
@@ -561,7 +949,7 @@ export default function AgendamentosPage() {
                     </TableRow>
                   ) : filtered.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="h-40 text-center">
+                      <TableCell colSpan={8} className="h-40 text-center">
                         <div className="flex flex-col items-center justify-center gap-2 text-text-gray opacity-60">
                           <Calendar className="w-12 h-12" />
                           <p>Nenhum agendamento encontrado</p>
@@ -589,7 +977,7 @@ export default function AgendamentosPage() {
                               </Badge>
                             )}
                             {pendingChanges.has(r.id) && (
-                              <Badge variant="outline" className="text-[10px] h-4 px-1 border-yellow-500/30 text-yellow-400" title="Alteração pendente">
+                              <Badge variant="outline" className="text-[10px] h-4 px-1 border-green-500/30 text-green-400" title="Alteração pendente">
                                 *
                               </Badge>
                             )}
@@ -607,10 +995,10 @@ export default function AgendamentosPage() {
                         <TableCell className="text-text-gray">
                           <Input
                             type="time"
-                            value={r.horario ? r.horario.substring(0, 5) : ""}
+                            value={normalizeTimeInputValue(r.horario)}
                             onChange={(e) => {
                               const time = e.target.value
-                              handleFieldChange(r.id, "horario", time ? `${time}:00` : "")
+                              handleFieldChange(r.id, "horario", buildHorarioForApi(time))
                             }}
                             className="h-8 bg-secondary-black/50 border-border-gray text-text-gray text-sm px-2"
                           />
@@ -626,16 +1014,33 @@ export default function AgendamentosPage() {
                         <TableCell>
                           <Select
                             value={r.status || "pendente"}
-                            onValueChange={(value) => handleFieldChange(r.id, "status", value)}
+                            onValueChange={(value) => handleInlineSelectSave(r.id, "status", value)}
+                            disabled={savingInlineIds.has(r.id)}
                           >
-                            <SelectTrigger className="h-8 bg-secondary-black/50 border-border-gray text-pure-white text-xs px-2">
+                            <SelectTrigger className="h-8 bg-[#101218] border-border-gray/90 text-pure-white text-xs px-2 data-[state=open]:bg-[#101218]">
                               <SelectValue />
                             </SelectTrigger>
-                            <SelectContent className="bg-card-black border-border-gray z-[200]">
+                            <SelectContent className="bg-[#101218] border-border-gray/90 text-pure-white z-[220] shadow-2xl">
                               <SelectItem value="pendente">Pendente</SelectItem>
                               <SelectItem value="confirmado">Confirmado</SelectItem>
                               <SelectItem value="agendado">Agendado</SelectItem>
                               <SelectItem value="cancelado">Cancelado</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </TableCell>
+                        <TableCell>
+                          <Select
+                            value={getMarcacaoValue(r.observacao_marcacao)}
+                            onValueChange={(value) => handleInlineSelectSave(r.id, "observacao_marcacao", value)}
+                            disabled={savingInlineIds.has(r.id)}
+                          >
+                            <SelectTrigger className="h-8 bg-[#101218] border-border-gray/90 text-pure-white text-xs px-2 data-[state=open]:bg-[#101218]">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="bg-[#101218] border-border-gray/90 text-pure-white z-[220] shadow-2xl">
+                              {marcacaoOptions.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                              ))}
                             </SelectContent>
                           </Select>
                         </TableCell>
@@ -745,10 +1150,10 @@ export default function AgendamentosPage() {
                       <Input
                         id="edit-horario"
                         type="time"
-                        value={editingAgendamento.horario ? editingAgendamento.horario.substring(0, 5) : ""}
+                        value={normalizeTimeInputValue(editingAgendamento.horario)}
                         onChange={(e) => {
                           const time = e.target.value
-                          setEditingAgendamento({ ...editingAgendamento, horario: time ? `${time}:00` : "" })
+                          setEditingAgendamento({ ...editingAgendamento, horario: buildHorarioForApi(time) })
                         }}
                         className="bg-primary-black border-border-gray text-pure-white"
                       />
@@ -761,14 +1166,31 @@ export default function AgendamentosPage() {
                       value={editingAgendamento.status || "pendente"}
                       onValueChange={(value) => setEditingAgendamento({ ...editingAgendamento, status: value })}
                     >
-                      <SelectTrigger className="bg-primary-black border-border-gray text-pure-white w-full">
+                      <SelectTrigger className="bg-[#101218] border-border-gray/90 text-pure-white w-full data-[state=open]:bg-[#101218]">
                         <SelectValue />
                       </SelectTrigger>
-                      <SelectContent className="bg-card-black border-border-gray z-[200]">
+                      <SelectContent className="bg-[#101218] border-border-gray/90 text-pure-white z-[220] shadow-2xl">
                         <SelectItem value="pendente">Pendente</SelectItem>
                         <SelectItem value="confirmado">Confirmado</SelectItem>
                         <SelectItem value="agendado">Agendado</SelectItem>
                         <SelectItem value="cancelado">Cancelado</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-pure-white">Marcação manual</Label>
+                    <Select
+                      value={getMarcacaoValue(editingAgendamento.observacao_marcacao)}
+                      onValueChange={(value) => setEditingAgendamento({ ...editingAgendamento, observacao_marcacao: value })}
+                    >
+                      <SelectTrigger className="bg-[#101218] border-border-gray/90 text-pure-white w-full data-[state=open]:bg-[#101218]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="bg-[#101218] border-border-gray/90 text-pure-white z-[220] shadow-2xl">
+                        {marcacaoOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -791,7 +1213,7 @@ export default function AgendamentosPage() {
               )}
 
               {/* Botões de ação fixos no rodapé - SEMPRE VISÍVEL */}
-              <div className="flex justify-end gap-3 pt-4 pb-6 px-6 border-t border-border-gray bg-secondary-black row-start-3 shrink-0">
+              <div className="flex flex-wrap justify-end gap-3 pt-4 pb-6 px-6 border-t border-border-gray bg-secondary-black row-start-3 shrink-0">
                 <Button
                   variant="outline"
                   onClick={() => setIsEditModalOpen(false)}
@@ -800,12 +1222,12 @@ export default function AgendamentosPage() {
                   Cancelar
                 </Button>
                 <Button
-                  onClick={handleSaveEdit}
+                  onClick={() => handleSaveEdit()}
                   type="button"
                   disabled={savingModal || !editingAgendamento}
-                  className="bg-accent-green hover:bg-accent-green/80 text-black font-semibold min-w-[150px] shadow-lg shadow-accent-green/20 disabled:opacity-50"
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold min-w-[150px] shadow-lg shadow-emerald-600/30 disabled:opacity-50"
                 >
-                  {savingModal ? (
+                  {savingModal && !savingWithWebhook ? (
                     <>
                       <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
                       Salvando...
@@ -813,7 +1235,25 @@ export default function AgendamentosPage() {
                   ) : (
                     <>
                       <Save className="w-4 h-4 mr-2" />
-                      Salvar Alterações
+                      Salvar
+                    </>
+                  )}
+                </Button>
+                <Button
+                  onClick={() => handleSaveEdit({ sendWebhook: true })}
+                  type="button"
+                  disabled={savingModal || !editingAgendamento}
+                  className="bg-blue-600 hover:bg-blue-500 text-white font-semibold min-w-[240px] shadow-lg shadow-blue-600/30 disabled:opacity-50"
+                >
+                  {savingModal && savingWithWebhook ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                      Salvando + webhook...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-4 h-4 mr-2" />
+                      Salvar e Enviar Webhook
                     </>
                   )}
                 </Button>

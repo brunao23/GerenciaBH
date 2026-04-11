@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createToken, verifyToken } from '@/lib/auth/utils'
 import { cookies } from 'next/headers'
 import { createBiaSupabaseServerClient } from '@/lib/supabase/bia-client'
+import { resolveTenantDataPrefix } from '@/lib/helpers/tenant-resolution'
 
 export async function POST(req: Request) {
     try {
@@ -46,15 +47,23 @@ export async function POST(req: Request) {
 
         console.log('[Admin Switch Unit] Unidade encontrada:', unit.unit_name)
 
+        // Resolver prefixo real de dados (compatibilidade com aliases)
+        let resolvedPrefix = unit.unit_prefix
+        try {
+            resolvedPrefix = await resolveTenantDataPrefix(unit.unit_prefix)
+        } catch (error: any) {
+            console.warn('[Admin Switch Unit] Falha ao resolver tenant de dados, usando bruto:', error?.message || error)
+        }
+
         // Criar token JWT para esta unidade (mas mantendo isAdmin = true)
         const newToken = await createToken({
             unitName: unit.unit_name,
-            unitPrefix: unit.unit_prefix,
+            unitPrefix: resolvedPrefix,
             isAdmin: true, // Manter admin = true
             userId: session.userId, // Manter ID do admin
         })
 
-        console.log('[Admin Switch Unit] Novo token criado para:', unit.unit_prefix)
+        console.log('[Admin Switch Unit] Novo token criado para:', resolvedPrefix)
 
         // Atualizar cookie
         cookieStore.set('auth-token', newToken, {
@@ -71,7 +80,7 @@ export async function POST(req: Request) {
             success: true,
             unit: {
                 name: unit.unit_name,
-                prefix: unit.unit_prefix,
+                prefix: resolvedPrefix,
             },
         })
     } catch (error) {

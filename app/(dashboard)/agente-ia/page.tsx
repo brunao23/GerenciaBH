@@ -1,0 +1,1758 @@
+"use client"
+
+import { useEffect, useMemo, useState } from "react"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
+import { Button } from "@/components/ui/button"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { CalendarDays, Save } from "lucide-react"
+import { toast } from "sonner"
+
+type ConversationTone = "consultivo" | "acolhedor" | "direto" | "formal"
+type AudioProvider = "elevenlabs" | "custom_http"
+
+type TenantNativeAgentConfig = {
+  enabled: boolean
+  autoReplyEnabled: boolean
+  promptBase: string
+  useFirstNamePersonalization: boolean
+  autoLearningEnabled: boolean
+  blockGroupMessages: boolean
+  autoPauseOnHumanIntervention: boolean
+  conversationTone: ConversationTone
+  humanizationLevelPercent: number
+  firstNameUsagePercent: number
+  moderateEmojiEnabled: boolean
+  sentenceConnectorsEnabled: boolean
+  allowLanguageVices: boolean
+  deepInteractionAnalysisEnabled: boolean
+  preciseFirstMessageEnabled: boolean
+  responseDelayMinSeconds: number
+  responseDelayMaxSeconds: number
+  inboundMessageBufferSeconds: number
+  zapiDelayMessageSeconds: number
+  zapiDelayTypingSeconds: number
+  splitLongMessagesEnabled: boolean
+  messageBlockMaxChars: number
+  schedulingEnabled: boolean
+  followupEnabled: boolean
+  followupIntervalsMinutes: number[]
+  followupBusinessStart: string
+  followupBusinessEnd: string
+  followupBusinessDays: number[]
+  remindersEnabled: boolean
+  testModeEnabled: boolean
+  testAllowedNumbers: string[]
+  toolNotificationsEnabled: boolean
+  toolNotificationTargets: string[]
+  notifyOnScheduleSuccess: boolean
+  notifyOnScheduleError: boolean
+  notifyOnHumanHandoff: boolean
+  collectEmailForScheduling: boolean
+  generateMeetForOnlineAppointments: boolean
+  audioRepliesEnabled: boolean
+  audioProvider: AudioProvider
+  audioApiKey: string
+  audioVoiceId: string
+  audioModelId: string
+  audioOutputFormat: string
+  audioEveryNMessages: number
+  audioMinChars: number
+  audioMaxChars: number
+  audioCustomEndpoint: string
+  audioCustomAuthHeader: string
+  audioCustomAuthToken: string
+  audioWaveformEnabled: boolean
+  googleCalendarEnabled: boolean
+  googleAuthMode: "service_account" | "oauth_user"
+  googleOAuthConnectedAt: string
+  googleOAuthRefreshToken: string
+  calendarEventDurationMinutes: number
+  calendarMinLeadMinutes: number
+  calendarBufferMinutes: number
+  calendarMaxAdvanceDays: number
+  calendarMaxAdvanceWeeks: number
+  calendarMaxAppointmentsPerDay: number
+  allowOverlappingAppointments: boolean
+  calendarBlockedDates: string[]
+  calendarBlockedTimeRanges: string[]
+  calendarBusinessStart: string
+  calendarBusinessEnd: string
+  calendarBusinessDays: number[]
+}
+
+const defaultConfig: TenantNativeAgentConfig = {
+  enabled: false,
+  autoReplyEnabled: true,
+  promptBase: "",
+  useFirstNamePersonalization: true,
+  autoLearningEnabled: true,
+  blockGroupMessages: true,
+  autoPauseOnHumanIntervention: false,
+  conversationTone: "consultivo",
+  humanizationLevelPercent: 75,
+  firstNameUsagePercent: 65,
+  moderateEmojiEnabled: true,
+  sentenceConnectorsEnabled: true,
+  allowLanguageVices: false,
+  deepInteractionAnalysisEnabled: true,
+  preciseFirstMessageEnabled: true,
+  responseDelayMinSeconds: 0,
+  responseDelayMaxSeconds: 0,
+  inboundMessageBufferSeconds: 8,
+  zapiDelayMessageSeconds: 2,
+  zapiDelayTypingSeconds: 3,
+  splitLongMessagesEnabled: true,
+  messageBlockMaxChars: 280,
+  schedulingEnabled: true,
+  followupEnabled: true,
+  followupIntervalsMinutes: [15, 60, 360, 1440, 2880, 4320, 7200],
+  followupBusinessStart: "07:00",
+  followupBusinessEnd: "23:00",
+  followupBusinessDays: [0, 1, 2, 3, 4, 5, 6],
+  remindersEnabled: true,
+  testModeEnabled: false,
+  testAllowedNumbers: [],
+  toolNotificationsEnabled: false,
+  toolNotificationTargets: [],
+  notifyOnScheduleSuccess: true,
+  notifyOnScheduleError: true,
+  notifyOnHumanHandoff: true,
+  collectEmailForScheduling: false,
+  generateMeetForOnlineAppointments: false,
+  audioRepliesEnabled: false,
+  audioProvider: "elevenlabs",
+  audioApiKey: "",
+  audioVoiceId: "",
+  audioModelId: "eleven_multilingual_v2",
+  audioOutputFormat: "mp3_44100_128",
+  audioEveryNMessages: 5,
+  audioMinChars: 1,
+  audioMaxChars: 600,
+  audioCustomEndpoint: "",
+  audioCustomAuthHeader: "Authorization",
+  audioCustomAuthToken: "",
+  audioWaveformEnabled: true,
+  googleCalendarEnabled: false,
+  googleAuthMode: "oauth_user",
+  googleOAuthConnectedAt: "",
+  googleOAuthRefreshToken: "",
+  calendarEventDurationMinutes: 50,
+  calendarMinLeadMinutes: 15,
+  calendarBufferMinutes: 0,
+  calendarMaxAdvanceDays: 30,
+  calendarMaxAdvanceWeeks: 0,
+  calendarMaxAppointmentsPerDay: 0,
+  allowOverlappingAppointments: false,
+  calendarBlockedDates: [],
+  calendarBlockedTimeRanges: [],
+  calendarBusinessStart: "08:00",
+  calendarBusinessEnd: "20:00",
+  calendarBusinessDays: [1, 2, 3, 4, 5, 6],
+}
+
+function normalizeConfig(raw: any): TenantNativeAgentConfig {
+  const source = raw && typeof raw === "object" ? raw : {}
+  const tone = String(source.conversationTone || "consultivo").toLowerCase()
+  const normalizedTone: ConversationTone =
+    tone === "acolhedor" || tone === "direto" || tone === "formal" ? tone : "consultivo"
+  const audioProviderRaw = String(source.audioProvider || "elevenlabs").toLowerCase()
+  const normalizedAudioProvider: AudioProvider =
+    audioProviderRaw === "custom_http" ? "custom_http" : "elevenlabs"
+
+  const businessDays = Array.isArray(source.calendarBusinessDays)
+    ? source.calendarBusinessDays
+      .map((v: any) => Number(v))
+      .filter((v: number) => Number.isInteger(v) && v >= 1 && v <= 7)
+    : []
+
+  const followupBusinessDays = Array.isArray(source.followupBusinessDays)
+    ? source.followupBusinessDays
+      .map((v: any) => Number(v))
+      .filter((v: number) => Number.isInteger(v) && v >= 0 && v <= 6)
+    : []
+
+  const followupIntervalsMinutes = Array.isArray(source.followupIntervalsMinutes)
+    ? source.followupIntervalsMinutes
+      .map((v: any) => Number(v))
+      .filter((v: number) => Number.isFinite(v))
+      .map((v: number) => Math.floor(v))
+      .filter((v: number) => v >= 1 && v <= 43200)
+      .filter((v: number, i: number, arr: number[]) => arr.indexOf(v) === i)
+      .sort((a: number, b: number) => a - b)
+    : []
+
+  return {
+    enabled: source.enabled === true,
+    autoReplyEnabled: source.autoReplyEnabled !== false,
+    promptBase: String(source.promptBase || ""),
+    useFirstNamePersonalization: source.useFirstNamePersonalization !== false,
+    autoLearningEnabled: source.autoLearningEnabled !== false,
+    blockGroupMessages: source.blockGroupMessages !== false,
+    autoPauseOnHumanIntervention: source.autoPauseOnHumanIntervention === true,
+    conversationTone: normalizedTone,
+    humanizationLevelPercent: Number.isFinite(Number(source.humanizationLevelPercent))
+      ? Number(source.humanizationLevelPercent)
+      : 75,
+    firstNameUsagePercent: Number.isFinite(Number(source.firstNameUsagePercent))
+      ? Number(source.firstNameUsagePercent)
+      : 65,
+    moderateEmojiEnabled: source.moderateEmojiEnabled !== false,
+    sentenceConnectorsEnabled: source.sentenceConnectorsEnabled !== false,
+    allowLanguageVices: source.allowLanguageVices === true,
+    deepInteractionAnalysisEnabled: source.deepInteractionAnalysisEnabled !== false,
+    preciseFirstMessageEnabled: source.preciseFirstMessageEnabled !== false,
+    responseDelayMinSeconds: Number.isFinite(Number(source.responseDelayMinSeconds))
+      ? Number(source.responseDelayMinSeconds)
+      : 0,
+    responseDelayMaxSeconds: Number.isFinite(Number(source.responseDelayMaxSeconds))
+      ? Number(source.responseDelayMaxSeconds)
+      : 0,
+    inboundMessageBufferSeconds: Number.isFinite(Number(source.inboundMessageBufferSeconds))
+      ? Number(source.inboundMessageBufferSeconds)
+      : 8,
+    zapiDelayMessageSeconds: Number.isFinite(Number(source.zapiDelayMessageSeconds))
+      ? Number(source.zapiDelayMessageSeconds)
+      : 2,
+    zapiDelayTypingSeconds: Number.isFinite(Number(source.zapiDelayTypingSeconds))
+      ? Number(source.zapiDelayTypingSeconds)
+      : 3,
+    splitLongMessagesEnabled: source.splitLongMessagesEnabled !== false,
+    messageBlockMaxChars: Number.isFinite(Number(source.messageBlockMaxChars))
+      ? Number(source.messageBlockMaxChars)
+      : 280,
+    schedulingEnabled: source.schedulingEnabled !== false,
+    followupEnabled: source.followupEnabled !== false,
+    followupIntervalsMinutes: followupIntervalsMinutes.length
+      ? followupIntervalsMinutes
+      : [15, 60, 360, 1440, 2880, 4320, 7200],
+    followupBusinessStart: String(source.followupBusinessStart || "07:00"),
+    followupBusinessEnd: String(source.followupBusinessEnd || "23:00"),
+    followupBusinessDays: followupBusinessDays.length ? followupBusinessDays : [0, 1, 2, 3, 4, 5, 6],
+    remindersEnabled: source.remindersEnabled !== false,
+    testModeEnabled: source.testModeEnabled === true,
+    testAllowedNumbers: Array.isArray(source.testAllowedNumbers)
+      ? source.testAllowedNumbers
+        .map((v: any) => String(v || "").replace(/\D/g, ""))
+        .filter((v: string) => v.length >= 10 && v.length <= 15)
+        .map((v: string) => (v.startsWith("55") ? v : `55${v}`))
+      : [],
+    toolNotificationsEnabled: source.toolNotificationsEnabled === true,
+    toolNotificationTargets: Array.isArray(source.toolNotificationTargets)
+      ? source.toolNotificationTargets
+        .map((v: any) => String(v || "").trim())
+        .filter(Boolean)
+      : [],
+    notifyOnScheduleSuccess: source.notifyOnScheduleSuccess !== false,
+    notifyOnScheduleError: source.notifyOnScheduleError !== false,
+    notifyOnHumanHandoff: source.notifyOnHumanHandoff !== false,
+    collectEmailForScheduling: source.collectEmailForScheduling === true,
+    generateMeetForOnlineAppointments: source.generateMeetForOnlineAppointments === true,
+    audioRepliesEnabled: source.audioRepliesEnabled === true,
+    audioProvider: normalizedAudioProvider,
+    audioApiKey: String(source.audioApiKey || ""),
+    audioVoiceId: String(source.audioVoiceId || ""),
+    audioModelId: String(source.audioModelId || "eleven_multilingual_v2"),
+    audioOutputFormat: String(source.audioOutputFormat || "mp3_44100_128"),
+    audioEveryNMessages: Number.isFinite(Number(source.audioEveryNMessages))
+      ? Number(source.audioEveryNMessages)
+      : 5,
+    audioMinChars: Number.isFinite(Number(source.audioMinChars))
+      ? Number(source.audioMinChars)
+      : 1,
+    audioMaxChars: Number.isFinite(Number(source.audioMaxChars))
+      ? Number(source.audioMaxChars)
+      : 600,
+    audioCustomEndpoint: String(source.audioCustomEndpoint || ""),
+    audioCustomAuthHeader: String(source.audioCustomAuthHeader || "Authorization"),
+    audioCustomAuthToken: String(source.audioCustomAuthToken || ""),
+    audioWaveformEnabled: source.audioWaveformEnabled !== false,
+    googleCalendarEnabled: source.googleCalendarEnabled === true,
+    googleAuthMode:
+      String(source.googleAuthMode || "oauth_user").toLowerCase() === "service_account"
+        ? "service_account"
+        : "oauth_user",
+    googleOAuthConnectedAt: String(source.googleOAuthConnectedAt || ""),
+    googleOAuthRefreshToken: String(source.googleOAuthRefreshToken || ""),
+    calendarEventDurationMinutes: Number(source.calendarEventDurationMinutes) > 0
+      ? Number(source.calendarEventDurationMinutes)
+      : 50,
+    calendarMinLeadMinutes: Number.isFinite(Number(source.calendarMinLeadMinutes))
+      ? Number(source.calendarMinLeadMinutes)
+      : 15,
+    calendarBufferMinutes: Number.isFinite(Number(source.calendarBufferMinutes))
+      ? Number(source.calendarBufferMinutes)
+      : 0,
+    calendarMaxAdvanceDays: Number.isFinite(Number(source.calendarMaxAdvanceDays))
+      ? Number(source.calendarMaxAdvanceDays)
+      : 30,
+    calendarMaxAdvanceWeeks: Number.isFinite(Number(source.calendarMaxAdvanceWeeks))
+      ? Number(source.calendarMaxAdvanceWeeks)
+      : 0,
+    calendarMaxAppointmentsPerDay: Number.isFinite(Number(source.calendarMaxAppointmentsPerDay))
+      ? Number(source.calendarMaxAppointmentsPerDay)
+      : 0,
+    allowOverlappingAppointments: source.allowOverlappingAppointments === true,
+    calendarBlockedDates: Array.isArray(source.calendarBlockedDates)
+      ? source.calendarBlockedDates
+        .map((v: any) => String(v || "").trim())
+        .filter((v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v))
+      : [],
+    calendarBlockedTimeRanges: Array.isArray(source.calendarBlockedTimeRanges)
+      ? source.calendarBlockedTimeRanges
+        .map((v: any) => String(v || "").trim())
+        .filter((v: string) =>
+          /^([01]\d|2[0-3]):([0-5]\d)\s*-\s*([01]\d|2[0-3]):([0-5]\d)$/.test(v),
+        )
+      : [],
+    calendarBusinessStart: String(source.calendarBusinessStart || "08:00"),
+    calendarBusinessEnd: String(source.calendarBusinessEnd || "20:00"),
+    calendarBusinessDays: businessDays.length ? businessDays : [1, 2, 3, 4, 5, 6],
+  }
+}
+
+function parseBusinessDaysInput(value: string): number[] {
+  const days = String(value || "")
+    .split(/[^0-9]+/g)
+    .map((v) => Number(v))
+    .filter((v) => Number.isInteger(v) && v >= 1 && v <= 7)
+    .filter((v, i, arr) => arr.indexOf(v) === i)
+  return days.length ? days : [1, 2, 3, 4, 5, 6]
+}
+
+function parseFollowupBusinessDaysInput(value: string): number[] {
+  const days = String(value || "")
+    .split(/[^0-9]+/g)
+    .map((v) => Number(v))
+    .filter((v) => Number.isInteger(v) && v >= 0 && v <= 6)
+    .filter((v, i, arr) => arr.indexOf(v) === i)
+  return days.length ? days : [0, 1, 2, 3, 4, 5, 6]
+}
+
+function parseFollowupIntervalsInput(value: string): number[] {
+  const intervals = String(value || "")
+    .split(/[^0-9]+/g)
+    .map((v) => Number(v))
+    .filter((v) => Number.isFinite(v))
+    .map((v) => Math.floor(v))
+    .filter((v) => v >= 1 && v <= 43200)
+    .filter((v, i, arr) => arr.indexOf(v) === i)
+    .sort((a, b) => a - b)
+
+  return intervals.length ? intervals : [15, 60, 360, 1440, 2880, 4320, 7200]
+}
+
+function parseTestNumbersInput(value: string): string[] {
+  return String(value || "")
+    .split(/[\n,; ]+/g)
+    .map((entry) => String(entry || "").replace(/\D/g, ""))
+    .filter((digits) => digits.length >= 10 && digits.length <= 15)
+    .map((digits) => (digits.startsWith("55") ? digits : `55${digits}`))
+    .filter((digits, i, arr) => arr.indexOf(digits) === i)
+    .slice(0, 500)
+}
+
+function parseNotificationTargetsInput(value: string): string[] {
+  return String(value || "")
+    .split(/[\n,;]+/g)
+    .map((entry) => String(entry || "").trim())
+    .map((entry) => {
+      if (!entry) return ""
+      if (/@g\.us$/i.test(entry) || /@lid$/i.test(entry)) return entry
+
+      const groupSuffixMatch = entry.match(/^(.+)-group$/i)
+      if (groupSuffixMatch?.[1]) {
+        const normalizedGroup = String(groupSuffixMatch[1]).replace(/[^0-9-]/g, "")
+        if (normalizedGroup.length >= 8) {
+          return `${normalizedGroup}-group`
+        }
+      }
+
+      const waMe = entry.match(/wa\.me\/(\d{10,15})/i)
+      if (waMe?.[1]) {
+        const digits = waMe[1]
+        return digits.startsWith("55") ? digits : `55${digits}`
+      }
+
+      const groupCandidate = entry.replace(/[^0-9-]/g, "")
+      if (/^\d{8,}-\d{2,}$/.test(groupCandidate)) {
+        return `${groupCandidate}-group`
+      }
+
+      const digits = entry.replace(/\D/g, "")
+      if (digits.length < 10 || digits.length > 15) return ""
+      return digits.startsWith("55") ? digits : `55${digits}`
+    })
+    .filter((entry) => Boolean(entry))
+    .filter((entry, i, arr) => arr.indexOf(entry) === i)
+    .slice(0, 100)
+}
+
+function parseBlockedDatesInput(value: string): string[] {
+  return String(value || "")
+    .split(/[\n,; ]+/g)
+    .map((entry) => String(entry || "").trim())
+    .filter((entry) => /^\d{4}-\d{2}-\d{2}$/.test(entry))
+    .filter((entry, i, arr) => arr.indexOf(entry) === i)
+    .slice(0, 365)
+}
+
+function parseBlockedTimeRangesInput(value: string): string[] {
+  return String(value || "")
+    .split(/[\n,;]+/g)
+    .map((entry) => String(entry || "").trim())
+    .map((entry) => {
+      const match = entry.match(
+        /^([01]\d|2[0-3]):([0-5]\d)\s*-\s*([01]\d|2[0-3]):([0-5]\d)$/,
+      )
+      if (!match) return ""
+      const start = Number(match[1]) * 60 + Number(match[2])
+      const end = Number(match[3]) * 60 + Number(match[4])
+      if (end <= start) return ""
+      return `${match[1]}:${match[2]}-${match[3]}:${match[4]}`
+    })
+    .filter(Boolean)
+    .filter((entry, i, arr) => arr.indexOf(entry) === i)
+    .slice(0, 200)
+}
+
+export default function AgenteIAPage() {
+  const [config, setConfig] = useState<TenantNativeAgentConfig>(defaultConfig)
+  const [followupIntervalsInput, setFollowupIntervalsInput] = useState("")
+  const [followupBusinessDaysInput, setFollowupBusinessDaysInput] = useState("")
+  const [testAllowedNumbersInput, setTestAllowedNumbersInput] = useState("")
+  const [toolNotificationTargetsInput, setToolNotificationTargetsInput] = useState("")
+  const [calendarBlockedDatesInput, setCalendarBlockedDatesInput] = useState("")
+  const [calendarBlockedTimeRangesInput, setCalendarBlockedTimeRangesInput] = useState("")
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [connectingGoogle, setConnectingGoogle] = useState(false)
+  const [disconnectingGoogle, setDisconnectingGoogle] = useState(false)
+
+  const googleCalendarConnected = useMemo(() => {
+    return Boolean(config.googleOAuthConnectedAt) || config.googleOAuthRefreshToken === "***"
+  }, [config.googleOAuthConnectedAt, config.googleOAuthRefreshToken])
+
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true)
+      try {
+        const res = await fetch("/api/tenant/native-agent-config")
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(data.error || "Erro ao carregar configuracao")
+
+        const normalized = normalizeConfig(data.config)
+        setConfig(normalized)
+        setFollowupIntervalsInput((normalized.followupIntervalsMinutes || []).join(","))
+        setFollowupBusinessDaysInput((normalized.followupBusinessDays || []).join(","))
+        setTestAllowedNumbersInput((normalized.testAllowedNumbers || []).join("\n"))
+        setToolNotificationTargetsInput((normalized.toolNotificationTargets || []).join("\n"))
+        setCalendarBlockedDatesInput((normalized.calendarBlockedDates || []).join("\n"))
+        setCalendarBlockedTimeRangesInput((normalized.calendarBlockedTimeRanges || []).join("\n"))
+      } catch (error: any) {
+        toast.error(error?.message || "Erro ao carregar configuracao")
+      } finally {
+        setLoading(false)
+      }
+    }
+    load()
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const url = new URL(window.location.href)
+    const status = url.searchParams.get("google_calendar_status")
+    const message = url.searchParams.get("google_calendar_message")
+    if (!status) return
+
+    if (status === "connected") {
+      toast.success(`Google Calendar conectado: ${message || "ok"}`)
+    } else if (status === "error") {
+      toast.error(`Falha ao conectar Google Calendar: ${message || "erro_desconhecido"}`)
+    }
+
+    url.searchParams.delete("google_calendar_status")
+    url.searchParams.delete("google_calendar_message")
+    window.history.replaceState({}, "", url.toString())
+  }, [])
+
+  const connectGoogleCalendarOAuth = async () => {
+    setConnectingGoogle(true)
+    try {
+      const query = new URLSearchParams()
+      query.set("calendarId", "primary")
+      const suffix = query.toString() ? `?${query.toString()}` : ""
+
+      const res = await fetch(`/api/tenant/google-calendar/oauth/start${suffix}`)
+      const data = await res.json().catch(() => ({}))
+
+      if (!res.ok) throw new Error(data.error || "Falha ao iniciar conexao Google")
+      if (!data.url) throw new Error("URL de autenticacao nao retornada")
+
+      window.location.href = data.url
+    } catch (error: any) {
+      toast.error(error?.message || "Falha ao conectar Google Calendar")
+      setConnectingGoogle(false)
+    }
+  }
+
+  const disconnectGoogleCalendarOAuth = async () => {
+    setDisconnectingGoogle(true)
+    try {
+      const res = await fetch("/api/tenant/google-calendar/oauth/disconnect", {
+        method: "POST",
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || "Falha ao desconectar Google Calendar")
+
+      const normalized = normalizeConfig(data.config)
+      setConfig(normalized)
+      setFollowupIntervalsInput((normalized.followupIntervalsMinutes || []).join(","))
+      setFollowupBusinessDaysInput((normalized.followupBusinessDays || []).join(","))
+      setCalendarBlockedDatesInput((normalized.calendarBlockedDates || []).join("\n"))
+      setCalendarBlockedTimeRangesInput((normalized.calendarBlockedTimeRanges || []).join("\n"))
+      toast.success("Google Calendar desconectado.")
+    } catch (error: any) {
+      toast.error(error?.message || "Falha ao desconectar Google Calendar")
+    } finally {
+      setDisconnectingGoogle(false)
+    }
+  }
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      const toOptionalText = (value: string) => {
+        const text = String(value || "").trim()
+        return text ? text : undefined
+      }
+
+      const payload = {
+        enabled: config.enabled,
+        autoReplyEnabled: config.autoReplyEnabled,
+        promptBase: toOptionalText(config.promptBase),
+        useFirstNamePersonalization: config.useFirstNamePersonalization,
+        autoLearningEnabled: config.autoLearningEnabled,
+        blockGroupMessages: config.blockGroupMessages,
+        autoPauseOnHumanIntervention: config.autoPauseOnHumanIntervention,
+        conversationTone: config.conversationTone,
+        humanizationLevelPercent: Math.max(0, Math.min(100, Number(config.humanizationLevelPercent || 0))),
+        firstNameUsagePercent: Math.max(0, Math.min(100, Number(config.firstNameUsagePercent || 0))),
+        moderateEmojiEnabled: config.moderateEmojiEnabled,
+        sentenceConnectorsEnabled: config.sentenceConnectorsEnabled,
+        allowLanguageVices: config.allowLanguageVices,
+        deepInteractionAnalysisEnabled: config.deepInteractionAnalysisEnabled,
+        preciseFirstMessageEnabled: config.preciseFirstMessageEnabled,
+        responseDelayMinSeconds: Math.max(0, Math.min(600, Number(config.responseDelayMinSeconds || 0))),
+        responseDelayMaxSeconds: Math.max(0, Math.min(600, Number(config.responseDelayMaxSeconds || 0))),
+        inboundMessageBufferSeconds: Math.max(
+          0,
+          Math.min(120, Number(config.inboundMessageBufferSeconds || 0)),
+        ),
+        zapiDelayMessageSeconds: Math.max(1, Math.min(15, Number(config.zapiDelayMessageSeconds || 1))),
+        zapiDelayTypingSeconds: Math.max(0, Math.min(15, Number(config.zapiDelayTypingSeconds || 0))),
+        splitLongMessagesEnabled: config.splitLongMessagesEnabled,
+        messageBlockMaxChars: Math.max(80, Math.min(1200, Number(config.messageBlockMaxChars || 280))),
+        schedulingEnabled: config.schedulingEnabled,
+        followupEnabled: config.followupEnabled,
+        followupIntervalsMinutes: parseFollowupIntervalsInput(followupIntervalsInput),
+        followupBusinessStart: toOptionalText(config.followupBusinessStart) || "07:00",
+        followupBusinessEnd: toOptionalText(config.followupBusinessEnd) || "23:00",
+        followupBusinessDays: parseFollowupBusinessDaysInput(followupBusinessDaysInput),
+        remindersEnabled: config.remindersEnabled,
+        testModeEnabled: config.testModeEnabled,
+        testAllowedNumbers: parseTestNumbersInput(testAllowedNumbersInput),
+        toolNotificationsEnabled: config.toolNotificationsEnabled,
+        toolNotificationTargets: parseNotificationTargetsInput(toolNotificationTargetsInput),
+        notifyOnScheduleSuccess: config.notifyOnScheduleSuccess,
+        notifyOnScheduleError: config.notifyOnScheduleError,
+        notifyOnHumanHandoff: config.notifyOnHumanHandoff,
+        collectEmailForScheduling: config.collectEmailForScheduling,
+        generateMeetForOnlineAppointments: config.generateMeetForOnlineAppointments,
+        audioRepliesEnabled: config.audioRepliesEnabled,
+        audioProvider: config.audioProvider,
+        audioApiKey: toOptionalText(config.audioApiKey),
+        audioVoiceId: toOptionalText(config.audioVoiceId),
+        audioModelId: toOptionalText(config.audioModelId) || "eleven_multilingual_v2",
+        audioOutputFormat: toOptionalText(config.audioOutputFormat) || "mp3_44100_128",
+        audioEveryNMessages: Math.max(1, Math.min(20, Number(config.audioEveryNMessages || 5))),
+        audioMinChars: Math.max(1, Math.min(2000, Number(config.audioMinChars || 1))),
+        audioMaxChars: Math.max(20, Math.min(4000, Number(config.audioMaxChars || 600))),
+        audioCustomEndpoint: toOptionalText(config.audioCustomEndpoint),
+        audioCustomAuthHeader: toOptionalText(config.audioCustomAuthHeader) || "Authorization",
+        audioCustomAuthToken: toOptionalText(config.audioCustomAuthToken),
+        audioWaveformEnabled: config.audioWaveformEnabled,
+        googleCalendarEnabled: config.googleCalendarEnabled,
+        googleCalendarId: "primary",
+        googleAuthMode: "oauth_user",
+        calendarEventDurationMinutes: Math.max(5, Math.min(240, Number(config.calendarEventDurationMinutes || 50))),
+        calendarMinLeadMinutes: Math.max(0, Math.min(10080, Number(config.calendarMinLeadMinutes || 15))),
+        calendarBufferMinutes: Math.max(0, Math.min(180, Number(config.calendarBufferMinutes || 0))),
+        calendarMaxAdvanceDays: Math.max(0, Math.min(365, Number(config.calendarMaxAdvanceDays || 0))),
+        calendarMaxAdvanceWeeks: Math.max(0, Math.min(52, Number(config.calendarMaxAdvanceWeeks || 0))),
+        calendarMaxAppointmentsPerDay: Math.max(
+          0,
+          Math.min(300, Number(config.calendarMaxAppointmentsPerDay || 0)),
+        ),
+        allowOverlappingAppointments: config.allowOverlappingAppointments,
+        calendarBlockedDates: parseBlockedDatesInput(calendarBlockedDatesInput),
+        calendarBlockedTimeRanges: parseBlockedTimeRangesInput(calendarBlockedTimeRangesInput),
+        calendarBusinessStart: toOptionalText(config.calendarBusinessStart) || "08:00",
+        calendarBusinessEnd: toOptionalText(config.calendarBusinessEnd) || "20:00",
+        calendarBusinessDays: parseBusinessDaysInput(config.calendarBusinessDays.join(",")),
+      }
+
+      const res = await fetch("/api/tenant/native-agent-config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || "Erro ao salvar configuracao")
+
+      const normalized = normalizeConfig(data.config)
+      setConfig(normalized)
+      setFollowupIntervalsInput((normalized.followupIntervalsMinutes || []).join(","))
+      setFollowupBusinessDaysInput((normalized.followupBusinessDays || []).join(","))
+      setTestAllowedNumbersInput((normalized.testAllowedNumbers || []).join("\n"))
+      setToolNotificationTargetsInput((normalized.toolNotificationTargets || []).join("\n"))
+      setCalendarBlockedDatesInput((normalized.calendarBlockedDates || []).join("\n"))
+      setCalendarBlockedTimeRangesInput((normalized.calendarBlockedTimeRanges || []).join("\n"))
+      toast.success("Configuracoes do agente IA atualizadas.")
+    } catch (error: any) {
+      toast.error(error?.message || "Erro ao salvar configuracao")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="space-y-6 pb-8">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-[#ededed] tracking-tight">Configurar Agente IA</h1>
+          <p className="text-sm text-gray-400 mt-1">
+            Configure o agente da sua unidade: comportamento, numeros de teste, notificacoes e agenda.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            onClick={save}
+            disabled={loading || saving}
+            className="border border-[#22c55e] bg-[#22c55e] text-black hover:bg-[#16a34a] hover:border-[#16a34a]"
+          >
+            <Save className="mr-2 h-4 w-4" />
+            {saving ? "Salvando..." : "Salvar configuracoes"}
+          </Button>
+        </div>
+      </div>
+
+      <Card className="bg-[#121212] border-[#2a2a2a] text-white">
+        <CardHeader>
+          <CardTitle>Ativacao e comportamento</CardTitle>
+          <CardDescription className="text-gray-400">
+            Controle de resposta, humanizacao, tom e ritmo das mensagens.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label>Agente IA</Label>
+              <Select
+                value={config.enabled ? "on" : "off"}
+                onValueChange={(v) => setConfig((prev) => ({ ...prev, enabled: v === "on" }))}
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                  <SelectItem value="on">Ativado</SelectItem>
+                  <SelectItem value="off">Desativado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Auto-resposta</Label>
+              <Select
+                value={config.autoReplyEnabled ? "on" : "off"}
+                onValueChange={(v) => setConfig((prev) => ({ ...prev, autoReplyEnabled: v === "on" }))}
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                  <SelectItem value="on">Ativado</SelectItem>
+                  <SelectItem value="off">Desativado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Tom da conversa</Label>
+              <Select
+                value={config.conversationTone}
+                onValueChange={(v) => setConfig((prev) => ({ ...prev, conversationTone: v as ConversationTone }))}
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                  <SelectItem value="consultivo">Consultivo</SelectItem>
+                  <SelectItem value="acolhedor">Acolhedor</SelectItem>
+                  <SelectItem value="direto">Direto</SelectItem>
+                  <SelectItem value="formal">Formal</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label>Emojis moderados</Label>
+              <Select
+                value={config.moderateEmojiEnabled ? "on" : "off"}
+                onValueChange={(v) => setConfig((prev) => ({ ...prev, moderateEmojiEnabled: v === "on" }))}
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                  <SelectItem value="on">Ativado</SelectItem>
+                  <SelectItem value="off">Desativado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Conectores de frase</Label>
+              <Select
+                value={config.sentenceConnectorsEnabled ? "on" : "off"}
+                onValueChange={(v) =>
+                  setConfig((prev) => ({ ...prev, sentenceConnectorsEnabled: v === "on" }))
+                }
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                  <SelectItem value="on">Ativado</SelectItem>
+                  <SelectItem value="off">Desativado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Permitir vicios de linguagem</Label>
+              <Select
+                value={config.allowLanguageVices ? "on" : "off"}
+                onValueChange={(v) => setConfig((prev) => ({ ...prev, allowLanguageVices: v === "on" }))}
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                  <SelectItem value="off">Nao</SelectItem>
+                  <SelectItem value="on">Sim</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid md:grid-cols-4 gap-4">
+            <div className="space-y-2">
+              <Label>Humanizacao (%)</Label>
+              <Input
+                type="number"
+                min={0}
+                max={100}
+                value={config.humanizationLevelPercent}
+                onChange={(e) =>
+                  setConfig((prev) => ({ ...prev, humanizationLevelPercent: Number(e.target.value || 0) }))
+                }
+                className="bg-[#1a1a1a] border-[#333] text-white"
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Uso do primeiro nome (%)</Label>
+              <Input
+                type="number"
+                min={0}
+                max={100}
+                value={config.firstNameUsagePercent}
+                onChange={(e) =>
+                  setConfig((prev) => ({ ...prev, firstNameUsagePercent: Number(e.target.value || 0) }))
+                }
+                className="bg-[#1a1a1a] border-[#333] text-white"
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Aprendizado automatico</Label>
+              <Select
+                value={config.autoLearningEnabled ? "on" : "off"}
+                onValueChange={(v) => setConfig((prev) => ({ ...prev, autoLearningEnabled: v === "on" }))}
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                  <SelectItem value="on">Ativado</SelectItem>
+                  <SelectItem value="off">Desativado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Usar primeiro nome</Label>
+              <Select
+                value={config.useFirstNamePersonalization ? "on" : "off"}
+                onValueChange={(v) =>
+                  setConfig((prev) => ({ ...prev, useFirstNamePersonalization: v === "on" }))
+                }
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                  <SelectItem value="on">Ativado</SelectItem>
+                  <SelectItem value="off">Desativado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Leitura profunda da interacao</Label>
+              <Select
+                value={config.deepInteractionAnalysisEnabled ? "on" : "off"}
+                onValueChange={(v) =>
+                  setConfig((prev) => ({ ...prev, deepInteractionAnalysisEnabled: v === "on" }))
+                }
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                  <SelectItem value="on">Ativado</SelectItem>
+                  <SelectItem value="off">Desativado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid md:grid-cols-4 gap-4">
+            <div className="space-y-2">
+              <Label>Bloquear mensagens de grupo</Label>
+              <Select
+                value={config.blockGroupMessages ? "on" : "off"}
+                onValueChange={(v) => setConfig((prev) => ({ ...prev, blockGroupMessages: v === "on" }))}
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                  <SelectItem value="on">Ativado</SelectItem>
+                  <SelectItem value="off">Desativado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Pausar IA quando humano responder</Label>
+              <Select
+                value={config.autoPauseOnHumanIntervention ? "on" : "off"}
+                onValueChange={(v) =>
+                  setConfig((prev) => ({ ...prev, autoPauseOnHumanIntervention: v === "on" }))
+                }
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                  <SelectItem value="on">Ativado</SelectItem>
+                  <SelectItem value="off">Desativado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Quebrar mensagens longas</Label>
+              <Select
+                value={config.splitLongMessagesEnabled ? "on" : "off"}
+                onValueChange={(v) =>
+                  setConfig((prev) => ({ ...prev, splitLongMessagesEnabled: v === "on" }))
+                }
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                  <SelectItem value="on">Ativado</SelectItem>
+                  <SelectItem value="off">Desativado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Primeira mensagem precisa</Label>
+              <Select
+                value={config.preciseFirstMessageEnabled ? "on" : "off"}
+                onValueChange={(v) =>
+                  setConfig((prev) => ({ ...prev, preciseFirstMessageEnabled: v === "on" }))
+                }
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                  <SelectItem value="on">Ativado</SelectItem>
+                  <SelectItem value="off">Desativado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Prompt base</Label>
+            <Textarea
+              value={config.promptBase}
+              onChange={(e) => setConfig((prev) => ({ ...prev, promptBase: e.target.value }))}
+              className="bg-[#1a1a1a] border-[#333] text-white min-h-[150px]"
+              placeholder="Defina instrucoes principais da IA..."
+              disabled={loading}
+            />
+          </div>
+
+          <div className="grid md:grid-cols-5 gap-4">
+            <div className="space-y-2">
+              <Label>Delay IA min (s)</Label>
+              <Input
+                type="number"
+                min={0}
+                max={600}
+                value={config.responseDelayMinSeconds}
+                onChange={(e) =>
+                  setConfig((prev) => ({ ...prev, responseDelayMinSeconds: Number(e.target.value || 0) }))
+                }
+                className="bg-[#1a1a1a] border-[#333] text-white"
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Delay IA max (s)</Label>
+              <Input
+                type="number"
+                min={0}
+                max={600}
+                value={config.responseDelayMaxSeconds}
+                onChange={(e) =>
+                  setConfig((prev) => ({ ...prev, responseDelayMaxSeconds: Number(e.target.value || 0) }))
+                }
+                className="bg-[#1a1a1a] border-[#333] text-white"
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Buffer entrada (s)</Label>
+              <Input
+                type="number"
+                min={0}
+                max={120}
+                value={config.inboundMessageBufferSeconds}
+                onChange={(e) =>
+                  setConfig((prev) => ({
+                    ...prev,
+                    inboundMessageBufferSeconds: Number(e.target.value || 0),
+                  }))
+                }
+                className="bg-[#1a1a1a] border-[#333] text-white"
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Delay envio Z-API (s)</Label>
+              <Input
+                type="number"
+                min={1}
+                max={15}
+                value={config.zapiDelayMessageSeconds}
+                onChange={(e) =>
+                  setConfig((prev) => ({ ...prev, zapiDelayMessageSeconds: Number(e.target.value || 1) }))
+                }
+                className="bg-[#1a1a1a] border-[#333] text-white"
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Digitando Z-API (s)</Label>
+              <Input
+                type="number"
+                min={0}
+                max={15}
+                value={config.zapiDelayTypingSeconds}
+                onChange={(e) =>
+                  setConfig((prev) => ({ ...prev, zapiDelayTypingSeconds: Number(e.target.value || 0) }))
+                }
+                className="bg-[#1a1a1a] border-[#333] text-white"
+                disabled={loading}
+              />
+            </div>
+          </div>
+
+          <div className="grid md:grid-cols-4 gap-4">
+            <div className="space-y-2">
+              <Label>Max chars por bloco</Label>
+              <Input
+                type="number"
+                min={80}
+                max={1200}
+                value={config.messageBlockMaxChars}
+                onChange={(e) =>
+                  setConfig((prev) => ({ ...prev, messageBlockMaxChars: Number(e.target.value || 280) }))
+                }
+                className="bg-[#1a1a1a] border-[#333] text-white"
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Agendamento</Label>
+              <Select
+                value={config.schedulingEnabled ? "on" : "off"}
+                onValueChange={(v) => setConfig((prev) => ({ ...prev, schedulingEnabled: v === "on" }))}
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                  <SelectItem value="on">Ativado</SelectItem>
+                  <SelectItem value="off">Desativado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Follow-up</Label>
+              <Select
+                value={config.followupEnabled ? "on" : "off"}
+                onValueChange={(v) => setConfig((prev) => ({ ...prev, followupEnabled: v === "on" }))}
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                  <SelectItem value="on">Ativado</SelectItem>
+                  <SelectItem value="off">Desativado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Lembretes</Label>
+              <Select
+                value={config.remindersEnabled ? "on" : "off"}
+                onValueChange={(v) => setConfig((prev) => ({ ...prev, remindersEnabled: v === "on" }))}
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                  <SelectItem value="on">Ativado</SelectItem>
+                  <SelectItem value="off">Desativado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-[#121212] border-[#2a2a2a] text-white">
+        <CardHeader>
+          <CardTitle>Respostas em audio</CardTitle>
+          <CardDescription className="text-gray-400">
+            Gere audios com ElevenLabs ou provedor externo e defina a cadencia de envio.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label>Audio da IA</Label>
+              <Select
+                value={config.audioRepliesEnabled ? "on" : "off"}
+                onValueChange={(v) => setConfig((prev) => ({ ...prev, audioRepliesEnabled: v === "on" }))}
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                  <SelectItem value="on">Ativado</SelectItem>
+                  <SelectItem value="off">Desativado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Provedor TTS</Label>
+              <Select
+                value={config.audioProvider}
+                onValueChange={(v) => setConfig((prev) => ({ ...prev, audioProvider: v as AudioProvider }))}
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                  <SelectItem value="elevenlabs">ElevenLabs</SelectItem>
+                  <SelectItem value="custom_http">Outro provedor (HTTP)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>A cada quantas mensagens enviar audio</Label>
+              <Input
+                type="number"
+                min={1}
+                max={20}
+                value={config.audioEveryNMessages}
+                onChange={(e) =>
+                  setConfig((prev) => ({ ...prev, audioEveryNMessages: Number(e.target.value || 1) }))
+                }
+                className="bg-[#1a1a1a] border-[#333] text-white"
+                disabled={loading}
+              />
+            </div>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label>Texto minimo para audio (chars)</Label>
+              <Input
+                type="number"
+                min={1}
+                max={2000}
+                value={config.audioMinChars}
+                onChange={(e) => setConfig((prev) => ({ ...prev, audioMinChars: Number(e.target.value || 1) }))}
+                className="bg-[#1a1a1a] border-[#333] text-white"
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Texto maximo para audio (chars)</Label>
+              <Input
+                type="number"
+                min={20}
+                max={4000}
+                value={config.audioMaxChars}
+                onChange={(e) => setConfig((prev) => ({ ...prev, audioMaxChars: Number(e.target.value || 20) }))}
+                className="bg-[#1a1a1a] border-[#333] text-white"
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Waveform (nota de voz)</Label>
+              <Select
+                value={config.audioWaveformEnabled ? "on" : "off"}
+                onValueChange={(v) => setConfig((prev) => ({ ...prev, audioWaveformEnabled: v === "on" }))}
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                  <SelectItem value="on">Ativado</SelectItem>
+                  <SelectItem value="off">Desativado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {config.audioProvider === "elevenlabs" ? (
+            <div className="grid md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Chave API ElevenLabs</Label>
+                <Input
+                  type="password"
+                  value={config.audioApiKey}
+                  onChange={(e) => setConfig((prev) => ({ ...prev, audioApiKey: e.target.value }))}
+                  className="bg-[#1a1a1a] border-[#333] text-white"
+                  placeholder="elevenlabs_api_key..."
+                  disabled={loading}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Voice ID</Label>
+                <Input
+                  value={config.audioVoiceId}
+                  onChange={(e) => setConfig((prev) => ({ ...prev, audioVoiceId: e.target.value }))}
+                  className="bg-[#1a1a1a] border-[#333] text-white"
+                  placeholder="JBFqnCBsd6RMkjVDRZzb"
+                  disabled={loading}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Model ID</Label>
+                <Input
+                  value={config.audioModelId}
+                  onChange={(e) => setConfig((prev) => ({ ...prev, audioModelId: e.target.value }))}
+                  className="bg-[#1a1a1a] border-[#333] text-white"
+                  placeholder="eleven_multilingual_v2"
+                  disabled={loading}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Output format</Label>
+                <Input
+                  value={config.audioOutputFormat}
+                  onChange={(e) => setConfig((prev) => ({ ...prev, audioOutputFormat: e.target.value }))}
+                  className="bg-[#1a1a1a] border-[#333] text-white"
+                  placeholder="mp3_44100_128"
+                  disabled={loading}
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="grid md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Endpoint HTTP do provedor</Label>
+                <Input
+                  value={config.audioCustomEndpoint}
+                  onChange={(e) => setConfig((prev) => ({ ...prev, audioCustomEndpoint: e.target.value }))}
+                  className="bg-[#1a1a1a] border-[#333] text-white"
+                  placeholder="https://seu-provedor.com/tts"
+                  disabled={loading}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Header de autenticacao</Label>
+                <Input
+                  value={config.audioCustomAuthHeader}
+                  onChange={(e) => setConfig((prev) => ({ ...prev, audioCustomAuthHeader: e.target.value }))}
+                  className="bg-[#1a1a1a] border-[#333] text-white"
+                  placeholder="Authorization"
+                  disabled={loading}
+                />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <Label>Token/chave do provedor</Label>
+                <Input
+                  type="password"
+                  value={config.audioCustomAuthToken}
+                  onChange={(e) => setConfig((prev) => ({ ...prev, audioCustomAuthToken: e.target.value }))}
+                  className="bg-[#1a1a1a] border-[#333] text-white"
+                  placeholder="Bearer xxxxx"
+                  disabled={loading}
+                />
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="bg-[#121212] border-[#2a2a2a] text-white">
+        <CardHeader>
+          <CardTitle>Follow-up adaptativo</CardTitle>
+          <CardDescription className="text-gray-400">
+            Defina a cadencia por unidade e janela de horario para follow-up contextual.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label>Intervalos de follow-up em minutos (separados por virgula)</Label>
+            <Input
+              value={followupIntervalsInput}
+              onChange={(e) => setFollowupIntervalsInput(e.target.value)}
+              className="bg-[#1a1a1a] border-[#333] text-white"
+              placeholder="15,60,360,1440,2880,4320,7200"
+              disabled={loading}
+            />
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label>Horario inicial follow-up</Label>
+              <Input
+                type="time"
+                value={config.followupBusinessStart}
+                onChange={(e) =>
+                  setConfig((prev) => ({ ...prev, followupBusinessStart: e.target.value }))
+                }
+                className="bg-[#1a1a1a] border-[#333] text-white"
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Horario final follow-up</Label>
+              <Input
+                type="time"
+                value={config.followupBusinessEnd}
+                onChange={(e) =>
+                  setConfig((prev) => ({ ...prev, followupBusinessEnd: e.target.value }))
+                }
+                className="bg-[#1a1a1a] border-[#333] text-white"
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Dias follow-up (0=Dom, 6=Sab)</Label>
+              <Input
+                value={followupBusinessDaysInput}
+                onChange={(e) => setFollowupBusinessDaysInput(e.target.value)}
+                className="bg-[#1a1a1a] border-[#333] text-white"
+                placeholder="0,1,2,3,4,5,6"
+                disabled={loading}
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-[#121212] border-[#2a2a2a] text-white">
+        <CardHeader>
+          <CardTitle>Modo numeros teste</CardTitle>
+          <CardDescription className="text-gray-400">
+            Quando ativado, a IA responde apenas aos numeros da lista abaixo.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="max-w-xs space-y-2">
+            <Label>Modo teste</Label>
+            <Select
+              value={config.testModeEnabled ? "on" : "off"}
+              onValueChange={(v) => setConfig((prev) => ({ ...prev, testModeEnabled: v === "on" }))}
+              disabled={loading}
+            >
+              <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                <SelectItem value="on">Ativado</SelectItem>
+                <SelectItem value="off">Desativado</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Numeros permitidos (1 por linha, sempre com 55)</Label>
+            <Textarea
+              value={testAllowedNumbersInput}
+              onChange={(e) => setTestAllowedNumbersInput(e.target.value)}
+              className="bg-[#1a1a1a] border-[#333] text-white min-h-[120px]"
+              placeholder={"5565999999999\n5565988888888"}
+              disabled={loading}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-[#121212] border-[#2a2a2a] text-white">
+        <CardHeader>
+          <CardTitle>Notificacoes de tools</CardTitle>
+          <CardDescription className="text-gray-400">
+            Configure para onde enviar avisos de agendamento, erro e handoff humano.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="max-w-xs space-y-2">
+            <Label>Notificacoes</Label>
+            <Select
+              value={config.toolNotificationsEnabled ? "on" : "off"}
+              onValueChange={(v) =>
+                setConfig((prev) => ({ ...prev, toolNotificationsEnabled: v === "on" }))
+              }
+              disabled={loading}
+            >
+              <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                <SelectItem value="on">Ativado</SelectItem>
+                <SelectItem value="off">Desativado</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label>Agendamento concluido</Label>
+              <Select
+                value={config.notifyOnScheduleSuccess ? "on" : "off"}
+                onValueChange={(v) => setConfig((prev) => ({ ...prev, notifyOnScheduleSuccess: v === "on" }))}
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                  <SelectItem value="on">Ativado</SelectItem>
+                  <SelectItem value="off">Desativado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Erro de agendamento</Label>
+              <Select
+                value={config.notifyOnScheduleError ? "on" : "off"}
+                onValueChange={(v) => setConfig((prev) => ({ ...prev, notifyOnScheduleError: v === "on" }))}
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                  <SelectItem value="on">Ativado</SelectItem>
+                  <SelectItem value="off">Desativado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Handoff para humano</Label>
+              <Select
+                value={config.notifyOnHumanHandoff ? "on" : "off"}
+                onValueChange={(v) => setConfig((prev) => ({ ...prev, notifyOnHumanHandoff: v === "on" }))}
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                  <SelectItem value="on">Ativado</SelectItem>
+                  <SelectItem value="off">Desativado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Destinos das notificacoes (telefone com 55, wa.me, grupo @g.us ou -group)</Label>
+            <Textarea
+              value={toolNotificationTargetsInput}
+              onChange={(e) => setToolNotificationTargetsInput(e.target.value)}
+              className="bg-[#1a1a1a] border-[#333] text-white min-h-[120px]"
+              placeholder={"5565999999999\n120363040490321289-group"}
+              disabled={loading}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-[#121212] border-[#2a2a2a] text-white">
+        <CardHeader>
+          <CardTitle>Google Calendar</CardTitle>
+          <CardDescription className="text-gray-400">
+            Conexao direta via botao. As credenciais globais ficam no servidor.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid md:grid-cols-[220px_1fr] gap-4 items-start">
+            <div className="space-y-2">
+              <Label>Integracao Calendar</Label>
+              <Select
+                value={config.googleCalendarEnabled ? "on" : "off"}
+                onValueChange={(v) =>
+                  setConfig((prev) => ({
+                    ...prev,
+                    googleCalendarEnabled: v === "on",
+                    googleAuthMode: "oauth_user",
+                  }))
+                }
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                  <SelectItem value="on">Ativado</SelectItem>
+                  <SelectItem value="off">Desativado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  onClick={connectGoogleCalendarOAuth}
+                  disabled={loading || connectingGoogle || googleCalendarConnected}
+                  className="bg-white text-black hover:bg-[#f4f4f4] border border-[#ddd]"
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+                      <path fill="#EA4335" d="M9 7.2v3.6h5c-.2 1.2-1.4 3.6-5 3.6-3 0-5.5-2.5-5.5-5.5S6 3.4 9 3.4c1.7 0 2.9.7 3.5 1.4L15 2.4C13.5 1 11.4.2 9 .2 4.2.2.2 4.2.2 9S4.2 17.8 9 17.8c5.2 0 8.6-3.7 8.6-8.9 0-.6-.1-1.1-.2-1.7H9z" />
+                      <path fill="#34A853" d="M.2 5.3l3 2.2C4 5.9 6.3 4.3 9 4.3c1.7 0 2.9.7 3.5 1.4L15 3.3C13.5 1.9 11.4 1.1 9 1.1 5.5 1.1 2.5 3.1.9 6l-.7-.7z" />
+                      <path fill="#FBBC05" d="M9 17.8c2.3 0 4.3-.7 5.8-2.1l-2.7-2.2c-.7.5-1.7.9-3.1.9-2.7 0-5-1.8-5.8-4.3L.3 12.2C1.9 15.3 5.1 17.8 9 17.8z" />
+                      <path fill="#4285F4" d="M17.6 9c0-.6-.1-1.1-.2-1.7H9v3.6h4.8c-.2 1.1-.9 2-1.8 2.7l2.7 2.2c1.6-1.5 2.9-3.8 2.9-6.8z" />
+                    </svg>
+                    {connectingGoogle
+                      ? "Conectando..."
+                      : googleCalendarConnected
+                        ? "Conectado com Google"
+                        : "Conectar com Google"}
+                  </span>
+                </Button>
+                {googleCalendarConnected && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={disconnectGoogleCalendarOAuth}
+                    disabled={loading || disconnectingGoogle}
+                    className="border-[#ef4444] text-[#ef4444] hover:bg-[#ef4444]/10"
+                  >
+                    {disconnectingGoogle ? "Desconectando..." : "Desconectar"}
+                  </Button>
+                )}
+              </div>
+              <div className="text-xs text-gray-400">
+                Status: {googleCalendarConnected ? "Conectado" : "Nao conectado"}
+                {config.googleOAuthConnectedAt
+                  ? ` em ${new Date(config.googleOAuthConnectedAt).toLocaleString("pt-BR")}`
+                  : ""}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label>Duracao (min)</Label>
+              <Input
+                type="number"
+                min={5}
+                max={240}
+                value={config.calendarEventDurationMinutes}
+                onChange={(e) =>
+                  setConfig((prev) => ({ ...prev, calendarEventDurationMinutes: Number(e.target.value || 50) }))
+                }
+                className="bg-[#1a1a1a] border-[#333] text-white"
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Antecedencia minima (min)</Label>
+              <Input
+                type="number"
+                min={0}
+                max={10080}
+                value={config.calendarMinLeadMinutes}
+                onChange={(e) =>
+                  setConfig((prev) => ({ ...prev, calendarMinLeadMinutes: Number(e.target.value || 15) }))
+                }
+                className="bg-[#1a1a1a] border-[#333] text-white"
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Buffer (min)</Label>
+              <Input
+                type="number"
+                min={0}
+                max={180}
+                value={config.calendarBufferMinutes}
+                onChange={(e) =>
+                  setConfig((prev) => ({ ...prev, calendarBufferMinutes: Number(e.target.value || 0) }))
+                }
+                className="bg-[#1a1a1a] border-[#333] text-white"
+                disabled={loading}
+              />
+            </div>
+          </div>
+
+          <div className="grid md:grid-cols-4 gap-4">
+            <div className="space-y-2">
+              <Label>Dias maximos de retorno</Label>
+              <Input
+                type="number"
+                min={0}
+                max={365}
+                value={config.calendarMaxAdvanceDays}
+                onChange={(e) =>
+                  setConfig((prev) => ({ ...prev, calendarMaxAdvanceDays: Number(e.target.value || 0) }))
+                }
+                className="bg-[#1a1a1a] border-[#333] text-white"
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Semanas de retorno</Label>
+              <Input
+                type="number"
+                min={0}
+                max={52}
+                value={config.calendarMaxAdvanceWeeks}
+                onChange={(e) =>
+                  setConfig((prev) => ({ ...prev, calendarMaxAdvanceWeeks: Number(e.target.value || 0) }))
+                }
+                className="bg-[#1a1a1a] border-[#333] text-white"
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Max agendamentos por dia</Label>
+              <Input
+                type="number"
+                min={0}
+                max={300}
+                value={config.calendarMaxAppointmentsPerDay}
+                onChange={(e) =>
+                  setConfig((prev) => ({
+                    ...prev,
+                    calendarMaxAppointmentsPerDay: Number(e.target.value || 0),
+                  }))
+                }
+                className="bg-[#1a1a1a] border-[#333] text-white"
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Permitir mesmo horario</Label>
+              <Select
+                value={config.allowOverlappingAppointments ? "on" : "off"}
+                onValueChange={(v) =>
+                  setConfig((prev) => ({ ...prev, allowOverlappingAppointments: v === "on" }))
+                }
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                  <SelectItem value="on">Ativado</SelectItem>
+                  <SelectItem value="off">Desativado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Horario inicial</Label>
+              <Input
+                value={config.calendarBusinessStart}
+                onChange={(e) => setConfig((prev) => ({ ...prev, calendarBusinessStart: e.target.value }))}
+                placeholder="08:00"
+                className="bg-[#1a1a1a] border-[#333] text-white"
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Horario final</Label>
+              <Input
+                value={config.calendarBusinessEnd}
+                onChange={(e) => setConfig((prev) => ({ ...prev, calendarBusinessEnd: e.target.value }))}
+                placeholder="20:00"
+                className="bg-[#1a1a1a] border-[#333] text-white"
+                disabled={loading}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Dias uteis (1=Seg, 7=Dom)</Label>
+            <Input
+              value={config.calendarBusinessDays.join(",")}
+              onChange={(e) =>
+                setConfig((prev) => ({ ...prev, calendarBusinessDays: parseBusinessDaysInput(e.target.value) }))
+              }
+              placeholder="1,2,3,4,5,6"
+              className="bg-[#1a1a1a] border-[#333] text-white"
+              disabled={loading}
+            />
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Dias bloqueados (YYYY-MM-DD, 1 por linha)</Label>
+              <Textarea
+                value={calendarBlockedDatesInput}
+                onChange={(e) => setCalendarBlockedDatesInput(e.target.value)}
+                className="bg-[#1a1a1a] border-[#333] text-white min-h-[96px]"
+                placeholder={"2026-04-10\n2026-04-21"}
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Horarios bloqueados (HH:mm-HH:mm, 1 por linha)</Label>
+              <Textarea
+                value={calendarBlockedTimeRangesInput}
+                onChange={(e) => setCalendarBlockedTimeRangesInput(e.target.value)}
+                className="bg-[#1a1a1a] border-[#333] text-white min-h-[96px]"
+                placeholder={"12:00-13:00\n18:00-19:30"}
+                disabled={loading}
+              />
+            </div>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Coletar email para agendar</Label>
+              <Select
+                value={config.collectEmailForScheduling ? "on" : "off"}
+                onValueChange={(v) =>
+                  setConfig((prev) => ({ ...prev, collectEmailForScheduling: v === "on" }))
+                }
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                  <SelectItem value="on">Ativado</SelectItem>
+                  <SelectItem value="off">Desativado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Agendamento online com Google Meet</Label>
+              <Select
+                value={config.generateMeetForOnlineAppointments ? "on" : "off"}
+                onValueChange={(v) =>
+                  setConfig((prev) => ({
+                    ...prev,
+                    generateMeetForOnlineAppointments: v === "on",
+                    collectEmailForScheduling: v === "on" ? true : prev.collectEmailForScheduling,
+                  }))
+                }
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                  <SelectItem value="on">Ativado</SelectItem>
+                  <SelectItem value="off">Desativado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="text-xs text-gray-400">
+            Quando o modo online com Meet estiver ativado, o agente solicita email do lead e cria link
+            do Google Meet no evento.
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="flex flex-wrap justify-end gap-2">
+        <Button
+          onClick={save}
+          disabled={loading || saving}
+          className="border border-[#22c55e] bg-[#22c55e] text-black hover:bg-[#16a34a] hover:border-[#16a34a]"
+        >
+          <Save className="mr-2 h-4 w-4" />
+          {saving ? "Salvando..." : "Salvar configuracoes"}
+        </Button>
+      </div>
+    </div>
+  )
+}

@@ -4,6 +4,188 @@ import { notifyAgendamentoCreated } from "@/lib/services/notifications"
 import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
 
 type Row = Record<string, any>
+const tableColumnsCache = new Map<string, Set<string>>()
+const MARCACAO_REGEX = /\[MARCACAO:([a-z_]+)\]\s*/i
+const MARCACOES_VALIDAS = new Set([
+  "nenhuma",
+  "agendamento_manual",
+  "reagendado",
+  "confirmado_manual",
+  "outro",
+])
+const ERRO_DATA_HORARIO_REGEX = /erro:\s*data\s*ou\s*hor.?rio\s*vazios/i
+const STATUS_REQUER_DIA_HORARIO = new Set(["agendado", "confirmado"])
+const AGENDAMENTOS_WEBHOOK_URL =
+  process.env.AGENDAMENTOS_WEBHOOK_URL || "https://webhook.iagoflow.com/webhook/supa"
+
+function resolveTenantFromAgendamentosTable(tableName: string): string {
+  return tableName.endsWith("_agendamentos")
+    ? tableName.replace(/_agendamentos$/, "")
+    : tableName
+}
+
+async function sendManualAgendamentoWebhook(params: {
+  tableName: string
+  changedFields: string[]
+  nextRow: any
+  previousRow: any
+}): Promise<{ sent: boolean; error?: string }> {
+  try {
+    const payload = {
+      source: "webapp_manual",
+      entity: "agendamentos",
+      operation: "UPDATE",
+      schema: "public",
+      table: params.tableName,
+      tenant: resolveTenantFromAgendamentosTable(params.tableName),
+      changed_at: new Date().toISOString(),
+      changed_fields: params.changedFields,
+      new: params.nextRow ?? null,
+      old: params.previousRow ?? null,
+      manual_webhook: true,
+    }
+
+    const response = await fetch(AGENDAMENTOS_WEBHOOK_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    })
+
+    if (!response.ok) {
+      const responseText = await response.text().catch(() => "")
+      throw new Error(`Webhook HTTP ${response.status}${responseText ? ` - ${responseText}` : ""}`)
+    }
+
+    return { sent: true }
+  } catch (error: any) {
+    console.error("[Agendamentos API] Erro ao enviar webhook manual:", error)
+    return { sent: false, error: error?.message || "Falha ao enviar webhook manual" }
+  }
+}
+
+function normalizeOptionalText(value: any, max?: number): string | null {
+  const trimmed = String(value ?? "").trim()
+  if (!trimmed) return null
+  return max ? trimmed.substring(0, max) : trimmed
+}
+
+function normalizeMarcacao(value: any): string | null {
+  const normalized = String(value ?? "").trim().toLowerCase()
+  if (!normalized || normalized === "nenhuma") return null
+  return MARCACOES_VALIDAS.has(normalized) ? normalized : "outro"
+}
+
+function readObservacoesFromRow(row: any): any {
+  if (!row || typeof row !== "object") return null
+  return row?.observacoes
+    ?? row?.["observa\u00e7\u00f5es"]
+    ?? null
+}
+
+function splitObservacoesAndMarcacao(raw: any): { observacoes: string | null; observacaoMarcacao: string | null } {
+  const observacoes = normalizeOptionalText(raw, 500)
+  if (!observacoes) {
+    return { observacoes: null, observacaoMarcacao: null }
+  }
+
+  const match = observacoes.match(MARCACAO_REGEX)
+  if (!match) {
+    return { observacoes, observacaoMarcacao: null }
+  }
+
+  const observacaoMarcacao = normalizeMarcacao(match[1])
+  const observacoesSemMarcacao = normalizeOptionalText(observacoes.replace(MARCACAO_REGEX, ""), 500)
+  return {
+    observacoes: observacoesSemMarcacao,
+    observacaoMarcacao,
+  }
+}
+
+function composeObservacoesWithMarcacao(
+  observacoesRaw: any,
+  observacaoMarcacaoRaw: any
+): string | null {
+  const observacoes = splitObservacoesAndMarcacao(observacoesRaw).observacoes
+  const observacaoMarcacao = normalizeMarcacao(observacaoMarcacaoRaw)
+  if (!observacaoMarcacao) {
+    return observacoes
+  }
+
+  const prefix = `[MARCACAO:${observacaoMarcacao}]`
+  return normalizeOptionalText(`${prefix} ${observacoes || ""}`.trim(), 500)
+}
+
+function resolveMarcacaoFromRow(row: any): string | null {
+  const explicit = normalizeMarcacao(row?.observacao_marcacao)
+  if (explicit) return explicit
+  const observacoesRaw = readObservacoesFromRow(row)
+  return splitObservacoesAndMarcacao(observacoesRaw).observacaoMarcacao
+}
+
+function isDiaDefinidoParaAgendamento(value: any): boolean {
+  const dia = String(value ?? "").trim()
+  if (!dia) return false
+  if (dia.toLowerCase() === "a definir") return false
+  return !ERRO_DATA_HORARIO_REGEX.test(dia)
+}
+
+function isHorarioDefinidoParaAgendamento(value: any): boolean {
+  const horario = String(value ?? "").trim()
+  if (!horario) return false
+  if (horario.toLowerCase() === "a definir") return false
+  if (ERRO_DATA_HORARIO_REGEX.test(horario)) return false
+  return /^(?:[01]?\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(horario)
+}
+
+function sanitizeObservacoesErroDataHorario(value: any): string | null {
+  const original = normalizeOptionalText(value, 500)
+  if (!original) return null
+
+  const sanitized = original
+    .replace(/erro:\s*data\s*ou\s*hor.?rio\s*vazios/ig, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim()
+
+  return normalizeOptionalText(sanitized, 500)
+}
+
+function sanitizeAgendamentoFields(input: {
+  status: any
+  dia: any
+  horario: any
+  observacoes: any
+}): {
+  status: string
+  dia: string
+  horario: string
+  observacoes: string | null
+} {
+  let status = normalizeOptionalText(input.status)?.toLowerCase() || "pendente"
+  let dia = normalizeOptionalText(input.dia) || "A definir"
+  let horario = normalizeOptionalText(input.horario) || "A definir"
+  const observacoes = sanitizeObservacoesErroDataHorario(input.observacoes)
+
+  if (!isDiaDefinidoParaAgendamento(dia)) {
+    dia = "A definir"
+  }
+
+  if (!isHorarioDefinidoParaAgendamento(horario)) {
+    horario = "A definir"
+  }
+
+  if (STATUS_REQUER_DIA_HORARIO.has(status) && (dia === "A definir" || horario === "A definir")) {
+    status = "pendente"
+  }
+
+  return {
+    status,
+    dia,
+    horario,
+    observacoes,
+  }
+}
 
 // Função para validar se o agendamento é explícito
 function isAgendamentoExplicito(agendamento: any): boolean {
@@ -14,7 +196,7 @@ function isAgendamentoExplicito(agendamento: any): boolean {
       /diagn[oó]stico\s+estrat[ée]gico\s+comunica[çc][ãa]o/i, // Variação próxima
     ]
 
-    const observacoes = String(agendamento.observacoes || agendamento["observações"] || '').toLowerCase()
+    const observacoes = String(readObservacoesFromRow(agendamento) || "").toLowerCase()
 
     // Verifica se tem menção ao diagnóstico
     const temDiagnostico = diagnosticoPatterns.some(pattern =>
@@ -83,9 +265,13 @@ async function runQuery(supabase: any, table: string, dayStart?: string | null, 
   // E filtra apenas agendamentos explícitos
   const mapped = (data ?? [])
     .map((r: Row) => {
-      const observacoes = r["observações"] ?? r["observacoes"] ?? null
+      const observacoesRaw = readObservacoesFromRow(r)
+      const parsedObservacoes = splitObservacoesAndMarcacao(observacoesRaw)
+      const observacaoMarcacao = normalizeMarcacao(r["observacao_marcacao"]) ?? parsedObservacoes.observacaoMarcacao
       // Remove a chave com acento para não duplicar
-      const { ["observações"]: _drop, ...rest } = r
+      const rest = { ...r } as Row
+      delete (rest as any).observacoes
+      delete (rest as any)["observa\u00e7\u00f5es"]
 
       // Normaliza o campo nome (pode ser nome, nome_responsavel ou nome_aluno)
       let nome = r.nome || r.nome_responsavel || r.nome_aluno || null
@@ -99,10 +285,25 @@ async function runQuery(supabase: any, table: string, dayStart?: string | null, 
         }
       }
 
-      return { ...rest, observacoes, nome }
+      const sanitized = sanitizeAgendamentoFields({
+        status: r.status,
+        dia: r.dia,
+        horario: r.horario,
+        observacoes: parsedObservacoes.observacoes,
+      })
+
+      return {
+        ...rest,
+        status: sanitized.status,
+        dia: sanitized.dia,
+        horario: sanitized.horario,
+        observacoes: sanitized.observacoes,
+        observacao_marcacao: observacaoMarcacao ?? "nenhuma",
+        nome,
+      }
     })
     .filter((r: Row) => {
-      // Filtra apenas agendamentos explícitos
+      if (r.editado_manual === true) return true
       return isAgendamentoExplicito(r)
     })
 
@@ -187,6 +388,32 @@ function extractFormDataFromMessages(messages: any[]): { nome?: string; primeiro
     }
   } catch (e) { }
   return null
+}
+
+async function getTableColumns(supabase: any, tableName: string): Promise<Set<string>> {
+  if (tableColumnsCache.has(tableName)) {
+    return tableColumnsCache.get(tableName)!
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from("information_schema.columns")
+      .select("column_name")
+      .eq("table_schema", "public")
+      .eq("table_name", tableName)
+
+    if (error) {
+      console.warn(`[Agendamentos API] Falha ao buscar colunas de ${tableName}:`, error.message)
+      return new Set<string>()
+    }
+
+    const columns = new Set<string>((data || []).map((row: any) => String(row.column_name)))
+    tableColumnsCache.set(tableName, columns)
+    return columns
+  } catch (error: any) {
+    console.warn(`[Agendamentos API] Erro ao consultar information_schema para ${tableName}:`, error?.message || error)
+    return new Set<string>()
+  }
 }
 
 export async function GET(req: Request) {
@@ -324,14 +551,114 @@ export async function GET(req: Request) {
   }
 }
 
-export async function PUT(req: Request) {
+export async function POST(req: Request) {
   try {
-    const { tables } = await getTenantFromRequest()
+    const { tables, session } = await getTenantFromRequest()
     const { agendamentos } = tables
     const supabase = createBiaSupabaseServerClient()
     const body = await req.json()
 
-    const { id, nome, contato, status, dia, horario, observacoes } = body
+    const rawContato = String(body?.contato ?? "").trim()
+    if (!rawContato) {
+      return NextResponse.json({ error: "Contato é obrigatório" }, { status: 400 })
+    }
+
+    const nomeFinal = normalizeOptionalText(body?.nome, 100)
+    const contatoFinal = rawContato.substring(0, 20)
+    const sanitized = sanitizeAgendamentoFields({
+      status: body?.status,
+      dia: body?.dia,
+      horario: body?.horario,
+      observacoes: body?.observacoes,
+    })
+    const statusFinal = sanitized.status
+    const diaFinal = sanitized.dia
+    const horarioFinal = sanitized.horario
+    const observacoesFinal = sanitized.observacoes
+    const observacaoMarcacaoFinal = normalizeMarcacao(body?.observacao_marcacao)
+
+    const payload: any = {
+      contato: contatoFinal,
+      status: statusFinal,
+      dia: diaFinal,
+      horario: horarioFinal,
+    }
+
+    const columns = await getTableColumns(supabase, agendamentos)
+    const hasObservacaoMarcacaoColumn = columns.has("observacao_marcacao")
+
+    if (nomeFinal) payload.nome = nomeFinal
+    if (hasObservacaoMarcacaoColumn) {
+      if (observacoesFinal) payload.observacoes = observacoesFinal
+      if (observacaoMarcacaoFinal) payload.observacao_marcacao = observacaoMarcacaoFinal
+    } else {
+      const observacoesComMarcacao = composeObservacoesWithMarcacao(observacoesFinal, observacaoMarcacaoFinal)
+      if (observacoesComMarcacao) payload.observacoes = observacoesComMarcacao
+    }
+
+    if (columns.has("editado_manual")) {
+      payload.editado_manual = true
+    }
+
+    if (session?.userId) {
+      if (columns.has("editado_por")) {
+        payload.editado_por = session.userId
+      } else if (columns.has("editado_por_id")) {
+        payload.editado_por_id = session.userId
+      } else if (columns.has("editado_por_user_id")) {
+        payload.editado_por_user_id = session.userId
+      }
+    }
+
+    if (columns.has("updated_at")) {
+      payload.updated_at = new Date().toISOString()
+    }
+
+    const { data, error } = await supabase
+      .from(agendamentos)
+      .insert(payload)
+      .select()
+      .single()
+
+    if (error) {
+      console.error("[Agendamentos API] Erro ao criar agendamento:", error)
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+
+    await notifyAgendamentoCreated(
+      contatoFinal,
+      nomeFinal || "Cliente",
+      diaFinal,
+      horarioFinal
+    ).catch(err => console.error("[Agendamentos API] Erro ao criar notificação:", err))
+
+    return NextResponse.json({ success: true, data })
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message ?? "Erro ao criar agendamento" }, { status: 500 })
+  }
+}
+
+export async function PUT(req: Request) {
+  try {
+    const { tables, session } = await getTenantFromRequest()
+    const { agendamentos } = tables
+    const supabase = createBiaSupabaseServerClient()
+    const body = await req.json()
+
+    const {
+      id,
+      nome,
+      contato,
+      status,
+      dia,
+      horario,
+      observacoes,
+      observacao_marcacao,
+      send_webhook_manual,
+    } = body
+    const hasObservacaoMarcacao = Object.prototype.hasOwnProperty.call(body, "observacao_marcacao")
+    const shouldSendWebhookManually =
+      send_webhook_manual === true || String(send_webhook_manual).toLowerCase() === "true"
 
     if (!id) {
       return NextResponse.json({ error: "ID do agendamento é obrigatório" }, { status: 400 })
@@ -343,7 +670,108 @@ export async function PUT(req: Request) {
     if (status !== undefined) updates.status = String(status).trim()
     if (dia !== undefined) updates.dia = String(dia).trim()
     if (horario !== undefined) updates.horario = String(horario).trim()
-    if (observacoes !== undefined) updates.observacoes = String(observacoes).trim().substring(0, 500)
+    if (observacoes !== undefined) {
+      const observacoesLimpas = splitObservacoesAndMarcacao(observacoes).observacoes
+      updates.observacoes = String(observacoesLimpas || "").substring(0, 500)
+    }
+
+    let existing: any = null
+    try {
+      const { data: currentRow, error: currentError } = await supabase
+        .from(agendamentos)
+        .select("*")
+        .eq("id", id)
+        .maybeSingle()
+
+      if (currentError) {
+        console.warn("[Agendamentos API] Falha ao buscar agendamento atual:", currentError.message)
+      } else {
+        existing = currentRow
+      }
+    } catch (error) {
+      console.warn("[Agendamentos API] Erro ao buscar agendamento atual:", error)
+    }
+
+    const columns = await getTableColumns(supabase, agendamentos)
+    const hasObservacaoMarcacaoColumn = columns.has("observacao_marcacao")
+
+    if (hasObservacaoMarcacaoColumn) {
+      if (hasObservacaoMarcacao) {
+        updates.observacao_marcacao = normalizeMarcacao(observacao_marcacao)
+      }
+    } else if (observacoes !== undefined || hasObservacaoMarcacao) {
+      const marcacaoFallback = hasObservacaoMarcacao
+        ? normalizeMarcacao(observacao_marcacao)
+        : resolveMarcacaoFromRow(existing)
+      const observacoesBase = observacoes !== undefined
+        ? updates.observacoes
+        : readObservacoesFromRow(existing)
+      updates.observacoes = composeObservacoesWithMarcacao(observacoesBase, marcacaoFallback) ?? ""
+    }
+
+    const shouldSanitizeScheduleFields =
+      status !== undefined || dia !== undefined || horario !== undefined || observacoes !== undefined
+
+    if (shouldSanitizeScheduleFields) {
+      const nextStatusRaw = updates.status !== undefined ? updates.status : existing?.status
+      const nextDiaRaw = updates.dia !== undefined ? updates.dia : existing?.dia
+      const nextHorarioRaw = updates.horario !== undefined ? updates.horario : existing?.horario
+      const nextObservacoesRaw = updates.observacoes !== undefined
+        ? updates.observacoes
+        : readObservacoesFromRow(existing)
+
+      const sanitized = sanitizeAgendamentoFields({
+        status: nextStatusRaw,
+        dia: nextDiaRaw,
+        horario: nextHorarioRaw,
+        observacoes: nextObservacoesRaw,
+      })
+
+      updates.status = sanitized.status
+      updates.dia = sanitized.dia
+      updates.horario = sanitized.horario
+      updates.observacoes = sanitized.observacoes ?? ""
+    }
+
+    const normalize = (value: any) => String(value ?? "").trim()
+    const existingNome = existing?.nome || existing?.nome_responsavel || existing?.nome_aluno || ""
+    const nextNome = updates.nome !== undefined ? updates.nome : existingNome
+    const existingObservacoesRaw = readObservacoesFromRow(existing)
+    const existingObservacoesLimpas = splitObservacoesAndMarcacao(existingObservacoesRaw).observacoes
+    const nextObservacoesLimpas = splitObservacoesAndMarcacao(
+      updates.observacoes !== undefined ? updates.observacoes : existingObservacoesRaw
+    ).observacoes
+    const existingMarcacao = resolveMarcacaoFromRow(existing) ?? "nenhuma"
+    const nextMarcacao = resolveMarcacaoFromRow({ ...(existing || {}), ...updates }) ?? "nenhuma"
+    const hasChanges = existing
+      ? normalize(nextNome) !== normalize(existingNome) ||
+        normalize(updates.contato ?? existing?.contato) !== normalize(existing?.contato) ||
+        normalize(updates.status ?? existing?.status) !== normalize(existing?.status) ||
+        normalize(updates.dia ?? existing?.dia) !== normalize(existing?.dia) ||
+        normalize(updates.horario ?? existing?.horario) !== normalize(existing?.horario) ||
+        normalize(nextObservacoesLimpas) !== normalize(existingObservacoesLimpas) ||
+        normalize(nextMarcacao) !== normalize(existingMarcacao)
+      : true
+
+    if (hasChanges) {
+      if (columns.has("editado_manual")) {
+        updates.editado_manual = true
+      }
+
+      if (session?.userId) {
+        if (columns.has("editado_por")) {
+          updates.editado_por = session.userId
+        } else if (columns.has("editado_por_id")) {
+          updates.editado_por_id = session.userId
+        } else if (columns.has("editado_por_user_id")) {
+          updates.editado_por_user_id = session.userId
+        }
+      }
+
+      if (columns.has("updated_at")) {
+        updates.updated_at = new Date().toISOString()
+      }
+    }
 
     const { data, error } = await supabase
       .from(agendamentos)
@@ -357,7 +785,27 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    return NextResponse.json({ success: true, data })
+    let webhookSent: boolean | null = null
+    let webhookError: string | null = null
+    if (shouldSendWebhookManually) {
+      const changedFields = Object.keys(updates).filter((key) => key !== "updated_at")
+      const webhookResult = await sendManualAgendamentoWebhook({
+        tableName: agendamentos,
+        changedFields,
+        nextRow: data,
+        previousRow: existing,
+      })
+
+      webhookSent = webhookResult.sent
+      webhookError = webhookResult.error ?? null
+    }
+
+    return NextResponse.json({
+      success: true,
+      data,
+      webhookSent,
+      webhookError,
+    })
   } catch (e: any) {
     return NextResponse.json({ error: e?.message ?? "Erro ao atualizar agendamento" }, { status: 500 })
   }
@@ -390,3 +838,4 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ error: e?.message ?? "Erro ao excluir agendamento" }, { status: 500 })
   }
 }
+

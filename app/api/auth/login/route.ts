@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createBiaSupabaseServerClient } from '@/lib/supabase/bia-client'
 import { verifyPassword, createToken, validateUnitName, validatePassword } from '@/lib/auth/utils'
 import { cookies } from 'next/headers'
+import { resolveTenantDataPrefix } from '@/lib/helpers/tenant-resolution'
 
 export async function POST(req: Request) {
     try {
@@ -67,10 +68,18 @@ export async function POST(req: Request) {
             .update({ last_login: new Date().toISOString() })
             .eq('id', unit.id)
 
+        // Resolver prefixo real de dados (compatibilidade com aliases)
+        let resolvedPrefix = unit.unit_prefix
+        try {
+            resolvedPrefix = await resolveTenantDataPrefix(unit.unit_prefix)
+        } catch (error: any) {
+            console.warn('[Login] Falha ao resolver tenant de dados, usando bruto:', error?.message || error)
+        }
+
         // Criar token JWT
         const token = await createToken({
             unitName: unit.unit_name,
-            unitPrefix: unit.unit_prefix,
+            unitPrefix: resolvedPrefix,
             isAdmin: false,
             userId: unit.id,
         })
@@ -89,7 +98,7 @@ export async function POST(req: Request) {
             success: true,
             unit: {
                 name: unit.unit_name,
-                prefix: unit.unit_prefix,
+                prefix: resolvedPrefix,
             },
         })
     } catch (error) {

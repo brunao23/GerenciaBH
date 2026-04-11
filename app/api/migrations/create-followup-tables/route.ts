@@ -42,10 +42,13 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       success: true,
-      message: "Para criar as tabelas, execute o SQL abaixo no Supabase Dashboard:",
-      instruction: "Vá em SQL Editor no Supabase Dashboard e execute o arquivo de migration",
-      file: "supabase/migrations/20251120_create_followup_system.sql",
-      note: "Este endpoint não pode executar DDL diretamente. Por favor, execute a migration manualmente no Supabase Dashboard."
+      message: "Para criar/atualizar as tabelas, execute o SQL abaixo no Supabase Dashboard:",
+      instruction: "Vá em SQL Editor no Supabase Dashboard e execute os arquivos de migration",
+      files: [
+        "supabase/migrations/20251120_create_followup_system.sql",
+        "supabase/migrations/20260210_update_followup_zapi_config.sql"
+      ],
+      note: "Este endpoint não pode executar DDL diretamente. Por favor, execute as migrations manualmente no Supabase Dashboard."
     })
 
   } catch (error: any) {
@@ -69,11 +72,14 @@ export async function GET() {
     instructions: [
       "1. Acesse o Supabase Dashboard",
       "2. Vá em SQL Editor",
-      "3. Copie o conteúdo do arquivo: supabase/migrations/20251120_create_followup_system.sql",
-      "4. Cole e execute o SQL",
-      "5. As tabelas serão criadas automaticamente"
+      "3. Execute o arquivo: supabase/migrations/20251120_create_followup_system.sql",
+      "4. Execute o arquivo: supabase/migrations/20260210_update_followup_zapi_config.sql",
+      "5. As tabelas serão criadas/atualizadas automaticamente"
     ],
-    file: "supabase/migrations/20251120_create_followup_system.sql"
+    files: [
+      "supabase/migrations/20251120_create_followup_system.sql",
+      "supabase/migrations/20260210_update_followup_zapi_config.sql"
+    ]
   })
 }
 

@@ -1,15 +1,15 @@
-/**
- * API: Criar Nova Empresa (Onboarding Completo e OBRIGATÓRIO)
+﻿/**
+ * API: Criar Nova Empresa (Onboarding Completo e OBRIGATÃ“RIO)
  * POST /api/admin/empresas/criar
  * 
  * Este endpoint faz TUDO automaticamente e OBRIGATORIAMENTE:
  * 1. Cria o registro da empresa
  * 2. Gera o schema (nome normalizado)
  * 3. Cria as 12 tabelas no banco
- * 4. OBRIGATÓRIO: Replica os 7 workflows N8N
- * 5. OBRIGATÓRIO: Salva as credenciais
+ * 4. OBRIGATÃ“RIO: Replica os 7 workflows N8N
+ * 5. OBRIGATÃ“RIO: Salva as credenciais
  * 
- * Se qualquer etapa falhar, a operação é revertida!
+ * Se qualquer etapa falhar, a operaÃ§Ã£o Ã© revertida!
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -21,26 +21,26 @@ const supabaseAdmin = createClient(
     process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// Interface para criação de empresa - CREDENCIAIS SÃO OBRIGATÓRIAS
+// Interface para criaÃ§Ã£o de empresa - CREDENCIAIS SÃƒO OBRIGATÃ“RIAS
 interface CriarEmpresaRequest {
-    nome: string;                    // Ex: "Vox São Paulo" - OBRIGATÓRIO
-    schema?: string;                 // Opcional - se não passar, gera automaticamente
+    nome: string;                    // Ex: "Vox SÃ£o Paulo" - OBRIGATÃ“RIO
+    schema?: string;                 // Opcional - se nÃ£o passar, gera automaticamente
     email_admin?: string;            // Email do admin da empresa
     telefone?: string;               // Telefone de contato
-    endereco?: string;               // Endereço
+    endereco?: string;               // EndereÃ§o
 
-    // Credenciais N8N - OBRIGATÓRIAS para criar empresa
+    // Credenciais N8N - OBRIGATÃ“RIAS para criar empresa
     credenciais: {
-        supabase_api_id: string;       // OBRIGATÓRIO
-        supabase_api_name: string;     // OBRIGATÓRIO
-        redis_id: string;              // OBRIGATÓRIO
-        redis_name: string;            // OBRIGATÓRIO
-        postgres_id: string;           // OBRIGATÓRIO
-        postgres_name: string;         // OBRIGATÓRIO
-        google_calendar_id: string;    // OBRIGATÓRIO
-        google_calendar_name: string;  // OBRIGATÓRIO
-        calendar_email: string;        // OBRIGATÓRIO
-        notification_group: string;    // OBRIGATÓRIO
+        supabase_api_id: string;       // OBRIGATÃ“RIO
+        supabase_api_name: string;     // OBRIGATÃ“RIO
+        redis_id: string;              // OBRIGATÃ“RIO
+        redis_name: string;            // OBRIGATÃ“RIO
+        postgres_id: string;           // OBRIGATÃ“RIO
+        postgres_name: string;         // OBRIGATÃ“RIO
+        google_calendar_id: string;    // OBRIGATÃ“RIO
+        google_calendar_name: string;  // OBRIGATÃ“RIO
+        calendar_email: string;        // OBRIGATÃ“RIO
+        notification_group: string;    // OBRIGATÃ“RIO
         evolution_instance?: string;   // Opcional
         zapi_instance?: string;        // Opcional
         zapi_token?: string;           // Opcional
@@ -48,8 +48,8 @@ interface CriarEmpresaRequest {
 }
 
 /**
- * Gera um schema válido a partir do nome da empresa
- * Ex: "Vox São Paulo" → "vox_sao_paulo"
+ * Gera um schema vÃ¡lido a partir do nome da empresa
+ * Ex: "Vox SÃ£o Paulo" â†’ "vox_sao_paulo"
  */
 function gerarSchema(nome: string): string {
     return nome
@@ -58,13 +58,13 @@ function gerarSchema(nome: string): string {
         .replace(/[\u0300-\u036f]/g, '') // Remove acentos
         .replace(/[^a-z0-9\s]/g, '')     // Remove caracteres especiais
         .trim()
-        .replace(/\s+/g, '_')            // Espaços viram underscore
+        .replace(/\s+/g, '_')            // EspaÃ§os viram underscore
         .replace(/_+/g, '_')             // Remove underscores duplicados
-        .substring(0, 30);               // Máximo 30 caracteres
+        .substring(0, 30);               // MÃ¡ximo 30 caracteres
 }
 
 /**
- * Verifica se o schema já existe
+ * Verifica se o schema jÃ¡ existe
  */
 async function schemaExiste(schema: string): Promise<boolean> {
     const { data } = await supabaseAdmin
@@ -92,7 +92,7 @@ async function criarTabelasEmpresa(schema: string): Promise<{ success: boolean; 
 
         return { success: true };
     } catch (err: any) {
-        console.error('Exceção ao criar tabelas:', err);
+        console.error('ExceÃ§Ã£o ao criar tabelas:', err);
         return { success: false, error: err.message };
     }
 }
@@ -128,14 +128,14 @@ async function rollbackEmpresa(empresaId: string, schema: string): Promise<void>
         // Deletar empresa
         await supabaseAdmin.from('empresas').delete().eq('id', empresaId);
 
-        console.log(`🔄 Rollback executado para empresa ${empresaId}`);
+        console.log(`ðŸ”„ Rollback executado para empresa ${empresaId}`);
     } catch (err) {
         console.error('Erro no rollback:', err);
     }
 }
 
 /**
- * Valida se todas as credenciais obrigatórias foram fornecidas
+ * Valida se todas as credenciais obrigatÃ³rias foram fornecidas
  */
 function validarCredenciais(credenciais: any): { valido: boolean; camposFaltando: string[] } {
     const camposObrigatorios = [
@@ -166,20 +166,20 @@ export async function POST(req: NextRequest) {
     let schemaCriado: string = '';
 
     try {
-        // 1. Verificar autenticação
+        // 1. Verificar autenticaÃ§Ã£o
         const authHeader = req.headers.get('authorization');
         if (!authHeader?.startsWith('Bearer ')) {
-            return NextResponse.json({ error: 'Token não fornecido' }, { status: 401 });
+            return NextResponse.json({ error: 'Token nÃ£o fornecido' }, { status: 401 });
         }
 
         const token = authHeader.split(' ')[1];
         const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
 
         if (authError || !user) {
-            return NextResponse.json({ error: 'Token inválido' }, { status: 401 });
+            return NextResponse.json({ error: 'Token invÃ¡lido' }, { status: 401 });
         }
 
-        // 2. Verificar se é admin
+        // 2. Verificar se Ã© admin
         const { data: usuario } = await supabaseAdmin
             .from('usuarios')
             .select('role')
@@ -190,20 +190,20 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: 'Acesso negado. Apenas admins.' }, { status: 403 });
         }
 
-        // 3. Obter dados da requisição
+        // 3. Obter dados da requisiÃ§Ã£o
         const body: CriarEmpresaRequest = await req.json();
 
-        // 4. VALIDAÇÃO OBRIGATÓRIA: Nome
+        // 4. VALIDAÃ‡ÃƒO OBRIGATÃ“RIA: Nome
         if (!body.nome || body.nome.trim().length < 2) {
             return NextResponse.json({
-                error: 'Nome da empresa é OBRIGATÓRIO (mínimo 2 caracteres)'
+                error: 'Nome da empresa Ã© OBRIGATÃ“RIO (mÃ­nimo 2 caracteres)'
             }, { status: 400 });
         }
 
-        // 5. VALIDAÇÃO OBRIGATÓRIA: Credenciais
+        // 5. VALIDAÃ‡ÃƒO OBRIGATÃ“RIA: Credenciais
         if (!body.credenciais) {
             return NextResponse.json({
-                error: 'Credenciais N8N são OBRIGATÓRIAS para criar uma empresa',
+                error: 'Credenciais N8N sÃ£o OBRIGATÃ“RIAS para criar uma empresa',
                 campos_obrigatorios: [
                     'supabase_api_id', 'supabase_api_name',
                     'redis_id', 'redis_name',
@@ -217,7 +217,7 @@ export async function POST(req: NextRequest) {
         const validacaoCredenciais = validarCredenciais(body.credenciais);
         if (!validacaoCredenciais.valido) {
             return NextResponse.json({
-                error: 'Credenciais incompletas. Todos os campos são OBRIGATÓRIOS.',
+                error: 'Credenciais incompletas. Todos os campos sÃ£o OBRIGATÃ“RIOS.',
                 campos_faltando: validacaoCredenciais.camposFaltando,
             }, { status: 400 });
         }
@@ -225,7 +225,7 @@ export async function POST(req: NextRequest) {
         // 6. Gerar ou validar schema
         let schema = body.schema?.trim() || gerarSchema(body.nome);
 
-        // Verificar se schema já existe
+        // Verificar se schema jÃ¡ existe
         if (await schemaExiste(schema)) {
             let contador = 1;
             let novoSchema = `${schema}_${contador}`;
@@ -236,7 +236,7 @@ export async function POST(req: NextRequest) {
 
             if (contador >= 100) {
                 return NextResponse.json({
-                    error: `Schema "${schema}" já existe e não foi possível gerar alternativa`
+                    error: `Schema "${schema}" jÃ¡ existe e nÃ£o foi possÃ­vel gerar alternativa`
                 }, { status: 400 });
             }
 
@@ -244,7 +244,7 @@ export async function POST(req: NextRequest) {
         }
 
         schemaCriado = schema;
-        console.log(`📝 Criando empresa: ${body.nome} (schema: ${schema})`);
+        console.log(`ðŸ“ Criando empresa: ${body.nome} (schema: ${schema})`);
 
         // 7. Criar registro da empresa
         const { data: empresa, error: empresaError } = await supabaseAdmin
@@ -270,14 +270,14 @@ export async function POST(req: NextRequest) {
         }
 
         empresaCriada = empresa;
-        console.log(`✅ Empresa criada: ${empresa.id}`);
+        console.log(`âœ… Empresa criada: ${empresa.id}`);
 
-        // 8. OBRIGATÓRIO: Criar as 12 tabelas
-        console.log(`🔧 Criando tabelas para schema: ${schema}`);
+        // 8. OBRIGATÃ“RIO: Criar as 12 tabelas
+        console.log(`ðŸ”§ Criando tabelas para schema: ${schema}`);
         const resultadoTabelas = await criarTabelasEmpresa(schema);
 
         if (!resultadoTabelas.success) {
-            console.error('❌ FALHA ao criar tabelas - fazendo rollback');
+            console.error('âŒ FALHA ao criar tabelas - fazendo rollback');
             await rollbackEmpresa(empresa.id, schema);
             return NextResponse.json({
                 error: 'FALHA ao criar tabelas no banco de dados',
@@ -286,21 +286,26 @@ export async function POST(req: NextRequest) {
             }, { status: 500 });
         }
 
+        const { error: webhookTriggerError } = await supabaseAdmin.rpc('ensure_agendamentos_webhook_triggers');
+        if (webhookTriggerError) {
+            console.warn('âš ï¸ Aviso ao vincular webhook de agendamentos:', webhookTriggerError.message);
+        }
+
         // 9. Verificar se tabelas foram criadas
         const verificacao = await verificarTabelas(schema);
         if (!verificacao.success) {
-            console.error('❌ Tabelas não foram criadas corretamente - fazendo rollback');
+            console.error('âŒ Tabelas nÃ£o foram criadas corretamente - fazendo rollback');
             await rollbackEmpresa(empresa.id, schema);
             return NextResponse.json({
-                error: 'Tabelas não foram criadas corretamente',
+                error: 'Tabelas nÃ£o foram criadas corretamente',
                 tabelas: verificacao.tabelas,
                 rollback: true
             }, { status: 500 });
         }
 
-        console.log(`✅ 12 tabelas criadas com sucesso`);
+        console.log(`âœ… 12 tabelas criadas com sucesso`);
 
-        // 10. OBRIGATÓRIO: Salvar credenciais
+        // 10. OBRIGATÃ“RIO: Salvar credenciais
         const { error: credError } = await supabaseAdmin
             .from('empresa_credenciais')
             .insert({
@@ -310,7 +315,7 @@ export async function POST(req: NextRequest) {
             });
 
         if (credError) {
-            console.error('❌ FALHA ao salvar credenciais - fazendo rollback');
+            console.error('âŒ FALHA ao salvar credenciais - fazendo rollback');
             await rollbackEmpresa(empresa.id, schema);
             return NextResponse.json({
                 error: 'FALHA ao salvar credenciais',
@@ -319,16 +324,14 @@ export async function POST(req: NextRequest) {
             }, { status: 500 });
         }
 
-        console.log(`✅ Credenciais salvas`);
+        console.log(`âœ… Credenciais salvas`);
 
-        // 11. OBRIGATÓRIO: Replicar workflows N8N
-        console.log(`🔄 Replicando 7 workflows N8N...`);
+        // 11. OBRIGATÃ“RIO: Replicar workflows N8N
+        console.log(`ðŸ”„ Replicando 7 workflows N8N...`);
 
         let workflowsResult: any;
         try {
             const { WorkflowReplicator } = await import('@/lib/n8n/replicator');
-            const { workflowTemplates } = await import('@/lib/n8n/templates');
-
             const replicator = new WorkflowReplicator();
 
             workflowsResult = await replicator.replicateAll({
@@ -344,23 +347,14 @@ export async function POST(req: NextRequest) {
                     postgresName: body.credenciais.postgres_name,
                     googleCalendarId: body.credenciais.google_calendar_id,
                     googleCalendarName: body.credenciais.google_calendar_name,
-                    calendarEmail: body.credenciais.calendar_email,
-                    evolutionInstance: body.credenciais.evolution_instance || '',
-                    notificationGroup: body.credenciais.notification_group,
                 },
-                tables: {
-                    agendamentos: `${schema}_agendamentos`,
-                    followNormal: `${schema}_follow_normal`,
-                    followup: `${schema}_followup`,
-                    pausar: `${schema}_pausar`,
-                    chatHistories: `${schema}n8n_chat_histories`,
-                    notifications: `${schema}_notifications`,
-                    crmLeadStatus: `${schema}_crm_lead_status`,
-                },
-            }, workflowTemplates);
+                calendarEmail: body.credenciais.calendar_email,
+                evolutionInstance: body.credenciais.evolution_instance || '',
+                notificationGroup: body.credenciais.notification_group,
+            } );
 
             if (!workflowsResult.success) {
-                console.error('❌ FALHA ao replicar workflows - fazendo rollback');
+                console.error('âŒ FALHA ao replicar workflows - fazendo rollback');
                 await rollbackEmpresa(empresa.id, schema);
                 return NextResponse.json({
                     error: 'FALHA ao replicar workflows N8N',
@@ -373,7 +367,7 @@ export async function POST(req: NextRequest) {
             const workflowIds: Record<string, string> = {};
             for (const r of workflowsResult.results || []) {
                 if (r.success && r.n8nWorkflowId) {
-                    const key = `workflow_${r.templateId.replace(/-/g, '_')}`;
+                    const key = `workflow_${r.workflowId.replace(/-/g, '_')}`;
                     workflowIds[key] = r.n8nWorkflowId;
 
                     // Salvar no mapeamento
@@ -381,7 +375,7 @@ export async function POST(req: NextRequest) {
                         empresa_id: empresa.id,
                         workflow_id: r.n8nWorkflowId,
                         workflow_name: r.workflowName,
-                        workflow_type: r.templateId,
+                        workflow_type: r.workflowId,
                         active: true,
                     });
                 }
@@ -395,19 +389,19 @@ export async function POST(req: NextRequest) {
                     .eq('empresa_id', empresa.id);
             }
 
-            console.log(`✅ ${workflowsResult.results?.filter((r: any) => r.success).length || 0} workflows criados`);
+            console.log(`âœ… ${workflowsResult.results?.filter((r: any) => r.success).length || 0} workflows criados`);
 
         } catch (err: any) {
-            console.error('❌ EXCEÇÃO ao replicar workflows - fazendo rollback:', err);
+            console.error('âŒ EXCEÃ‡ÃƒO ao replicar workflows - fazendo rollback:', err);
             await rollbackEmpresa(empresa.id, schema);
             return NextResponse.json({
-                error: 'EXCEÇÃO ao replicar workflows N8N',
+                error: 'EXCEÃ‡ÃƒO ao replicar workflows N8N',
                 details: err.message,
                 rollback: true
             }, { status: 500 });
         }
 
-        // 12. Registrar no log de replicações
+        // 12. Registrar no log de replicaÃ§Ãµes
         await supabaseAdmin.from('workflow_replications').insert({
             empresa_id: empresa.id,
             success: true,
@@ -418,7 +412,7 @@ export async function POST(req: NextRequest) {
         });
 
         // 13. SUCESSO TOTAL - Retornar resultado
-        console.log(`🎉 EMPRESA CRIADA COM SUCESSO: ${body.nome}`);
+        console.log(`ðŸŽ‰ EMPRESA CRIADA COM SUCESSO: ${body.nome}`);
 
         return NextResponse.json({
             success: true,
@@ -437,16 +431,16 @@ export async function POST(req: NextRequest) {
                 criados: true,
                 total: workflowsResult.results?.filter((r: any) => r.success).length || 0,
                 lista: workflowsResult.results?.map((r: any) => ({
-                    template: r.templateId,
+                    template: r.workflowId,
                     nome: r.workflowName,
                     id_n8n: r.n8nWorkflowId,
                 })),
             },
-            status: '✅ SISTEMA PRONTO PARA USO!',
+            status: 'âœ… SISTEMA PRONTO PARA USO!',
         });
 
     } catch (error: any) {
-        console.error('❌ Erro geral:', error);
+        console.error('âŒ Erro geral:', error);
 
         // Se empresa foi criada, fazer rollback
         if (empresaCriada && schemaCriado) {
@@ -514,3 +508,4 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: error.message }, { status: 500 });
     }
 }
+

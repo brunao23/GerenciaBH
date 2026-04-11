@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { createClient } from '@supabase/supabase-js';
+import { notifyAdminUpdate } from '@/lib/services/tenant-notifications';
 
 // Cliente Admin com Service Role para bypassar RLS
 const supabaseAdmin = createClient(
@@ -22,10 +23,10 @@ export const dynamic = 'force-dynamic';
  */
 export async function PUT(
     req: NextRequest,
-    { params }: { params: { id: string } }
+    { params }: { params: Promise<{ id: string }> }
 ) {
     try {
-        const empresaId = params.id;
+        const { id: empresaId } = await params;
         const body = await req.json();
         const { workflowId } = body;
 
@@ -36,6 +37,12 @@ export async function PUT(
         }
 
         console.log(`[Admin API] Vinculando workflow ${workflowId} à empresa ${empresaId}`);
+
+        const { data: empresa } = await supabaseAdmin
+            .from('empresas')
+            .select('id, nome, schema')
+            .eq('id', empresaId)
+            .maybeSingle();
 
         // Atualizar credenciais (Upsert se não existir)
         const { error } = await supabaseAdmin
@@ -77,6 +84,17 @@ export async function PUT(
             } else {
                 throw error;
             }
+        }
+
+        if (empresa?.schema) {
+            await notifyAdminUpdate({
+                tenant: empresa.schema,
+                title: 'Workflow principal atualizado',
+                message: `O administrador atualizou o workflow principal da unidade ${empresa.nome || empresa.schema}.`,
+                sourceId: String(workflowId),
+            }).catch((error) => {
+                console.error('[Admin API] Erro ao enviar notificacao de update:', error);
+            });
         }
 
         return NextResponse.json({

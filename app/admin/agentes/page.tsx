@@ -916,7 +916,7 @@ export default function AdminAgentesPage() {
                         </Section>
 
                         {/* Seção: Diferenciais */}
-                        <Section title="Diferenciais" icon={<Sparkles className="w-5 h-5 text-yellow-400" />} defaultOpen={false}>
+                        <Section title="Diferenciais" icon={<Sparkles className="w-5 h-5 text-green-400" />} defaultOpen={false}>
                             <div className="mt-4 space-y-4">
                                 <div className="flex gap-2">
                                     <input
@@ -930,7 +930,7 @@ export default function AdminAgentesPage() {
                                 </div>
                                 <div className="flex flex-wrap gap-2">
                                     {config.diferenciais.map((d, i) => (
-                                        <span key={i} className="flex items-center gap-2 px-3 py-1 rounded-full bg-yellow-500/20 text-sm text-yellow-400">
+                                        <span key={i} className="flex items-center gap-2 px-3 py-1 rounded-full bg-green-500/20 text-sm text-green-400">
                                             ⭐ {d}
                                             <button onClick={() => setConfig(prev => ({ ...prev, diferenciais: prev.diferenciais.filter((_, idx) => idx !== i) }))} className="text-red-400">×</button>
                                         </span>

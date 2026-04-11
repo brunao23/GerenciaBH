@@ -2,14 +2,14 @@
 
 export const dynamic = "force-dynamic"
 
-import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card"
 import { useEffect, useState } from "react"
-import { MessageSquare, CalendarClock, Workflow, AlertTriangle, TrendingUp, Users, Target, Clock, CheckCircle2, XCircle, X } from "lucide-react"
+import Link from "next/link"
+import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card"
+import { MessageSquare, CalendarClock, Workflow, AlertTriangle, TrendingUp, Users, Target, Clock, X } from "lucide-react"
 import { OverviewChart } from "@/components/dashboard/overview-chart"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import Link from "next/link"
 import { useTenant } from "@/lib/contexts/TenantContext"
 import { PeriodFilter } from "@/components/dashboard/period-filter"
 
@@ -29,36 +29,60 @@ type Overview = {
   recentActivity?: any[]
 }
 
+function toInputDate(date: Date): string {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, "0")
+  const d = String(date.getDate()).padStart(2, "0")
+  return `${y}-${m}-${d}`
+}
+
 export default function DashboardPage() {
   const { tenant } = useTenant()
   const [data, setData] = useState<Overview | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [conversionAlertDismissed, setConversionAlertDismissed] = useState(false)
-  const [period, setPeriod] = useState<'7d' | '15d' | '30d' | '90d'>('7d')
+  const [period, setPeriod] = useState<"7d" | "15d" | "30d" | "90d" | "custom">("7d")
+  const [customStartDate, setCustomStartDate] = useState(() => {
+    const start = new Date()
+    start.setDate(start.getDate() - 6)
+    return toInputDate(start)
+  })
+  const [customEndDate, setCustomEndDate] = useState(() => toInputDate(new Date()))
+  const [customRangeVersion, setCustomRangeVersion] = useState(0)
 
   useEffect(() => {
     if (!tenant) return
 
-    console.log(`[Dashboard] Buscando dados para período: ${period}`)
     setLoading(true)
+    setError(null)
 
-    fetch(`/api/supabase/overview?period=${period}`)
-      .then((r) => {
-        console.log("[Dashboard] Resposta da API recebida, status:", r.status)
+    const params = new URLSearchParams()
+    if (period === "custom") {
+      params.set("period", "custom")
+      params.set("startDate", customStartDate)
+      params.set("endDate", customEndDate)
+    } else {
+      params.set("period", period)
+    }
+
+    fetch(`/api/supabase/overview?${params.toString()}`)
+      .then(async (r) => {
+        if (!r.ok) {
+          const err = await r.json().catch(() => null)
+          throw new Error(err?.error || `Erro ao carregar dados (${r.status})`)
+        }
         return r.json()
       })
       .then((d) => {
-        console.log("[Dashboard] Dados recebidos da API:", d)
         setData(d)
         setLoading(false)
       })
       .catch((err) => {
-        console.log("[Dashboard] Erro ao buscar dados:", err)
-        setError("Erro ao carregar dados do banco")
+        setError(err?.message || "Erro ao carregar dados do banco")
         setLoading(false)
       })
-  }, [tenant, period])
+  }, [tenant, period, customRangeVersion])
 
   if (loading) {
     return (
@@ -90,20 +114,71 @@ export default function DashboardPage() {
     )
   }
 
+  const handleApplyCustomRange = () => {
+    if (!customStartDate || !customEndDate) {
+      setError("Preencha data inicial e final para aplicar o filtro personalizado.")
+      return
+    }
+
+    if (new Date(customStartDate).getTime() > new Date(customEndDate).getTime()) {
+      setError("A data inicial nao pode ser maior que a data final.")
+      return
+    }
+
+    setError(null)
+    if (period !== "custom") {
+      setPeriod("custom")
+    }
+    setCustomRangeVersion((v) => v + 1)
+  }
+
+  const periodLabel =
+    period === "custom"
+      ? `${customStartDate} ate ${customEndDate}`
+      : `${period === "7d" ? "7" : period === "15d" ? "15" : period === "30d" ? "30" : "90"} dias`
+
   const mainMetrics = [
-    { title: "Total de Leads", value: data?.totalLeads ?? 0, icon: Users, color: "text-accent-yellow", bg: "bg-accent-yellow/10", border: "border-accent-yellow/20" },
-    { title: "Conversas Ativas", value: data?.conversas ?? 0, icon: MessageSquare, color: "text-blue-400", bg: "bg-blue-400/10", border: "border-blue-400/20" },
-    { title: "Agendamentos", value: data?.agendamentos ?? 0, icon: CalendarClock, color: "text-purple-400", bg: "bg-purple-400/10", border: "border-purple-400/20" },
-    { title: "Follow-ups", value: data?.followups ?? 0, icon: Workflow, color: "text-orange-400", bg: "bg-orange-400/10", border: "border-orange-400/20" },
+    {
+      title: "Numero de Conversas",
+      value: data?.conversas ?? 0,
+      icon: MessageSquare,
+      color: "text-blue-400",
+      bg: "bg-blue-400/10",
+      border: "border-blue-400/20",
+    },
+    {
+      title: "Leads Personalizados",
+      value: data?.totalLeads ?? 0,
+      icon: Users,
+      color: "text-accent-green",
+      bg: "bg-accent-green/10",
+      border: "border-accent-green/20",
+    },
+    {
+      title: "Agendamentos",
+      value: data?.agendamentos ?? 0,
+      icon: CalendarClock,
+      color: "text-purple-400",
+      bg: "bg-purple-400/10",
+      border: "border-purple-400/20",
+    },
+    {
+      title: "Follow-ups",
+      value: data?.followups ?? 0,
+      icon: Workflow,
+      color: "text-orange-400",
+      bg: "bg-orange-400/10",
+      border: "border-orange-400/20",
+    },
   ]
 
   const performanceMetrics = [
     {
-      title: "Taxa de Conversão",
+      title: "Taxa de Agendamento Personalizada",
       value: `${data?.conversionRate?.toFixed?.(1) ?? "0.0"}%`,
-      subtitle: "Leads → Agendamentos",
+      subtitle: "Agendamentos / Leads personalizados",
       icon: Target,
-      color: "text-accent-yellow",
+      color: "text-accent-green",
     },
     {
       title: "Taxa de Sucesso IA",
@@ -113,7 +188,7 @@ export default function DashboardPage() {
       color: "text-emerald-400",
     },
     {
-      title: "Tempo Médio Resposta",
+      title: "Tempo Medio Resposta",
       value: `${data?.avgFirstResponseTime ?? 0}s`,
       subtitle: "Primeira resposta da IA",
       icon: Clock,
@@ -121,23 +196,36 @@ export default function DashboardPage() {
     },
   ]
 
-  // Verificar se a taxa de conversão está abaixo de 5%
-  const conversionRateLow = data?.conversionRate !== undefined && data.conversionRate < 5 && data.totalLeads && data.totalLeads > 0 && !conversionAlertDismissed
+  const conversionRateLow =
+    data?.conversionRate !== undefined &&
+    data.conversionRate < 5 &&
+    data.totalLeads &&
+    data.totalLeads > 0 &&
+    !conversionAlertDismissed
 
   return (
-    <div className="space-y-6 pb-8">
-      {/* Header com Filtro de Período */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold text-pure-white">Dashboard</h1>
+    <div className="space-y-8 pb-10">
+      <div className="genial-surface genial-hero-grid px-4 sm:px-6 py-4 sm:py-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 sm:gap-5">
+        <div className="relative z-[1]">
+          <h1 className="text-2xl sm:text-3xl font-bold text-pure-white font-display">Dashboard Operacional</h1>
           <p className="text-text-gray mt-1">
-            Visão geral dos últimos {period === '7d' ? '7' : period === '15d' ? '15' : period === '30d' ? '30' : '90'} dias
+            Visao personalizada do periodo {periodLabel}
           </p>
         </div>
-        <PeriodFilter value={period} onChange={setPeriod} loading={loading} />
+        <div className="relative z-[1]">
+          <PeriodFilter
+            value={period}
+            onChange={setPeriod}
+            customStartDate={customStartDate}
+            customEndDate={customEndDate}
+            onCustomStartDateChange={setCustomStartDate}
+            onCustomEndDateChange={setCustomEndDate}
+            onApplyCustomRange={handleApplyCustomRange}
+            loading={loading}
+          />
+        </div>
       </div>
 
-      {/* Alerta de Taxa de Conversão Baixa */}
       {conversionRateLow && (
         <Alert variant="destructive" className="border-red-500/50 bg-red-500/10 relative">
           <Button
@@ -149,35 +237,23 @@ export default function DashboardPage() {
             <X className="h-4 w-4" />
           </Button>
           <AlertTriangle className="h-5 w-5 text-red-400" />
-          <AlertTitle className="text-red-400 font-semibold pr-8">
-            Atenção: Taxa de Conversão Baixa!
-          </AlertTitle>
+          <AlertTitle className="text-red-400 font-semibold pr-8">Atencao: Taxa de Agendamento baixa</AlertTitle>
           <AlertDescription className="text-red-300/90 mt-2">
             <p>
-              A taxa de conversão de leads para agendamentos está em <strong>{data.conversionRate?.toFixed(1)}%</strong>,
-              abaixo do limite mínimo recomendado de <strong>5%</strong>.
+              A taxa personalizada esta em <strong>{data.conversionRate?.toFixed(1)}%</strong>, abaixo do minimo recomendado de <strong>5%</strong>.
             </p>
             <p className="mt-2 text-sm">
-              <strong>Estatísticas atuais:</strong>
-            </p>
-            <ul className="mt-1 ml-4 list-disc text-sm space-y-1">
-              <li>Total de Leads: <strong>{data.totalLeads}</strong></li>
-              <li>Agendamentos: <strong>{data.agendamentos}</strong></li>
-              <li>Taxa de Conversão: <strong>{data.conversionRate?.toFixed(2)}%</strong></li>
-            </ul>
-            <p className="mt-3 text-sm">
-              Considere revisar sua estratégia de follow-up e comunicação com os leads para melhorar a taxa de conversão.
+              Leads: <strong>{data.totalLeads}</strong> | Agendamentos: <strong>{data.agendamentos}</strong>
             </p>
           </AlertDescription>
         </Alert>
       )}
 
-      {/* Métricas Principais */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:gap-4 grid-cols-2 lg:grid-cols-4">
         {mainMetrics.map((metric) => {
           const Icon = metric.icon
           return (
-            <Card key={metric.title} className={`genial-card border-l-4 ${metric.border.replace('border', 'border-l')}`}>
+            <Card key={metric.title} className={`genial-card genial-elevate border-l-4 ${metric.border.replace("border", "border-l")}`}>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium text-pure-white">{metric.title}</CardTitle>
                 <div className={`p-2 rounded-lg ${metric.bg}`}>
@@ -185,7 +261,7 @@ export default function DashboardPage() {
                 </div>
               </CardHeader>
               <CardContent>
-                <div className={`text-3xl font-bold ${metric.color}`}>{metric.value}</div>
+                <div className={`text-2xl sm:text-3xl font-bold ${metric.color}`}>{metric.value}</div>
               </CardContent>
             </Card>
           )
@@ -193,31 +269,29 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-7">
-        {/* Gráfico Principal */}
-        <div className="md:col-span-4">
+        <div className="md:col-span-4 min-w-0">
           {data?.chartData && data.chartData.length > 0 ? (
             <OverviewChart data={data.chartData} />
           ) : (
-            <Card className="genial-card">
+            <Card className="genial-card genial-elevate">
               <CardHeader>
                 <CardTitle className="text-pure-white">Volume de Atendimentos</CardTitle>
               </CardHeader>
               <CardContent className="h-[300px] flex items-center justify-center">
                 <div className="text-center space-y-2">
                   <MessageSquare className="h-12 w-12 text-text-gray/50 mx-auto" />
-                  <p className="text-text-gray">Nenhum dado disponível para o gráfico</p>
-                  <p className="text-xs text-text-gray/70">Os dados serão carregados quando houver mensagens registradas</p>
+                  <p className="text-text-gray">Nenhum dado disponivel para o grafico</p>
+                  <p className="text-xs text-text-gray/70">Os dados aparecem quando houver mensagens registradas</p>
                 </div>
               </CardContent>
             </Card>
           )}
         </div>
 
-        {/* Atividade Recente */}
-        <Card className="genial-card md:col-span-3 flex flex-col">
+        <Card className="genial-card genial-elevate md:col-span-3 flex flex-col">
           <CardHeader>
             <CardTitle className="text-pure-white flex items-center gap-2">
-              <MessageSquare className="h-5 w-5 text-accent-yellow" />
+              <MessageSquare className="h-5 w-5 text-accent-green" />
               Atividade Recente
             </CardTitle>
           </CardHeader>
@@ -230,31 +304,25 @@ export default function DashboardPage() {
                     key={i}
                     className="flex items-start gap-3 border-b border-border/30 pb-3 last:border-0 hover:bg-white/5 transition-colors rounded-lg p-2 -mx-2 cursor-pointer block"
                   >
-                    <div className={`mt-1 h-2 w-2 rounded-full shrink-0 ${activity.status === 'success' ? 'bg-accent-yellow' :
-                      activity.status === 'error' ? 'bg-red-500' : 'bg-blue-400'
-                      }`} />
+                    <div
+                      className={`mt-1 h-2 w-2 rounded-full shrink-0 ${
+                        activity.status === "success" ? "bg-accent-green" : activity.status === "error" ? "bg-red-500" : "bg-blue-400"
+                      }`}
+                    />
                     <div className="flex-1 space-y-1 min-w-0">
                       <div className="flex items-center justify-between gap-2">
-                        <p className="text-sm font-medium text-pure-white truncate">
-                          {activity.contactName || activity.id}
-                        </p>
+                        <p className="text-sm font-medium text-pure-white truncate">{activity.contactName || activity.id}</p>
                         <span className="text-xs text-text-gray whitespace-nowrap shrink-0">
-                          {new Date(activity.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {new Date(activity.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                         </span>
                       </div>
-                      <p className="text-xs text-accent-yellow/70 font-mono">
-                        {activity.numero}
-                      </p>
-                      <p className="text-xs text-text-gray line-clamp-2 break-words">
-                        {activity.lastMessage}
-                      </p>
+                      <p className="text-xs text-accent-green/70 font-mono">{activity.numero}</p>
+                      <p className="text-xs text-text-gray line-clamp-2 break-words">{activity.lastMessage}</p>
                     </div>
                   </Link>
                 ))}
                 {(!data?.recentActivity || data.recentActivity.length === 0) && (
-                  <div className="text-center text-text-gray py-8">
-                    Nenhuma atividade recente
-                  </div>
+                  <div className="text-center text-text-gray py-8">Nenhuma atividade recente</div>
                 )}
               </div>
             </ScrollArea>
@@ -262,12 +330,11 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* Métricas de Performance */}
       <div className="grid gap-4 md:grid-cols-3">
         {performanceMetrics.map((metric) => {
           const Icon = metric.icon
           return (
-            <Card key={metric.title} className="genial-card bg-card/50">
+            <Card key={metric.title} className="genial-card genial-elevate bg-card/50">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium text-pure-white">{metric.title}</CardTitle>
                 <Icon className={`h-5 w-5 ${metric.color}`} />
@@ -281,8 +348,7 @@ export default function DashboardPage() {
         })}
       </div>
 
-      {/* Card de Erros */}
-      <Card className="genial-card border-red-500/20 bg-red-500/5">
+      <Card className="genial-card genial-elevate border-red-500/20 bg-red-500/5">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-sm font-medium text-red-400">Monitoramento de Erros</CardTitle>
           <AlertTriangle className="h-5 w-5 text-red-400" />
@@ -291,15 +357,11 @@ export default function DashboardPage() {
           <div className="flex items-end justify-between">
             <div>
               <div className="text-3xl font-bold text-red-400">{data?.errorPercent?.toFixed?.(1) ?? "0.0"}%</div>
-              <div className="text-xs text-red-400/70">
-                Taxa de erro global
-              </div>
+              <div className="text-xs text-red-400/70">Taxa de erro global</div>
             </div>
             <div className="text-right">
               <div className="text-xl font-bold text-pure-white">{data?.errorCount ?? 0}</div>
-              <div className="text-xs text-text-gray">
-                Mensagens com falha
-              </div>
+              <div className="text-xs text-text-gray">Mensagens com falha</div>
             </div>
           </div>
         </CardContent>

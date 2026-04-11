@@ -124,7 +124,7 @@ export default function ExecutionsPage() {
             case 'running':
                 return <Badge className="bg-blue-500/20 text-blue-500 border-blue-500/30">▶️ Rodando</Badge>
             case 'waiting':
-                return <Badge className="bg-yellow-500/20 text-yellow-500 border-yellow-500/30">⏳ Aguardando</Badge>
+                return <Badge className="bg-green-500/20 text-green-500 border-green-500/30">⏳ Aguardando</Badge>
             default:
                 return <Badge>{status}</Badge>
         }
@@ -166,11 +166,11 @@ export default function ExecutionsPage() {
 
                     <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                         <div className="flex items-center gap-4">
-                            <div className="w-16 h-16 bg-gradient-to-br from-accent-yellow to-dark-yellow rounded-2xl flex items-center justify-center shadow-lg shadow-accent-yellow/30">
+                            <div className="w-16 h-16 bg-gradient-to-br from-accent-green to-dark-green rounded-2xl flex items-center justify-center shadow-lg shadow-accent-green/30">
                                 <Clock className="h-8 w-8 text-primary-black" />
                             </div>
                             <div>
-                                <h1 className="text-3xl font-bold bg-gradient-to-r from-accent-yellow to-dark-yellow bg-clip-text text-transparent">
+                                <h1 className="text-3xl font-bold bg-gradient-to-r from-accent-green to-dark-green bg-clip-text text-transparent">
                                     Histórico de Execuções
                                 </h1>
                                 <p className="text-text-gray">Monitoramento completo de execuções n8n</p>
@@ -180,7 +180,7 @@ export default function ExecutionsPage() {
                         <Button
                             onClick={loadExecutions}
                             disabled={loading}
-                            className="bg-gradient-to-r from-accent-yellow to-dark-yellow text-primary-black font-semibold hover:opacity-90"
+                            className="bg-gradient-to-r from-accent-green to-dark-green text-primary-black font-semibold hover:opacity-90"
                         >
                             <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
                             Atualizar
@@ -191,12 +191,12 @@ export default function ExecutionsPage() {
                 {/* Stats */}
                 {stats && (
                     <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
-                        <Card className="genial-card border-l-4 border-l-accent-yellow">
+                        <Card className="genial-card border-l-4 border-l-accent-green">
                             <CardHeader className="pb-2">
                                 <CardTitle className="text-xs text-text-gray">Total</CardTitle>
                             </CardHeader>
                             <CardContent>
-                                <div className="text-2xl font-bold text-accent-yellow">{stats.total}</div>
+                                <div className="text-2xl font-bold text-accent-green">{stats.total}</div>
                             </CardContent>
                         </Card>
 
@@ -251,7 +251,7 @@ export default function ExecutionsPage() {
                 <Card className="genial-card mb-6">
                     <CardHeader>
                         <CardTitle className="text-pure-white flex items-center gap-2">
-                            <Filter className="w-5 h-5 text-accent-yellow" />
+                            <Filter className="w-5 h-5 text-accent-green" />
                             Filtros
                         </CardTitle>
                     </CardHeader>
@@ -277,7 +277,7 @@ export default function ExecutionsPage() {
                                         variant={filterStatus === status ? "default" : "outline"}
                                         onClick={() => setFilterStatus(status)}
                                         className={filterStatus === status
-                                            ? "bg-accent-yellow text-primary-black"
+                                            ? "bg-accent-green text-primary-black"
                                             : "border-border-gray text-text-gray"}
                                     >
                                         {status === 'all' && 'Todos'}
@@ -294,7 +294,7 @@ export default function ExecutionsPage() {
                 {/* Lista de Execuções */}
                 {loading ? (
                     <div className="text-center py-12">
-                        <RefreshCw className="w-8 h-8 text-accent-yellow animate-spin mx-auto mb-4" />
+                        <RefreshCw className="w-8 h-8 text-accent-green animate-spin mx-auto mb-4" />
                         <p className="text-text-gray">Carregando execuções...</p>
                     </div>
                 ) : filteredExecutions.length === 0 ? (
@@ -312,8 +312,8 @@ export default function ExecutionsPage() {
                                 className={`genial-card border-l-4 ${execution.status === 'success' ? 'border-l-green-500' :
                                         execution.status === 'error' ? 'border-l-red-500' :
                                             execution.status === 'running' ? 'border-l-blue-500' :
-                                                'border-l-yellow-500'
-                                    } hover:shadow-lg hover:shadow-accent-yellow/10 transition-all`}
+                                                'border-l-green-500'
+                                    } hover:shadow-lg hover:shadow-accent-green/10 transition-all`}
                             >
                                 <CardContent className="p-6">
                                     <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -343,7 +343,7 @@ export default function ExecutionsPage() {
                                             <Button
                                                 size="sm"
                                                 variant="outline"
-                                                className="border-accent-yellow/50 text-accent-yellow hover:bg-accent-yellow/10"
+                                                className="border-accent-green/50 text-accent-green hover:bg-accent-green/10"
                                             >
                                                 Ver Detalhes
                                             </Button>

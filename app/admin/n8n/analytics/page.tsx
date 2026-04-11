@@ -55,7 +55,7 @@ export default function AnalyticsPage() {
         return (
             <div className="p-4 md:p-8 flex items-center justify-center min-h-screen">
                 <div className="text-center">
-                    <RefreshCw className="w-12 h-12 text-accent-yellow animate-spin mx-auto mb-4" />
+                    <RefreshCw className="w-12 h-12 text-accent-green animate-spin mx-auto mb-4" />
                     <p className="text-text-gray">Carregando analytics...</p>
                 </div>
             </div>
@@ -76,7 +76,7 @@ export default function AnalyticsPage() {
                 {/* Header */}
                 <div className="mb-8 flex items-center justify-between">
                     <div>
-                        <h1 className="text-3xl font-bold text-accent-yellow mb-2">
+                        <h1 className="text-3xl font-bold text-accent-green mb-2">
                             Analytics Avançado
                         </h1>
                         <p className="text-text-gray">Relatórios e análises detalhadas</p>
@@ -85,12 +85,12 @@ export default function AnalyticsPage() {
                         <Button
                             onClick={loadAnalytics}
                             variant="outline"
-                            className="border-accent-yellow text-accent-yellow"
+                            className="border-accent-green text-accent-green"
                         >
                             <RefreshCw className="w-4 h-4 mr-2" />
                             Atualizar
                         </Button>
-                        <Button className="bg-gradient-to-r from-accent-yellow to-dark-yellow text-primary-black">
+                        <Button className="bg-gradient-to-r from-accent-green to-dark-green text-primary-black">
                             <Download className="w-4 h-4 mr-2" />
                             Exportar PDF
                         </Button>
@@ -101,7 +101,7 @@ export default function AnalyticsPage() {
                 <Card className="genial-card mb-8">
                     <CardHeader>
                         <CardTitle className="text-pure-white flex items-center gap-2">
-                            <TrendingUp className="w-5 h-5 text-accent-yellow" />
+                            <TrendingUp className="w-5 h-5 text-accent-green" />
                             Ranking Completo de Workflows
                         </CardTitle>
                     </CardHeader>
@@ -125,7 +125,7 @@ export default function AnalyticsPage() {
                                         return (
                                             <tr key={workflow.workflowId} className="border-b border-border-gray/50 hover:bg-card-black/50">
                                                 <td className="py-3 px-4">
-                                                    <span className="text-accent-yellow font-bold">{index + 1}</span>
+                                                    <span className="text-accent-green font-bold">{index + 1}</span>
                                                 </td>
                                                 <td className="py-3 px-4">
                                                     <span className="text-pure-white">{workflow.name}</span>
@@ -138,7 +138,7 @@ export default function AnalyticsPage() {
                                                     )}
                                                 </td>
                                                 <td className="py-3 px-4 text-right">
-                                                    <span className="text-accent-yellow font-semibold">{workflow.executions}</span>
+                                                    <span className="text-accent-green font-semibold">{workflow.executions}</span>
                                                 </td>
                                                 <td className="py-3 px-4 text-right">
                                                     <span className="text-text-gray">{percentage}%</span>
@@ -156,7 +156,7 @@ export default function AnalyticsPage() {
                 <Card className="genial-card mb-8">
                     <CardHeader>
                         <CardTitle className="text-pure-white flex items-center gap-2">
-                            <Zap className="w-5 h-5 text-accent-yellow" />
+                            <Zap className="w-5 h-5 text-accent-green" />
                             Análise de Nodes
                         </CardTitle>
                     </CardHeader>
@@ -176,11 +176,11 @@ export default function AnalyticsPage() {
                                                     <span className="text-text-gray text-sm truncate">
                                                         {node.type.replace('n8n-nodes-base.', '')}
                                                     </span>
-                                                    <span className="text-accent-yellow font-semibold ml-2">{node.count}</span>
+                                                    <span className="text-accent-green font-semibold ml-2">{node.count}</span>
                                                 </div>
                                                 <div className="h-2 bg-card-black rounded-full overflow-hidden">
                                                     <div
-                                                        className="h-full bg-gradient-to-r from-accent-yellow to-dark-yellow"
+                                                        className="h-full bg-gradient-to-r from-accent-green to-dark-green"
                                                         style={{ width: `${percentage}%` }}
                                                     />
                                                 </div>
@@ -201,7 +201,7 @@ export default function AnalyticsPage() {
                                 <div className="space-y-4">
                                     <div className="p-4 rounded-lg bg-card-black border border-border-gray">
                                         <div className="text-text-gray text-sm mb-1">Tempo Médio (7d)</div>
-                                        <div className="text-2xl font-bold text-accent-yellow">
+                                        <div className="text-2xl font-bold text-accent-green">
                                             {analytics.performance.avgDuration}s
                                         </div>
                                     </div>
@@ -232,7 +232,7 @@ export default function AnalyticsPage() {
                         <CardContent className="space-y-3">
                             <div>
                                 <div className="text-text-gray text-xs">Execuções</div>
-                                <div className="text-xl font-bold text-accent-yellow">
+                                <div className="text-xl font-bold text-accent-green">
                                     {analytics.overview.executions.last24h}
                                 </div>
                             </div>
@@ -258,7 +258,7 @@ export default function AnalyticsPage() {
                         <CardContent className="space-y-3">
                             <div>
                                 <div className="text-text-gray text-xs">Execuções</div>
-                                <div className="text-xl font-bold text-accent-yellow">
+                                <div className="text-xl font-bold text-accent-green">
                                     {analytics.overview.executions.last7d}
                                 </div>
                             </div>
@@ -284,7 +284,7 @@ export default function AnalyticsPage() {
                         <CardContent className="space-y-3">
                             <div>
                                 <div className="text-text-gray text-xs">Execuções</div>
-                                <div className="text-xl font-bold text-accent-yellow">
+                                <div className="text-xl font-bold text-accent-green">
                                     {analytics.overview.executions.last30d}
                                 </div>
                             </div>

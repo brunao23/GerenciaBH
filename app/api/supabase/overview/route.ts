@@ -1,66 +1,115 @@
 import { NextResponse } from "next/server"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { createNotification } from "@/lib/services/notifications"
-import { cookies } from "next/headers"
-import { verifyToken } from "@/lib/auth/jwt"
+import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
+import { resolveChatHistoriesTable } from "@/lib/helpers/resolve-chat-table"
+import { getTablesForTenant } from "@/lib/helpers/tenant"
+import { normalizeTenant } from "@/lib/helpers/normalize-tenant"
+import { normalizeTenantAlias, resolveTenantDataPrefix } from "@/lib/helpers/tenant-resolution"
 
-// DDDs por região (vox_disparos é compartilhada entre BH e SP)
+// DDDs por regiÃ£o (vox_disparos Ã© compartilhada entre BH e SP)
 const DDD_BH = ['31', '32', '33', '34', '35', '37', '38'] // Minas Gerais
-const DDD_SP = ['11', '12', '13', '14', '15', '16', '17', '18', '19'] // São Paulo
+const DDD_SP = ['11', '12', '13', '14', '15', '16', '17', '18', '19'] // SÃ£o Paulo
 const DDD_RIO = ['21', '22', '24'] // Rio de Janeiro
-const DDD_ES = ['27', '28'] // Espírito Santo
-const DDD_MACEIO = ['82'] // Alagoas (Maceió)
+const DDD_ES = ['27', '28'] // EspÃ­rito Santo
+const DDD_MACEIO = ['82'] // Alagoas (MaceiÃ³)
 
-// Função para buscar leads de vox_disparos filtrados por DDD
-// IMPORTANTE: vox_disparos é COMPARTILHADA entre BH e SP - precisa filtrar por DDD!
-// Outras unidades (ES, Rio, Maceió, etc.) NÃO usam vox_disparos
-// Função para buscar leads - tenta primeiro tabela específica, depois fallback para vox_disparos compartilhada
-// Função para buscar leads - tenta primeiro tabela específica, depois fallback para vox_disparos compartilhada
-async function getDisparosLeads(tenant: string, startDate: Date) {
+// FunÃ§Ã£o para buscar leads de vox_disparos filtrados por DDD
+// IMPORTANTE: vox_disparos Ã© COMPARTILHADA entre BH e SP - precisa filtrar por DDD!
+// Outras unidades (ES, Rio, MaceiÃ³, etc.) NÃƒO usam vox_disparos
+// FunÃ§Ã£o para buscar leads - tenta primeiro tabela especÃ­fica, depois fallback para vox_disparos compartilhada
+// FunÃ§Ã£o para buscar leads - tenta primeiro tabela especÃ­fica, depois fallback para vox_disparos compartilhada
+async function getDisparosLeads(tenant: string, startDate: Date, tablePrefix?: string, endDate?: Date) {
   try {
     const supabase = createBiaSupabaseServerClient()
     const startDateStr = startDate.toISOString()
+    const endDateStr = endDate?.toISOString()
+    const prefix = tablePrefix || tenant
 
-    // 1. TENTATIVA PRIORITÁRIA: Tabela de disparos específica do tenant
+    // 1. TENTATIVA PRIORITÃRIA: Tabela de disparos especÃ­fica do tenant
     // Ex: vox_maceio_disparos ou vox_maceiodisparos
-    const specificTable1 = `${tenant}_disparos`
-    const specificTable2 = `${tenant}disparos`
+    const specificTable1 = `${prefix}_disparos`
+    const specificTable2 = `${prefix}disparos`
+    const specificTable3 = `${prefix}_disparo`
+    const specificTable4 = `${prefix}disparo`
 
-    let { data: specificData, error: specificError } = await supabase
+    let specificQuery1 = supabase
       .from(specificTable1)
       .select('numero, created_at')
       .gte('created_at', startDateStr)
+
+    if (endDateStr) {
+      specificQuery1 = specificQuery1.lte('created_at', endDateStr)
+    }
+
+    let { data: specificData, error: specificError } = await specificQuery1
 
 
     // Se falhar na primeira (underscore), tenta a segunda
     if (specificError && specificError.message.includes('does not exist')) {
       // console.log(`[Overview] Tabela ${specificTable1} ausente, tentando ${specificTable2}`)
-      const res2 = await supabase.from(specificTable2).select('numero, created_at').gte('created_at', startDateStr)
+      let q2 = supabase.from(specificTable2).select('numero, created_at').gte('created_at', startDateStr)
+      if (endDateStr) q2 = q2.lte('created_at', endDateStr)
+      const res2 = await q2
       if (!res2.error) {
         specificData = res2.data
         specificError = null
       }
     }
 
-    // Se encontrou dados na tabela específica, usa ela!
+    // Se falhar novamente, tenta singular (disparo)
+    if (specificError && specificError.message.includes('does not exist')) {
+      let q3 = supabase.from(specificTable3).select('numero, created_at').gte('created_at', startDateStr)
+      if (endDateStr) q3 = q3.lte('created_at', endDateStr)
+      const res3 = await q3
+      if (!res3.error) {
+        specificData = res3.data
+        specificError = null
+      }
+    }
+
+    if (specificError && specificError.message.includes('does not exist')) {
+      let q4 = supabase.from(specificTable4).select('numero, created_at').gte('created_at', startDateStr)
+      if (endDateStr) q4 = q4.lte('created_at', endDateStr)
+      const res4 = await q4
+      if (!res4.error) {
+        specificData = res4.data
+        specificError = null
+      }
+    }
+
+    // Se encontrou dados na tabela especÃ­fica, usa ela!
     if (!specificError && specificData) {
-      console.log(`[Overview] Usando tabela específica de disparos: ${tenant} (Total: ${specificData.length})`)
+      console.log(`[Overview] Usando tabela especÃ­fica de disparos: ${prefix} (Total: ${specificData.length})`)
 
       const dailyLeads = new Map<string, number>()
-      const processedNumbers = new Set<string>() // Opcional: contar únicos se quiser
+      const processedNumbers = new Set<string>()
+      const firstDateByNumber = new Map<string, string>()
 
       for (const row of specificData) {
+        const numero = String(row.numero || "").replace(/\D/g, "")
+        if (!numero) continue
+        if (processedNumbers.has(numero)) continue
+
+        processedNumbers.add(numero)
+
+        let dateStr = ""
         if (row.created_at) {
           try {
-            const dateStr = new Date(row.created_at).toISOString().split('T')[0]
-            dailyLeads.set(dateStr, (dailyLeads.get(dateStr) || 0) + 1)
+            dateStr = new Date(row.created_at).toISOString().split('T')[0]
           } catch { }
         }
-        // Se quiser contar total de leads únicos
-        if (row.numero) processedNumbers.add(row.numero)
+
+        if (dateStr) {
+          firstDateByNumber.set(numero, dateStr)
+        }
       }
 
-      return { leads: specificData.length, dailyLeads }
+      for (const dateStr of firstDateByNumber.values()) {
+        dailyLeads.set(dateStr, (dailyLeads.get(dateStr) || 0) + 1)
+      }
+
+      return { leads: processedNumbers.size, dailyLeads }
     }
 
     // 2. FALLBACK: vox_disparos (Tabela compartilhada - apenas para unidades mapeadas)
@@ -77,17 +126,23 @@ async function getDisparosLeads(tenant: string, startDate: Date) {
     } else if (tenant.includes('maceio')) {
       allowedDDDs = DDD_MACEIO
     } else {
-      // ✅ Outras unidades sem tabela específica e sem DDD mapeado
-      console.log(`[Overview] Tenant ${tenant} não tem tabela própria e não usa vox_disparos - retornando 0 leads`)
+      // âœ… Outras unidades sem tabela especÃ­fica e sem DDD mapeado
+      console.log(`[Overview] Tenant ${tenant} nÃ£o tem tabela prÃ³pria e nÃ£o usa vox_disparos - retornando 0 leads`)
       return { leads: 0, dailyLeads: new Map<string, number>() }
     }
 
     console.log(`[Overview] Buscando leads de vox_disparos para ${tenant} (DDDs: ${allowedDDDs.join(', ')})`)
 
-    const { data, error } = await supabase
+    let sharedQuery = supabase
       .from('vox_disparos')
       .select('numero, created_at')
       .gte('created_at', startDateStr)
+
+    if (endDateStr) {
+      sharedQuery = sharedQuery.lte('created_at', endDateStr)
+    }
+
+    const { data, error } = await sharedQuery
 
 
     if (error) {
@@ -102,8 +157,8 @@ async function getDisparosLeads(tenant: string, startDate: Date) {
     for (const row of (data || [])) {
       if (!row.numero) continue
 
-      // Extrair DDD do número (formato: 5531xxxxxxxx ou 31xxxxxxxx)
-      const numero = row.numero.replace(/\D/g, '') // Remover não-dígitos
+      // Extrair DDD do nÃºmero (formato: 5531xxxxxxxx ou 31xxxxxxxx)
+      const numero = row.numero.replace(/\D/g, '') // Remover nÃ£o-dÃ­gitos
       let ddd = ''
 
       if (numero.startsWith('55') && numero.length >= 4) {
@@ -112,10 +167,10 @@ async function getDisparosLeads(tenant: string, startDate: Date) {
         ddd = numero.substring(0, 2)
       }
 
-      // ✅ Verificar se o DDD está na lista permitida (filtro crítico!)
+      // âœ… Verificar se o DDD estÃ¡ na lista permitida (filtro crÃ­tico!)
       if (!allowedDDDs.includes(ddd)) continue
 
-      // Evitar duplicados por número
+      // Evitar duplicados por nÃºmero
       if (processedNumbers.has(numero)) continue
       processedNumbers.add(numero)
 
@@ -126,7 +181,7 @@ async function getDisparosLeads(tenant: string, startDate: Date) {
           const dateStr = date.toISOString().split('T')[0]
           dailyLeads.set(dateStr, (dailyLeads.get(dateStr) || 0) + 1)
         } catch {
-          // Ignorar datas inválidas
+          // Ignorar datas invÃ¡lidas
         }
       }
     }
@@ -142,7 +197,7 @@ async function getDisparosLeads(tenant: string, startDate: Date) {
   }
 }
 
-// Normalização
+// NormalizaÃ§Ã£o
 function normalizeNoAccent(t: string) {
   return t
     .toLowerCase()
@@ -178,7 +233,7 @@ function isSemanticErrorText(text: string | undefined | null, type?: string) {
   return false
 }
 
-// Regras de "vitória" (sucesso) baseadas na API original
+// Regras de "vitÃ³ria" (sucesso) baseadas na API original
 function isVictoryText(text: string | undefined | null) {
   if (!text) return false
   const n = stripPunctuation(normalizeNoAccent(String(text)))
@@ -200,16 +255,126 @@ function isVictoryText(text: string | undefined | null) {
   return false
 }
 
+function extractTextFromRawMessage(raw: any): string | null {
+  if (!raw || typeof raw !== "object") return null
+
+  const candidates = [
+    raw.content,
+    raw.text,
+    raw.body,
+    raw.message?.conversation,
+    raw.message?.extendedTextMessage?.text,
+    raw.message?.imageMessage?.caption,
+    raw.message?.videoMessage?.caption,
+    raw.message?.documentMessage?.caption,
+    raw.message?.documentMessage?.fileName,
+    raw.message?.buttonsResponseMessage?.selectedDisplayText,
+    raw.message?.buttonsResponseMessage?.selectedButtonId,
+    raw.message?.listResponseMessage?.title,
+    raw.message?.listResponseMessage?.singleSelectReply?.selectedRowId,
+    raw.message?.templateButtonReplyMessage?.selectedDisplayText,
+    raw.message?.templateButtonReplyMessage?.selectedId,
+    raw.message?.interactiveResponseMessage?.body?.text,
+  ]
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string") {
+      const trimmed = candidate.trim()
+      if (trimmed.length > 0) return trimmed
+    }
+  }
+
+  return null
+}
+
+function inferRoleFromRawMessage(raw: any): "user" | "assistant" {
+  const fromMe =
+    raw?.fromMe ??
+    raw?.key?.fromMe ??
+    raw?.message?.fromMe ??
+    raw?.data?.fromMe ??
+    raw?.sender?.fromMe
+  return fromMe ? "assistant" : "user"
+}
+
+function extractFallbackMessage(raw: any): { role: "user" | "assistant"; content: string; created_at?: string | number } | null {
+  const content = extractTextFromRawMessage(raw)
+  if (!content) return null
+  const role = inferRoleFromRawMessage(raw)
+  const created_at =
+    raw?.created_at ??
+    raw?.timestamp ??
+    raw?.messageTimestamp ??
+    raw?.message?.messageTimestamp ??
+    raw?.data?.timestamp
+  return { role, content, created_at }
+}
+
 // Extrai nome do contato das mensagens
+function extractNameFromMessageMeta(msg: any): string | null {
+  if (!msg || typeof msg !== "object") return null
+
+  const candidates = [
+    msg.pushName,
+    msg.senderName,
+    msg.contactName,
+    msg.name,
+    msg.fromName,
+    msg.notifyName,
+    msg.authorName,
+    msg.chatName,
+    msg.userName,
+    msg.sender?.name,
+    msg.sender?.pushName,
+    msg.contact?.name,
+    msg.contact?.pushName,
+    msg.data?.pushName,
+    msg.data?.senderName,
+  ]
+
+  const blocked = new Set([
+    "bot",
+    "assistente",
+    "atendente",
+    "sistema",
+    "ia",
+    "ai",
+    "chatbot",
+    "virtual",
+    "automatico",
+    "vox",
+    "robo",
+  ])
+
+  for (const candidate of candidates) {
+    if (!candidate) continue
+    const raw = String(candidate).trim().replace(/\s+/g, " ")
+    if (!raw || raw.length < 2) continue
+    if (raw.includes("@")) continue
+    const lower = raw.toLowerCase()
+    if (blocked.has(lower)) continue
+    if (/^\d+$/.test(lower)) continue
+
+    const first = raw.split(" ")[0]
+    if (!first || first.length < 2) continue
+    return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase()
+  }
+
+  return null
+}
+
 function extractContactName(messages: any[]): string {
   for (const msg of messages) {
+    const metaName = extractNameFromMessageMeta(msg.message || msg)
+    if (metaName) return metaName
+
     const content = String(msg.content || msg.message?.content || msg.message?.text || '')
 
-    // Padrões de nome
+    // Padroes de nome
     const patterns = [
-      /nome\s+(?:do\s+)?(?:cliente|lead|usuário|contato):\s*([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Ú][a-zà-ú]+)?)/i,
-      /(?:oi|olá|bom\s+dia|boa\s+tarde|boa\s+noite),?\s+([A-ZÀ-Ú][a-zà-ú]+)/i,
-      /meu\s+nome\s+é\s+([A-ZÀ-Ú][a-zà-ú]+)/i
+      /nome\s+(?:do\s+)?(?:cliente|lead|usuario|usu[aá]rio|contato):\s*([\p{L}]+(?:\s+[\p{L}]+)?)/iu,
+      /(?:oi|ola|ol[aá]|bom\s+dia|boa\s+tarde|boa\s+noite),?\s+([\p{L}]+)/iu,
+      /meu\s+nome\s+[eé]\s+([\p{L}]+)/iu
     ]
 
     for (const pattern of patterns) {
@@ -223,13 +388,13 @@ function extractContactName(messages: any[]): string {
   return ''
 }
 
-async function getDirectChatsData(tenant: string, startDate: Date) {
+async function getDirectChatsData(tenant: string, startDate: Date, endDate?: Date) {
   try {
-    const chatTable = `${tenant}n8n_chat_histories`
-    const startDateStr = startDate.toISOString()
-    console.log(`[v0] Buscando dados diretamente da tabela ${chatTable} (>= ${startDateStr})...`)
-
     const supabase = createBiaSupabaseServerClient()
+    const chatTable = await resolveChatHistoriesTable(supabase as any, tenant)
+    const startDateStr = startDate.toISOString()
+    const endDateStr = endDate?.toISOString()
+    console.log(`[v0] Buscando dados diretamente da tabela ${chatTable} (>= ${startDateStr}${endDateStr ? ` e <= ${endDateStr}` : ''})...`)
 
     const pageSize = 1000
     let from = 0
@@ -243,30 +408,22 @@ async function getDirectChatsData(tenant: string, startDate: Date) {
       let queryError: any = null
 
       // Primeira tentativa: com created_at
-      const result1 = await supabase
+      let result1Query = supabase
         .from(chatTable)
         .select("session_id, message, id, created_at")
         .gte('created_at', startDateStr)
+
+      if (endDateStr) {
+        result1Query = result1Query.lte('created_at', endDateStr)
+      }
+
+      const result1 = await result1Query
         .order("id", { ascending: true })
         .range(from, to)
 
-      // Se tabela não existe, tentar com underscore: vox_maceio_n8n_chat_histories
-      if (result1.error && result1.error.message.includes('does not exist')) {
-        const chatTableWithUnderscore = `${tenant}_n8n_chat_histories`
-        console.log(`[v0] Tabela ${chatTable} não existe, tentando ${chatTableWithUnderscore}...`)
-        // Agora a tabela com underscore TEM created_at
-        const result3 = await supabase
-          .from(chatTableWithUnderscore)
-          .select("session_id, message, id, created_at")
-          .gte('created_at', startDateStr)
-          .order("id", { ascending: true })
-          .range(from, to)
-
-        chunk = result3.data || []
-        queryError = result3.error
-      } else if (result1.error && result1.error.message.includes('created_at')) {
-        // Coluna não existe, buscar sem ela
-        console.log(`[v0] Tabela ${chatTable} não tem created_at, buscando sem...`)
+      if (result1.error && result1.error.message.includes('created_at')) {
+        // Coluna nÃ£o existe, buscar sem ela
+        console.log(`[v0] Tabela ${chatTable} nÃ£o tem created_at, buscando sem...`)
         const result2 = await supabase
           .from(chatTable)
           .select("session_id, message, id")
@@ -308,7 +465,7 @@ async function getDirectChatsData(tenant: string, startDate: Date) {
       try {
         let messageData
         if (typeof record.message === "string") {
-          // Verificar se a string não está vazia ou é apenas whitespace
+          // Verificar se a string nÃ£o estÃ¡ vazia ou Ã© apenas whitespace
           const trimmedMessage = record.message.trim()
           if (!trimmedMessage) {
             continue // Pular registros com mensagem vazia
@@ -344,7 +501,7 @@ async function getDirectChatsData(tenant: string, startDate: Date) {
             sessionMap.get(sessionId).messages.push({
               role: role,
               content: content,
-              created_at: record.created_at || messageData.created_at || messageData.timestamp || new Date().toISOString(),
+              created_at: record.created_at || messageData.created_at || messageData.timestamp || null,
               isError: isError,
               isSuccess: isSuccess,
             })
@@ -365,9 +522,29 @@ async function getDirectChatsData(tenant: string, startDate: Date) {
                 sessionMap.get(sessionId).messages.push({
                   role: role,
                   content: content,
-                  created_at: record.created_at || msg.created_at || msg.timestamp || new Date().toISOString(),
+                  created_at: record.created_at || msg.created_at || msg.timestamp || null,
                   isError: isError,
                   isSuccess: isSuccess,
+                })
+              } else {
+                const fallback = extractFallbackMessage(msg)
+                if (!fallback) continue
+
+                const role = fallback.role
+                const content = fallback.content
+                const msgHash = `${sessionId}:${role}:${content.substring(0, 100)}`
+                if (processedMessages.has(msgHash)) continue
+                processedMessages.add(msgHash)
+
+                const isError = isSemanticErrorText(content)
+                const isSuccess = isVictoryText(content)
+
+                sessionMap.get(sessionId).messages.push({
+                  role,
+                  content,
+                  created_at: record.created_at || msg.created_at || msg.timestamp || fallback.created_at || null,
+                  isError,
+                  isSuccess,
                 })
               }
             }
@@ -388,16 +565,56 @@ async function getDirectChatsData(tenant: string, startDate: Date) {
                 sessionMap.get(sessionId).messages.push({
                   role: role,
                   content: content,
-                  created_at: record.created_at || msg.created_at || msg.timestamp || new Date().toISOString(),
+                  created_at: record.created_at || msg.created_at || msg.timestamp || null,
                   isError: isError,
                   isSuccess: isSuccess,
                 })
+              } else {
+                const fallback = extractFallbackMessage(msg)
+                if (!fallback) continue
+
+                const role = fallback.role
+                const content = fallback.content
+                const msgHash = `${sessionId}:${role}:${content.substring(0, 100)}`
+                if (processedMessages.has(msgHash)) continue
+                processedMessages.add(msgHash)
+
+                const isError = isSemanticErrorText(content)
+                const isSuccess = isVictoryText(content)
+
+                sessionMap.get(sessionId).messages.push({
+                  role,
+                  content,
+                  created_at: record.created_at || msg.created_at || msg.timestamp || fallback.created_at || null,
+                  isError,
+                  isSuccess,
+                })
               }
+            }
+          } else {
+            const fallback = extractFallbackMessage(messageData)
+            if (fallback) {
+              const role = fallback.role
+              const content = fallback.content
+              const msgHash = `${sessionId}:${role}:${content.substring(0, 100)}`
+              if (processedMessages.has(msgHash)) continue
+              processedMessages.add(msgHash)
+
+              const isError = isSemanticErrorText(content)
+              const isSuccess = isVictoryText(content)
+
+              sessionMap.get(sessionId).messages.push({
+                role,
+                content,
+                created_at: record.created_at || fallback.created_at || messageData.created_at || messageData.timestamp || null,
+                isError,
+                isSuccess,
+              })
             }
           }
         }
       } catch (e) {
-        // Este catch agora só captura erros não relacionados ao JSON parsing
+        // Este catch agora sÃ³ captura erros nÃ£o relacionados ao JSON parsing
         malformedJsonCount++
         continue
       }
@@ -408,8 +625,8 @@ async function getDirectChatsData(tenant: string, startDate: Date) {
     }
 
     const sessions = Array.from(sessionMap.values())
-    console.log(`[v0] Processadas ${sessions.length} sessões únicas`)
-    console.log(`[v0] Mensagens únicas processadas: ${processedMessages.size} (duplicados filtrados: ${allRecords.length - processedMessages.size})`)
+    console.log(`[v0] Processadas ${sessions.length} sessÃµes Ãºnicas`)
+    console.log(`[v0] Mensagens Ãºnicas processadas: ${processedMessages.size} (duplicados filtrados: ${allRecords.length - processedMessages.size})`)
 
     let totalMessagesProcessed = 0
     for (const session of sessions) {
@@ -424,15 +641,16 @@ async function getDirectChatsData(tenant: string, startDate: Date) {
   }
 }
 
-async function getDirectFollowupsData(tenant: string, startDate: Date) {
+async function getDirectFollowupsData(tenant: string, startDate: Date, endDate?: Date) {
   try {
     const supabase = createBiaSupabaseServerClient()
-    const startDateStr = startDate.toISOString()
+    const startMs = startDate.getTime()
+    const endMs = endDate ? endDate.getTime() : Number.POSITIVE_INFINITY
 
-    // Lista de possíveis nomes de tabelas para verificar
+    // Lista de possÃ­veis nomes de tabelas para verificar
     const possibleTables = [
-      `${tenant}_folow_normal`,   // Padrão antigo (typo)
-      `${tenant}_follow_normal`,  // Padrão corrigido
+      `${tenant}_folow_normal`,   // PadrÃ£o antigo (typo)
+      `${tenant}_follow_normal`,  // PadrÃ£o corrigido
       `${tenant}folow_normal`,    // Sem underscore (typo)
       `${tenant}follow_normal`    // Sem underscore (corrigido)
     ]
@@ -442,18 +660,31 @@ async function getDirectFollowupsData(tenant: string, startDate: Date) {
     for (const table of possibleTables) {
       // Tentar buscar da tabela atual
       // Tenta filtrar por created_at se existir, mas como as colunas variam (updated_at, last_contact),
-      // e o volume de followups é menor (limit 5000), vamos manter o select simples mas tentar otimizar se possível
-      // OBS: Followups não tem padrão garantido de created_at em todas as variantes, então mantemos busca geral + limit
+      // e o volume de followups Ã© menor (limit 5000), vamos manter o select simples mas tentar otimizar se possÃ­vel
+      // OBS: Followups nÃ£o tem padrÃ£o garantido de created_at em todas as variantes, entÃ£o mantemos busca geral + limit
       // mas vamos tentar ordenar para pegar os mais recentes
       const { data, error } = await supabase.from(table).select("*").limit(5000)
 
       // Se sucesso, retorna os dados
       if (!error && data) {
-        console.log(`[v0] Follow-ups encontrados em ${table}: ${data.length}`)
-        return data
+        const filtered = data.filter((row: any) => {
+          const dateValue =
+            row.last_mensager ||
+            row.created_at ||
+            row.updated_at ||
+            row.last_contact ||
+            row.data_criacao ||
+            row.data
+          if (!dateValue) return false
+          const dateMs = new Date(dateValue).getTime()
+          return Number.isFinite(dateMs) && dateMs >= startMs && dateMs <= endMs
+        })
+
+        console.log(`[v0] Follow-ups encontrados em ${table}: ${data.length} (filtrados no perÃ­odo: ${filtered.length})`)
+        return filtered
       }
 
-      // Se erro diferente de "tabela não existe", logar warning
+      // Se erro diferente de "tabela nÃ£o existe", logar warning
       if (error && !error.message.includes('does not exist')) {
         console.warn(`[v0] Erro ao acessar ${table}:`, error.message)
       }
@@ -494,7 +725,7 @@ function calculateAverageResponseTime(sessions: any[]): number {
           totalSequences++
 
           if (responseTimeMs === 0) {
-            // Timestamps idênticos - assumir resposta instantânea de 1 segundo
+            // Timestamps idÃªnticos - assumir resposta instantÃ¢nea de 1 segundo
             responseTimes.push(1)
             validSequences++
           } else if (responseTimeMs > 0 && responseTimeMs < 3600000) {
@@ -503,7 +734,7 @@ function calculateAverageResponseTime(sessions: any[]): number {
             validSequences++
           }
 
-          lastHumanMessageTime = null // Reset para próxima interação
+          lastHumanMessageTime = null // Reset para prÃ³xima interaÃ§Ã£o
         } catch (e) {
           // Ignorar erros de parsing
         }
@@ -511,12 +742,12 @@ function calculateAverageResponseTime(sessions: any[]): number {
     }
   }
 
-  console.log(`[v0] Processadas ${totalSequences} sequências user→bot, ${validSequences} válidas`)
-  console.log(`[v0] Calculados ${responseTimes.length} tempos de resposta válidos`)
+  console.log(`[v0] Processadas ${totalSequences} sequÃªncias userâ†’bot, ${validSequences} vÃ¡lidas`)
+  console.log(`[v0] Calculados ${responseTimes.length} tempos de resposta vÃ¡lidos`)
 
   if (responseTimes.length > 0) {
     const avgTime = responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length
-    console.log(`[v0] Tempo médio calculado: ${avgTime} segundos`)
+    console.log(`[v0] Tempo mÃ©dio calculado: ${avgTime} segundos`)
     return avgTime
   }
 
@@ -524,28 +755,43 @@ function calculateAverageResponseTime(sessions: any[]): number {
 }
 
 // Helper para buscar dados de tabela com fallback robusto de nome (com/sem underscore)
-async function fetchTableDataRobust(tenant: string, suffix: string, limit: number = 5000, startDate?: Date) {
+async function fetchTableDataRobust(tenant: string, suffix: string, limit: number = 5000, startDate?: Date, endDate?: Date) {
   const supabase = createBiaSupabaseServerClient()
   const table1 = `${tenant}_${suffix}`
   const table2 = `${tenant}${suffix}`
 
   let q1 = supabase.from(table1).select("*")
   if (startDate) q1 = q1.gte('created_at', startDate.toISOString())
+  if (endDate) q1 = q1.lte('created_at', endDate.toISOString())
   let { data, error } = await q1.limit(limit)
 
+  // Se a tabela existe, mas sem created_at, tenta novamente sem filtro de data
+  if (error && String(error.message || "").toLowerCase().includes('created_at')) {
+    const retry = await supabase.from(table1).select("*").limit(limit)
+    data = retry.data
+    error = retry.error
+  }
+
   if (error && error.message.includes('does not exist')) {
-    console.log(`[Overview] Tabela ${table1} não existe, tentando ${table2}...`)
+    console.log(`[Overview] Tabela ${table1} nÃ£o existe, tentando ${table2}...`)
     let q2 = supabase.from(table2).select("*")
     if (startDate) q2 = q2.gte('created_at', startDate.toISOString())
+    if (endDate) q2 = q2.lte('created_at', endDate.toISOString())
     const res2 = await q2.limit(limit)
 
     data = res2.data
     error = res2.error
+
+    if (error && String(error.message || "").toLowerCase().includes('created_at')) {
+      const retry2 = await supabase.from(table2).select("*").limit(limit)
+      data = retry2.data
+      error = retry2.error
+    }
   }
 
   if (error) {
     console.warn(`[Overview] Erro ao buscar dados de ${suffix} (${tenant}):`, error.message)
-    // Não retornar erro para não quebrar o dashboard todo
+    // NÃ£o retornar erro para nÃ£o quebrar o dashboard todo
     return []
   }
 
@@ -553,114 +799,173 @@ async function fetchTableDataRobust(tenant: string, suffix: string, limit: numbe
 }
 
 
+function parseDateOnlyParam(value: string | null, endOfDay = false): Date | null {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null
+
+  const [year, month, day] = value.split("-").map(Number)
+  const date = new Date(
+    year,
+    month - 1,
+    day,
+    endOfDay ? 23 : 0,
+    endOfDay ? 59 : 0,
+    endOfDay ? 59 : 0,
+    endOfDay ? 999 : 0,
+  )
+
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
 export async function GET(req: Request) {
   try {
-    // Obter período da query string
+    // Obter perÃ­odo da query string
     const url = new URL(req.url)
     const periodParam = url.searchParams.get('period') || '7d'
 
-    // Calcular data de início baseado no período
+    // Calcular janela de data
     const now = new Date()
     let daysToSubtract = 7
+    let startDate: Date
+    let endDate: Date
 
-    switch (periodParam) {
-      case '15d':
-        daysToSubtract = 15
-        break
-      case '30d':
-        daysToSubtract = 30
-        break
-      case '90d':
-        daysToSubtract = 90
-        break
-      default:
-        daysToSubtract = 7
-    }
+    if (periodParam === "custom") {
+      const startParam = url.searchParams.get("startDate")
+      const endParam = url.searchParams.get("endDate")
+      const parsedStart = parseDateOnlyParam(startParam, false)
+      const parsedEnd = parseDateOnlyParam(endParam, true)
 
-    const startDate = new Date(now)
-    startDate.setDate(startDate.getDate() - daysToSubtract)
-    startDate.setHours(0, 0, 0, 0)
-
-    console.log(`[Overview] Período: ${periodParam} (${daysToSubtract} dias)`)
-    console.log(`[Overview] Data início: ${startDate.toISOString()}`)
-    console.log(`[Overview] Data fim: ${now.toISOString()}`)
-
-    // BUSCAR TENANT DA SESSÃO JWT (CORRIGIDO!)
-    const cookieStore = await cookies()
-    const token = cookieStore.get('auth-token')?.value
-
-    let tenant = 'vox_bh' // fallback
-
-    if (token) {
-      const session = await verifyToken(token)
-      if (session && session.unitPrefix) {
-        tenant = session.unitPrefix
-        console.log(`[Overview] Tenant obtido da sessão JWT: ${tenant}`)
-      } else {
-        console.log(`[Overview] ATENÇÃO: Sessão inválida, usando tenant padrão`)
+      if (!parsedStart || !parsedEnd) {
+        return NextResponse.json(
+          { error: "Datas invalidas. Use o formato YYYY-MM-DD para startDate e endDate." },
+          { status: 400 },
+        )
       }
+
+      if (parsedStart.getTime() > parsedEnd.getTime()) {
+        return NextResponse.json(
+          { error: "Data inicial nao pode ser maior que a data final." },
+          { status: 400 },
+        )
+      }
+
+      startDate = parsedStart
+      endDate = parsedEnd
     } else {
-      // Fallback para header (compatibilidade)
-      const headerTenant = req.headers.get('x-tenant-prefix')
-      if (headerTenant) {
-        tenant = headerTenant
-        console.log(`[Overview] Tenant obtido do header: ${tenant}`)
+      switch (periodParam) {
+        case '15d':
+          daysToSubtract = 15
+          break
+        case '30d':
+          daysToSubtract = 30
+          break
+        case '90d':
+          daysToSubtract = 90
+          break
+        default:
+          daysToSubtract = 7
+      }
+
+      startDate = new Date(now)
+      startDate.setDate(startDate.getDate() - daysToSubtract)
+      startDate.setHours(0, 0, 0, 0)
+      endDate = now
+    }
+
+    console.log(`[Overview] Periodo: ${periodParam}${periodParam === "custom" ? " (personalizado)" : ` (${daysToSubtract} dias)`}`)
+    console.log(`[Overview] Data inicio: ${startDate.toISOString()}`)
+    console.log(`[Overview] Data fim: ${endDate.toISOString()}`)
+
+    // BUSCAR TENANT DA SESSAO JWT (preferencial) COM FALLBACK PARA HEADER
+    let rawTenant = ""
+    let logicalTenant = ""
+    let dataTenant = ""
+    let tenantTables: ReturnType<typeof getTablesForTenant> | null = null
+    try {
+      const tenantInfo = await getTenantFromRequest()
+      dataTenant = tenantInfo.tenant
+      tenantTables = tenantInfo.tables
+      rawTenant = tenantInfo.rawTenant || dataTenant
+      logicalTenant = tenantInfo.logicalTenant || dataTenant
+      console.log(
+        `[Overview] Tenant obtido da sessao JWT: raw=${rawTenant} logical=${logicalTenant} data=${dataTenant}`,
+      )
+    } catch (error: any) {
+      const headerTenant = normalizeTenant(req.headers.get('x-tenant-prefix') || '')
+      if (headerTenant && /^[a-z0-9_]+$/.test(headerTenant)) {
+        rawTenant = headerTenant
+        logicalTenant = normalizeTenantAlias(headerTenant)
+        try {
+          dataTenant = await resolveTenantDataPrefix(headerTenant)
+        } catch (resolveError: any) {
+          console.warn(
+            '[Overview] Falha ao resolver tenant de dados via header, usando logico:',
+            resolveError?.message || resolveError,
+          )
+          dataTenant = logicalTenant
+        }
+        tenantTables = getTablesForTenant(dataTenant)
+        console.log(
+          `[Overview] Tenant obtido do header: raw=${rawTenant} logical=${logicalTenant} data=${dataTenant}`,
+        )
       } else {
-        console.log(`[Overview] ATENÇÃO: Sem token e sem header, usando tenant padrão: ${tenant}`)
+        const message = error?.message || 'Sessao nao encontrada. Faca login novamente.'
+        return NextResponse.json({ error: message }, { status: 401 })
       }
     }
 
-    console.log(`[v0] Iniciando consulta de overview... Unidade: ${tenant}`)
+    console.log(`[v0] Iniciando consulta de overview... Unidade: ${dataTenant}`)
 
     // Validar tenant
-    if (!/^[a-z0-9_]+$/.test(tenant)) {
-      return NextResponse.json({ error: 'Tenant inválido' }, { status: 400 })
+    if (!/^[a-z0-9_]+$/.test(dataTenant)) {
+      return NextResponse.json({ error: 'Tenant invalido' }, { status: 400 })
     }
 
-    const agendamentosTable = `${tenant}_agendamentos`
-    const notificationsTable = `${tenant}_notifications`
+    const metricTenant = dataTenant
+    const agendamentosTable = tenantTables?.agendamentos || `${metricTenant}_agendamentos`
+    const notificationsTable = tenantTables?.notifications || `${metricTenant}_notifications`
 
     const [sessionsData, followupsData, disparosData] = await Promise.all([
-      getDirectChatsData(tenant, startDate),
-      getDirectFollowupsData(tenant, startDate),
-      getDisparosLeads(tenant, startDate)
+      getDirectChatsData(metricTenant, startDate, endDate),
+      getDirectFollowupsData(metricTenant, startDate, endDate),
+      getDisparosLeads(logicalTenant, startDate, metricTenant, endDate)
     ])
 
-    console.log(`[Overview] Carregadas ${sessionsData.length} sessões totais`)
-    console.log(`[Overview] Período solicitado: ${daysToSubtract} dias`)
+    console.log(`[Overview] Carregadas ${sessionsData.length} sessÃµes totais`)
+    console.log(`[Overview] PerÃ­odo solicitado: ${periodParam === "custom" ? "personalizado" : `${daysToSubtract} dias`}`)
     console.log(`[Overview] Carregados ${followupsData.length} follow-ups processados`)
     console.log(`[Overview] Carregados ${disparosData.leads} leads de vox_disparos (filtrado por DDD para BH/SP)`)
 
     // APLICAR FILTRO DE DATA "REAL" (Server-side filtering in memory)
     const startMs = startDate.getTime()
-    console.log(`[Overview] Aplicando filtro de data nos dados brutos: >= ${startDate.toISOString()}`)
+    const endMs = endDate.getTime()
+    console.log(`[Overview] Aplicando filtro de data nos dados brutos: >= ${startDate.toISOString()} e <= ${endDate.toISOString()}`)
 
-    // 1. Filtrar Sessões (apenas mensagens dentro do período)
+    // 1. Filtrar SessÃµes (apenas mensagens dentro do perÃ­odo)
     const sessionsToProcess = sessionsData.map(s => ({
       ...s,
       messages: s.messages.filter((m: any) => {
         const mDate = m.created_at ? new Date(m.created_at).getTime() : 0
-        return mDate >= startMs
+        return mDate >= startMs && mDate <= endMs
       })
     })).filter(s => s.messages.length > 0)
 
     const [agData, notificationsData] = await Promise.all([
-      fetchTableDataRobust(tenant, 'agendamentos', 5000, startDate),
-      fetchTableDataRobust(tenant, 'notifications', 5000, startDate),
+      fetchTableDataRobust(metricTenant, 'agendamentos', 5000, startDate, endDate),
+      fetchTableDataRobust(metricTenant, 'notifications', 5000, startDate, endDate),
     ])
 
     const supabase = createBiaSupabaseServerClient()
 
 
-    // Função para validar se o agendamento é explícito (mesma lógica do endpoint de agendamentos)
+    // FunÃ§Ã£o para validar se o agendamento Ã© explÃ­cito (mesma lÃ³gica do endpoint de agendamentos)
     function isAgendamentoExplicito(agendamento: any): boolean {
       try {
         const diagnosticoPatterns = [
-          /diagn[oó]stico\s+estrat[ée]gico\s+da\s+comunica[çc][ãa]o/i,
-          /diagn[oó]stico\s+estrat[ée]gico\s+comunica[çc][ãa]o/i,
+          /diagn[oÃ³]stico\s+estrat[Ã©e]gico\s+da\s+comunica[Ã§c][Ã£a]o/i,
+          /diagn[oÃ³]stico\s+estrat[Ã©e]gico\s+comunica[Ã§c][Ã£a]o/i,
         ]
 
-        const observacoes = String(agendamento.observacoes || agendamento["observações"] || '').toLowerCase()
+        const observacoes = String(agendamento.observacoes || agendamento["observaÃ§Ãµes"] || '').toLowerCase()
         const temDiagnostico = diagnosticoPatterns.some(pattern => pattern.test(observacoes))
 
         const temDataDefinida = agendamento.dia &&
@@ -677,63 +982,69 @@ export async function GET(req: Request) {
         const temConfirmacao = /(?:agendad|marcad|confirmad|combinad|vou.*ir|estarei|comparecerei)/i.test(observacoes)
 
         const apenasPedidoSemConfirmacao =
-          /(?:lead\s+)?solicit[oua]\s+(?:agendamento|hor[áa]rio|conversa|telefone)/i.test(observacoes) &&
+          /(?:lead\s+)?solicit[oua]\s+(?:agendamento|hor[Ã¡a]rio|conversa|telefone)/i.test(observacoes) &&
           !temConfirmacao &&
           !realmenteMarcado &&
           !temDiagnostico
 
         const apenasPergunta =
-          /(?:lead\s+)?questionou.*(?:rob[ôo]|hor[áa]rio\s+tardio)/i.test(observacoes) &&
+          /(?:lead\s+)?questionou.*(?:rob[Ã´o]|hor[Ã¡a]rio\s+tardio)/i.test(observacoes) &&
           !temConfirmacao &&
           !realmenteMarcado &&
           !temDiagnostico
 
         return temDiagnostico || realmenteMarcado || (temConfirmacao && !apenasPedidoSemConfirmacao && !apenasPergunta)
       } catch (error) {
-        return true // Em caso de erro, inclui para não perder dados
+        return true // Em caso de erro, inclui para nÃ£o perder dados
       }
     }
 
     // 2. Filtrar Agendamentos por data
     const agendamentosNoPeriodo = agData.filter((a: any) => {
       const aDate = a.created_at ? new Date(a.created_at).getTime() : 0
-      return aDate >= startMs
+      return aDate >= startMs && aDate <= endMs
     })
 
-    // Filtrar apenas agendamentos explícitos
+    // Filtrar apenas agendamentos explÃ­citos
     const agendamentosExplicitos = agendamentosNoPeriodo.filter(isAgendamentoExplicito)
     const agendamentos = agendamentosExplicitos.length
 
-    // Filtrar notificações por data
+    // Filtrar notificaÃ§Ãµes por data
     const notifications = notificationsData.filter((n: any) => {
       const nDate = n.created_at ? new Date(n.created_at).getTime() : 0
-      return nDate >= startMs
+      return nDate >= startMs && nDate <= endMs
     }).length
 
-    console.log(`[v0] Agendamentos no período: ${agendamentosNoPeriodo.length}, Explícitos: ${agendamentos}`)
+    console.log(`[v0] Agendamentos no perÃ­odo: ${agendamentosNoPeriodo.length}, ExplÃ­citos: ${agendamentos}`)
 
     // 3. Filtrar Follow-ups por data
     const followupsFiltered = followupsData.filter((f: any) => {
-      const fDateStr = f.created_at || f.updated_at || f.last_contact
+      const fDateStr =
+        f.last_mensager ||
+        f.created_at ||
+        f.updated_at ||
+        f.last_contact ||
+        f.data_criacao ||
+        f.data
       const fDate = fDateStr ? new Date(fDateStr).getTime() : 0
-      return fDate >= startMs
+      return fDate >= startMs && fDate <= endMs
     })
 
-    const followupsEtapa1Plus = followupsFiltered.filter((f: any) => f.etapa && f.etapa >= 1)
-    const followups = followupsEtapa1Plus.length
-    console.log(`[v0] Follow-ups no período: ${followupsFiltered.length} (Etapa >= 1: ${followups})`)
+    const followups = followupsFiltered.length
+    console.log(`[v0] Follow-ups no período: ${followups}`)
 
     // 4. Filtrar Leads de Disparos por data
     let leadsFromDisparos = 0
     disparosData.dailyLeads.forEach((count, dateStr) => {
       const dDate = new Date(dateStr)
       dDate.setHours(0, 0, 0, 0)
-      if (dDate.getTime() >= startDate.getTime()) {
+      const dTime = dDate.getTime()
+      if (dTime >= startMs && dTime <= endMs) {
         leadsFromDisparos += count
       }
     })
 
-    // Total de leads = sessões de chat no período + leads de vox_disparos (BH/SP) no período
+    // Total de leads = sessÃµes de chat no perÃ­odo + leads de vox_disparos (BH/SP) no perÃ­odo
     const leadsFromChat = sessionsToProcess.length
     const totalLeads = leadsFromChat + leadsFromDisparos
     console.log(`[v0] Total de Leads: ${totalLeads} (Chat: ${leadsFromChat}, Disparos: ${leadsFromDisparos})`)
@@ -746,10 +1057,10 @@ export async function GET(req: Request) {
     let messagesWithError = 0
     let conversasAtivas = 0
 
-    // Contar conversas ativas (sessões com pelo menos 2 mensagens - interação real)
+    // Contar conversas ativas (sessÃµes com pelo menos 2 mensagens - interaÃ§Ã£o real)
     for (const session of sessionsToProcess) {
       const messages = session.messages || []
-      // Conversa ativa = tem pelo menos uma mensagem do usuário E uma da IA (interação real)
+      // Conversa ativa = tem pelo menos uma mensagem do usuÃ¡rio E uma da IA (interaÃ§Ã£o real)
       const hasUserMessage = messages.some((m: any) => m.role === "user")
       const hasAIMessage = messages.some((m: any) => m.role === "assistant" || m.role === "bot")
 
@@ -777,26 +1088,26 @@ export async function GET(req: Request) {
       }
     }
 
-    console.log(`[v0] Total de Leads (sessões únicas): ${totalLeads}`)
-    console.log(`[v0] Conversas Ativas (com interação real): ${conversasAtivas}`)
+    console.log(`[v0] Total de Leads (sessÃµes Ãºnicas): ${totalLeads}`)
+    console.log(`[v0] Conversas Ativas (com interaÃ§Ã£o real): ${conversasAtivas}`)
 
     console.log(`[v0] Mensagens com erro detectadas: ${messagesWithError}`)
     console.log(`[v0] Mensagens da IA com erro: ${aiErrorMessages}`)
     console.log(`[v0] Mensagens da IA com sucesso: ${aiSuccessMessages}`)
 
-    const avgResponseTime = calculateAverageResponseTime(sessionsData)
-    console.log(`[v0] Tempo médio de resposta calculado: ${avgResponseTime} segundos`)
+    const avgResponseTime = calculateAverageResponseTime(sessionsToProcess)
+    console.log(`[v0] Tempo mÃ©dio de resposta calculado: ${avgResponseTime} segundos`)
 
-    // Calcular métricas finais
+    // Calcular mÃ©tricas finais
     const aiSuccessRate = aiMessages > 0 ? (aiSuccessMessages / aiMessages) * 100 : 0
     const conversionRate = totalLeads > 0 ? (agendamentos / totalLeads) * 100 : 0
     const errorRate = aiMessages > 0 ? (aiErrorMessages / aiMessages) * 100 : 0
 
-    // Verificar se a taxa de conversão está abaixo de 5% e criar notificação se necessário
+    // Verificar se a taxa de conversÃ£o estÃ¡ abaixo de 5% e criar notificaÃ§Ã£o se necessÃ¡rio
     const CONVERSION_RATE_THRESHOLD = 5
     if (conversionRate < CONVERSION_RATE_THRESHOLD && totalLeads > 0) {
       try {
-        // Verificar se já existe uma notificação recente (últimas 6 horas) sobre taxa de conversão baixa
+        // Verificar se jÃ¡ existe uma notificaÃ§Ã£o recente (Ãºltimas 6 horas) sobre taxa de conversÃ£o baixa
         const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString()
         const { data: existingNotification } = await supabase
           .from(notificationsTable)
@@ -806,40 +1117,41 @@ export async function GET(req: Request) {
           .limit(1)
           .maybeSingle()
 
-        // Se não existe notificação recente, criar uma nova
+        // Se nÃ£o existe notificaÃ§Ã£o recente, criar uma nova
         if (!existingNotification) {
           await createNotification({
             type: "conversao_baixa",
-            title: "Taxa de Conversão Baixa",
-            message: `A taxa de conversão está em ${conversionRate.toFixed(1)}%, abaixo do limite de ${CONVERSION_RATE_THRESHOLD}%. Total de leads: ${totalLeads}, Agendamentos: ${agendamentos}`,
+            title: "Taxa de ConversÃ£o Baixa",
+            message: `A taxa de conversÃ£o estÃ¡ em ${conversionRate.toFixed(1)}%, abaixo do limite de ${CONVERSION_RATE_THRESHOLD}%. Total de leads: ${totalLeads}, Agendamentos: ${agendamentos}`,
             metadata: {
               conversionRate: conversionRate,
               totalLeads: totalLeads,
               agendamentos: agendamentos,
               threshold: CONVERSION_RATE_THRESHOLD
             },
-            priority: 'urgent'
+            priority: 'urgent',
+            tenant: metricTenant
           })
-          console.log(`[v0] Notificação criada: Taxa de conversão baixa (${conversionRate.toFixed(1)}%)`)
+          console.log(`[v0] NotificaÃ§Ã£o criada: Taxa de conversÃ£o baixa (${conversionRate.toFixed(1)}%)`)
         }
       } catch (error) {
-        console.error("[v0] Erro ao criar notificação de taxa de conversão baixa:", error)
-        // Não falhar a requisição se a notificação falhar
+        console.error("[v0] Erro ao criar notificaÃ§Ã£o de taxa de conversÃ£o baixa:", error)
+        // NÃ£o falhar a requisiÃ§Ã£o se a notificaÃ§Ã£o falhar
       }
     }
 
     const realData = {
-      // Métricas principais
+      // MÃ©tricas principais
       conversas: conversasAtivas,
       agendamentos,
       followups, // Agora conta apenas follow-ups com etapa >= 1
       notifications,
 
-      // Leads e conversões
+      // Leads e conversÃµes
       totalLeads,
       conversionRate: Math.round(conversionRate * 10) / 10,
 
-      // Métricas da IA corrigidas
+      // MÃ©tricas da IA corrigidas
       aiSuccessRate: Math.round(aiSuccessRate * 10) / 10,
       aiMessagesTotal: aiMessages,
       aiMessagesSuccess: aiSuccessMessages,
@@ -864,31 +1176,31 @@ export async function GET(req: Request) {
       successPercent: Math.round(aiSuccessRate * 10) / 10,
       errorPercent: Math.round((100 - aiSuccessRate) * 10) / 10,
 
-      // Dados para gráficos - Volume de Atendimentos (TODOS os dados históricos)
+      // Dados para grÃ¡ficos - Volume de Atendimentos (TODOS os dados histÃ³ricos)
       chartData: (() => {
         const dailyStats = new Map<string, { date: string; total: number; success: number; error: number }>()
 
-        // Coletar TODAS as datas únicas de todas as mensagens históricas
+        // Coletar TODAS as datas Ãºnicas de todas as mensagens histÃ³ricas
         const allDates = new Set<string>()
 
-        // Primeiro passo: coletar todas as datas disponíveis
+        // Primeiro passo: coletar todas as datas disponÃ­veis
         for (const session of sessionsToProcess) {
           if (session.messages && session.messages.length > 0) {
-            // Processar TODAS as mensagens da sessão, não apenas a primeira
+            // Processar TODAS as mensagens da sessÃ£o, nÃ£o apenas a primeira
             for (const msg of session.messages) {
               if (msg.created_at) {
                 try {
                   const msgDate = new Date(msg.created_at)
-                  msgDate.setHours(0, 0, 0, 0) // Normalizar para início do dia
+                  msgDate.setHours(0, 0, 0, 0) // Normalizar para inÃ­cio do dia
                   const dateStr = msgDate.toISOString().split("T")[0]
                   allDates.add(dateStr)
                 } catch (e) {
-                  // Ignorar datas inválidas
+                  // Ignorar datas invÃ¡lidas
                 }
               }
             }
 
-            // Também usar a primeira mensagem da sessão para contar sessões por data
+            // TambÃ©m usar a primeira mensagem da sessÃ£o para contar sessÃµes por data
             const firstMsg = session.messages[0]
             if (firstMsg.created_at) {
               try {
@@ -897,7 +1209,7 @@ export async function GET(req: Request) {
                 const dateStr = msgDate.toISOString().split("T")[0]
                 allDates.add(dateStr)
               } catch (e) {
-                // Ignorar datas inválidas
+                // Ignorar datas invÃ¡lidas
               }
             }
           }
@@ -908,19 +1220,19 @@ export async function GET(req: Request) {
           dailyStats.set(dateStr, { date: dateStr, total: 0, success: 0, error: 0 })
         }
 
-        // Segundo passo: contar LEADS (sessões únicas) por dia, não mensagens
+        // Segundo passo: contar LEADS (sessÃµes Ãºnicas) por dia, nÃ£o mensagens
         const leadsPerDate = new Map<string, Set<string>>() // session_ids por data
-        const sessionsProcessedPerDate = new Map<string, Set<string>>() // Para evitar contar múltiplas vezes
+        const sessionsProcessedPerDate = new Map<string, Set<string>>() // Para evitar contar mÃºltiplas vezes
 
-        console.log(`[v0] Processando ${sessionsToProcess.length} sessões para o gráfico de LEADS...`)
+        console.log(`[v0] Processando ${sessionsToProcess.length} sessÃµes para o grÃ¡fico de LEADS...`)
 
         for (const session of sessionsToProcess) {
           if (session.messages && session.messages.length > 0) {
-            // Verificar sucesso/erro na sessão
+            // Verificar sucesso/erro na sessÃ£o
             const hasSuccess = session.messages.some((m: any) => m.isSuccess)
             const hasError = session.messages.some((m: any) => m.isError)
 
-            // Usar a PRIMEIRA mensagem da sessão para determinar a data do lead
+            // Usar a PRIMEIRA mensagem da sessÃ£o para determinar a data do lead
             const firstMsg = session.messages[0]
             if (firstMsg && firstMsg.created_at) {
               try {
@@ -930,12 +1242,12 @@ export async function GET(req: Request) {
                 msgDate.setHours(0, 0, 0, 0)
                 const dateStr = msgDate.toISOString().split("T")[0]
 
-                // Inicializar se não existe
+                // Inicializar se nÃ£o existe
                 if (!leadsPerDate.has(dateStr)) {
                   leadsPerDate.set(dateStr, new Set())
                 }
 
-                // Adicionar sessão a esta data (Set evita duplicados)
+                // Adicionar sessÃ£o a esta data (Set evita duplicados)
                 leadsPerDate.get(dateStr)!.add(session.session_id)
 
                 // Atualizar stats
@@ -945,14 +1257,14 @@ export async function GET(req: Request) {
 
                 const stat = dailyStats.get(dateStr)!
 
-                // Só contar se ainda não foi contado
+                // SÃ³ contar se ainda nÃ£o foi contado
                 if (!sessionsProcessedPerDate.has(dateStr)) {
                   sessionsProcessedPerDate.set(dateStr, new Set())
                 }
 
                 if (!sessionsProcessedPerDate.get(dateStr)!.has(session.session_id)) {
                   sessionsProcessedPerDate.get(dateStr)!.add(session.session_id)
-                  stat.total++ // Conta LEADS, não mensagens
+                  stat.total++ // Conta LEADS, nÃ£o mensagens
                   if (hasSuccess) stat.success++
                   if (hasError) stat.error++
                 }
@@ -963,19 +1275,19 @@ export async function GET(req: Request) {
           }
         }
 
-        // Adicionar leads de vox_disparos (compartilhada BH/SP) ao gráfico
-        console.log(`[Overview] Adicionando ${disparosData.leads} leads de vox_disparos ao gráfico (filtrado por DDD)...`)
+        // Adicionar leads de vox_disparos (compartilhada BH/SP) ao grÃ¡fico
+        console.log(`[Overview] Adicionando ${disparosData.leads} leads de vox_disparos ao grÃ¡fico (filtrado por DDD)...`)
         for (const [dateStr, count] of disparosData.dailyLeads.entries()) {
           if (!dailyStats.has(dateStr)) {
             dailyStats.set(dateStr, { date: dateStr, total: 0, success: 0, error: 0 })
           }
           const stat = dailyStats.get(dateStr)!
-          stat.success += count // Adicionar aos "success" (leads válidos)
+          stat.success += count // Adicionar aos "success" (leads vÃ¡lidos)
           stat.total += count
         }
 
-        // Formatar datas para exibição (DD/MM) e garantir ordem correta
-        // NÃO filtrar aqui - deixar todos os dados para o gráfico decidir
+        // Formatar datas para exibiÃ§Ã£o (DD/MM) e garantir ordem correta
+        // NÃƒO filtrar aqui - deixar todos os dados para o grÃ¡fico decidir
         const sortedStats = Array.from(dailyStats.values())
           .sort((a, b) => a.date.localeCompare(b.date))
           .map(item => {
@@ -991,25 +1303,25 @@ export async function GET(req: Request) {
               error: Number(item.error) || 0
             }
           })
-        // NÃO filtrar - mostrar todos os dados mesmo que sejam zero
-        // O componente do gráfico pode decidir o que mostrar
+        // NÃƒO filtrar - mostrar todos os dados mesmo que sejam zero
+        // O componente do grÃ¡fico pode decidir o que mostrar
 
-        console.log(`[v0] Dados do gráfico processados: ${sortedStats.length} dias históricos (antes de filtrar)`)
+        console.log(`[v0] Dados do grÃ¡fico processados: ${sortedStats.length} dias histÃ³ricos (antes de filtrar)`)
 
         // Filtrar apenas itens completamente vazios (todos os valores zero)
         const filteredStats = sortedStats.filter(item => item.total > 0 || item.success > 0 || item.error > 0)
-        console.log(`[v0] Dados do gráfico após filtrar zeros: ${filteredStats.length} dias`)
+        console.log(`[v0] Dados do grÃ¡fico apÃ³s filtrar zeros: ${filteredStats.length} dias`)
 
         if (filteredStats.length > 0) {
-          console.log(`[v0] Período: de ${filteredStats[0]?.formattedDate || 'N/A'} até ${filteredStats[filteredStats.length - 1]?.formattedDate || 'N/A'}`)
+          console.log(`[v0] PerÃ­odo: de ${filteredStats[0]?.formattedDate || 'N/A'} atÃ© ${filteredStats[filteredStats.length - 1]?.formattedDate || 'N/A'}`)
           console.log(`[v0] Exemplo de dados (primeiros 3):`, JSON.stringify(filteredStats.slice(0, 3), null, 2))
-          console.log(`[v0] Total de mensagens no gráfico: ${filteredStats.reduce((sum, item) => sum + (item.total || 0), 0)}`)
+          console.log(`[v0] Total de mensagens no grÃ¡fico: ${filteredStats.reduce((sum, item) => sum + (item.total || 0), 0)}`)
         } else {
-          console.warn(`[v0] Nenhum dado encontrado para o gráfico. Total de sessões: ${sessionsData.length}, Total de datas únicas coletadas: ${allDates.size}`)
-          // Tentar entender por que não há dados
-          if (sessionsData.length > 0) {
-            const sampleSession = sessionsData[0]
-            console.log(`[v0] Exemplo de sessão:`, {
+          console.warn(`[v0] Nenhum dado encontrado para o grÃ¡fico. Total de sessÃµes: ${sessionsToProcess.length}, Total de datas Ãºnicas coletadas: ${allDates.size}`)
+          // Tentar entender por que nÃ£o hÃ¡ dados
+          if (sessionsToProcess.length > 0) {
+            const sampleSession = sessionsToProcess[0]
+            console.log(`[v0] Exemplo de sessÃ£o:`, {
               session_id: sampleSession.session_id,
               messagesCount: sampleSession.messages?.length || 0,
               firstMessageDate: sampleSession.messages?.[0]?.created_at || 'N/A'
@@ -1021,7 +1333,7 @@ export async function GET(req: Request) {
       })(),
 
       // Atividades recentes
-      recentActivity: sessionsData
+      recentActivity: sessionsToProcess
         .filter(s => s.messages && s.messages.length > 0)
         .sort((a, b) => {
           const lastMsgA = a.messages[a.messages.length - 1]?.created_at || ""
@@ -1051,7 +1363,7 @@ export async function GET(req: Request) {
     console.log("[v0] Dados reais calculados:", realData)
     return NextResponse.json(realData)
   } catch (e: any) {
-    console.error("❌ ERRO NA API OVERVIEW:")
+    console.error("âŒ ERRO NA API OVERVIEW:")
     console.error("Mensagem:", e.message)
     console.error("Stack:", e.stack)
     console.error("Erro completo:", JSON.stringify(e, null, 2))
@@ -1066,3 +1378,5 @@ export async function GET(req: Request) {
     )
   }
 }
+
+

@@ -12,10 +12,10 @@ export const dynamic = 'force-dynamic';
  */
 export async function DELETE(
     req: NextRequest,
-    { params }: { params: { id: string } }
+    { params }: { params: Promise<{ id: string }> }
 ) {
     try {
-        const unitId = params.id;
+        const { id: unitId } = await params;
 
         // 1. Auth Admin
         const cookieStore = await cookies();

@@ -52,6 +52,7 @@ BEGIN
       horario TEXT,
       status TEXT DEFAULT ''pendente'',
       observacoes TEXT,
+      observacao_marcacao TEXT,
       google_event_id TEXT,
       session_id TEXT,
       numero TEXT,
@@ -64,6 +65,13 @@ BEGIN
   EXECUTE format('CREATE INDEX IF NOT EXISTS idx_%I_dia ON public.%I(dia)', v_agendamentos, v_agendamentos);
   EXECUTE format('CREATE INDEX IF NOT EXISTS idx_%I_created ON public.%I(created_at DESC)', v_agendamentos, v_agendamentos);
   EXECUTE format('CREATE INDEX IF NOT EXISTS idx_%I_numero ON public.%I(numero)', v_agendamentos, v_agendamentos);
+
+  IF to_regprocedure('public.create_agendamentos_webhook_trigger(text)') IS NOT NULL THEN
+    PERFORM public.create_agendamentos_webhook_trigger(v_agendamentos);
+  END IF;
+  IF to_regprocedure('public.create_agendamentos_schedule_trigger(text)') IS NOT NULL THEN
+    PERFORM public.create_agendamentos_schedule_trigger(v_agendamentos);
+  END IF;
 
   RAISE NOTICE '✅ %', v_agendamentos;
 
@@ -475,7 +483,8 @@ CREATE TRIGGER trigger_deletar_tabelas_empresa
 -- 7. VIEW PARA LISTAR TABELAS POR EMPRESA
 -- ============================================
 
-CREATE OR REPLACE VIEW public.v_empresa_tabelas AS
+DROP VIEW IF EXISTS public.v_empresa_tabelas;
+CREATE VIEW public.v_empresa_tabelas AS
 SELECT 
   e.id AS empresa_id,
   e.nome AS empresa_nome,

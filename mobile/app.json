@@ -1,0 +1,44 @@
+{
+  "expo": {
+    "name": "GerenciaBH Mobile",
+    "slug": "gerenciabh-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "gerenciabh",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#090d14"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.corelion.gerenciabh",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.corelion.gerenciabh",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#090d14"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "apiBaseUrl": "https://gerencia.vox.geniallabs.com.br",
+      "webAppUrl": "https://gerencia.vox.geniallabs.com.br/login",
+      "eas": {
+        "projectId": "012a6e3f-2219-4940-b9bf-1ef5b79e49ba"
+      }
+    },
+    "owner": "brunocostacore"
+  }
+}

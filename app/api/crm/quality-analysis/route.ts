@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { resolveChatHistoriesTable } from "@/lib/helpers/resolve-chat-table"
 
 // Cliente Supabase com Service Role para acesso administrativo
 function createServiceRoleClient() {
@@ -332,15 +333,7 @@ export async function GET(req: Request) {
 
         const supabase = createServiceRoleClient()
 
-        // Detectar automaticamente o nome correto da tabela de chat
-        // Suporta: vox_bhn8n_chat_histories E vox_maceio_n8n_chat_histories
-        let chatHistoriesTable = `${tenant}n8n_chat_histories`
-        const testResult = await supabase.from(chatHistoriesTable).select("id").limit(1)
-
-        if (testResult.error && testResult.error.message.includes('does not exist')) {
-            chatHistoriesTable = `${tenant}_n8n_chat_histories`
-            console.log(`[Quality Analysis] Usando tabela com underscore: ${chatHistoriesTable}`)
-        }
+        const chatHistoriesTable = await resolveChatHistoriesTable(supabase as any, tenant)
 
         const crmLeadStatusTable = `${tenant}_crm_lead_status`
 

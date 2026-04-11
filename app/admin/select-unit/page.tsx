@@ -45,15 +45,33 @@ export default function SelectUnitPage() {
         }
     }
 
-    const handleSelectUnit = (unit: Unit) => {
-        setTenant({
-            name: unit.name,
-            prefix: unit.prefix
-        })
-        toast.success(`Unidade ${unit.name} selecionada!`)
-        setTimeout(() => {
-            router.push('/dashboard')
-        }, 500)
+    const handleSelectUnit = async (unit: Unit) => {
+        try {
+            const res = await fetch("/api/admin/switch-unit", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ unitPrefix: unit.prefix }),
+            })
+
+            if (!res.ok) {
+                toast.error("Erro ao acessar unidade")
+                return
+            }
+
+            setTenant({
+                name: unit.name,
+                prefix: unit.prefix
+            })
+            toast.success(`Unidade ${unit.name} selecionada!`)
+
+            // Forcar reload para garantir cookie atualizado
+            setTimeout(() => {
+                window.location.href = "/dashboard"
+            }, 300)
+        } catch (error) {
+            console.error("Erro ao trocar unidade:", error)
+            toast.error("Erro ao acessar unidade")
+        }
     }
 
     const handleCreateUnit = async (e: React.FormEvent) => {

@@ -22,26 +22,29 @@ import {
   Zap,
   Workflow,
   PauseCircle,
+  Megaphone,
   FileText,
   LayoutTemplate,
   LogOut,
   Users,
   Building2,
   Bot,
-  Shield,
+  ShieldCheck,
 } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useState } from "react"
 
 const items = [
-  { title: "Dashboard", url: "/", icon: BarChart3 },
+  { title: "Dashboard", url: "/dashboard", icon: BarChart3 },
   { title: "CRM", url: "/crm", icon: LayoutTemplate },
-  { title: "Agente IA", url: "/configuracoes/agente", icon: Bot }, // NOVO: Configuração do Agente
   { title: "Conversas", url: "/conversas", icon: MessageCircle },
   { title: "Agendamentos", url: "/agendamentos", icon: Calendar },
   { title: "Follow-ups", url: "/followups", icon: Workflow },
   { title: "Pausas", url: "/pausas", icon: PauseCircle },
-  { title: "Relatórios", url: "/relatorios", icon: FileText },
+  { title: "Disparos", url: "/disparos", icon: Megaphone },
+  { title: "Configuracao", url: "/configuracao", icon: ShieldCheck },
+  { title: "Agente IA", url: "/agente-ia", icon: Bot },
+  { title: "Relatorios", url: "/relatorios", icon: FileText },
 ]
 
 export function AppSidebar() {
@@ -92,13 +95,13 @@ export function AppSidebar() {
     <Sidebar className="bg-[var(--card-black)] border-[var(--border-gray)] backdrop-blur-sm">
       <SidebarHeader className="px-4 py-6 border-b border-[var(--border-gray)]">
         <div className="flex items-center gap-4 px-2">
-          <div className="w-12 h-12 bg-gradient-to-br from-[var(--accent-yellow)] to-[var(--dark-yellow)] rounded-2xl flex items-center justify-center shadow-lg shadow-[var(--accent-yellow)]/30 animate-pulse">
+          <div className="w-12 h-12 bg-gradient-to-br from-[var(--accent-green)] to-[var(--dark-green)] rounded-2xl flex items-center justify-center shadow-lg shadow-[var(--accent-green)]/30 animate-pulse">
             <Zap className="h-6 w-6 text-[var(--primary-black)] font-bold" />
           </div>
           <div className="flex-1">
             <span className="font-bold text-[var(--pure-white)] text-lg tracking-wide">GerencIA</span>
             <div className="text-xs text-[var(--text-gray)] uppercase tracking-[0.2em] font-light">
-              By CORE LION AI
+              Genial Labs AI
             </div>
           </div>
         </div>
@@ -121,9 +124,9 @@ export function AppSidebar() {
           <div className="mt-3 px-2 space-y-2">
             <button
               onClick={handleSwitchClient}
-              className="flex items-center gap-2 w-full p-2.5 rounded-lg bg-gradient-to-r from-[var(--accent-yellow)]/20 to-[var(--dark-yellow)]/10 border border-[var(--accent-yellow)]/30 hover:border-[var(--accent-yellow)]/50 transition-all duration-300 hover:shadow-lg hover:shadow-[var(--accent-yellow)]/20 group"
+              className="flex items-center gap-2 w-full p-2.5 rounded-lg bg-gradient-to-r from-[var(--accent-green)]/20 to-[var(--dark-green)]/10 border border-[var(--accent-green)]/30 hover:border-[var(--accent-green)]/50 transition-all duration-300 hover:shadow-lg hover:shadow-[var(--accent-green)]/20 group"
             >
-              <Users className="w-4 h-4 text-[var(--accent-yellow)] group-hover:scale-110 transition-transform duration-300" />
+              <Users className="w-4 h-4 text-[var(--accent-green)] group-hover:scale-110 transition-transform duration-300" />
               <div className="flex-1 text-left">
                 <span className="font-medium text-[var(--pure-white)] text-xs">Trocar de Cliente</span>
               </div>

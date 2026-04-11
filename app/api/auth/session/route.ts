@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { verifyToken } from '@/lib/auth/utils'
+import { resolveTenantDataPrefix } from '@/lib/helpers/tenant-resolution'
 
 export async function GET() {
     try {
@@ -17,10 +18,17 @@ export async function GET() {
             return NextResponse.json({ session: null })
         }
 
+        let resolvedPrefix = session.unitPrefix
+        try {
+            resolvedPrefix = await resolveTenantDataPrefix(session.unitPrefix)
+        } catch (error: any) {
+            console.warn('[Session] Falha ao resolver tenant de dados, usando bruto:', error?.message || error)
+        }
+
         return NextResponse.json({
             session: {
                 unitName: session.unitName,
-                unitPrefix: session.unitPrefix,
+                unitPrefix: resolvedPrefix,
                 isAdmin: session.isAdmin,
             },
         })

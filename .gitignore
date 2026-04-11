@@ -2,6 +2,7 @@
 
 # dependencies
 /node_modules
+mobile/node_modules/
 
 # next.js
 /.next/
@@ -18,6 +19,7 @@ yarn-error.log*
 
 # env files
 .env*
+!mobile/.env.example
 
 # vercel
 .vercel
@@ -25,6 +27,16 @@ yarn-error.log*
 # auto-generated agent folders
 .agent/
 .emergent/
+
+# expo / react-native
+mobile/.expo/
+mobile/dist/
+mobile/web-build/
+mobile/android/
+mobile/ios/
+mobile/releases/
+mobile/credentials/
+mobile/credentials.json
 
 # typescript
 *.tsbuildinfo

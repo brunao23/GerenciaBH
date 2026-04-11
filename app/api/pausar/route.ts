@@ -1,9 +1,9 @@
-import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
+﻿import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { type NextRequest, NextResponse } from "next/server"
 import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
 
 /**
- * Normaliza número de telefone removendo caracteres não numéricos
+ * Normaliza nÃºmero de telefone removendo caracteres nÃ£o numÃ©ricos
  */
 function normalizePhoneNumber(numero: string): string {
   if (!numero || typeof numero !== 'string') return ''
@@ -13,23 +13,45 @@ function normalizePhoneNumber(numero: string): string {
 }
 
 /**
- * Valida número de telefone
+ * Gera variaÃ§Ãµes possÃ­veis do nÃºmero para compatibilidade (com/sem 55)
+ */
+function getPhoneVariants(numero: string): string[] {
+  const normalized = normalizePhoneNumber(numero)
+  const variants = new Set<string>()
+
+  if (normalized) {
+    variants.add(normalized)
+  }
+
+  if ((normalized.length === 10 || normalized.length === 11) && !normalized.startsWith('55')) {
+    variants.add(`55${normalized}`)
+  }
+
+  if ((normalized.length === 12 || normalized.length === 13) && normalized.startsWith('55')) {
+    variants.add(normalized.slice(2))
+  }
+
+  return Array.from(variants)
+}
+
+/**
+ * Valida nÃºmero de telefone
  */
 function validatePhoneNumber(numero: string): { valid: boolean; error?: string } {
   const normalized = normalizePhoneNumber(numero)
 
   if (!normalized || normalized.length < 8) {
-    return { valid: false, error: 'Número deve conter pelo menos 8 dígitos' }
+    return { valid: false, error: 'NÃºmero deve conter pelo menos 8 dÃ­gitos' }
   }
 
   if (normalized.length > 15) {
-    return { valid: false, error: 'Número muito longo (máximo 15 dígitos)' }
+    return { valid: false, error: 'NÃºmero muito longo (mÃ¡ximo 15 dÃ­gitos)' }
   }
 
   return { valid: true }
 }
 
-// GET - Listar todos os registros de pausa ou buscar por número específico
+// GET - Listar todos os registros de pausa ou buscar por nÃºmero especÃ­fico
 export async function GET(request: NextRequest) {
   try {
     const { tables } = await getTenantFromRequest()
@@ -52,8 +74,13 @@ export async function GET(request: NextRequest) {
         }, { status: 400 })
       }
 
-      query = query.eq("numero", normalized)
-      console.log(`[Pausar API GET] Buscando pausa para número: ${normalized}`)
+      const variants = getPhoneVariants(numero)
+      if (variants.length > 1) {
+        query = query.in("numero", variants)
+      } else {
+        query = query.eq("numero", normalized)
+      }
+      console.log(`[Pausar API GET] Buscando pausa para nÃºmero: ${normalized}`)
     }
 
     const { data, error } = await query.order("created_at", { ascending: false })
@@ -66,7 +93,7 @@ export async function GET(request: NextRequest) {
       }, { status: 500 })
     }
 
-    // Se buscar por número específico e não encontrar, retorna valores padrão
+    // Se buscar por nÃºmero especÃ­fico e nÃ£o encontrar, retorna valores padrÃ£o
     if (numero && (!data || data.length === 0)) {
       return NextResponse.json({
         success: true,
@@ -76,6 +103,14 @@ export async function GET(request: NextRequest) {
           vaga: true,
           agendamento: true
         }
+      })
+    }
+
+    if (numero) {
+      const record = Array.isArray(data) ? data[0] : data
+      return NextResponse.json({
+        success: true,
+        data: record
       })
     }
 
@@ -100,11 +135,11 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { numero, pausar, vaga, agendamento, paused_until } = body
 
-    // Validação do número
+    // ValidaÃ§Ã£o do nÃºmero
     if (!numero || typeof numero !== 'string') {
       return NextResponse.json({
         success: false,
-        error: "Número é obrigatório e deve ser uma string"
+        error: "NÃºmero Ã© obrigatÃ³rio e deve ser uma string"
       }, { status: 400 })
     }
 
@@ -120,36 +155,77 @@ export async function POST(request: NextRequest) {
 
     const supabase = createBiaSupabaseServerClient()
 
-    // Validação e conversão de tipos booleanos (aceita true, "true", 1)
+    const variants = getPhoneVariants(numero)
+    let targetNumero = normalizedNumero
+
+    if (variants.length > 1) {
+      const { data: existing, error: existingError } = await supabase
+        .from(pausarTable)
+        .select("numero")
+        .in("numero", variants)
+        .limit(1)
+
+      if (!existingError && existing && existing.length > 0) {
+        targetNumero = existing[0].numero
+      }
+    }
+
+    // ValidaÃ§Ã£o e conversÃ£o de tipos booleanos (aceita true, "true", 1)
     const pausarBool = pausar === true || pausar === "true" || pausar === 1 || pausar === "1"
     const vagaBool = vaga === true || vaga === "true" || vaga === 1 || vaga === "1"
     const agendamentoBool = agendamento !== undefined
       ? (agendamento === true || agendamento === "true" || agendamento === 1 || agendamento === "1")
-      : true // Default true se não informado
+      : true // Default true se nÃ£o informado
 
-    console.log(`[Pausar API POST] Upsert: ${normalizedNumero}, pausar=${pausarBool}, vaga=${vagaBool}, agendamento=${agendamentoBool}`)
+    console.log(`[Pausar API POST] Upsert: ${targetNumero}, pausar=${pausarBool}, vaga=${vagaBool}, agendamento=${agendamentoBool}`)
 
-    const { data, error } = await supabase
+    const nowIso = new Date().toISOString()
+    const hasPausarField = Object.prototype.hasOwnProperty.call(body, "pausar")
+    const payload: Record<string, any> = {
+      numero: targetNumero,
+      pausar: pausarBool,
+      vaga: vagaBool,
+      agendamento: agendamentoBool,
+      updated_at: nowIso,
+    }
+
+    if (paused_until !== undefined) {
+      payload.paused_until = paused_until // Pode ser null ou data ISO string
+    }
+
+    if (hasPausarField && pausarBool) {
+      payload.pausado_em = nowIso
+    }
+
+    let { data, error } = await supabase
       .from(pausarTable)
-      .upsert(
-        {
-          numero: normalizedNumero,
-          pausar: pausarBool,
-          vaga: vagaBool,
-          agendamento: agendamentoBool,
-          paused_until: paused_until, // Pode ser null ou data ISO string
-          updated_at: new Date().toISOString(),
-        },
-        {
-          onConflict: "numero",
-          ignoreDuplicates: false,
-        },
-      )
+      .upsert(payload, {
+        onConflict: "numero",
+        ignoreDuplicates: false,
+      })
       .select()
       .single()
 
+    if (error && (error.message?.includes("paused_until") || error.message?.includes("pausado_em"))) {
+      // Fallback para tabelas antigas sem as colunas paused_until / pausado_em
+      const retryPayload = { ...payload }
+      delete retryPayload.paused_until
+      delete retryPayload.pausado_em
+
+      const retry = await supabase
+        .from(pausarTable)
+        .upsert(retryPayload, {
+          onConflict: "numero",
+          ignoreDuplicates: false,
+        })
+        .select()
+        .single()
+      data = retry.data
+      error = retry.error
+    }
+
     if (error) {
-      console.error("[Pausar API POST] Erro na operação upsert:", {
+      console.error("[Pausar API POST] Erro na operaÃ§Ã£o upsert:", {
         message: error.message,
         code: error.code,
         details: error.details,
@@ -163,7 +239,7 @@ export async function POST(request: NextRequest) {
       }, { status: 500 })
     }
 
-    console.log(`[Pausar API POST] Registro salvo com sucesso para ${normalizedNumero}`)
+    console.log(`[Pausar API POST] Registro salvo com sucesso para ${targetNumero}`)
 
     return NextResponse.json({
       success: true,
@@ -193,7 +269,7 @@ export async function PUT(request: NextRequest) {
     if (!numero || typeof numero !== 'string') {
       return NextResponse.json({
         success: false,
-        error: "Número é obrigatório"
+        error: "NÃºmero Ã© obrigatÃ³rio"
       }, { status: 400 })
     }
 
@@ -209,13 +285,32 @@ export async function PUT(request: NextRequest) {
 
     const supabase = createBiaSupabaseServerClient()
 
+    const variants = getPhoneVariants(numero)
+    let targetNumero = normalizedNumero
+
+    if (variants.length > 1) {
+      const { data: existing, error: existingError } = await supabase
+        .from(pausarTable)
+        .select("numero")
+        .in("numero", variants)
+        .limit(1)
+
+      if (!existingError && existing && existing.length > 0) {
+        targetNumero = existing[0].numero
+      }
+    }
+
+    const nowIso = new Date().toISOString()
     const updateData: any = {
-      updated_at: new Date().toISOString(),
+      updated_at: nowIso,
     }
 
     // Apenas atualiza campos que foram fornecidos
     if (pausar !== undefined) {
       updateData.pausar = pausar === true || pausar === "true" || pausar === 1 || pausar === "1"
+      if (updateData.pausar) {
+        updateData.pausado_em = nowIso
+      }
     }
     if (vaga !== undefined) {
       updateData.vaga = vaga === true || vaga === "true" || vaga === 1 || vaga === "1"
@@ -227,14 +322,28 @@ export async function PUT(request: NextRequest) {
       updateData.paused_until = paused_until
     }
 
-    console.log(`[Pausar API PUT] Atualizando ${normalizedNumero}:`, updateData)
+    console.log(`[Pausar API PUT] Atualizando ${targetNumero}:`, updateData)
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from(pausarTable)
       .update(updateData)
-      .eq("numero", normalizedNumero)
+      .eq("numero", targetNumero)
       .select()
       .single()
+
+    if (error && (error.message?.includes("paused_until") || error.message?.includes("pausado_em"))) {
+      // Fallback para tabelas antigas sem as colunas paused_until / pausado_em
+      delete updateData.paused_until
+      delete updateData.pausado_em
+      const retry = await supabase
+        .from(pausarTable)
+        .update(updateData)
+        .eq("numero", targetNumero)
+        .select()
+        .single()
+      data = retry.data
+      error = retry.error
+    }
 
     if (error) {
       console.error("[Pausar API PUT] Erro:", error)
@@ -248,11 +357,11 @@ export async function PUT(request: NextRequest) {
     if (!data) {
       return NextResponse.json({
         success: false,
-        error: "Registro não encontrado"
+        error: "Registro nÃ£o encontrado"
       }, { status: 404 })
     }
 
-    console.log(`[Pausar API PUT] Registro atualizado com sucesso para ${normalizedNumero}`)
+    console.log(`[Pausar API PUT] Registro atualizado com sucesso para ${targetNumero}`)
 
     return NextResponse.json({
       success: true,
@@ -272,23 +381,21 @@ export async function PUT(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
-    const numero = searchParams.get("numero")
+    let numero = searchParams.get("numero")
+    let id: string | number | undefined
 
-    if (!numero || typeof numero !== 'string') {
-      return NextResponse.json({
-        success: false,
-        error: "Número é obrigatório"
-      }, { status: 400 })
-    }
-
-    const normalizedNumero = normalizePhoneNumber(numero)
-    const validation = validatePhoneNumber(numero)
-
-    if (!validation.valid) {
-      return NextResponse.json({
-        success: false,
-        error: validation.error
-      }, { status: 400 })
+    if (request.headers.get("content-type")?.includes("application/json")) {
+      try {
+        const body = await request.json()
+        if (body?.numero && typeof body.numero === "string") {
+          numero = body.numero
+        }
+        if (body?.id !== undefined) {
+          id = body.id
+        }
+      } catch {
+        // ignore body parse errors
+      }
     }
 
     const supabase = createBiaSupabaseServerClient()
@@ -296,13 +403,49 @@ export async function DELETE(request: NextRequest) {
     const { tables } = await getTenantFromRequest()
     const { pausar: pausarTable } = tables
 
-    console.log(`[Pausar API DELETE] Removendo registro para ${normalizedNumero}`)
+    if (!numero && id === undefined) {
+      return NextResponse.json({
+        success: false,
+        error: "Numero ou id e obrigatorio"
+      }, { status: 400 })
+    }
 
-    const { error, data } = await supabase
-      .from(pausarTable)
-      .delete()
-      .eq("numero", normalizedNumero)
-      .select()
+    let query = supabase.from(pausarTable).delete()
+    let logRef = ""
+
+    if (id !== undefined && id !== null && id !== "") {
+      logRef = `id=${id}`
+      query = query.eq("id", id)
+    } else {
+      if (!numero || typeof numero !== "string") {
+        return NextResponse.json({
+          success: false,
+          error: "Numero e obrigatorio"
+        }, { status: 400 })
+      }
+
+      const normalizedNumero = normalizePhoneNumber(numero)
+      const validation = validatePhoneNumber(numero)
+
+      if (!validation.valid) {
+        return NextResponse.json({
+          success: false,
+          error: validation.error
+        }, { status: 400 })
+      }
+
+      const variants = getPhoneVariants(numero)
+      logRef = `numero=${normalizedNumero}`
+      if (variants.length > 1) {
+        query = query.in("numero", variants)
+      } else {
+        query = query.eq("numero", normalizedNumero)
+      }
+    }
+
+    console.log(`[Pausar API DELETE] Removendo registro (${logRef})`)
+
+    const { error, data } = await query.select()
 
     if (error) {
       console.error("[Pausar API DELETE] Erro:", error)
@@ -313,7 +456,7 @@ export async function DELETE(request: NextRequest) {
       }, { status: 500 })
     }
 
-    console.log(`[Pausar API DELETE] Registro removido com sucesso para ${normalizedNumero}`)
+    console.log(`[Pausar API DELETE] Registro removido com sucesso (${logRef})`)
 
     return NextResponse.json({
       success: true,

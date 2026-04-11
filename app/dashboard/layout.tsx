@@ -4,6 +4,9 @@ import { AppSidebar } from "../../components/app-sidebar"
 import { ThemeProvider } from "../../components/theme-provider"
 import NotificationsMenu from "../../components/notifications-menu"
 import NotificationCenter from "../../components/notification-center"
+import FeedbackWidget from "../../components/feedback-widget"
+import { TenantSelector } from "../../components/saas/TenantSelector"
+import { Toaster } from "../../components/ui/sonner"
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -11,14 +14,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <SidebarProvider>
         <AppSidebar />
         <SidebarInset>
-          <header className="sticky top-0 z-10 flex h-14 items-center gap-2 border-b border-border/50 bg-card/80 px-4 backdrop-blur-md genial-card">
-            <SidebarTrigger className="genial-hover" />
-            <div className="font-semibold text-accent-green">GerencIA</div>
-            <div className="ml-auto" />
-            <NotificationsMenu />
+          <header className="sticky top-0 z-10 flex h-16 items-center gap-3 border-b border-accent-green/15 bg-card/85 px-4 backdrop-blur-md">
+            <SidebarTrigger className="genial-hover border border-transparent hover:border-accent-green/35 hover:bg-accent-green/10 rounded-md" />
+            <div className="font-semibold text-accent-green font-display tracking-tight">GerencIA</div>
+            <div className="ml-auto flex items-center gap-2">
+              <TenantSelector />
+              <NotificationsMenu />
+            </div>
           </header>
           <main className="p-6 genial-scrollbar overflow-auto">{children}</main>
+          <FeedbackWidget />
           <NotificationCenter />
+          <Toaster />
         </SidebarInset>
       </SidebarProvider>
     </ThemeProvider>

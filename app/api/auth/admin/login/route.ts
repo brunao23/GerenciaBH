@@ -13,7 +13,7 @@ export async function POST(req: Request) {
 
         // Criar token JWT para admin
         const token = await createToken({
-            unitName: 'CORE LION Admin',
+            unitName: 'Genial Labs AI Admin',
             unitPrefix: 'admin',
             isAdmin: true,
             userId: 'admin',

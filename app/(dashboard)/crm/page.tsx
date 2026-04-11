@@ -18,7 +18,7 @@ export default function CRMPage() {
 
     const fetchData = async () => {
         if (!tenant) {
-            console.log('[CRM Page] Tenant não carregado ainda')
+            console.log('[CRM Page] Tenant nao carregado ainda')
             return // Wait for tenant load
         }
 
@@ -56,20 +56,20 @@ export default function CRMPage() {
     }
 
     return (
-        <div className="h-[calc(100vh-100px)] flex flex-col space-y-4 p-4 overflow-hidden">
-            <div className="flex items-center justify-between flex-shrink-0">
+        <div className="h-[calc(100vh-100px)] flex flex-col space-y-3 sm:space-y-4 p-2 sm:p-4 overflow-hidden">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between flex-shrink-0 gap-3">
                 <div>
-                    <h1 className="text-2xl font-bold text-pure-white">CRM Automatizado</h1>
-                    <p className="text-text-gray text-sm">Gerenciamento de leads com classificação automática por IA</p>
+                    <h1 className="text-xl sm:text-2xl font-bold text-pure-white">CRM Automatizado</h1>
+                    <p className="text-text-gray text-xs sm:text-sm">Pipeline AI-first com etapas estaveis e controle manual por arrastar</p>
                 </div>
                 <div className="flex gap-2">
                     <Link href="/crm/quality">
                         <Button
                             variant="outline"
-                            className="border-yellow-500/30 text-yellow-400 hover:bg-yellow-500/10"
+                            className="border-green-500/30 text-green-400 hover:bg-green-500/10"
                         >
                             <TrendingDown className="w-4 h-4 mr-2" />
-                            Análise de Qualidade
+                            Analise de Qualidade
                         </Button>
                     </Link>
                     <Button
@@ -96,3 +96,4 @@ export default function CRMPage() {
         </div>
     )
 }
+

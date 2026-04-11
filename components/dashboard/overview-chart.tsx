@@ -8,6 +8,13 @@ interface OverviewChartProps {
     data: any[]
 }
 
+type ChartPoint = {
+    formattedDate: string
+    total: number
+    success: number
+    error: number
+}
+
 export function OverviewChart({ data }: OverviewChartProps) {
     // Validação mais permissiva - aceita dados mesmo se alguns campos estiverem faltando
     useEffect(() => {
@@ -58,9 +65,9 @@ export function OverviewChart({ data }: OverviewChartProps) {
                 error: error
             }
         })
-        .filter(item => {
+        .filter((item): item is ChartPoint => {
             // Manter apenas itens com data válida E pelo menos um valor maior que zero
-            return item && item.formattedDate && (item.total > 0 || item.success > 0 || item.error > 0)
+            return Boolean(item && item.formattedDate && (item.total > 0 || item.success > 0 || item.error > 0))
         })
 
     console.log('[OverviewChart] Dados válidos processados:', validData.length, 'itens')
@@ -105,12 +112,12 @@ export function OverviewChart({ data }: OverviewChartProps) {
                         >
                             <defs>
                                 <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="5%" stopColor="#FFD700" stopOpacity={0.8} />
-                                    <stop offset="95%" stopColor="#FFD700" stopOpacity={0.1} />
+                                    <stop offset="5%" stopColor="#22c55e" stopOpacity={0.8} />
+                                    <stop offset="95%" stopColor="#22c55e" stopOpacity={0.1} />
                                 </linearGradient>
                                 <linearGradient id="colorSuccess" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="5%" stopColor="#FFA500" stopOpacity={0.8} />
-                                    <stop offset="95%" stopColor="#FFA500" stopOpacity={0.1} />
+                                    <stop offset="5%" stopColor="#16a34a" stopOpacity={0.8} />
+                                    <stop offset="95%" stopColor="#16a34a" stopOpacity={0.1} />
                                 </linearGradient>
                             </defs>
                             <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false} />
@@ -138,17 +145,17 @@ export function OverviewChart({ data }: OverviewChartProps) {
                                     color: "#fff",
                                 }}
                                 itemStyle={{ color: "#fff" }}
-                                cursor={{ stroke: "#FFD700", strokeWidth: 2, strokeDasharray: "5 5" }}
+                                cursor={{ stroke: "#22c55e", strokeWidth: 2, strokeDasharray: "5 5" }}
                             />
                             <Area
                                 type="monotone"
                                 dataKey="success"
                                 name="Leads"
-                                stroke="#FFD700"
+                                stroke="#22c55e"
                                 strokeWidth={3}
                                 fillOpacity={1}
                                 fill="url(#colorTotal)"
-                                dot={{ fill: "#FFD700", r: 5, strokeWidth: 2, stroke: "#fff" }}
+                                dot={{ fill: "#22c55e", r: 5, strokeWidth: 2, stroke: "#fff" }}
                                 activeDot={{ r: 7, stroke: "#fff", strokeWidth: 2 }}
                                 connectNulls={true}
                             />

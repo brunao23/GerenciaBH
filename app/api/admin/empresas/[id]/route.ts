@@ -7,6 +7,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { cookies } from 'next/headers';
+import { verifyToken } from '@/lib/auth/utils';
 
 const supabaseAdmin = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -17,11 +19,51 @@ interface RouteParams {
     params: Promise<{ id: string }>;
 }
 
+async function verificarAdmin(req: NextRequest): Promise<{ isAdmin: boolean; userId?: string }> {
+    try {
+        const cookieStore = await cookies();
+        const token = cookieStore.get('auth-token')?.value;
+        if (token) {
+            const session = await verifyToken(token);
+            if (session?.isAdmin) {
+                return { isAdmin: true, userId: session.userId };
+            }
+        }
+    } catch {
+        // fallback abaixo
+    }
+
+    const authHeader = req.headers.get('authorization');
+    if (!authHeader?.startsWith('Bearer ')) {
+        return { isAdmin: false };
+    }
+
+    const token = authHeader.split(' ')[1];
+    const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+
+    if (error || !user) {
+        return { isAdmin: false };
+    }
+
+    const { data: usuario } = await supabaseAdmin
+        .from('usuarios')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+
+    return { isAdmin: usuario?.role === 'admin', userId: user.id };
+}
+
 /**
  * GET: Detalhes completos da empresa
  */
 export async function GET(req: NextRequest, { params }: RouteParams) {
     try {
+        const { isAdmin } = await verificarAdmin(req);
+        if (!isAdmin) {
+            return NextResponse.json({ error: 'Acesso negado' }, { status: 403 });
+        }
+
         const { id } = await params;
 
         // Buscar empresa
@@ -86,10 +128,9 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
         const { id } = await params;
         const body = await req.json();
 
-        // Verificar autenticação admin (simplificado)
-        const authHeader = req.headers.get('authorization');
-        if (!authHeader?.startsWith('Bearer ')) {
-            return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
+        const { isAdmin } = await verificarAdmin(req);
+        if (!isAdmin) {
+            return NextResponse.json({ error: 'Acesso negado' }, { status: 403 });
         }
 
         // Atualizar empresa
@@ -143,27 +184,8 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
     try {
         const { id } = await params;
 
-        // Verificar autenticação admin
-        const authHeader = req.headers.get('authorization');
-        if (!authHeader?.startsWith('Bearer ')) {
-            return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
-        }
-
-        const token = authHeader.split(' ')[1];
-        const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
-
-        if (authError || !user) {
-            return NextResponse.json({ error: 'Token inválido' }, { status: 401 });
-        }
-
-        // Verificar se é admin
-        const { data: usuario } = await supabaseAdmin
-            .from('usuarios')
-            .select('role')
-            .eq('id', user.id)
-            .single();
-
-        if (usuario?.role !== 'admin') {
+        const { isAdmin, userId } = await verificarAdmin(req);
+        if (!isAdmin) {
             return NextResponse.json({ error: 'Apenas admins podem deletar empresas' }, { status: 403 });
         }
 
@@ -236,7 +258,7 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
                 success: resultados.tabelas && resultados.workflows_n8n,
                 workflows_deleted: 0,
                 errors: resultados.erros.length > 0 ? resultados.erros : null,
-                deleted_by: user.id,
+                deleted_by: userId || "admin",
             });
 
         // 4. Deletar registros relacionados (cascadeia automaticamente pelo FK)

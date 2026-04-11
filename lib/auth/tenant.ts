@@ -1,5 +1,6 @@
 import { cookies } from 'next/headers'
 import { verifyToken } from '@/lib/auth/jwt'
+import { normalizeTenant } from '@/lib/helpers/normalize-tenant'
 
 /**
  * Obtém o tenant (unidade) da sessão JWT do usuário
@@ -18,8 +19,9 @@ export async function getTenantFromSession(fallback: string = 'vox_bh'): Promise
         const session = await verifyToken(token)
 
         if (session && session.unitPrefix) {
-            console.log('[getTenantFromSession] Tenant da sessão:', session.unitPrefix)
-            return session.unitPrefix
+            const tenant = normalizeTenant(session.unitPrefix)
+            console.log('[getTenantFromSession] Tenant da sessão:', tenant)
+            return tenant
         }
 
         console.log('[getTenantFromSession] Sessão inválida, usando fallback:', fallback)

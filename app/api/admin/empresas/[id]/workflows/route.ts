@@ -1,4 +1,4 @@
-/**
+﻿/**
  * API: Replicar Workflows para uma Empresa
  * POST /api/admin/empresas/[id]/workflows
  * 
@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { notifyAdminUpdate } from '@/lib/services/tenant-notifications';
 
 const supabaseAdmin = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -21,10 +22,10 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     try {
         const { id } = await params;
 
-        // Verificar autenticação
+        // Verificar autenticaÃ§Ã£o
         const authHeader = req.headers.get('authorization');
         if (!authHeader?.startsWith('Bearer ')) {
-            return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
+            return NextResponse.json({ error: 'NÃ£o autorizado' }, { status: 401 });
         }
 
         // Buscar empresa e credenciais
@@ -40,26 +41,26 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
             .single();
 
         if (empError || !empresa) {
-            return NextResponse.json({ error: 'Empresa não encontrada' }, { status: 404 });
+            return NextResponse.json({ error: 'Empresa nÃ£o encontrada' }, { status: 404 });
         }
 
         const credenciais = empresa.empresa_credenciais?.[0];
 
         if (!credenciais) {
             return NextResponse.json({
-                error: 'Credenciais N8N não configuradas para esta empresa',
+                error: 'Credenciais N8N nÃ£o configuradas para esta empresa',
                 instrucao: 'Configure as credenciais primeiro em PUT /api/admin/empresas/' + id,
             }, { status: 400 });
         }
 
-        // Verificar credenciais mínimas
+        // Verificar credenciais mÃ­nimas
         if (!credenciais.supabase_api_id) {
             return NextResponse.json({
-                error: 'Credencial Supabase API não configurada',
+                error: 'Credencial Supabase API nÃ£o configurada',
             }, { status: 400 });
         }
 
-        console.log(`🔄 Replicando workflows para: ${empresa.nome} (${empresa.schema})`);
+        console.log(`ðŸ”„ Replicando workflows para: ${empresa.nome} (${empresa.schema})`);
 
         // Importar replicador e templates
         const { WorkflowReplicator } = await import('@/lib/n8n/replicator');
@@ -67,7 +68,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
         const replicator = new WorkflowReplicator();
 
-        // Montar configuração
+        // Montar configuraÃ§Ã£o
         const config = {
             empresaId: empresa.id,
             empresaNome: empresa.nome,
@@ -81,10 +82,10 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
                 postgresName: credenciais.postgres_name || '',
                 googleCalendarId: credenciais.google_calendar_id || '',
                 googleCalendarName: credenciais.google_calendar_name || '',
-                calendarEmail: credenciais.calendar_email || '',
-                evolutionInstance: credenciais.evolution_instance || '',
-                notificationGroup: credenciais.notification_group || '',
             },
+            calendarEmail: credenciais.calendar_email || '',
+            evolutionInstance: credenciais.evolution_instance || '',
+            notificationGroup: credenciais.notification_group || '',
             tables: {
                 agendamentos: `${empresa.schema}_agendamentos`,
                 followNormal: `${empresa.schema}_follow_normal`,
@@ -97,7 +98,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         };
 
         // Replicar workflows
-        const resultado = await replicator.replicateAll(config, workflowTemplates);
+        const resultado = await replicator.replicateAll(config);
 
         // Salvar IDs dos workflows criados nas credenciais
         if (resultado.success && resultado.results) {
@@ -105,7 +106,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
             for (const r of resultado.results) {
                 if (r.success && r.n8nWorkflowId) {
-                    const key = `workflow_${r.templateId.replace(/-/g, '_')}`;
+                    const key = `workflow_${r.workflowId.replace(/-/g, '_')}`;
                     workflowIds[key] = r.n8nWorkflowId;
 
                     // Salvar no mapeamento
@@ -115,7 +116,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
                             empresa_id: empresa.id,
                             workflow_id: r.n8nWorkflowId,
                             workflow_name: r.workflowName,
-                            workflow_type: r.templateId,
+                            workflow_type: r.workflowId,
                             active: true,
                         });
                 }
@@ -140,13 +141,24 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
                 errors: resultado.results?.filter(r => !r.success).map(r => r.error) || null,
             });
 
+        if (empresa?.schema && resultado.success) {
+            await notifyAdminUpdate({
+                tenant: empresa.schema,
+                title: 'Workflows atualizados',
+                message: 'Os workflows principais da unidade foram replicados e atualizados pelo administrador.',
+                sourceId: String(empresa.id),
+            }).catch((error) => {
+                console.error('Erro ao enviar notificacao de workflows:', error);
+            });
+        }
+
         return NextResponse.json({
             success: resultado.success,
             message: resultado.success
                 ? `${resultado.results?.filter(r => r.success).length || 0} workflows replicados com sucesso!`
                 : 'Alguns workflows falharam',
             workflows: resultado.results?.map(r => ({
-                template: r.templateId,
+                template: r.workflowId,
                 nome: r.workflowName,
                 sucesso: r.success,
                 id_n8n: r.n8nWorkflowId,
@@ -155,7 +167,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         });
 
     } catch (error: any) {
-        console.error('❌ Erro ao replicar workflows:', error);
+        console.error('âŒ Erro ao replicar workflows:', error);
         return NextResponse.json({ error: error.message }, { status: 500 });
     }
 }
@@ -192,6 +204,12 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 export async function DELETE(req: NextRequest, { params }: RouteParams) {
     try {
         const { id } = await params;
+
+        const { data: empresa } = await supabaseAdmin
+            .from('empresas')
+            .select('id, schema, nome')
+            .eq('id', id)
+            .maybeSingle();
 
         // Buscar workflows
         const { data: workflows } = await supabaseAdmin
@@ -237,6 +255,17 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
             })
             .eq('empresa_id', id);
 
+        if (empresa?.schema) {
+            await notifyAdminUpdate({
+                tenant: empresa.schema,
+                title: 'Workflows removidos',
+                message: `Os workflows da unidade ${empresa.nome || empresa.schema} foram removidos pelo administrador.`,
+                sourceId: String(empresa.id),
+            }).catch((error) => {
+                console.error('Erro ao enviar notificacao de remocao de workflows:', error);
+            });
+        }
+
         return NextResponse.json({
             success: true,
             removidos: resultados.filter(r => r.sucesso).length,
@@ -248,3 +277,4 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
         return NextResponse.json({ error: error.message }, { status: 500 });
     }
 }
+

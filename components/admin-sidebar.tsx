@@ -24,16 +24,21 @@ import {
     FileText,
     LogOut,
     Zap,
-    Terminal
+    Terminal,
+    MessageCircle,
+    Calendar
 } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useState } from "react"
 
 const adminItems = [
     { title: "Unidades", url: "/admin/units", icon: Server },
+    { title: "ADM Manage", url: "/admin/agentes", icon: Shield },
+    { title: "WhatsApp Oficial", url: "/admin/units", icon: MessageCircle },
     { title: "Workflows (N8N)", url: "/admin/workflows", icon: Workflow },
     { title: "Prompts por Unidade", url: "/admin/prompts", icon: Terminal },
     { title: "Banco de Dados", url: "/admin/database", icon: Database },
+    { title: "Agendamentos", url: "/admin/agendamentos", icon: Calendar },
     { title: "Resultados / Leads", url: "/admin/leads", icon: BarChart },
     { title: "Gerar Relatórios", url: "/admin/reports", icon: FileText },
 ]

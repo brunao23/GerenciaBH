@@ -61,6 +61,7 @@
     "cmdk": "1.0.4",
     "date-fns": "latest",
     "dotenv": "^17.2.3",
+    "fflate": "^0.8.2",
     "embla-carousel-react": "latest",
     "geist": "latest",
     "input-otp": "1.4.1",

@@ -2,11 +2,11 @@ import { type NextRequest, NextResponse } from "next/server"
 
 export async function POST(request: NextRequest) {
   try {
-    const formData = await request.formData()
+    const formData = (await request.formData()) as any
 
     const response = await fetch("https://gerencia.geniallabs.com.br/api/tickets", {
       method: "POST",
-      body: formData,
+      body: formData as BodyInit,
     })
 
     const contentType = response.headers.get("content-type")

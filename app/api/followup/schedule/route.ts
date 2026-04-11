@@ -9,9 +9,12 @@
 import { NextResponse } from 'next/server'
 import { createBiaSupabaseServerClient } from '@/lib/supabase/bia-client'
 import { FollowUpAutomationService } from '@/lib/services/followup-automation.service'
+import { getTenantFromRequest } from '@/lib/helpers/api-tenant'
+import { resolveChatHistoriesTable } from '@/lib/helpers/resolve-chat-table'
 
 export async function GET(req: Request) {
     try {
+        const { tenant } = await getTenantFromRequest()
         const { searchParams } = new URL(req.url)
         const sessionId = searchParams.get('session')
         const status = searchParams.get('status') // active, responded, stopped, unresponsive
@@ -49,8 +52,34 @@ export async function GET(req: Request) {
 
         if (error) throw error
 
+        const rows = Array.isArray(data) ? data : []
+        const table = await resolveChatHistoriesTable(supabase as any, tenant)
+        const candidateSessionIds = Array.from(
+            new Set(rows.map((item: any) => String(item?.session_id || '').trim()).filter(Boolean)),
+        )
+
+        let allowedSessions = new Set<string>()
+        if (candidateSessionIds.length > 0) {
+            const { data: tenantSessions } = await supabase
+                .from(table)
+                .select('session_id')
+                .in('session_id', candidateSessionIds)
+                .limit(5000)
+
+            allowedSessions = new Set(
+                (tenantSessions || [])
+                    .map((item: any) => String(item?.session_id || '').trim())
+                    .filter(Boolean),
+            )
+        }
+
+        const tenantFiltered = rows.filter((item: any) => {
+            const sid = String(item?.session_id || '').trim()
+            return Boolean(sid && allowedSessions.has(sid))
+        })
+
         // Enriquece com tempo restante
-        const enriched = data.map(followup => ({
+        const enriched = tenantFiltered.map(followup => ({
             ...followup,
             hoursUntilNext: followup.next_followup_at
                 ? Math.round((new Date(followup.next_followup_at).getTime() - Date.now()) / (1000 * 60 * 60))
@@ -71,6 +100,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
     try {
+        const { tenant } = await getTenantFromRequest()
         const body = await req.json()
         const { sessionId, phoneNumber, leadName, lastMessage, conversationHistory, funnelStage } = body
 
@@ -81,7 +111,7 @@ export async function POST(req: Request) {
             )
         }
 
-        const service = new FollowUpAutomationService()
+        const service = new FollowUpAutomationService(tenant)
         const result = await service.scheduleFollowUp({
             sessionId,
             phoneNumber,
@@ -109,6 +139,7 @@ export async function POST(req: Request) {
 
 export async function DELETE(req: Request) {
     try {
+        const { tenant } = await getTenantFromRequest()
         const { searchParams } = new URL(req.url)
         const sessionId = searchParams.get('session')
 
@@ -119,7 +150,7 @@ export async function DELETE(req: Request) {
             )
         }
 
-        const service = new FollowUpAutomationService()
+        const service = new FollowUpAutomationService(tenant)
         await service.cancelFollowUp(sessionId)
 
         return NextResponse.json({

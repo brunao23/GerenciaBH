@@ -6,13 +6,13 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { n8nClient } from '@/lib/n8n';
-import { createClient } from '@/lib/supabase/server';
+import { N8nClient } from '@/lib/n8n/client';
+import { createServerClient } from '@/lib/supabase/server';
 
 export async function GET(req: NextRequest) {
     try {
         // 1. Autenticação
-        const supabase = await createClient();
+        const supabase = createServerClient();
         const { data: { user }, error: authError } = await supabase.auth.getUser();
 
         if (authError || !user) {
@@ -54,6 +54,7 @@ export async function GET(req: NextRequest) {
         }
 
         // 4. Listar workflows do N8N
+        const n8nClient = new N8nClient()
         const response = await n8nClient.listWorkflows();
 
         if (!response.success) {

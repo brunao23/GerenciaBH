@@ -10,8 +10,9 @@ import { Input } from "../../../components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../../components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../../components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../../components/ui/tabs"
+import { Switch } from "../../../components/ui/switch"
 import { useEffect, useState } from "react"
-import { Search, RefreshCw, Phone, Clock, MessageSquare, User, CheckCircle, XCircle, Filter, Users, ListTodo, Calendar, AlertCircle, Settings, Play, Sparkles, Clock3 } from "lucide-react"
+import { Search, RefreshCw, Phone, Clock, MessageSquare, User, CheckCircle, XCircle, Filter, Users, ListTodo, Calendar, AlertCircle, Settings, Play, Sparkles, Clock3, PauseCircle } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { useTenant } from "@/lib/contexts/TenantContext"
@@ -39,6 +40,10 @@ export default function FollowupsPage() {
   const [filterTipo, setFilterTipo] = useState<string>("todos")
   const [processingIntelligent, setProcessingIntelligent] = useState(false)
   const [activeTab, setActiveTab] = useState<"todos" | "em-followup">("todos")
+  const [globalPaused, setGlobalPaused] = useState(false)
+  const [togglingGlobal, setTogglingGlobal] = useState(false)
+  const [pauseNumber, setPauseNumber] = useState("")
+  const [processingNumber, setProcessingNumber] = useState(false)
 
   const fetchFollowups = async () => {
     if (!tenant) return
@@ -76,10 +81,11 @@ export default function FollowupsPage() {
   }
 
   useEffect(() => {
-    console.log("Followups Page Loaded v2.1")
+    if (!tenant) return
     fetchFollowups()
     fetchActiveFollowups()
-  }, [])
+    fetchGlobalPause()
+  }, [tenant])
 
   useEffect(() => {
     if (activeTab === "em-followup") {
@@ -88,8 +94,8 @@ export default function FollowupsPage() {
   }, [activeTab])
 
   const cleanPhoneNumber = (numero: string | null) => {
-    if (!numero) return "Sem número"
-    // Remove sufixos do WhatsApp e limpa caracteres não numéricos se necessário
+    if (!numero) return "Sem nÃºmero"
+    // Remove sufixos do WhatsApp e limpa caracteres nÃ£o numÃ©ricos se necessÃ¡rio
     return numero.split("@")[0]
   }
 
@@ -119,7 +125,7 @@ export default function FollowupsPage() {
       case 1:
         return "bg-blue-500/20 text-blue-300 border-blue-500/30"
       case 2:
-        return "bg-yellow-500/20 text-yellow-300 border-yellow-500/30"
+        return "bg-green-500/20 text-green-300 border-green-500/30"
       case 3:
         return "bg-orange-500/20 text-orange-300 border-orange-500/30"
       case 4:
@@ -169,7 +175,7 @@ export default function FollowupsPage() {
         minute: "2-digit",
       })
     } catch {
-      return "Data inválida"
+      return "Data invÃ¡lida"
     }
   }
 
@@ -209,9 +215,91 @@ export default function FollowupsPage() {
     }
   }
 
+  const fetchGlobalPause = async () => {
+    try {
+      const res = await fetch("/api/followup-intelligent/pause-all")
+      const data = await res.json()
+      if (res.ok) {
+        setGlobalPaused(Boolean(data?.paused))
+      }
+    } catch (error) {
+      console.warn("Erro ao buscar status global do follow-up:", error)
+    }
+  }
+
+  const handleToggleGlobal = async (paused: boolean) => {
+    setTogglingGlobal(true)
+    try {
+      const res = await fetch("/api/followup-intelligent/pause-all", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paused }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        throw new Error(data?.error || "Erro ao atualizar pausa global")
+      }
+      setGlobalPaused(paused)
+      toast.success(paused ? "Follow-up pausado para todos" : "Follow-up reativado")
+      fetchActiveFollowups()
+    } catch (error: any) {
+      toast.error(error?.message || "Erro ao atualizar pausa global")
+    } finally {
+      setTogglingGlobal(false)
+    }
+  }
+
+  const handlePauseNumber = async (paused: boolean) => {
+    const target = pauseNumber.trim()
+    if (!target) {
+      toast.error("Informe um numero")
+      return
+    }
+    if (!tenant) return
+
+    setProcessingNumber(true)
+    try {
+      const pauseRes = await fetch("/api/pausar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-tenant-prefix": tenant.prefix },
+        body: JSON.stringify({
+          numero: target,
+          pausar: paused,
+          vaga: true,
+          agendamento: true,
+        }),
+      })
+      const pauseData = await pauseRes.json()
+      if (!pauseRes.ok) {
+        throw new Error(pauseData?.error || "Erro ao atualizar pausa do numero")
+      }
+
+      const toggleRes = await fetch("/api/followup-intelligent/toggle-contact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phoneNumber: target,
+          isActive: !paused,
+        }),
+      })
+      const toggleData = await toggleRes.json()
+      if (!toggleRes.ok) {
+        throw new Error(toggleData?.error || "Erro ao atualizar follow-up do numero")
+      }
+
+      toast.success(paused ? "Numero pausado no follow-up" : "Numero reativado no follow-up")
+      setPauseNumber("")
+      fetchActiveFollowups()
+    } catch (error: any) {
+      toast.error(error?.message || "Erro ao processar numero")
+    } finally {
+      setProcessingNumber(false)
+    }
+  }
+
   return (
-    <div className="space-y-6 h-[calc(100vh-4rem)] flex flex-col">
-      <div className="flex items-center justify-between shrink-0">
+    <div className="space-y-6 pb-8">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-3xl font-bold text-pure-white flex items-center gap-2">
             <ListTodo className="w-8 h-8 text-accent-green" />
@@ -219,7 +307,7 @@ export default function FollowupsPage() {
           </h1>
           <p className="text-text-gray mt-1">Gerencie campanhas e acompanhe o status dos leads</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button
             onClick={processIntelligentFollowups}
             disabled={processingIntelligent}
@@ -242,7 +330,7 @@ export default function FollowupsPage() {
             className="bg-accent-green hover:bg-accent-green/90 text-bg-black font-medium"
           >
             <Settings className="h-4 w-4 mr-2" />
-            Configurações
+            ConfiguraÃ§Ãµes
           </Button>
           <Button
             onClick={fetchFollowups}
@@ -256,7 +344,53 @@ export default function FollowupsPage() {
         </div>
       </div>
 
-      {/* Cards de Métricas */}
+      <Card className="genial-card border-none shadow-xl bg-black/40 backdrop-blur-xl">
+        <CardHeader>
+          <CardTitle className="text-pure-white flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <PauseCircle className="w-5 h-5 text-accent-green" />
+              Pausa de Follow-up
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-text-gray">{globalPaused ? "Pausado" : "Ativo"}</span>
+              <Switch
+                checked={globalPaused}
+                onCheckedChange={(v) => handleToggleGlobal(v)}
+                disabled={togglingGlobal}
+              />
+            </div>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-col md:flex-row gap-3 items-center">
+            <Input
+              value={pauseNumber}
+              onChange={(e) => setPauseNumber(e.target.value)}
+              placeholder="Digite o numero para pausar ou reativar"
+              className="bg-secondary-black border-border-gray focus:border-accent-green transition-all"
+            />
+            <div className="flex gap-2 w-full md:w-auto">
+              <Button
+                onClick={() => handlePauseNumber(true)}
+                disabled={processingNumber}
+                className="bg-green-500 hover:bg-green-400 text-black"
+              >
+                Pausar numero
+              </Button>
+              <Button
+                onClick={() => handlePauseNumber(false)}
+                disabled={processingNumber}
+                variant="outline"
+                className="border-emerald-500/40 text-emerald-300 hover:text-emerald-200"
+              >
+                Reativar numero
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Cards de MÃ©tricas */}
       <div className="grid gap-4 md:grid-cols-6 shrink-0">
         {[
           { key: 'contatos', icon: Users, label: 'Contatos', value: followups.length, color: 'text-pure-white' },
@@ -282,10 +416,10 @@ export default function FollowupsPage() {
         })}
       </div>
 
-      <Card className="genial-card flex flex-col flex-1 overflow-hidden border-none shadow-xl bg-black/40 backdrop-blur-xl">
-        <CardHeader className="border-b border-border/50 bg-card/50 backdrop-blur-sm py-4 shrink-0">
-          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "todos" | "em-followup")} className="w-full">
-            <TabsList className="grid w-full max-w-md grid-cols-2 mb-4">
+      <Card className="genial-card border-none shadow-xl bg-black/40 backdrop-blur-xl">
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "todos" | "em-followup")} className="w-full">
+          <CardHeader className="border-b border-border/50 bg-card/50 backdrop-blur-sm py-4">
+            <TabsList className="grid w-full max-w-md grid-cols-2">
               <TabsTrigger value="todos" className="flex items-center gap-2">
                 <ListTodo className="w-4 h-4" />
                 Todos os Follow-ups
@@ -295,24 +429,23 @@ export default function FollowupsPage() {
                 Em Follow-Up ({followupsActive.length})
               </TabsTrigger>
             </TabsList>
-          </Tabs>
-        </CardHeader>
-        <CardContent className="p-4 flex-1 overflow-hidden flex flex-col">
-          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "todos" | "em-followup")} className="w-full flex-1 flex flex-col">
-            <TabsContent value="todos" className="mt-0 flex-1 flex flex-col space-y-4">
-              <div className="flex flex-col md:flex-row gap-4 items-center">
+          </CardHeader>
+
+          <CardContent className="p-4">
+            <TabsContent value="todos" className="mt-0 space-y-4">
+              <div className="flex flex-col md:flex-row gap-4 md:items-center">
                 <div className="relative flex-1 w-full md:max-w-md">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-text-gray" />
                   <Input
-                    placeholder="Buscar por número, nome ou tipo..."
+                    placeholder="Buscar por numero, nome ou tipo..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="pl-10 bg-secondary-black border-border-gray focus:border-accent-green transition-all"
                   />
                 </div>
-                <div className="flex gap-2 w-full md:w-auto">
+                <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto">
                   <Select value={filterEtapa} onValueChange={setFilterEtapa}>
-                    <SelectTrigger className="w-full md:w-[200px] bg-secondary-black border-border-gray text-pure-white">
+                    <SelectTrigger className="w-full md:w-[220px] bg-secondary-black border-border-gray text-pure-white">
                       <SelectValue placeholder="Etapa" />
                     </SelectTrigger>
                     <SelectContent className="bg-card-black border-border-gray">
@@ -327,7 +460,7 @@ export default function FollowupsPage() {
                     </SelectContent>
                   </Select>
                   <Select value={filterTipo} onValueChange={setFilterTipo}>
-                    <SelectTrigger className="w-full md:w-[200px] bg-secondary-black border-border-gray text-pure-white">
+                    <SelectTrigger className="w-full md:w-[220px] bg-secondary-black border-border-gray text-pure-white">
                       <SelectValue placeholder="Tipo" />
                     </SelectTrigger>
                     <SelectContent className="bg-card-black border-border-gray">
@@ -342,14 +475,14 @@ export default function FollowupsPage() {
                 </div>
               </div>
 
-              <div className="flex-1 overflow-auto genial-scrollbar">
+              <div className="max-h-[58vh] overflow-y-auto rounded-lg border border-border-gray/40 genial-scrollbar">
                 <Table>
                   <TableHeader className="sticky top-0 bg-card-black z-10">
                     <TableRow className="border-b border-border-gray hover:bg-transparent">
                       <TableHead className="text-pure-white font-semibold">
                         <div className="flex items-center gap-2">
                           <Phone className="h-4 w-4 text-accent-green" />
-                          Número
+                          Numero
                         </div>
                       </TableHead>
                       <TableHead className="text-pure-white font-semibold">
@@ -369,7 +502,7 @@ export default function FollowupsPage() {
                       <TableHead className="text-pure-white font-semibold">
                         <div className="flex items-center gap-2">
                           <Clock className="h-4 w-4 text-accent-green" />
-                          Última Mensagem
+                          Ultima Mensagem
                         </div>
                       </TableHead>
                     </TableRow>
@@ -408,7 +541,7 @@ export default function FollowupsPage() {
                             {cleanPhoneNumber(followup.numero)}
                           </TableCell>
                           <TableCell className="text-pure-white">
-                            {followup.contact_name || "Não identificado"}
+                            {followup.contact_name || `Lead ${cleanPhoneNumber(followup.numero).slice(-4)}`}
                           </TableCell>
                           <TableCell>
                             {followup.etapa !== null ? (
@@ -420,7 +553,7 @@ export default function FollowupsPage() {
                             )}
                           </TableCell>
                           <TableCell className={getTipoColor(followup["tipo de contato"])}>
-                            {followup["tipo de contato"] || "Não informado"}
+                            {followup["tipo de contato"] || "Nao informado"}
                           </TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
@@ -437,7 +570,7 @@ export default function FollowupsPage() {
                               )}
                             </div>
                             {followup.last_message && (
-                              <div className="text-xs text-text-gray mt-1 max-w-[200px] truncate opacity-70">
+                              <div className="text-xs text-text-gray mt-1 max-w-[240px] truncate opacity-70">
                                 {followup.last_message}
                               </div>
                             )}
@@ -451,12 +584,12 @@ export default function FollowupsPage() {
               </div>
             </TabsContent>
 
-            <TabsContent value="em-followup" className="mt-0 flex-1 flex flex-col space-y-4">
-              <div className="flex flex-col md:flex-row gap-4 items-center">
+            <TabsContent value="em-followup" className="mt-0 space-y-4">
+              <div className="flex flex-col md:flex-row gap-4 md:items-center">
                 <div className="relative flex-1 w-full md:max-w-md">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-text-gray" />
                   <Input
-                    placeholder="Buscar por número ou nome..."
+                    placeholder="Buscar por numero ou nome..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="pl-10 bg-secondary-black border-border-gray focus:border-accent-green transition-all"
@@ -473,14 +606,14 @@ export default function FollowupsPage() {
                 </Button>
               </div>
 
-              <div className="flex-1 overflow-auto genial-scrollbar">
+              <div className="max-h-[58vh] overflow-y-auto rounded-lg border border-border-gray/40 genial-scrollbar">
                 <Table>
                   <TableHeader className="sticky top-0 bg-card-black z-10">
                     <TableRow className="border-b border-border-gray hover:bg-transparent">
                       <TableHead className="text-pure-white font-semibold">
                         <div className="flex items-center gap-2">
                           <Phone className="h-4 w-4 text-accent-green" />
-                          Número
+                          Numero
                         </div>
                       </TableHead>
                       <TableHead className="text-pure-white font-semibold">
@@ -495,8 +628,8 @@ export default function FollowupsPage() {
                           Tentativa
                         </div>
                       </TableHead>
-                      <TableHead className="text-pure-white font-semibold">Próximo Follow-up</TableHead>
-                      <TableHead className="text-pure-white font-semibold">Última Interação</TableHead>
+                      <TableHead className="text-pure-white font-semibold">Proximo Follow-up</TableHead>
+                      <TableHead className="text-pure-white font-semibold">Ultima Interacao</TableHead>
                       <TableHead className="text-pure-white font-semibold">Status</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -545,7 +678,7 @@ export default function FollowupsPage() {
                               {cleanPhoneNumber(followup.phone_number || followup.numero)}
                             </TableCell>
                             <TableCell className="text-pure-white">
-                              {followup.lead_name || "Não identificado"}
+                              {followup.lead_name || `Lead ${cleanPhoneNumber(followup.phone_number || followup.numero).slice(-4)}`}
                             </TableCell>
                             <TableCell>
                               <Badge className="bg-purple-500/20 text-purple-300 border-purple-500/30">
@@ -555,7 +688,7 @@ export default function FollowupsPage() {
                             <TableCell className="text-text-gray text-xs">
                               {followup.next_followup_at
                                 ? formatDate(followup.next_followup_at)
-                                : "Não agendado"}
+                                : "Nao agendado"}
                             </TableCell>
                             <TableCell className="text-text-gray text-xs">
                               {followup.last_interaction_at
@@ -580,8 +713,8 @@ export default function FollowupsPage() {
                 </Table>
               </div>
             </TabsContent>
-          </Tabs>
-        </CardContent>
+          </CardContent>
+        </Tabs>
       </Card>
     </div>
   )

@@ -21,17 +21,93 @@ import {
 import { toast } from "sonner"
 import { useRouter } from "next/navigation"
 
+type FollowupPlanItem = {
+  enabled: boolean
+  minutes: number
+}
+
+const DEFAULT_FOLLOWUP_PLAN: FollowupPlanItem[] = [
+  { enabled: true, minutes: 15 },
+  { enabled: true, minutes: 60 },
+  { enabled: true, minutes: 360 },
+  { enabled: true, minutes: 1440 },
+  { enabled: true, minutes: 2880 },
+  { enabled: true, minutes: 4320 },
+  { enabled: true, minutes: 7200 },
+]
+
+const FOLLOWUP_STAGE_DESCRIPTIONS = [
+  "Primeiro contato",
+  "Relembrar conversa",
+  "Acompanhamento",
+  "Retomada do dia seguinte",
+  "Reforco de contexto",
+  "Tentativa final",
+  "Encerramento automatico",
+]
+
+function parseFollowupDaysInput(input: string): number[] {
+  const values = String(input || "")
+    .split(/[^0-9]+/g)
+    .map((value) => Number(value))
+    .filter((value) => Number.isInteger(value) && value >= 0 && value <= 6)
+  const deduped = Array.from(new Set(values))
+  return deduped.length ? deduped : [0, 1, 2, 3, 4, 5, 6]
+}
+
+function normalizeFollowupPlan(input: any): FollowupPlanItem[] {
+  const source = Array.isArray(input) ? input : []
+  const parsed = source
+    .map((entry: any) => ({
+      enabled: entry?.enabled !== false,
+      minutes: Number(entry?.minutes),
+    }))
+    .filter((entry: FollowupPlanItem) => Number.isFinite(entry.minutes))
+    .map((entry: FollowupPlanItem) => ({
+      enabled: entry.enabled,
+      minutes: Math.max(1, Math.min(43200, Math.floor(entry.minutes))),
+    }))
+
+  if (!parsed.length) return DEFAULT_FOLLOWUP_PLAN
+
+  const limited = parsed.slice(0, DEFAULT_FOLLOWUP_PLAN.length)
+  while (limited.length < DEFAULT_FOLLOWUP_PLAN.length) {
+    limited.push(DEFAULT_FOLLOWUP_PLAN[limited.length])
+  }
+
+  return limited
+}
+
+function formatMinutesLabel(minutes: number): string {
+  const numeric = Number(minutes)
+  if (!Number.isFinite(numeric) || numeric <= 0) return "0 min"
+  if (numeric < 60) return `${numeric} min`
+  if (numeric % 1440 === 0) {
+    const days = numeric / 1440
+    return days === 1 ? "1 dia" : `${days} dias`
+  }
+  if (numeric % 60 === 0) {
+    const hours = numeric / 60
+    return hours === 1 ? "1 hora" : `${hours} horas`
+  }
+  return `${numeric} min`
+}
+
 export default function FollowUpConfigPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [checkingStatus, setCheckingStatus] = useState(false)
+  const [configId, setConfigId] = useState<string | null>(null)
 
-  // Configurações
-  const [apiUrl, setApiUrl] = useState("https://api.z-api.io/")
+  // ConfiguraÃƒÂ§ÃƒÂµes
+  const [apiUrl, setApiUrl] = useState("https://api.z-api.io")
+  const [instanceId, setInstanceId] = useState("")
   const [instanceName, setInstanceName] = useState("")
   const [token, setToken] = useState("")
+  const [clientToken, setClientToken] = useState("")
   const [phoneNumber, setPhoneNumber] = useState("")
+  const [delayMessage, setDelayMessage] = useState("5")
   const [isActive, setIsActive] = useState(true)
 
   // Status
@@ -43,8 +119,22 @@ export default function FollowUpConfigPage() {
   const [loadingQr, setLoadingQr] = useState(false)
   const [qrRefreshTimer, setQrRefreshTimer] = useState(20)
 
+  // Configuracao nativa de follow-up por tenant
+  const [nativeFollowupLoading, setNativeFollowupLoading] = useState(false)
+  const [nativeFollowupSaving, setNativeFollowupSaving] = useState(false)
+  const [nativeFollowupEnabled, setNativeFollowupEnabled] = useState(true)
+  const [followupBusinessStart, setFollowupBusinessStart] = useState("07:00")
+  const [followupBusinessEnd, setFollowupBusinessEnd] = useState("23:00")
+  const [followupBusinessDaysInput, setFollowupBusinessDaysInput] = useState("0,1,2,3,4,5,6")
+  const [followupPlan, setFollowupPlan] = useState<FollowupPlanItem[]>(DEFAULT_FOLLOWUP_PLAN)
+
+  const templateStages = FOLLOWUP_STAGE_DESCRIPTIONS.map((description, index) => ({
+    attempt: index + 1,
+    description,
+  }))
+
   useEffect(() => {
-    let interval: NodeJS.Timeout
+    let interval: ReturnType<typeof setInterval> | undefined
     if (qrCodeImage && !instanceStatus?.online) {
       interval = setInterval(() => {
         setQrRefreshTimer((prev) => {
@@ -56,7 +146,9 @@ export default function FollowUpConfigPage() {
         })
       }, 1000)
     }
-    return () => clearInterval(interval)
+    return () => {
+      if (interval) clearInterval(interval)
+    }
   }, [qrCodeImage, instanceStatus])
 
   const fetchQrCode = async () => {
@@ -69,7 +161,7 @@ export default function FollowUpConfigPage() {
         setQrCodeImage(data.image)
         setQrRefreshTimer(20)
 
-        // Verifica status também para ver se conectou
+        // Verifica status tambÃƒÂ©m para ver se conectou
         checkInstanceStatus()
       } else {
         toast.error(data.error || 'Erro ao gerar QR Code')
@@ -86,47 +178,164 @@ export default function FollowUpConfigPage() {
 
   useEffect(() => {
     loadConfig()
+    loadNativeFollowupConfig()
   }, [])
+
+  const applyConfig = (config: any) => {
+    if (!config) {
+      setConfigExists(false)
+      setConfigId(null)
+      return
+    }
+
+    setApiUrl(config.api_url || "https://api.z-api.io")
+
+    const instanceNameRaw = String(config.instance_name || "")
+    const parsedDelay = parseInt(instanceNameRaw, 10)
+    const instanceNameIsDelay = instanceNameRaw && String(parsedDelay) === instanceNameRaw.trim()
+
+    const resolvedDelay = Number.isFinite(Number(config.delay_message))
+      ? Number(config.delay_message)
+      : (instanceNameIsDelay ? parsedDelay : 5)
+
+    setDelayMessage(String(resolvedDelay))
+    setInstanceName(instanceNameIsDelay ? "" : instanceNameRaw)
+    setInstanceId(config.instance_id || "")
+
+    setToken(config.token || "")
+    setClientToken(config.client_token || config.token || "")
+    setPhoneNumber(config.phone_number || "")
+    setIsActive(config.is_active ?? true)
+    setConfigExists(true)
+    setConfigId(config.id || null)
+  }
 
   const loadConfig = async () => {
     setLoading(true)
     try {
-      const response = await fetch('/api/followup-intelligent/config')
+      const response = await fetch('/api/followup-intelligent/config', { cache: 'no-store' })
       const data = await response.json()
 
       if (data.success && data.data) {
-        const config = data.data
-        setApiUrl(config.api_url || "")
-
-        // Se for um valor antigo (string), usa default 9
-        const storedDelay = parseInt(config.instance_name)
-        setInstanceName(!isNaN(storedDelay) ? String(storedDelay) : "9")
-
-        setToken(config.token || "")
-        setPhoneNumber(config.phone_number || "")
-        setIsActive(config.is_active ?? true)
-        setConfigExists(true)
+        applyConfig(data.data)
       } else {
-        // Se não há configuração, permite usar os campos padrão
-        // Não desabilita o switch - permite criar a configuração
+        // Se nÃƒÂ£o hÃƒÂ¡ configuraÃƒÂ§ÃƒÂ£o, permite usar os campos padrÃƒÂ£o
+        // NÃƒÂ£o desabilita o switch - permite criar a configuraÃƒÂ§ÃƒÂ£o
         setConfigExists(false)
-        // Mantém os valores padrão que já estão no useState
+        setConfigId(null)
+        // MantÃƒÂ©m os valores padrÃƒÂ£o que jÃƒÂ¡ estÃƒÂ£o no useState
       }
     } catch (error: any) {
-      console.error('Erro ao carregar configuração:', error)
-      // Não mostra erro se a tabela não existe - permite criar
+      console.error('Erro ao carregar configuraÃƒÂ§ÃƒÂ£o:', error)
+      // NÃƒÂ£o mostra erro se a tabela nÃƒÂ£o existe - permite criar
       if (!error.message?.includes('does not exist')) {
-        toast.error('Erro ao carregar configuração')
+        toast.error('Erro ao carregar configuraÃƒÂ§ÃƒÂ£o')
       }
       setConfigExists(false)
+      setConfigId(null)
     } finally {
       setLoading(false)
     }
   }
 
+  const loadNativeFollowupConfig = async () => {
+    setNativeFollowupLoading(true)
+    try {
+      const response = await fetch("/api/tenant/native-agent-config", { cache: "no-store" })
+      const data = await response.json()
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || "Erro ao carregar configuracao de follow-up")
+      }
+
+      const config = data?.config || {}
+      const normalizedPlan = normalizeFollowupPlan(config.followupPlan)
+
+      setNativeFollowupEnabled(config.followupEnabled !== false)
+      setFollowupBusinessStart(String(config.followupBusinessStart || "07:00"))
+      setFollowupBusinessEnd(String(config.followupBusinessEnd || "23:00"))
+      setFollowupBusinessDaysInput(
+        Array.isArray(config.followupBusinessDays) && config.followupBusinessDays.length
+          ? config.followupBusinessDays.join(",")
+          : "0,1,2,3,4,5,6",
+      )
+      setFollowupPlan(normalizedPlan)
+    } catch (error: any) {
+      console.error("Erro ao carregar follow-up nativo:", error)
+      toast.error(error?.message || "Erro ao carregar follow-up nativo")
+    } finally {
+      setNativeFollowupLoading(false)
+    }
+  }
+
+  const updateFollowupPlanMinutes = (index: number, value: string) => {
+    const parsed = Math.floor(Number(value))
+    const safeMinutes = Number.isFinite(parsed) ? Math.max(1, Math.min(43200, parsed)) : 1
+    setFollowupPlan((prev) =>
+      prev.map((entry, currentIndex) =>
+        currentIndex === index
+          ? {
+            ...entry,
+            minutes: safeMinutes,
+          }
+          : entry,
+      ),
+    )
+  }
+
+  const updateFollowupPlanEnabled = (index: number, enabled: boolean) => {
+    setFollowupPlan((prev) =>
+      prev.map((entry, currentIndex) => (currentIndex === index ? { ...entry, enabled } : entry)),
+    )
+  }
+
+  const saveNativeFollowupConfig = async () => {
+    setNativeFollowupSaving(true)
+    try {
+      const sanitizedPlan = normalizeFollowupPlan(followupPlan)
+      const intervalsForCompatibility = sanitizedPlan
+        .filter((entry) => entry.enabled)
+        .map((entry) => entry.minutes)
+
+      const response = await fetch("/api/tenant/native-agent-config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          followupEnabled: nativeFollowupEnabled,
+          followupBusinessStart,
+          followupBusinessEnd,
+          followupBusinessDays: parseFollowupDaysInput(followupBusinessDaysInput),
+          followupPlan: sanitizedPlan,
+          followupIntervalsMinutes: intervalsForCompatibility,
+        }),
+      })
+
+      const data = await response.json()
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || "Erro ao salvar configuracao de follow-up")
+      }
+
+      const config = data?.config || {}
+      setNativeFollowupEnabled(config.followupEnabled !== false)
+      setFollowupBusinessStart(String(config.followupBusinessStart || "07:00"))
+      setFollowupBusinessEnd(String(config.followupBusinessEnd || "23:00"))
+      setFollowupBusinessDaysInput(
+        Array.isArray(config.followupBusinessDays) && config.followupBusinessDays.length
+          ? config.followupBusinessDays.join(",")
+          : "0,1,2,3,4,5,6",
+      )
+      setFollowupPlan(normalizeFollowupPlan(config.followupPlan))
+      toast.success("Configuracao de follow-up salva com sucesso")
+    } catch (error: any) {
+      console.error("Erro ao salvar follow-up nativo:", error)
+      toast.error(error?.message || "Erro ao salvar follow-up nativo")
+    } finally {
+      setNativeFollowupSaving(false)
+    }
+  }
+
   const saveConfig = async () => {
-    if (!apiUrl || !instanceName || !token || !phoneNumber) {
-      toast.error('Preencha todos os campos obrigatórios')
+    if (!apiUrl || !instanceId || !token || !clientToken || !phoneNumber) {
+      toast.error('Preencha todos os campos obrigatÃƒÂ³rios')
       return
     }
 
@@ -136,10 +345,14 @@ export default function FollowUpConfigPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          url: apiUrl.trim(),
-          delayMessage: parseInt(instanceName.trim() || "5"),
+          configId,
+          apiUrl: apiUrl.trim(),
+          instanceId: instanceId.trim(),
+          instanceName: instanceName.trim(),
           token: token.trim(),
+          clientToken: clientToken.trim(),
           phoneNumber: phoneNumber.trim(),
+          delayMessage: parseInt(delayMessage.trim() || "5"),
           isActive
         })
       })
@@ -147,14 +360,18 @@ export default function FollowUpConfigPage() {
       const data = await response.json()
 
       if (data.success) {
-        toast.success('Configuração salva com sucesso!')
-        setConfigExists(true)
+        toast.success('ConfiguraÃƒÂ§ÃƒÂ£o salva com sucesso!')
+        if (data.data) {
+          applyConfig(data.data)
+        } else {
+          setConfigExists(true)
+        }
       } else {
-        toast.error(data.error || 'Erro ao salvar configuração')
+        toast.error(data.error || 'Erro ao salvar configuraÃƒÂ§ÃƒÂ£o')
       }
     } catch (error: any) {
       console.error('Erro ao salvar:', error)
-      toast.error('Erro ao salvar configuração')
+      toast.error('Erro ao salvar configuraÃƒÂ§ÃƒÂ£o')
     } finally {
       setSaving(false)
     }
@@ -169,14 +386,14 @@ export default function FollowUpConfigPage() {
       if (data.success) {
         setInstanceStatus(data.status)
         if (data.status.online) {
-          toast.success('Instância está online e funcionando!')
+          toast.success('InstÃƒÂ¢ncia estÃƒÂ¡ online e funcionando!')
         } else {
-          toast.warning(`Instância offline: ${data.status.error || 'Erro desconhecido'}`)
+          toast.warning(`InstÃƒÂ¢ncia offline: ${data.status.error || 'Erro desconhecido'}`)
         }
       }
     } catch (error: any) {
       console.error('Erro ao verificar status:', error)
-      toast.error('Erro ao verificar status da instância')
+      toast.error('Erro ao verificar status da instÃƒÂ¢ncia')
     } finally {
       setCheckingStatus(false)
     }
@@ -191,41 +408,54 @@ export default function FollowUpConfigPage() {
     try {
       console.log(`[Config] Alternando follow-up para: ${newState ? 'Ativo' : 'Inativo'}`)
 
-      // Se não existe configuração, cria uma nova com os valores padrão
+      // Se nÃƒÂ£o existe configuraÃƒÂ§ÃƒÂ£o, cria uma nova com os valores padrÃƒÂ£o
       if (!configExists) {
-        console.log('[Config] Configuração não existe, criando nova...')
+        console.log('[Config] ConfiguraÃƒÂ§ÃƒÂ£o nÃƒÂ£o existe, criando nova...')
+        if (!apiUrl || !instanceId || !token || !clientToken || !phoneNumber) {
+          setIsActive(previousState)
+          toast.error('Preencha as credenciais da Z-API antes de ativar o follow-up')
+          return
+        }
         const response = await fetch('/api/followup-intelligent/config', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            url: apiUrl.trim() || 'https://api.iagoflow.com/',
-            instance: instanceName.trim() || 'IABHLOURDES',
-            token: token.trim() || '42657D2A-93E8-4EE6-8BDF-986A8D975159',
-            phoneNumber: phoneNumber.trim() || '553196213397',
+            configId,
+            apiUrl: apiUrl.trim(),
+            instanceId: instanceId.trim(),
+            instanceName: instanceName.trim(),
+            token: token.trim(),
+            clientToken: clientToken.trim(),
+            phoneNumber: phoneNumber.trim(),
+            delayMessage: parseInt(delayMessage.trim() || "5"),
             isActive: newState
           })
         })
 
         const data = await response.json()
 
-        console.log(`[Config] Resposta da criação:`, { status: response.status, success: data.success, error: data.error })
+        console.log(`[Config] Resposta da criaÃƒÂ§ÃƒÂ£o:`, { status: response.status, success: data.success, error: data.error })
 
         if (response.ok && data.success) {
           setIsActive(newState)
-          setConfigExists(true)
+          if (data.data) {
+            applyConfig(data.data)
+          } else {
+            setConfigExists(true)
+          }
           toast.success(`Follow-up ${newState ? 'ativado' : 'desativado'} com sucesso!`)
         } else {
           setIsActive(previousState)
           const errorMsg = data?.error || data?.message || 'Erro desconhecido'
-          console.error('[Config] Erro ao criar configuração:', errorMsg)
+          console.error('[Config] Erro ao criar configuraÃƒÂ§ÃƒÂ£o:', errorMsg)
           toast.error(`Erro ao ${newState ? 'ativar' : 'desativar'} follow-up: ${errorMsg}`)
         }
       } else {
-        // Se já existe, apenas atualiza
+        // Se jÃƒÂ¡ existe, apenas atualiza
         const response = await fetch('/api/followup-intelligent/config', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ isActive: newState })
+          body: JSON.stringify({ isActive: newState, configId })
         })
 
         const data = await response.json()
@@ -234,6 +464,7 @@ export default function FollowUpConfigPage() {
 
         if (response.ok && data.success) {
           setIsActive(newState)
+          if (data.data) applyConfig(data.data)
           toast.success(`Follow-up ${newState ? 'ativado' : 'desativado'} com sucesso!`)
         } else {
           setIsActive(previousState)
@@ -246,11 +477,11 @@ export default function FollowUpConfigPage() {
       setIsActive(previousState)
       console.error('[Config] Erro ao atualizar status:', error)
 
-      // Mensagem mais amigável se a tabela não existe
+      // Mensagem mais amigÃƒÂ¡vel se a tabela nÃƒÂ£o existe
       if (error?.message?.includes('does not exist') || error?.message?.includes('relation')) {
-        toast.error('Tabela não encontrada. Execute a migration no Supabase primeiro!')
+        toast.error('Tabela nÃƒÂ£o encontrada. Execute a migration no Supabase primeiro!')
       } else {
-        toast.error(`Erro de conexão: ${error?.message || 'Não foi possível atualizar o status do follow-up'}`)
+        toast.error(`Erro de conexÃƒÂ£o: ${error?.message || 'NÃƒÂ£o foi possÃƒÂ­vel atualizar o status do follow-up'}`)
       }
     }
   }
@@ -269,9 +500,9 @@ export default function FollowUpConfigPage() {
         <div>
           <h1 className="text-3xl font-bold text-pure-white flex items-center gap-2">
             <Settings className="w-8 h-8 text-accent-green" />
-            Configuração de Follow-up Inteligente
+            ConfiguraÃƒÂ§ÃƒÂ£o de Follow-up Inteligente
           </h1>
-          <p className="text-text-gray mt-1">Configure a integração com Z-API (WhatsApp) e gerencie follow-ups automáticos</p>
+          <p className="text-text-gray mt-1">Configure a integraÃƒÂ§ÃƒÂ£o com Z-API (WhatsApp) e gerencie follow-ups automÃƒÂ¡ticos</p>
         </div>
         <Button
           onClick={() => router.back()}
@@ -282,7 +513,7 @@ export default function FollowUpConfigPage() {
         </Button>
       </div>
 
-      <div className="flex-1 overflow-auto space-y-6">
+      <div className="flex-1 overflow-auto space-y-6 pr-1 pb-28">
         {/* Status do Follow-up */}
         <Card className="genial-card border-none shadow-xl bg-black/40 backdrop-blur-xl">
           <CardHeader>
@@ -302,8 +533,8 @@ export default function FollowUpConfigPage() {
             </CardTitle>
             <CardDescription className="text-text-gray">
               {isActive
-                ? "Follow-up inteligente está ativo e enviando mensagens automaticamente"
-                : "Follow-up está desativado. Nenhuma mensagem será enviada automaticamente"}
+                ? "Follow-up inteligente estÃƒÂ¡ ativo e enviando mensagens automaticamente"
+                : "Follow-up estÃƒÂ¡ desativado. Nenhuma mensagem serÃƒÂ¡ enviada automaticamente"}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -336,7 +567,7 @@ export default function FollowUpConfigPage() {
                   ) : (
                     <>
                       <Activity className="w-4 h-4 mr-2" />
-                      Verificar Status da Instância
+                      Verificar Status da InstÃƒÂ¢ncia
                     </>
                   )}
                 </Button>
@@ -348,17 +579,17 @@ export default function FollowUpConfigPage() {
                 {instanceStatus.online ? (
                   <Alert className="bg-emerald-500/10 border-emerald-500/30">
                     <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-                    <AlertTitle className="text-emerald-400">Instância Online</AlertTitle>
+                    <AlertTitle className="text-emerald-400">InstÃƒÂ¢ncia Online</AlertTitle>
                     <AlertDescription className="text-text-gray">
-                      A instância da Z-API está online e pronta para enviar mensagens.
+                      A instÃƒÂ¢ncia da Z-API estÃƒÂ¡ online e pronta para enviar mensagens.
                     </AlertDescription>
                   </Alert>
                 ) : (
                   <Alert className="bg-red-500/10 border-red-500/30">
                     <AlertTriangle className="h-4 w-4 text-red-400" />
-                    <AlertTitle className="text-red-400">Instância Offline</AlertTitle>
+                    <AlertTitle className="text-red-400">InstÃƒÂ¢ncia Offline</AlertTitle>
                     <AlertDescription className="text-text-gray">
-                      {instanceStatus.error || "A instância não está disponível. Verifique as configurações."}
+                      {instanceStatus.error || "A instÃƒÂ¢ncia nÃƒÂ£o estÃƒÂ¡ disponÃƒÂ­vel. Verifique as configuraÃƒÂ§ÃƒÂµes."}
                     </AlertDescription>
                   </Alert>
                 )}
@@ -375,7 +606,7 @@ export default function FollowUpConfigPage() {
               Conectar WhatsApp
             </CardTitle>
             <CardDescription className="text-text-gray">
-              Escaneie o QR Code para conectar sua instância
+              Escaneie o QR Code para conectar sua instÃƒÂ¢ncia
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -383,8 +614,8 @@ export default function FollowUpConfigPage() {
               {instanceStatus?.online ? (
                 <div className="flex flex-col items-center gap-4">
                   <CheckCircle2 className="w-16 h-16 text-accent-green" />
-                  <p className="text-lg font-semibold text-pure-white">Instância Conectada!</p>
-                  <p className="text-sm text-text-gray">Seu WhatsApp já está pronto para envio.</p>
+                  <p className="text-lg font-semibold text-pure-white">InstÃƒÂ¢ncia Conectada!</p>
+                  <p className="text-sm text-text-gray">Seu WhatsApp jÃƒÂ¡ estÃƒÂ¡ pronto para envio.</p>
                 </div>
               ) : (
                 <div className="flex flex-col items-center gap-4 w-full">
@@ -429,7 +660,7 @@ export default function FollowUpConfigPage() {
           </CardContent>
         </Card>
 
-        {/* Configurações da Evolution API */}
+        {/* ConfiguraÃƒÂ§ÃƒÂµes da Evolution API */}
         <Card className="genial-card border-none shadow-xl bg-black/40 backdrop-blur-xl">
           <CardHeader>
             <CardTitle className="text-pure-white flex items-center gap-2">
@@ -437,54 +668,91 @@ export default function FollowUpConfigPage() {
               Credenciais da Z-API
             </CardTitle>
             <CardDescription className="text-text-gray">
-              Configure as credenciais para integração com a Z-API
+              Configure as credenciais para integraÃƒÂ§ÃƒÂ£o com a Z-API
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="api-url" className="text-pure-white">URL da API (Endpoint Completo) *</Label>
+                <Label htmlFor="api-url" className="text-pure-white">URL Base da API *</Label>
                 <Input
                   id="api-url"
                   value={apiUrl}
                   onChange={(e) => setApiUrl(e.target.value)}
                   className="bg-secondary-black border-border-gray text-pure-white"
-                  placeholder="https://api.z-api.io/.../send-text"
+                  placeholder="https://api.z-api.io"
                 />
               </div>
 
               <div className="space-y-2">
-                <div className="space-y-2">
-                  <Label htmlFor="delay" className="text-pure-white">Delay de Mensagem (segundos)</Label>
-                  <Input
-                    id="delay"
-                    type="number"
-                    value={instanceName}
-                    onChange={(e) => setInstanceName(e.target.value)}
-                    className="bg-secondary-black border-border-gray text-pure-white"
-                    placeholder="9"
-                    min="1"
-                    max="15"
-                  />
-                  <p className="text-xs text-text-gray">Tempo de espera antes do envio (1-15s)</p>
-                </div>
+                <Label htmlFor="instance-id" className="text-pure-white">Instance ID *</Label>
+                <Input
+                  id="instance-id"
+                  value={instanceId}
+                  onChange={(e) => setInstanceId(e.target.value)}
+                  className="bg-secondary-black border-border-gray text-pure-white"
+                  placeholder="SUA_INSTANCE_ID"
+                />
+                <p className="text-xs text-text-gray">ID usado em /instances/{'{id}'}/token/{'{token}'}</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="instance-name" className="text-pure-white">Nome da InstÃƒÆ’Ã‚Â¢ncia (opcional)</Label>
+                <Input
+                  id="instance-name"
+                  value={instanceName}
+                  onChange={(e) => setInstanceName(e.target.value)}
+                  className="bg-secondary-black border-border-gray text-pure-white"
+                  placeholder="Minha InstÃƒÆ’Ã‚Â¢ncia"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="delay" className="text-pure-white">Delay de Mensagem (segundos)</Label>
+                <Input
+                  id="delay"
+                  type="number"
+                  value={delayMessage}
+                  onChange={(e) => setDelayMessage(e.target.value)}
+                  className="bg-secondary-black border-border-gray text-pure-white"
+                  placeholder="5"
+                  min="1"
+                  max="15"
+                />
+                <p className="text-xs text-text-gray">Tempo de espera antes do envio (1-15s)</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="token" className="text-pure-white">Token da InstÃƒÆ’Ã‚Â¢ncia *</Label>
+                <Input
+                  id="token"
+                  type="password"
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                  className="bg-secondary-black border-border-gray text-pure-white font-mono"
+                  placeholder="Token da instÃƒÆ’Ã‚Â¢ncia"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="client-token" className="text-pure-white">Client Token (Header) *</Label>
+                <Input
+                  id="client-token"
+                  type="password"
+                  value={clientToken}
+                  onChange={(e) => setClientToken(e.target.value)}
+                  className="bg-secondary-black border-border-gray text-pure-white font-mono"
+                  placeholder="Client Token da conta"
+                />
               </div>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="token" className="text-pure-white">Token (Client-Token do Header) *</Label>
-              <Input
-                id="token"
-                type="password"
-                value={token}
-                onChange={(e) => setToken(e.target.value)}
-                className="bg-secondary-black border-border-gray text-pure-white font-mono"
-                placeholder="Client Token..."
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="phone" className="text-pure-white">Número de Telefone *</Label>
+              <Label htmlFor="phone" className="text-pure-white">NÃƒÂºmero de Telefone *</Label>
               <Input
                 id="phone"
                 value={phoneNumber}
@@ -492,7 +760,7 @@ export default function FollowUpConfigPage() {
                 className="bg-secondary-black border-border-gray text-pure-white"
                 placeholder="553196213397"
               />
-              <p className="text-xs text-text-gray">Formato: DDI + DDD + número (ex: 553196213397)</p>
+              <p className="text-xs text-text-gray">Formato: DDI + DDD + nÃƒÂºmero (ex: 553196213397)</p>
             </div>
 
             <Button
@@ -508,14 +776,124 @@ export default function FollowUpConfigPage() {
               ) : (
                 <>
                   <Save className="w-4 h-4 mr-2" />
-                  Salvar Configuração
+                  Salvar ConfiguraÃƒÂ§ÃƒÂ£o
                 </>
               )}
             </Button>
           </CardContent>
         </Card>
 
-        {/* Informações sobre Intervalos */}
+        {/* Configuracao Nativa de Follow-up (Tenant) */}
+        <Card className="genial-card border-none shadow-xl bg-black/40 backdrop-blur-xl">
+          <CardHeader>
+            <CardTitle className="text-pure-white flex items-center gap-2">
+              <Clock className="w-5 h-5 text-accent-green" />
+              Configuracao de Agenda dos Follow-ups
+            </CardTitle>
+            <CardDescription className="text-text-gray">
+              Defina janela de envio e quais tentativas ficam ativas. Janela padrao recomendada: 07:00 ate 23:00.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between gap-4 p-3 rounded-lg border border-border-gray bg-secondary-black/40">
+              <div>
+                <p className="text-pure-white font-medium">Follow-up contextual ativo</p>
+                <p className="text-xs text-text-gray">Quando desligado, nao agenda novas tentativas automaticas.</p>
+              </div>
+              <Switch
+                checked={nativeFollowupEnabled}
+                onCheckedChange={setNativeFollowupEnabled}
+                disabled={nativeFollowupLoading || nativeFollowupSaving}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label className="text-pure-white">Horario inicial</Label>
+                <Input
+                  type="time"
+                  value={followupBusinessStart}
+                  onChange={(e) => setFollowupBusinessStart(e.target.value)}
+                  className="bg-secondary-black border-border-gray text-pure-white"
+                  disabled={nativeFollowupLoading || nativeFollowupSaving}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-pure-white">Horario final</Label>
+                <Input
+                  type="time"
+                  value={followupBusinessEnd}
+                  onChange={(e) => setFollowupBusinessEnd(e.target.value)}
+                  className="bg-secondary-black border-border-gray text-pure-white"
+                  disabled={nativeFollowupLoading || nativeFollowupSaving}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-pure-white">Dias ativos (0=Dom, 6=Sab)</Label>
+                <Input
+                  value={followupBusinessDaysInput}
+                  onChange={(e) => setFollowupBusinessDaysInput(e.target.value)}
+                  className="bg-secondary-black border-border-gray text-pure-white"
+                  placeholder="0,1,2,3,4,5,6"
+                  disabled={nativeFollowupLoading || nativeFollowupSaving}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              {templateStages.map((stage, index) => {
+                const planItem = followupPlan[index] || DEFAULT_FOLLOWUP_PLAN[index] || { enabled: true, minutes: 15 }
+                return (
+                  <div
+                    key={`plan-${stage.attempt}`}
+                    className="grid grid-cols-1 md:grid-cols-[1fr,160px,120px] gap-3 items-center p-3 rounded-lg border border-border-gray bg-secondary-black/40"
+                  >
+                    <div>
+                      <p className="text-pure-white text-sm font-medium">Tentativa {stage.attempt}</p>
+                      <p className="text-xs text-text-gray">{stage.description}</p>
+                    </div>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={43200}
+                      value={String(planItem.minutes)}
+                      onChange={(e) => updateFollowupPlanMinutes(index, e.target.value)}
+                      className="bg-secondary-black border-border-gray text-pure-white"
+                      disabled={nativeFollowupLoading || nativeFollowupSaving}
+                    />
+                    <div className="flex items-center justify-between md:justify-end gap-2">
+                      <span className="text-xs text-text-gray">Ativo</span>
+                      <Switch
+                        checked={planItem.enabled}
+                        onCheckedChange={(checked) => updateFollowupPlanEnabled(index, checked)}
+                        disabled={nativeFollowupLoading || nativeFollowupSaving}
+                      />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            <Button
+              onClick={saveNativeFollowupConfig}
+              disabled={nativeFollowupLoading || nativeFollowupSaving}
+              className="w-full bg-accent-green hover:bg-accent-green/80 text-black font-semibold"
+            >
+              {nativeFollowupSaving ? (
+                <>
+                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                  Salvando...
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4 mr-2" />
+                  Salvar Configuracao de Follow-up
+                </>
+              )}
+            </Button>
+          </CardContent>
+        </Card>
+        {/* InformaÃƒÂ§ÃƒÂµes sobre Intervalos */}
         <Card className="genial-card border-none shadow-xl bg-black/40 backdrop-blur-xl">
           <CardHeader>
             <CardTitle className="text-pure-white flex items-center gap-2">
@@ -523,21 +901,14 @@ export default function FollowUpConfigPage() {
               Intervalos de Follow-up
             </CardTitle>
             <CardDescription className="text-text-gray">
-              O sistema seguirá automaticamente estes intervalos respeitando o horário comercial
+              O sistema segue os intervalos abaixo e respeita a janela configurada para este tenant
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {[
-                { attempt: 1, interval: '10 minutos', description: 'Primeiro contato rápido' },
-                { attempt: 2, interval: '1 hora', description: 'Relembrar conversa' },
-                { attempt: 3, interval: '6 horas', description: 'Acompanhamento' },
-                { attempt: 4, interval: '12 horas', description: 'Verificação de interesse' },
-                { attempt: 5, interval: '24 horas', description: 'Retomada do dia seguinte' },
-                { attempt: 6, interval: '26 horas', description: 'Lembrete pós-24h' },
-                { attempt: 7, interval: '72 horas', description: 'Última tentativa' },
-                { attempt: 8, interval: '90 horas', description: 'Follow-up final' }
-              ].map((item) => (
+              {templateStages.map((item, index) => {
+                const planItem = followupPlan[index] || DEFAULT_FOLLOWUP_PLAN[index] || { enabled: true, minutes: 15 }
+                return (
                 <div
                   key={item.attempt}
                   className="p-4 bg-secondary-black/50 rounded-lg border border-border-gray"
@@ -546,24 +917,72 @@ export default function FollowUpConfigPage() {
                     <Badge variant="outline" className="border-accent-green/30 text-accent-green">
                       Tentativa {item.attempt}
                     </Badge>
+                    <Badge
+                      variant="outline"
+                      className={planItem.enabled ? "border-emerald-500/30 text-emerald-400" : "border-gray-500/30 text-gray-400"}
+                    >
+                      {planItem.enabled ? "Ativo" : "Desativado"}
+                    </Badge>
                   </div>
-                  <p className="text-pure-white font-semibold mb-1">{item.interval}</p>
+                  <p className="text-pure-white font-semibold mb-1">{formatMinutesLabel(planItem.minutes)}</p>
                   <p className="text-xs text-text-gray">{item.description}</p>
                 </div>
-              ))}
+                )
+              })}
             </div>
 
-            <Alert className="mt-4 bg-yellow-500/10 border-yellow-500/30">
-              <AlertTriangle className="h-4 w-4 text-yellow-400" />
-              <AlertTitle className="text-yellow-400">Horário Comercial</AlertTitle>
+            <Alert className="mt-4 bg-green-500/10 border-green-500/30">
+              <AlertTriangle className="h-4 w-4 text-green-400" />
+              <AlertTitle className="text-green-400">HorÃƒÂ¡rio Comercial</AlertTitle>
               <AlertDescription className="text-text-gray">
-                Os follow-ups são enviados apenas no horário comercial (8h às 18h, segunda a sexta).
-                Se o horário calculado cair fora deste período, o envio será automaticamente agendado para o próximo horário comercial válido.
+                Follow-ups sao enviados apenas entre {followupBusinessStart} e {followupBusinessEnd} nos dias {followupBusinessDaysInput || "0,1,2,3,4,5,6"}.
+                Mensagens sem resposta apos 23:00 entram automaticamente no proximo horario util configurado.
               </AlertDescription>
             </Alert>
           </CardContent>
         </Card>
       </div>
+
+      <div className="shrink-0 border-t border-border-gray/70 bg-black/80 backdrop-blur-md px-4 py-3">
+        <div className="flex flex-col md:flex-row gap-3 md:justify-end">
+          <Button
+            onClick={saveConfig}
+            disabled={saving}
+            className="w-full md:w-auto bg-emerald-500 hover:bg-emerald-400 text-black font-semibold border border-emerald-300"
+          >
+            {saving ? (
+              <>
+                <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                Salvando credenciais...
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4 mr-2" />
+                Salvar credenciais Z-API
+              </>
+            )}
+          </Button>
+
+          <Button
+            onClick={saveNativeFollowupConfig}
+            disabled={nativeFollowupLoading || nativeFollowupSaving}
+            className="w-full md:w-auto bg-emerald-500 hover:bg-emerald-400 text-black font-semibold border border-emerald-300"
+          >
+            {nativeFollowupSaving ? (
+              <>
+                <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                Salvando follow-up...
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4 mr-2" />
+                Salvar configuracao de follow-up
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
     </div>
   )
 }
+

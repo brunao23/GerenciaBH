@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { notifyAgendamentoCreated } from "@/lib/services/notifications"
+import { resolveChatHistoriesTable } from "@/lib/helpers/resolve-chat-table"
 
 // Cliente Supabase com Service Role para acesso administrativo
 function createServiceRoleClient() {
@@ -49,15 +50,19 @@ function isAgendamentoExplicito(conversa: any, agendamento: AgendamentoDetectado
     )
 
     // Verifica se é realmente marcado (não apenas "A definir")
-    const temDataDefinida = agendamento.dia &&
+    const temDataDefinida = Boolean(
+      agendamento.dia &&
       agendamento.dia !== "A definir" &&
       agendamento.dia.trim() !== "" &&
       !agendamento.dia.toLowerCase().includes("definir")
+    )
 
-    const temHorarioDefinido = agendamento.horario &&
+    const temHorarioDefinido = Boolean(
+      agendamento.horario &&
       agendamento.horario !== "A definir" &&
       agendamento.horario.trim() !== "" &&
       !agendamento.horario.toLowerCase().includes("definir")
+    )
 
     const realmenteMarcado = temDataDefinida && temHorarioDefinido
 
@@ -117,7 +122,7 @@ export async function POST(request: NextRequest) {
 
     // ✅ USAR TABELAS DINÂMICAS
     const agendamentosTable = `${tenant}_agendamentos`
-    const chatHistoriesTable = `${tenant}n8n_chat_histories`
+    const chatHistoriesTable = await resolveChatHistoriesTable(supabase as any, tenant)
 
     console.log(`[ProcessarAgendamentos] [${tenant}] Tabelas: ${agendamentosTable}, ${chatHistoriesTable}`)
 
@@ -437,7 +442,7 @@ export async function POST(request: NextRequest) {
           horario: horarioFinal,
           dia: diaFinal,
           observacoes: String(agendamento.observacoes || "").substring(0, 500),
-          status: "agendado",
+          status: diaFinal !== "A definir" && horarioFinal !== "A definir" ? "agendado" : "pendente",
         }
 
         console.log(`[ProcessarAgendamentos] [${tenant}] Tentando inserir agendamento:`, {

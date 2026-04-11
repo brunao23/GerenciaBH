@@ -1,14 +1,17 @@
-/**
- * API Admin: Configuração do Agente AI por Empresa
+﻿/**
+ * API Admin: ConfiguraÃ§Ã£o do Agente AI por Empresa
  * 
- * GET /api/admin/empresas/[id]/agente - Obter configuração
- * PUT /api/admin/empresas/[id]/agente - Atualizar configuração
+ * GET /api/admin/empresas/[id]/agente - Obter configuraÃ§Ã£o
+ * PUT /api/admin/empresas/[id]/agente - Atualizar configuraÃ§Ã£o
  * POST /api/admin/empresas/[id]/agente - Sincronizar com N8N
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { cookies } from 'next/headers';
+import { verifyToken } from '@/lib/auth/utils';
 import { gerarPromptAgente, validarConfig, AgenteConfig } from '@/lib/agente/prompt-generator';
+import { notifyAdminUpdate } from '@/lib/services/tenant-notifications';
 
 const supabaseAdmin = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -20,9 +23,22 @@ interface RouteParams {
 }
 
 /**
- * Verifica se o usuário é admin
+ * Verifica se o usuÃ¡rio Ã© admin
  */
 async function verificarAdmin(req: NextRequest): Promise<{ isAdmin: boolean; userId?: string }> {
+    try {
+        const cookieStore = await cookies();
+        const token = cookieStore.get('auth-token')?.value;
+        if (token) {
+            const session = await verifyToken(token);
+            if (session?.isAdmin) {
+                return { isAdmin: true, userId: session.userId };
+            }
+        }
+    } catch {
+        // Fallback abaixo
+    }
+
     const authHeader = req.headers.get('authorization');
     if (!authHeader?.startsWith('Bearer ')) {
         return { isAdmin: false };
@@ -45,7 +61,7 @@ async function verificarAdmin(req: NextRequest): Promise<{ isAdmin: boolean; use
 }
 
 /**
- * GET: Obter configuração do agente de uma empresa específica
+ * GET: Obter configuraÃ§Ã£o do agente de uma empresa especÃ­fica
  */
 export async function GET(req: NextRequest, { params }: RouteParams) {
     try {
@@ -64,10 +80,10 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
             .single();
 
         if (!empresa) {
-            return NextResponse.json({ error: 'Empresa não encontrada' }, { status: 404 });
+            return NextResponse.json({ error: 'Empresa nÃ£o encontrada' }, { status: 404 });
         }
 
-        // Buscar configuração
+        // Buscar configuraÃ§Ã£o
         const { data: config, error } = await supabaseAdmin
             .from('empresa_agente_config')
             .select('*')
@@ -87,7 +103,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
                 agente_cargo: 'Consultor(a) Especialista',
                 unidade_nome: empresa.nome,
                 unidade_email: empresa.email,
-                servico_gratuito_nome: 'Diagnóstico Estratégico',
+                servico_gratuito_nome: 'DiagnÃ³stico EstratÃ©gico',
                 servico_gratuito_duracao: '30 a 40 minutos',
                 preco_texto_apresentacao: 'a partir de R$ 315 mensais',
             } : null,
@@ -99,7 +115,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 }
 
 /**
- * PUT: Atualizar configuração do agente
+ * PUT: Atualizar configuraÃ§Ã£o do agente
  */
 export async function PUT(req: NextRequest, { params }: RouteParams) {
     try {
@@ -114,19 +130,19 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
         // Verificar se empresa existe
         const { data: empresa } = await supabaseAdmin
             .from('empresas')
-            .select('id, nome')
+            .select('id, nome, schema')
             .eq('id', empresaId)
             .single();
 
         if (!empresa) {
-            return NextResponse.json({ error: 'Empresa não encontrada' }, { status: 404 });
+            return NextResponse.json({ error: 'Empresa nÃ£o encontrada' }, { status: 404 });
         }
 
-        // Validar campos obrigatórios
+        // Validar campos obrigatÃ³rios
         const validacao = validarConfig(body);
         if (!validacao.valido) {
             return NextResponse.json({
-                error: 'Configuração inválida',
+                error: 'ConfiguraÃ§Ã£o invÃ¡lida',
                 campos_faltando: validacao.erros,
             }, { status: 400 });
         }
@@ -137,7 +153,7 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
             agente_nome: body.agente_nome,
             agente_genero: body.agente_genero || 'feminino',
             agente_cargo: body.agente_cargo || 'Consultor(a) Especialista',
-            agente_personalidade: body.agente_personalidade || 'empática, profissional, consultiva',
+            agente_personalidade: body.agente_personalidade || 'empÃ¡tica, profissional, consultiva',
             unidade_nome: body.unidade_nome,
             unidade_endereco_completo: body.unidade_endereco_completo,
             unidade_bairro: body.unidade_bairro,
@@ -162,24 +178,24 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
             produto_descricao: body.produto_descricao,
             produto_duracao_media: body.produto_duracao_media,
             produto_modalidades: body.produto_modalidades || [],
-            servico_gratuito_nome: body.servico_gratuito_nome || 'Diagnóstico Estratégico',
+            servico_gratuito_nome: body.servico_gratuito_nome || 'DiagnÃ³stico EstratÃ©gico',
             servico_gratuito_descricao: body.servico_gratuito_descricao,
             servico_gratuito_duracao: body.servico_gratuito_duracao || '30 minutos',
             preco_minimo: body.preco_minimo,
             preco_maximo: body.preco_maximo,
             preco_texto_apresentacao: body.preco_texto_apresentacao || 'a partir de R$ 315 mensais',
-            formas_pagamento: body.formas_pagamento || ['Cartão de Crédito', 'Boleto', 'Pix'],
+            formas_pagamento: body.formas_pagamento || ['CartÃ£o de CrÃ©dito', 'Boleto', 'Pix'],
             cursos: body.cursos || [],
             diferenciais: body.diferenciais || [],
             contexto_regional: body.contexto_regional,
             estacionamento_info: body.estacionamento_info,
             transporte_publico_info: body.transporte_publico_info,
             regras_negocio: body.regras_negocio || [],
-            frases_proibidas: body.frases_proibidas || ['tipo', 'show', 'valeu', 'né'],
+            frases_proibidas: body.frases_proibidas || ['tipo', 'show', 'valeu', 'nÃ©'],
             frases_permitidas: body.frases_permitidas || ['Perfeito', 'Combinado', 'Faz sentido'],
-            vocabulario_chave: body.vocabulario_chave || ['Transformação', 'Destravar', 'Confiança'],
+            vocabulario_chave: body.vocabulario_chave || ['TransformaÃ§Ã£o', 'Destravar', 'ConfianÃ§a'],
             usar_emojis: body.usar_emojis !== false,
-            tom_de_voz: body.tom_de_voz || 'profissional e empático',
+            tom_de_voz: body.tom_de_voz || 'profissional e empÃ¡tico',
             prompt_customizado: body.prompt_customizado,
             ativo: true,
             updated_at: new Date().toISOString(),
@@ -199,9 +215,20 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
         // Gerar preview do prompt
         const promptGerado = gerarPromptAgente(config as unknown as AgenteConfig);
 
+        if (empresa.schema) {
+            await notifyAdminUpdate({
+                tenant: empresa.schema,
+                title: 'Configuracao do agente atualizada',
+                message: `O administrador atualizou as configuracoes do agente da unidade ${empresa.nome}.`,
+                sourceId: String(empresaId),
+            }).catch((error) => {
+                console.error('[Admin Agente] Erro ao enviar notificacao:', error);
+            });
+        }
+
         return NextResponse.json({
             success: true,
-            message: `Configuração de "${empresa.nome}" salva com sucesso!`,
+            message: `ConfiguraÃ§Ã£o de "${empresa.nome}" salva com sucesso!`,
             config,
             prompt_preview: promptGerado,
         });
@@ -225,7 +252,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         const body = await req.json();
 
         if (body.action !== 'sync') {
-            return NextResponse.json({ error: 'Ação inválida' }, { status: 400 });
+            return NextResponse.json({ error: 'AÃ§Ã£o invÃ¡lida' }, { status: 400 });
         }
 
         // Buscar empresa
@@ -236,10 +263,10 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
             .single();
 
         if (!empresa) {
-            return NextResponse.json({ error: 'Empresa não encontrada' }, { status: 404 });
+            return NextResponse.json({ error: 'Empresa nÃ£o encontrada' }, { status: 404 });
         }
 
-        // Buscar configuração do agente
+        // Buscar configuraÃ§Ã£o do agente
         const { data: config } = await supabaseAdmin
             .from('empresa_agente_config')
             .select('*')
@@ -248,7 +275,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
         if (!config) {
             return NextResponse.json({
-                error: 'Configuração do agente não encontrada. Salve primeiro.',
+                error: 'ConfiguraÃ§Ã£o do agente nÃ£o encontrada. Salve primeiro.',
             }, { status: 404 });
         }
 
@@ -262,7 +289,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
         if (!workflow) {
             return NextResponse.json({
-                error: 'Workflow ZAPI Principal não encontrado para esta empresa.',
+                error: 'Workflow ZAPI Principal nÃ£o encontrado para esta empresa.',
             }, { status: 404 });
         }
 
@@ -275,14 +302,15 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
         const workflowAtual = await n8nClient.getWorkflow(workflow.workflow_id);
 
-        if (!workflowAtual) {
+        if (!workflowAtual.success || !workflowAtual.data) {
             return NextResponse.json({
-                error: 'Workflow não encontrado no N8N.',
+                error: 'Workflow nÃ£o encontrado no N8N.',
             }, { status: 404 });
         }
 
-        // Encontrar e atualizar o nó do AI Agent
-        const nodes = workflowAtual.nodes || [];
+        // Encontrar e atualizar o nÃ³ do AI Agent
+        const workflowData: any = workflowAtual.data;
+        const nodes = Array.isArray(workflowData?.nodes) ? workflowData.nodes : [];
         let agenteEncontrado = false;
 
         for (const node of nodes) {
@@ -299,7 +327,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
         if (!agenteEncontrado) {
             return NextResponse.json({
-                error: 'Nó do AI Agent não encontrado no workflow.',
+                error: 'NÃ³ do AI Agent nÃ£o encontrado no workflow.',
             }, { status: 404 });
         }
 
@@ -308,11 +336,22 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
             nodes: nodes,
         });
 
-        // Registrar atualização
+        // Registrar atualizaÃ§Ã£o
         await supabaseAdmin
             .from('empresa_agente_config')
             .update({ updated_at: new Date().toISOString() })
             .eq('empresa_id', empresaId);
+
+        if (empresa.schema) {
+            await notifyAdminUpdate({
+                tenant: empresa.schema,
+                title: 'Agente sincronizado com N8N',
+                message: `Uma nova sincronizacao do agente foi aplicada na unidade ${empresa.nome}.`,
+                sourceId: String(workflow.workflow_id),
+            }).catch((error) => {
+                console.error('[Admin Agente] Erro ao enviar notificacao de sync:', error);
+            });
+        }
 
         return NextResponse.json({
             success: true,
@@ -328,3 +367,5 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         }, { status: 500 });
     }
 }
+
+

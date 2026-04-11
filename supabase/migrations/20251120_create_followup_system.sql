@@ -6,9 +6,12 @@
 CREATE TABLE IF NOT EXISTS evolution_api_config (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   api_url TEXT NOT NULL,
-  instance_name TEXT NOT NULL,
+  instance_id TEXT NOT NULL,
+  instance_name TEXT,
   token TEXT NOT NULL,
+  client_token TEXT NOT NULL,
   phone_number TEXT NOT NULL,
+  delay_message INT DEFAULT 5,
   is_active BOOLEAN DEFAULT true,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()

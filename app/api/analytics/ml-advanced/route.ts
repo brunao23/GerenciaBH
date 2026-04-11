@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import OpenAI from "openai"
+import { resolveChatHistoriesTable } from "@/lib/helpers/resolve-chat-table"
 
 // Cliente Supabase com Service Role para acesso administrativo
 function createServiceRoleClient() {
@@ -206,7 +207,7 @@ export async function POST(req: Request) {
         console.log(`[ML Advanced] [${tenant}] Iniciando análise avançada com ML...`)
 
         const supabase = createServiceRoleClient()
-        const chatHistoriesTable = `${tenant}n8n_chat_histories`
+        const chatHistoriesTable = await resolveChatHistoriesTable(supabase as any, tenant)
 
         // Busca dados
         const { data: chats, error } = await supabase

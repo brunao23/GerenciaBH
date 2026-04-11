@@ -73,7 +73,7 @@ export default function N8NDashboard() {
         return (
             <div className="min-h-screen bg-primary-black p-4 md:p-8 flex items-center justify-center">
                 <div className="text-center">
-                    <RefreshCw className="w-12 h-12 text-accent-yellow animate-spin mx-auto mb-4" />
+                    <RefreshCw className="w-12 h-12 text-accent-green animate-spin mx-auto mb-4" />
                     <p className="text-text-gray">Carregando analytics...</p>
                 </div>
             </div>
@@ -86,7 +86,7 @@ export default function N8NDashboard() {
                 <div className="text-center">
                     <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" />
                     <p className="text-text-gray">Erro ao carregar dados</p>
-                    <Button onClick={loadAnalytics} className="mt-4 bg-accent-yellow text-primary-black">
+                    <Button onClick={loadAnalytics} className="mt-4 bg-accent-green text-primary-black">
                         Tentar Novamente
                     </Button>
                 </div>
@@ -101,7 +101,7 @@ export default function N8NDashboard() {
                 <div className="mb-8">
                     <Button
                         variant="ghost"
-                        onClick={() => router.push('/admin/dashboard')}
+                        onClick={() => router.push('/admin/units')}
                         className="mb-4 text-text-gray hover:text-pure-white"
                     >
                         <ArrowLeft className="w-4 h-4 mr-2" />
@@ -110,11 +110,11 @@ export default function N8NDashboard() {
 
                     <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                         <div className="flex items-center gap-4">
-                            <div className="w-16 h-16 bg-gradient-to-br from-accent-yellow to-dark-yellow rounded-2xl flex items-center justify-center shadow-lg shadow-accent-yellow/30">
+                            <div className="w-16 h-16 bg-gradient-to-br from-accent-green to-dark-green rounded-2xl flex items-center justify-center shadow-lg shadow-accent-green/30">
                                 <BarChart3 className="h-8 w-8 text-primary-black" />
                             </div>
                             <div>
-                                <h1 className="text-3xl font-bold bg-gradient-to-r from-accent-yellow to-dark-yellow bg-clip-text text-transparent">
+                                <h1 className="text-3xl font-bold bg-gradient-to-r from-accent-green to-dark-green bg-clip-text text-transparent">
                                     N8N Dashboard
                                 </h1>
                                 <p className="text-text-gray">Monitoramento e Analytics Completo</p>
@@ -125,14 +125,14 @@ export default function N8NDashboard() {
                             <Button
                                 onClick={loadAnalytics}
                                 variant="outline"
-                                className="border-accent-yellow text-accent-yellow hover:bg-accent-yellow/10"
+                                className="border-accent-green text-accent-green hover:bg-accent-green/10"
                             >
                                 <RefreshCw className="w-4 h-4 mr-2" />
                                 Atualizar
                             </Button>
                             <Button
                                 onClick={() => router.push('/admin/workflows')}
-                                className="bg-gradient-to-r from-accent-yellow to-dark-yellow text-primary-black"
+                                className="bg-gradient-to-r from-accent-green to-dark-green text-primary-black"
                             >
                                 <Zap className="w-4 h-4 mr-2" />
                                 Workflows
@@ -144,15 +144,15 @@ export default function N8NDashboard() {
                 {/* Stats Cards */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                     {/* Workflows */}
-                    <Card className="genial-card border-l-4 border-l-accent-yellow">
+                    <Card className="genial-card border-l-4 border-l-accent-green">
                         <CardHeader className="pb-3">
                             <CardTitle className="text-sm font-medium text-text-gray flex items-center gap-2">
-                                <Zap className="w-4 h-4 text-accent-yellow" />
+                                <Zap className="w-4 h-4 text-accent-green" />
                                 Workflows
                             </CardTitle>
                         </CardHeader>
                         <CardContent>
-                            <div className="text-3xl font-bold text-accent-yellow mb-2">
+                            <div className="text-3xl font-bold text-accent-green mb-2">
                                 {analytics.overview.workflows.total}
                             </div>
                             <div className="flex gap-4 text-sm">
@@ -225,7 +225,7 @@ export default function N8NDashboard() {
                 <Card className="genial-card mb-8">
                     <CardHeader>
                         <CardTitle className="text-pure-white flex items-center gap-2">
-                            <LineChartIcon className="w-5 h-5 text-accent-yellow" />
+                            <LineChartIcon className="w-5 h-5 text-accent-green" />
                             Timeline de Execuções (7 dias)
                         </CardTitle>
                     </CardHeader>
@@ -282,16 +282,16 @@ export default function N8NDashboard() {
                     <Card className="genial-card">
                         <CardHeader>
                             <CardTitle className="text-pure-white flex items-center gap-2">
-                                <TrendingUp className="w-5 h-5 text-accent-yellow" />
+                                <TrendingUp className="w-5 h-5 text-accent-green" />
                                 Workflows Mais Executados (7d)
                             </CardTitle>
                         </CardHeader>
                         <CardContent>
                             <div className="space-y-3">
                                 {analytics.topWorkflows.slice(0, 5).map((workflow, index) => (
-                                    <div key={workflow.workflowId} className="flex items-center justify-between p-3 rounded-lg bg-card-black border border-border-gray hover:border-accent-yellow/50 transition-colors">
+                                    <div key={workflow.workflowId} className="flex items-center justify-between p-3 rounded-lg bg-card-black border border-border-gray hover:border-accent-green/50 transition-colors">
                                         <div className="flex items-center gap-3 flex-1 min-w-0">
-                                            <div className="text-accent-yellow font-bold text-lg w-6">{index + 1}</div>
+                                            <div className="text-accent-green font-bold text-lg w-6">{index + 1}</div>
                                             <div className="flex-1 min-w-0">
                                                 <div className="text-pure-white font-medium truncate">{workflow.name}</div>
                                                 <div className="text-text-gray text-sm">
@@ -299,7 +299,7 @@ export default function N8NDashboard() {
                                                 </div>
                                             </div>
                                         </div>
-                                        <div className="text-accent-yellow font-bold text-xl">{workflow.executions}</div>
+                                        <div className="text-accent-green font-bold text-xl">{workflow.executions}</div>
                                     </div>
                                 ))}
                             </div>
@@ -336,7 +336,7 @@ export default function N8NDashboard() {
                 <Card className="genial-card">
                     <CardHeader>
                         <CardTitle className="text-pure-white flex items-center gap-2">
-                            <Clock className="w-5 h-5 text-accent-yellow" />
+                            <Clock className="w-5 h-5 text-accent-green" />
                             Performance e Nodes
                         </CardTitle>
                     </CardHeader>
@@ -344,7 +344,7 @@ export default function N8NDashboard() {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
                                 <h3 className="text-pure-white font-semibold mb-3">Tempo Médio de Execução</h3>
-                                <div className="text-4xl font-bold text-accent-yellow mb-2">
+                                <div className="text-4xl font-bold text-accent-green mb-2">
                                     {analytics.performance.avgDuration}s
                                 </div>
                                 <p className="text-text-gray text-sm">Baseado nos últimos 7 dias</p>
@@ -355,7 +355,7 @@ export default function N8NDashboard() {
                                     {analytics.topNodes.slice(0, 3).map((node, index) => (
                                         <div key={index} className="flex items-center justify-between text-sm">
                                             <span className="text-text-gray truncate">{node.type.replace('n8n-nodes-base.', '')}</span>
-                                            <span className="text-accent-yellow font-semibold">{node.count}</span>
+                                            <span className="text-accent-green font-semibold">{node.count}</span>
                                         </div>
                                     ))}
                                 </div>

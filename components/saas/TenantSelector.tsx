@@ -13,7 +13,7 @@ export function TenantSelector() {
     const [isAdmin, setIsAdmin] = useState(false)
 
     useEffect(() => {
-        // Verificar se é admin
+        // Verificar se e admin
         async function checkAdmin() {
             try {
                 const res = await fetch('/api/auth/session')
@@ -38,7 +38,7 @@ export function TenantSelector() {
 
             if (res.ok) {
                 toast.success('Saindo...')
-                // Forçar reload completo
+                // Forcar reload completo
                 window.location.href = isAdmin ? '/admin/login' : '/login'
             } else {
                 toast.error('Erro ao sair')
@@ -50,15 +50,15 @@ export function TenantSelector() {
     }
 
     const handleBackToAdmin = () => {
-        // Forçar reload completo para voltar ao admin
-        window.location.href = '/admin/dashboard'
+        // Forcar reload completo para voltar ao admin
+        window.location.href = '/admin/units'
     }
 
     return (
         <div className="flex items-center gap-2">
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-accent-yellow/10 rounded-md border border-accent-yellow/30">
-                <Building2 className="w-4 h-4 text-accent-yellow" />
-                <span className="text-sm font-medium text-accent-yellow">
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-accent-green/10 rounded-md border border-accent-green/30">
+                <Building2 className="w-4 h-4 text-accent-green" />
+                <span className="text-sm font-medium text-accent-green">
                     {tenant.name}
                 </span>
             </div>
@@ -67,7 +67,7 @@ export function TenantSelector() {
                     variant="ghost"
                     size="sm"
                     onClick={handleBackToAdmin}
-                    className="h-8 px-2 text-accent-yellow hover:text-accent-yellow hover:bg-accent-yellow/10"
+                    className="h-8 px-2 text-accent-green hover:text-accent-green hover:bg-accent-green/10"
                     title="Voltar ao Painel Admin"
                 >
                     <Shield className="w-4 h-4" />
@@ -85,3 +85,4 @@ export function TenantSelector() {
         </div>
     )
 }
+

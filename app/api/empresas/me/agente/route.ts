@@ -361,12 +361,11 @@ export async function POST(req: NextRequest) {
 
         // 2. Gerar o Texto do Prompt
         // O prompt é gerado apenas com texto, sem as variáveis do sistema ({{...}}) que já estão no fluxo
-        let promptGerado = gerarPromptAgente(config as unknown as AgenteConfig);
-
-        // Pequena limpeza para garantir que seja string pura
-        if (typeof promptGerado !== 'string') {
-            promptGerado = JSON.stringify(promptGerado);
-        }
+        const promptGeradoRaw = gerarPromptAgente(config as unknown as AgenteConfig);
+        const promptGerado =
+            typeof promptGeradoRaw === 'string'
+                ? promptGeradoRaw
+                : JSON.stringify(promptGeradoRaw);
 
         // 3. Conectar ao N8N
         const { N8nClient } = await import('@/lib/n8n/client');

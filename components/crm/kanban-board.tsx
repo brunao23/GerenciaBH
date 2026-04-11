@@ -63,15 +63,26 @@ interface KanbanBoardProps {
     funnelConfig?: FunnelColumn[]
 }
 
+function mapColumnsToFunnel(columns: CRMColumn[]): FunnelColumn[] {
+    return columns.map((column, index) => ({
+        id: column.id,
+        title: column.title,
+        order: index,
+    }))
+}
+
 export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps) {
     const { tenant } = useTenant()
     const [columns, setColumns] = useState<CRMColumn[]>(initialData)
     const [selectedLead, setSelectedLead] = useState<CRMCard | null>(null)
     const [isModalOpen, setIsModalOpen] = useState(false)
     const [isFunnelModalOpen, setIsFunnelModalOpen] = useState(false)
-    const [customColumns, setCustomColumns] = useState<FunnelColumn[]>(funnelConfig)
+    const [customColumns, setCustomColumns] = useState<FunnelColumn[]>(() => (
+        funnelConfig.length > 0 ? funnelConfig : mapColumnsToFunnel(initialData)
+    ))
     const [newColumnTitle, setNewColumnTitle] = useState("")
     const [newColumnColor, setNewColumnColor] = useState("#3b82f6")
+    const [isSaving, setIsSaving] = useState(false)
 
     useEffect(() => {
         setColumns(initialData)
@@ -79,9 +90,15 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
 
     useEffect(() => {
         if (funnelConfig.length > 0) {
-            setCustomColumns(funnelConfig)
+            const ordered = [...funnelConfig].sort((a, b) => a.order - b.order)
+            setCustomColumns(ordered)
+            return
         }
-    }, [funnelConfig])
+
+        if (initialData.length > 0) {
+            setCustomColumns(mapColumnsToFunnel(initialData))
+        }
+    }, [funnelConfig, initialData])
 
     const handleCardClick = (card: CRMCard) => {
         setSelectedLead(card)
@@ -89,6 +106,12 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
     }
 
     const onDragEnd = async (result: DropResult) => {
+        if (!tenant?.prefix) {
+            toast.error("Tenant não carregado. Recarregue a página.")
+            return
+        }
+        if (isSaving) return
+
         const { source, destination, type } = result
 
         if (!destination) return
@@ -97,6 +120,8 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
         if (type === 'COLUMN') {
             if (source.index === destination.index) return
 
+            const prevColumns = columns
+            const prevCustomColumns = customColumns
             const newColumns = Array.from(columns)
             const [removed] = newColumns.splice(source.index, 1)
             newColumns.splice(destination.index, 0, removed)
@@ -116,11 +141,12 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
 
             // Salvar automaticamente a nova ordem (sem precisar clicar em salvar)
             try {
+                setIsSaving(true)
                 const response = await fetch('/api/crm/funnel', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'x-tenant-prefix': tenant?.prefix || 'vox_bh'
+                        'x-tenant-prefix': tenant.prefix
                     },
                     body: JSON.stringify({ columns: reorderedColumns })
                 })
@@ -134,8 +160,10 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                 console.error('Erro ao salvar ordem das colunas:', error)
                 toast.error('Erro ao salvar ordem das colunas')
                 // Reverter em caso de erro
-                setColumns(columns)
-                setCustomColumns(customColumns)
+                setColumns(prevColumns)
+                setCustomColumns(prevCustomColumns)
+            } finally {
+                setIsSaving(false)
             }
             return
         }
@@ -151,8 +179,14 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
         const sourceColIndex = columns.findIndex(c => c.id === source.droppableId)
         const destColIndex = columns.findIndex(c => c.id === destination.droppableId)
 
+        if (sourceColIndex < 0 || destColIndex < 0) {
+            return
+        }
+
         const sourceCol = columns[sourceColIndex]
         const destCol = columns[destColIndex]
+
+        if (!sourceCol || !destCol) return
 
         const sourceCards = [...sourceCol.cards]
         const destCards = source.droppableId === destination.droppableId
@@ -164,6 +198,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
 
         // Se mudou de coluna, atualiza o status do lead (MOVIMENTAÇÃO MANUAL)
         if (source.droppableId !== destination.droppableId) {
+            const prevColumns = columns
             // Atualização otimista da UI
             const newColumns = [...columns]
             newColumns[sourceColIndex] = { ...sourceCol, cards: sourceCards }
@@ -171,11 +206,12 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
             setColumns(newColumns)
 
             try {
+                setIsSaving(true)
                 const response = await fetch('/api/crm/status', {
                     method: 'PUT',
                     headers: {
                         'Content-Type': 'application/json',
-                        'x-tenant-prefix': tenant?.prefix || 'vox_bh'
+                        'x-tenant-prefix': tenant.prefix
                     },
                     body: JSON.stringify({
                         leadId: removed.id,
@@ -193,7 +229,9 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                 console.error('Erro ao salvar status:', error)
                 toast.error('Erro ao salvar mudança de status')
                 // Reverter UI em caso de erro
-                setColumns(columns)
+                setColumns(prevColumns)
+            } finally {
+                setIsSaving(false)
             }
         } else {
             // Mesma coluna, apenas reordenar
@@ -205,12 +243,19 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
     }
 
     const handleSaveFunnel = async () => {
+        if (!tenant?.prefix) {
+            toast.error("Tenant não carregado. Recarregue a página.")
+            return
+        }
+        if (isSaving) return
+
         try {
+            setIsSaving(true)
             const response = await fetch('/api/crm/funnel', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'x-tenant-prefix': tenant?.prefix || 'vox_bh'
+                    'x-tenant-prefix': tenant.prefix
                 },
                 body: JSON.stringify({ columns: customColumns })
             })
@@ -224,6 +269,8 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
         } catch (error) {
             console.error('Erro ao salvar funil:', error)
             toast.error('Erro ao salvar funil personalizado')
+        } finally {
+            setIsSaving(false)
         }
     }
 
@@ -449,7 +496,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                                                                                 {card.name}
                                                                                             </p>
                                                                                             {card.isPaused && (
-                                                                                                <Badge variant="outline" className="text-[10px] h-5 px-1.5 border-yellow-500/50 text-yellow-400 bg-yellow-500/10">
+                                                                                                <Badge variant="outline" className="text-[10px] h-5 px-1.5 border-green-500/50 text-green-400 bg-green-500/10">
                                                                                                     <PauseCircle className="w-3 h-3 mr-0.5" />
                                                                                                     Pausado
                                                                                                 </Badge>
@@ -548,3 +595,15 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
         </>
     )
 }
+
+
+
+
+
+
+
+
+
+
+
+

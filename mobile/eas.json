@@ -1,0 +1,47 @@
+{
+  "cli": {
+    "version": ">= 12.4.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "android": {
+        "credentialsSource": "local"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "credentialsSource": "local"
+      }
+    },
+    "ios-simulator": {
+      "distribution": "internal",
+      "ios": {
+        "simulator": true
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "android": {
+        "credentialsSource": "local"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "android": {
+        "serviceAccountKeyPath": "./credentials/google-play-service-account.json",
+        "track": "production",
+        "releaseStatus": "completed"
+      },
+      "ios": {
+        "ascApiKeyPath": "./credentials/AuthKey_XXXXXXXXXX.p8",
+        "ascApiKeyId": "YOUR_ASC_KEY_ID",
+        "ascApiKeyIssuerId": "YOUR_ASC_ISSUER_ID"
+      }
+    }
+  }
+}
