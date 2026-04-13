@@ -11,6 +11,10 @@
     {
       "path": "/api/admin/reports/weekly",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/admin/reports/daily",
+      "schedule": "0 23 * * *"
     }
   ]
 }

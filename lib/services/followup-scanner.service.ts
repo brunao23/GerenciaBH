@@ -12,6 +12,7 @@ export interface ScannerResult {
 }
 
 const DEFAULT_FOLLOWUP_INTERVALS_MINUTES = [15, 60, 360, 1440, 2880, 4320, 7200]
+const MIN_FOLLOWUP_INTERVAL_MINUTES = 10
 
 function normalizeFollowupIntervals(value: any): number[] {
     const source = Array.isArray(value) ? value : []
@@ -19,7 +20,7 @@ function normalizeFollowupIntervals(value: any): number[] {
         .map((item) => Number(item))
         .filter((item) => Number.isFinite(item))
         .map((item) => Math.floor(item))
-        .filter((item) => item >= 1 && item <= 60 * 24 * 30)
+        .filter((item) => item >= MIN_FOLLOWUP_INTERVAL_MINUTES && item <= 60 * 24 * 30)
         .filter((item, index, arr) => arr.indexOf(item) === index)
         .sort((a, b) => a - b)
 
@@ -35,7 +36,7 @@ function resolveFollowupIntervalsFromConfig(config: any): number[] {
             }))
             .filter((entry: any) => entry.enabled === true && Number.isFinite(entry.minutes))
             .map((entry: any) => Math.floor(entry.minutes))
-            .filter((entry: number) => entry >= 1 && entry <= 60 * 24 * 30)
+            .filter((entry: number) => entry >= MIN_FOLLOWUP_INTERVAL_MINUTES && entry <= 60 * 24 * 30)
     }
 
     return normalizeFollowupIntervals(config?.followupIntervalsMinutes)

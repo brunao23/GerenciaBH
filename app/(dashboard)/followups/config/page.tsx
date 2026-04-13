@@ -65,7 +65,7 @@ function normalizeFollowupPlan(input: any): FollowupPlanItem[] {
     .filter((entry: FollowupPlanItem) => Number.isFinite(entry.minutes))
     .map((entry: FollowupPlanItem) => ({
       enabled: entry.enabled,
-      minutes: Math.max(1, Math.min(43200, Math.floor(entry.minutes))),
+      minutes: Math.max(10, Math.min(43200, Math.floor(entry.minutes))),
     }))
 
   if (!parsed.length) return DEFAULT_FOLLOWUP_PLAN
@@ -100,7 +100,7 @@ export default function FollowUpConfigPage() {
   const [checkingStatus, setCheckingStatus] = useState(false)
   const [configId, setConfigId] = useState<string | null>(null)
 
-  // ConfiguraÃƒÂ§ÃƒÂµes
+  // Configuracoes
   const [apiUrl, setApiUrl] = useState("https://api.z-api.io")
   const [instanceId, setInstanceId] = useState("")
   const [instanceName, setInstanceName] = useState("")
@@ -161,7 +161,7 @@ export default function FollowUpConfigPage() {
         setQrCodeImage(data.image)
         setQrRefreshTimer(20)
 
-        // Verifica status tambÃƒÂ©m para ver se conectou
+        // Verifica status tambem para ver se conectou
         checkInstanceStatus()
       } else {
         toast.error(data.error || 'Erro ao gerar QR Code')
@@ -219,17 +219,17 @@ export default function FollowUpConfigPage() {
       if (data.success && data.data) {
         applyConfig(data.data)
       } else {
-        // Se nÃƒÂ£o hÃƒÂ¡ configuraÃƒÂ§ÃƒÂ£o, permite usar os campos padrÃƒÂ£o
-        // NÃƒÂ£o desabilita o switch - permite criar a configuraÃƒÂ§ÃƒÂ£o
+        // Se nao ha configuracao, permite usar os campos padrao
+        // Nao desabilita o switch - permite criar a configuracao
         setConfigExists(false)
         setConfigId(null)
-        // MantÃƒÂ©m os valores padrÃƒÂ£o que jÃƒÂ¡ estÃƒÂ£o no useState
+        // Mantem os valores padrao que ja estao no useState
       }
     } catch (error: any) {
-      console.error('Erro ao carregar configuraÃƒÂ§ÃƒÂ£o:', error)
-      // NÃƒÂ£o mostra erro se a tabela nÃƒÂ£o existe - permite criar
+      console.error('Erro ao carregar configuracao:', error)
+      // Nao mostra erro se a tabela nao existe - permite criar
       if (!error.message?.includes('does not exist')) {
-        toast.error('Erro ao carregar configuraÃƒÂ§ÃƒÂ£o')
+        toast.error('Erro ao carregar configuracao')
       }
       setConfigExists(false)
       setConfigId(null)
@@ -335,7 +335,7 @@ export default function FollowUpConfigPage() {
 
   const saveConfig = async () => {
     if (!apiUrl || !instanceId || !token || !clientToken || !phoneNumber) {
-      toast.error('Preencha todos os campos obrigatÃƒÂ³rios')
+      toast.error('Preencha todos os campos obrigatorios')
       return
     }
 
@@ -360,18 +360,18 @@ export default function FollowUpConfigPage() {
       const data = await response.json()
 
       if (data.success) {
-        toast.success('ConfiguraÃƒÂ§ÃƒÂ£o salva com sucesso!')
+        toast.success('Configuracao salva com sucesso!')
         if (data.data) {
           applyConfig(data.data)
         } else {
           setConfigExists(true)
         }
       } else {
-        toast.error(data.error || 'Erro ao salvar configuraÃƒÂ§ÃƒÂ£o')
+        toast.error(data.error || 'Erro ao salvar configuracao')
       }
     } catch (error: any) {
       console.error('Erro ao salvar:', error)
-      toast.error('Erro ao salvar configuraÃƒÂ§ÃƒÂ£o')
+      toast.error('Erro ao salvar configuracao')
     } finally {
       setSaving(false)
     }
@@ -386,14 +386,14 @@ export default function FollowUpConfigPage() {
       if (data.success) {
         setInstanceStatus(data.status)
         if (data.status.online) {
-          toast.success('InstÃƒÂ¢ncia estÃƒÂ¡ online e funcionando!')
+          toast.success('Instancia esta online e funcionando!')
         } else {
-          toast.warning(`InstÃƒÂ¢ncia offline: ${data.status.error || 'Erro desconhecido'}`)
+          toast.warning(`Instancia offline: ${data.status.error || 'Erro desconhecido'}`)
         }
       }
     } catch (error: any) {
       console.error('Erro ao verificar status:', error)
-      toast.error('Erro ao verificar status da instÃƒÂ¢ncia')
+      toast.error('Erro ao verificar status da instancia')
     } finally {
       setCheckingStatus(false)
     }
@@ -408,9 +408,9 @@ export default function FollowUpConfigPage() {
     try {
       console.log(`[Config] Alternando follow-up para: ${newState ? 'Ativo' : 'Inativo'}`)
 
-      // Se nÃƒÂ£o existe configuraÃƒÂ§ÃƒÂ£o, cria uma nova com os valores padrÃƒÂ£o
+      // Se nao existe configuracao, cria uma nova com os valores padrao
       if (!configExists) {
-        console.log('[Config] ConfiguraÃƒÂ§ÃƒÂ£o nÃƒÂ£o existe, criando nova...')
+        console.log('[Config] Configuracao nao existe, criando nova...')
         if (!apiUrl || !instanceId || !token || !clientToken || !phoneNumber) {
           setIsActive(previousState)
           toast.error('Preencha as credenciais da Z-API antes de ativar o follow-up')
@@ -434,7 +434,7 @@ export default function FollowUpConfigPage() {
 
         const data = await response.json()
 
-        console.log(`[Config] Resposta da criaÃƒÂ§ÃƒÂ£o:`, { status: response.status, success: data.success, error: data.error })
+        console.log(`[Config] Resposta da criacao:`, { status: response.status, success: data.success, error: data.error })
 
         if (response.ok && data.success) {
           setIsActive(newState)
@@ -447,11 +447,11 @@ export default function FollowUpConfigPage() {
         } else {
           setIsActive(previousState)
           const errorMsg = data?.error || data?.message || 'Erro desconhecido'
-          console.error('[Config] Erro ao criar configuraÃƒÂ§ÃƒÂ£o:', errorMsg)
+          console.error('[Config] Erro ao criar configuracao:', errorMsg)
           toast.error(`Erro ao ${newState ? 'ativar' : 'desativar'} follow-up: ${errorMsg}`)
         }
       } else {
-        // Se jÃƒÂ¡ existe, apenas atualiza
+        // Se ja existe, apenas atualiza
         const response = await fetch('/api/followup-intelligent/config', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -477,11 +477,11 @@ export default function FollowUpConfigPage() {
       setIsActive(previousState)
       console.error('[Config] Erro ao atualizar status:', error)
 
-      // Mensagem mais amigÃƒÂ¡vel se a tabela nÃƒÂ£o existe
+      // Mensagem mais amigavel se a tabela nao existe
       if (error?.message?.includes('does not exist') || error?.message?.includes('relation')) {
-        toast.error('Tabela nÃƒÂ£o encontrada. Execute a migration no Supabase primeiro!')
+        toast.error('Tabela nao encontrada. Execute a migration no Supabase primeiro!')
       } else {
-        toast.error(`Erro de conexÃƒÂ£o: ${error?.message || 'NÃƒÂ£o foi possÃƒÂ­vel atualizar o status do follow-up'}`)
+        toast.error(`Erro de conexao: ${error?.message || 'Nao foi possivel atualizar o status do follow-up'}`)
       }
     }
   }
@@ -500,9 +500,9 @@ export default function FollowUpConfigPage() {
         <div>
           <h1 className="text-3xl font-bold text-pure-white flex items-center gap-2">
             <Settings className="w-8 h-8 text-accent-green" />
-            ConfiguraÃƒÂ§ÃƒÂ£o de Follow-up Inteligente
+            Configuracao de Follow-up Inteligente
           </h1>
-          <p className="text-text-gray mt-1">Configure a integraÃƒÂ§ÃƒÂ£o com Z-API (WhatsApp) e gerencie follow-ups automÃƒÂ¡ticos</p>
+          <p className="text-text-gray mt-1">Configure a integracao com Z-API (WhatsApp) e gerencie follow-ups automaticos</p>
         </div>
         <Button
           onClick={() => router.back()}
@@ -533,8 +533,8 @@ export default function FollowUpConfigPage() {
             </CardTitle>
             <CardDescription className="text-text-gray">
               {isActive
-                ? "Follow-up inteligente estÃƒÂ¡ ativo e enviando mensagens automaticamente"
-                : "Follow-up estÃƒÂ¡ desativado. Nenhuma mensagem serÃƒÂ¡ enviada automaticamente"}
+                ? "Follow-up inteligente esta ativo e enviando mensagens automaticamente"
+                : "Follow-up esta desativado. Nenhuma mensagem sera enviada automaticamente"}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -567,7 +567,7 @@ export default function FollowUpConfigPage() {
                   ) : (
                     <>
                       <Activity className="w-4 h-4 mr-2" />
-                      Verificar Status da InstÃƒÂ¢ncia
+                      Verificar Status da Instancia
                     </>
                   )}
                 </Button>
@@ -579,17 +579,17 @@ export default function FollowUpConfigPage() {
                 {instanceStatus.online ? (
                   <Alert className="bg-emerald-500/10 border-emerald-500/30">
                     <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-                    <AlertTitle className="text-emerald-400">InstÃƒÂ¢ncia Online</AlertTitle>
+                    <AlertTitle className="text-emerald-400">Instancia Online</AlertTitle>
                     <AlertDescription className="text-text-gray">
-                      A instÃƒÂ¢ncia da Z-API estÃƒÂ¡ online e pronta para enviar mensagens.
+                      A instancia da Z-API esta online e pronta para enviar mensagens.
                     </AlertDescription>
                   </Alert>
                 ) : (
                   <Alert className="bg-red-500/10 border-red-500/30">
                     <AlertTriangle className="h-4 w-4 text-red-400" />
-                    <AlertTitle className="text-red-400">InstÃƒÂ¢ncia Offline</AlertTitle>
+                    <AlertTitle className="text-red-400">Instancia Offline</AlertTitle>
                     <AlertDescription className="text-text-gray">
-                      {instanceStatus.error || "A instÃƒÂ¢ncia nÃƒÂ£o estÃƒÂ¡ disponÃƒÂ­vel. Verifique as configuraÃƒÂ§ÃƒÂµes."}
+                      {instanceStatus.error || "A instancia nao esta disponivel. Verifique as configuracoes."}
                     </AlertDescription>
                   </Alert>
                 )}
@@ -606,7 +606,7 @@ export default function FollowUpConfigPage() {
               Conectar WhatsApp
             </CardTitle>
             <CardDescription className="text-text-gray">
-              Escaneie o QR Code para conectar sua instÃƒÂ¢ncia
+              Escaneie o QR Code para conectar sua instancia
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -614,8 +614,8 @@ export default function FollowUpConfigPage() {
               {instanceStatus?.online ? (
                 <div className="flex flex-col items-center gap-4">
                   <CheckCircle2 className="w-16 h-16 text-accent-green" />
-                  <p className="text-lg font-semibold text-pure-white">InstÃƒÂ¢ncia Conectada!</p>
-                  <p className="text-sm text-text-gray">Seu WhatsApp jÃƒÂ¡ estÃƒÂ¡ pronto para envio.</p>
+                  <p className="text-lg font-semibold text-pure-white">Instancia Conectada!</p>
+                  <p className="text-sm text-text-gray">Seu WhatsApp ja esta pronto para envio.</p>
                 </div>
               ) : (
                 <div className="flex flex-col items-center gap-4 w-full">
@@ -660,7 +660,7 @@ export default function FollowUpConfigPage() {
           </CardContent>
         </Card>
 
-        {/* ConfiguraÃƒÂ§ÃƒÂµes da Evolution API */}
+        {/* Configuracoes da Evolution API */}
         <Card className="genial-card border-none shadow-xl bg-black/40 backdrop-blur-xl">
           <CardHeader>
             <CardTitle className="text-pure-white flex items-center gap-2">
@@ -668,7 +668,7 @@ export default function FollowUpConfigPage() {
               Credenciais da Z-API
             </CardTitle>
             <CardDescription className="text-text-gray">
-              Configure as credenciais para integraÃƒÂ§ÃƒÂ£o com a Z-API
+              Configure as credenciais para integracao com a Z-API
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -699,13 +699,13 @@ export default function FollowUpConfigPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="instance-name" className="text-pure-white">Nome da InstÃƒÆ’Ã‚Â¢ncia (opcional)</Label>
+                <Label htmlFor="instance-name" className="text-pure-white">Nome da Instancia (opcional)</Label>
                 <Input
                   id="instance-name"
                   value={instanceName}
                   onChange={(e) => setInstanceName(e.target.value)}
                   className="bg-secondary-black border-border-gray text-pure-white"
-                  placeholder="Minha InstÃƒÆ’Ã‚Â¢ncia"
+                  placeholder="Minha Instancia"
                 />
               </div>
 
@@ -727,14 +727,14 @@ export default function FollowUpConfigPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="token" className="text-pure-white">Token da InstÃƒÆ’Ã‚Â¢ncia *</Label>
+                <Label htmlFor="token" className="text-pure-white">Token da Instancia *</Label>
                 <Input
                   id="token"
                   type="password"
                   value={token}
                   onChange={(e) => setToken(e.target.value)}
                   className="bg-secondary-black border-border-gray text-pure-white font-mono"
-                  placeholder="Token da instÃƒÆ’Ã‚Â¢ncia"
+                  placeholder="Token da instancia"
                 />
               </div>
 
@@ -752,7 +752,7 @@ export default function FollowUpConfigPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="phone" className="text-pure-white">NÃƒÂºmero de Telefone *</Label>
+              <Label htmlFor="phone" className="text-pure-white">Numero de Telefone *</Label>
               <Input
                 id="phone"
                 value={phoneNumber}
@@ -760,7 +760,7 @@ export default function FollowUpConfigPage() {
                 className="bg-secondary-black border-border-gray text-pure-white"
                 placeholder="553196213397"
               />
-              <p className="text-xs text-text-gray">Formato: DDI + DDD + nÃƒÂºmero (ex: 553196213397)</p>
+              <p className="text-xs text-text-gray">Formato: DDI + DDD + numero (ex: 553196213397)</p>
             </div>
 
             <Button
@@ -776,7 +776,7 @@ export default function FollowUpConfigPage() {
               ) : (
                 <>
                   <Save className="w-4 h-4 mr-2" />
-                  Salvar ConfiguraÃƒÂ§ÃƒÂ£o
+                  Salvar Configuracao
                 </>
               )}
             </Button>
@@ -854,7 +854,7 @@ export default function FollowUpConfigPage() {
                     </div>
                     <Input
                       type="number"
-                      min={1}
+                      min={10}
                       max={43200}
                       value={String(planItem.minutes)}
                       onChange={(e) => updateFollowupPlanMinutes(index, e.target.value)}
@@ -893,7 +893,7 @@ export default function FollowUpConfigPage() {
             </Button>
           </CardContent>
         </Card>
-        {/* InformaÃƒÂ§ÃƒÂµes sobre Intervalos */}
+        {/* Informacoes sobre Intervalos */}
         <Card className="genial-card border-none shadow-xl bg-black/40 backdrop-blur-xl">
           <CardHeader>
             <CardTitle className="text-pure-white flex items-center gap-2">
@@ -933,7 +933,7 @@ export default function FollowUpConfigPage() {
 
             <Alert className="mt-4 bg-green-500/10 border-green-500/30">
               <AlertTriangle className="h-4 w-4 text-green-400" />
-              <AlertTitle className="text-green-400">HorÃƒÂ¡rio Comercial</AlertTitle>
+              <AlertTitle className="text-green-400">Horario Comercial</AlertTitle>
               <AlertDescription className="text-text-gray">
                 Follow-ups sao enviados apenas entre {followupBusinessStart} e {followupBusinessEnd} nos dias {followupBusinessDaysInput || "0,1,2,3,4,5,6"}.
                 Mensagens sem resposta apos 23:00 entram automaticamente no proximo horario util configurado.

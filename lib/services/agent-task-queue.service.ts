@@ -98,10 +98,19 @@ function extractLastQuestion(content: string): string {
 function normalizeLeadName(name?: string): string {
   const text = String(name || "").replace(/\s+/g, " ").trim()
   if (!text) return ""
-  const first = text.split(" ")[0]?.trim() || ""
-  if (!first) return ""
-  if (!/[a-zA-Z\u00C0-\u024F]/.test(first)) return ""
-  return first.slice(0, 1).toUpperCase() + first.slice(1)
+  const blocked = new Set([
+    "contato", "usuario", "lead", "cliente", "whatsapp", "unknown",
+    "bot", "ia", "assistente", "agente", "sistema", "automacao",
+    "atendente", "robo", "chatbot", "suporte", "admin", "teste",
+  ])
+  const parts = text.split(" ").map((p) => p.trim()).filter(Boolean)
+  for (const part of parts) {
+    if (blocked.has(part.toLowerCase())) continue
+    if (!/[a-zA-Z\u00C0-\u024F]/.test(part)) continue
+    if (part.length < 2) continue
+    return part.slice(0, 1).toUpperCase() + part.slice(1).toLowerCase()
+  }
+  return ""
 }
 
 function buildGreeting(leadName?: string): string {
@@ -109,13 +118,15 @@ function buildGreeting(leadName?: string): string {
   return normalized ? `Oi ${normalized}` : "Oi"
 }
 
+const MIN_FOLLOWUP_INTERVAL_MINUTES = 10
+
 function normalizeIntervals(input?: number[]): number[] {
   const source = Array.isArray(input) ? input : DEFAULT_FOLLOWUP_INTERVALS_MINUTES
   const values = source
     .map((value) => Number(value))
     .filter((value) => Number.isFinite(value))
     .map((value) => Math.floor(value))
-    .filter((value) => value >= 1 && value <= 60 * 24 * 30)
+    .filter((value) => value >= MIN_FOLLOWUP_INTERVAL_MINUTES && value <= 60 * 24 * 30)
   return Array.from(new Set(values)).sort((a, b) => a - b)
 }
 
@@ -128,7 +139,7 @@ function resolveFollowupIntervalsFromConfig(config: NativeAgentConfig): number[]
       }))
       .filter((entry) => entry.enabled === true && Number.isFinite(entry.minutes))
       .map((entry) => Math.floor(entry.minutes))
-      .filter((entry) => entry >= 1 && entry <= 60 * 24 * 30)
+      .filter((entry) => entry >= MIN_FOLLOWUP_INTERVAL_MINUTES && entry <= 60 * 24 * 30)
 
     return Array.from(new Set(fromPlan)).sort((a, b) => a - b)
   }
@@ -146,6 +157,26 @@ function isLikelyGenericFollowup(message: string): boolean {
     "sigo por aqui para concluirmos",
     "passando para confirmar",
     "voltando aqui para facilitar",
+    "voltando para dar continuidade",
+    "retomando o contato",
+    "entrando em contato novamente",
+    "dando continuidade ao nosso",
+    "espero que esteja bem",
+    "tudo bem com voce",
+    "como voce esta",
+    "passando aqui para",
+    "vim aqui para",
+    "estou entrando em contato",
+    "gostaria de retomar",
+    "venho por meio desta",
+    "qual seu nome",
+    "qual o seu nome",
+    "como posso te chamar",
+    "como voce se chama",
+    "me diz seu nome",
+    "poderia me informar seu nome",
+    "com quem eu falo",
+    "com quem estou falando",
   ]
 
   return blockedPatterns.some((pattern) => text.includes(pattern))
@@ -177,6 +208,13 @@ function isTooSimilarToAny(candidate: string, previousMessages: string[]): boole
   return false
 }
 
+function clampMinutes(minutes: number): number {
+  if (!Number.isFinite(minutes)) return MIN_FOLLOWUP_INTERVAL_MINUTES
+  if (minutes < MIN_FOLLOWUP_INTERVAL_MINUTES) return MIN_FOLLOWUP_INTERVAL_MINUTES
+  if (minutes > 60 * 24 * 30) return 60 * 24 * 30
+  return Math.floor(minutes)
+}
+
 function toIsoFromNow(minutes: number): string {
   return new Date(Date.now() + minutes * 60 * 1000).toISOString()
 }
@@ -193,34 +231,49 @@ function buildContextualFollowupMessage(input: {
   lastUserMessage?: string
   lastAgentMessage?: string
 }): string {
-  const name = String(input.leadName || "").trim() || "cliente"
+  const name = normalizeLeadName(input.leadName)
+  const greeting = name ? `Oi ${name}` : "Oi"
   const topic = excerpt(input.lastUserMessage || "", 110)
-  const previous = excerpt(input.lastAgentMessage || "", 120)
-  const contextLine = topic ? `sobre "${topic}"` : "sobre sua solicitacao"
+  const agentContext = excerpt(input.lastAgentMessage || "", 120)
 
+  // Etapas iniciais: referencia direta ao assunto da conversa
   if (input.step === 1) {
-    return `Oi ${name}, vi seu ponto ${contextLine} e posso continuar agora. Posso seguir?`
-  }
-  if (input.step === 2) {
-    return `Oi ${name}, sigo disponivel para concluir seu atendimento ${contextLine}. Deseja que eu continue?`
-  }
-  if (input.step === 3) {
-    return `Oi ${name}, para avancarmos ${contextLine}, eu te envio os proximos passos agora.`
-  }
-  if (input.step === 4) {
-    return `Oi ${name}, ainda consigo resolver ${contextLine} hoje. Posso fechar isso com voce?`
-  }
-  if (input.step === 5) {
-    return `Oi ${name}, posso finalizar ${contextLine} de forma objetiva. Quer que eu envie agora?`
-  }
-  if (input.step === 6) {
-    return `Oi ${name}, este e meu ultimo retorno automatico ${contextLine}. Se fizer sentido, me responda que sigo aqui.`
+    if (topic) return `${greeting}, voce comentou ${topic} — consigo te ajudar com isso agora, quer continuar?`
+    if (agentContext) return `${greeting}, ficou pendente aqui: ${agentContext}. Quer que eu siga?`
+    return `${greeting}, sua mensagem ficou pendente aqui comigo. Posso dar sequencia?`
   }
 
-  if (previous) {
-    return `Oi ${name}, vou encerrar por enquanto. Se quiser seguir depois, eu continuo com base neste ponto: "${previous}".`
+  if (input.step === 2) {
+    if (topic) return `${greeting}, sobre ${topic} — tenho as informacoes que voce precisa. Posso te passar?`
+    return `${greeting}, ainda tenho seu atendimento em aberto aqui. Quer que eu continue de onde paramos?`
   }
-  return `Oi ${name}, vou encerrar por enquanto. Quando quiser retomar, e so me chamar por aqui.`
+
+  // Etapas intermediarias: foco em valor e proximo passo concreto
+  if (input.step === 3) {
+    if (topic) return `${greeting}, ja preparei os proximos passos sobre ${topic}. Te envio agora?`
+    return `${greeting}, ja tenho os proximos passos do seu atendimento. Quer que eu envie?`
+  }
+
+  if (input.step === 4) {
+    if (topic) return `${greeting}, consigo resolver ${topic} ainda hoje se voce confirmar. O que acha?`
+    return `${greeting}, consigo fechar seu atendimento hoje. Me da um ok que eu finalizo.`
+  }
+
+  // Etapas finais: urgencia natural sem pressao
+  if (input.step === 5) {
+    if (topic) return `${greeting}, ultimo ponto sobre ${topic}: posso te enviar o resumo final?`
+    return `${greeting}, vou fechar seu atendimento em breve. Se precisar de algo, me responde aqui.`
+  }
+
+  if (input.step === 6) {
+    return `${greeting}, como nao tive retorno, vou encerrar seu atendimento por aqui. Qualquer coisa e so me chamar.`
+  }
+
+  // Etapas extras / encerramento
+  if (agentContext) {
+    return `${greeting}, estou encerrando por enquanto. O ultimo ponto que tratamos foi: ${agentContext}. Quando quiser retomar, e so chamar.`
+  }
+  return `${greeting}, estou encerrando seu atendimento. Quando precisar, e so me enviar uma mensagem.`
 }
 
 function buildRuntimeContextualFollowupMessage(input: {
@@ -234,24 +287,25 @@ function buildRuntimeContextualFollowupMessage(input: {
   const greeting = buildGreeting(input.leadName)
   const pendingQuestion = sanitizeFollowupText(input.pendingQuestion || "", 180)
   const userTopic = sanitizeFollowupText(input.lastUserMessage || "", 140)
-  const compactTopic = userTopic ? `"${userTopic}"` : ""
 
+  // Prioridade 1: ha uma pergunta pendente da IA que o lead nao respondeu
   if (pendingQuestion) {
-    if (input.step === 1) return `${greeting}, ficou pendente este ponto: ${pendingQuestion}`
-    if (input.step === 2) return `${greeting}, para seguir seu atendimento com precisao: ${pendingQuestion}`
-    if (input.step === 3) return `${greeting}, com sua confirmacao eu concluo isso agora: ${pendingQuestion}`
-    if (input.step === 4) return `${greeting}, consigo resolver hoje se voce responder este ponto: ${pendingQuestion}`
-    if (input.step === 5) return `${greeting}, antes de encerrar, preciso da sua resposta: ${pendingQuestion}`
-    if (input.step === 6) return `${greeting}, ultimo aviso para manter seu atendimento ativo: ${pendingQuestion}`
-    return `${greeting}, se fizer sentido continuar, me responde este ponto: ${pendingQuestion}`
+    if (input.step <= 2) return `${greeting}, ficou pendente aqui: ${pendingQuestion}`
+    if (input.step <= 4) return `${greeting}, consigo resolver isso agora se voce confirmar: ${pendingQuestion}`
+    if (input.step <= 5) return `${greeting}, antes de encerrar, so preciso da sua resposta sobre: ${pendingQuestion}`
+    return `${greeting}, vou encerrar por aqui. Se precisar, a pergunta que ficou pendente foi: ${pendingQuestion}`
   }
 
+  // Prioridade 2: ha uma mensagem recente do lead que nao foi concluida
   if (userTopic) {
-    if (input.step === 1) return `${greeting}, vi sua ultima mensagem ${compactTopic}. Posso continuar daqui?`
-    if (input.step === 2) return `${greeting}, consigo te responder com base no que voce enviou ${compactTopic}.`
-    if (input.step === 3) return `${greeting}, se quiser, ja te passo os proximos passos sobre ${compactTopic}.`
+    if (input.step === 1) return `${greeting}, voce mencionou "${userTopic}" — posso continuar daqui?`
+    if (input.step === 2) return `${greeting}, sobre "${userTopic}", ja tenho a resposta. Quer que eu envie?`
+    if (input.step === 3) return `${greeting}, preparei os proximos passos sobre "${userTopic}". Te envio agora?`
+    if (input.step <= 5) return `${greeting}, ainda posso te ajudar com "${userTopic}". Me avisa se quiser continuar.`
+    return `${greeting}, encerrando por aqui. Se quiser retomar sobre "${userTopic}", e so me chamar.`
   }
 
+  // Fallback: usa template contextual estatico
   return buildContextualFollowupMessage({
     step: input.step,
     totalSteps: input.totalSteps,
@@ -328,11 +382,18 @@ export class AgentTaskQueueService {
       return { allowed: false, reason: "followup_plan_empty" }
     }
 
+    // Rejeita tasks com intervalo abaixo do minimo permitido
     const taskMinutes = Math.floor(Number(input.payload?.followup_minutes || 0))
-    if (Number.isFinite(taskMinutes) && taskMinutes > 0 && !activeIntervals.includes(taskMinutes)) {
-      return { allowed: false, reason: "followup_interval_disabled" }
+    if (Number.isFinite(taskMinutes) && taskMinutes > 0) {
+      if (taskMinutes < MIN_FOLLOWUP_INTERVAL_MINUTES) {
+        return { allowed: false, reason: "followup_interval_below_minimum" }
+      }
+      if (!activeIntervals.includes(taskMinutes)) {
+        return { allowed: false, reason: "followup_interval_disabled" }
+      }
     }
 
+    // Rejeita tasks de steps alem do numero de intervalos configurados
     const taskStep = Math.floor(Number(input.payload?.followup_step || 0))
     if (Number.isFinite(taskStep) && taskStep > 0 && taskStep > activeIntervals.length) {
       return { allowed: false, reason: "followup_step_disabled" }
@@ -399,8 +460,8 @@ export class AgentTaskQueueService {
     const runtime = await this.loadFollowupRuntimeConfig(input.tenant)
     if (!runtime.geminiApiKey) return null
 
-    const historyLines = input.history
-      .slice(-24)
+    const recentHistory = input.history.slice(-24)
+    const historyLines = recentHistory
       .map((entry) => `${entry.role === "assistant" ? "IA" : "LEAD"}: ${entry.content}`)
       .join("\n")
 
@@ -410,30 +471,71 @@ export class AgentTaskQueueService {
       .slice(-8)
 
     const leadName = normalizeLeadName(input.leadName)
+
+    // Detectar intencao/topico dominante das ultimas mensagens do lead
+    const recentLeadMessages = recentHistory
+      .filter((entry) => entry.role === "user")
+      .map((entry) => entry.content)
+      .slice(-5)
+    const topicSummary = recentLeadMessages.length > 0
+      ? recentLeadMessages.map((msg) => `- "${excerpt(msg, 100)}"`).join("\n")
+      : "(sem mensagens do lead)"
+
+    // Determinar tom baseado na etapa
+    let stageGuidance = ""
+    if (input.step <= 2) {
+      stageGuidance = "Tom: leve e disponivel. Objetivo: lembrar o lead do ponto exato onde pararam sem pressao."
+    } else if (input.step <= 4) {
+      stageGuidance = "Tom: direto e prestativo. Objetivo: oferecer resolver de forma objetiva, mostrar que tem a resposta pronta."
+    } else if (input.step <= 5) {
+      stageGuidance = "Tom: ultimo contato ativo. Objetivo: comunicar que vai encerrar, mas deixar porta aberta."
+    } else {
+      stageGuidance = "Tom: encerramento respeitoso. Objetivo: informar que esta encerrando, sem pressao."
+    }
+
     const prompt = [
-      "Gere UMA mensagem de follow-up para WhatsApp em pt-BR.",
-      "A mensagem deve ser 100% contextual ao ponto exato da conversa.",
-      "Nao use frases genericas como 'retomando de onde paramos' ou equivalentes.",
-      "Nao repita frases ja usadas pela IA no historico.",
-      "No maximo 280 caracteres, sem listas, sem JSON, apenas texto final.",
-      "Foque em avancar a conversa para resposta do lead.",
+      "Voce e um redator de follow-up para WhatsApp comercial.",
       "",
-      `Etapa de follow-up: ${input.step} de ${input.totalSteps}.`,
-      `Nome do lead (se valido): ${leadName || "(nao informado)"}`,
-      `Ultima pergunta pendente da IA: ${input.pendingQuestion || "(nao ha)"}`,
-      `Ultima mensagem do lead: ${input.lastUserMessage || "(nao ha)"}`,
-      `Ultima mensagem da IA: ${input.lastAgentMessage || "(nao ha)"}`,
+      "REGRAS ABSOLUTAS:",
+      "1. Gere APENAS o texto da mensagem, sem aspas, sem JSON, sem explicacao.",
+      "2. Maximo 250 caracteres. Curto e direto.",
+      "3. NUNCA use frases genericas: 'retomando de onde paramos', 'passando para confirmar', 'voltando aqui', 'sigo por aqui para concluirmos'.",
+      "4. NUNCA repita ou parafraseie mensagens que a IA ja enviou (veja historico abaixo).",
+      "5. Referencie o ASSUNTO ESPECIFICO da conversa (produto, servico, duvida, agendamento, etc).",
+      leadName
+        ? `6. O nome do lead e "${leadName}". Use-o de forma natural, sem forcar.`
+        : "6. O nome do lead NAO esta disponivel. Use 'voce' para se dirigir ao lead. NUNCA pergunte o nome.",
+      "7. NUNCA se apresente pelo nome ou se identifique. Voce ja esta em uma conversa em andamento.",
+      "8. Foque em fazer o lead RESPONDER com uma acao clara.",
+      "9. NUNCA pergunte o nome do lead. Se nao tem nome, siga sem nome. Isso NAO e relevante para follow-up.",
       "",
-      "Historico recente:",
+      `CONTEXTO:`,
+      `Etapa: ${input.step} de ${input.totalSteps}`,
+      stageGuidance,
+      "",
+      `Ultimas mensagens do lead:`,
+      topicSummary,
+      "",
+      `Pergunta pendente da IA (lead nao respondeu): ${input.pendingQuestion || "(nenhuma)"}`,
+      `Ultima resposta da IA: ${excerpt(input.lastAgentMessage || "", 200) || "(nenhuma)"}`,
+      "",
+      "HISTORICO COMPLETO RECENTE (IA = assistente, LEAD = cliente):",
       historyLines || "(vazio)",
       "",
-      "Responda somente a mensagem final.",
+      "Agora gere a mensagem de follow-up:",
     ].join("\n")
 
     try {
       const gemini = new GeminiService(runtime.geminiApiKey, runtime.geminiModel || "gemini-2.5-flash")
       const decision = await gemini.decideNextTurn({
-        systemPrompt: "Voce escreve follow-up curto, contextual e sem repeticao para WhatsApp.",
+        systemPrompt: [
+          "Voce gera mensagens de follow-up curtas e contextuais para WhatsApp comercial em pt-BR.",
+          "Cada mensagem deve ser unica, natural e conectada ao assunto real da conversa.",
+          "Voce NUNCA inventa informacoes. Se nao sabe o assunto, foque no atendimento em aberto de forma generica.",
+          "NUNCA confunda seu papel (IA assistente) com o lead (cliente).",
+          "NUNCA use o nome do lead como se fosse o seu.",
+          "NUNCA pergunte o nome do lead em um follow-up. Se o nome nao esta disponivel, use 'voce'.",
+        ].join(" "),
         conversation: [{ role: "user", content: prompt }],
       })
       const candidate = sanitizeFollowupText(String(decision.reply || ""), 280)
@@ -528,7 +630,10 @@ export class AgentTaskQueueService {
         return fallbackSanitized
       }
 
-      const emergency = `${buildGreeting(payloadLeadName)}, consigo continuar seu atendimento com base na sua ultima mensagem. Posso seguir agora?`
+      const greet = buildGreeting(payloadLeadName)
+      const emergency = step <= 3
+        ? `${greet}, seu atendimento esta em aberto aqui. Me avisa se posso dar sequencia?`
+        : `${greet}, vou encerrar seu atendimento em breve. Qualquer coisa, e so me chamar.`
       return sanitizeFollowupText(emergency, 280)
     } catch {
       const fallback = buildRuntimeContextualFollowupMessage({

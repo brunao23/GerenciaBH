@@ -28,6 +28,7 @@ import {
 import { AgentTaskQueueService } from "@/lib/services/agent-task-queue.service"
 import { normalizeTenant } from "@/lib/helpers/normalize-tenant"
 import { NativeAgentLearningService } from "@/lib/services/native-agent-learning.service"
+import { createNotification } from "@/lib/services/notifications"
 import { TtsService, type TtsProvider } from "@/lib/services/tts.service"
 
 type AppointmentResult = {
@@ -117,7 +118,11 @@ function firstName(name?: string): string | null {
 
   if (!clean) return null
 
-  const blocked = new Set(["contato", "usuario", "lead", "cliente", "whatsapp", "unknown"])
+  const blocked = new Set([
+    "contato", "usuario", "lead", "cliente", "whatsapp", "unknown",
+    "bot", "ia", "assistente", "agente", "sistema", "automacao",
+    "atendente", "robo", "chatbot", "suporte", "admin", "teste",
+  ])
   const parts = clean.split(" ").map((part) => part.trim()).filter(Boolean)
   for (const part of parts) {
     const normalized = part.toLowerCase()
@@ -137,6 +142,120 @@ function normalizeComparableMessage(value: string): string {
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim()
+}
+
+// ---------------------------------------------------------------------------
+// Negative intent detection — auto-pause leads
+// ---------------------------------------------------------------------------
+
+type NegativeIntentResult = {
+  detected: boolean
+  category?: "opt_out" | "will_contact_later" | "bot_message" | "dissatisfaction"
+  matchedPattern?: string
+}
+
+function detectNegativeLeadIntent(rawMessage: string): NegativeIntentResult {
+  const text = normalizeComparableMessage(rawMessage)
+  if (!text || text.length < 3) return { detected: false }
+
+  // --- OPT-OUT: lead asks to be removed from contact list ---
+  const optOutPatterns = [
+    /\b(me\s+)?tir[ae]\s+(da\s+lista|do\s+grupo|meu\s+numero|dos?\s+contatos?)/,
+    /\b(nao\s+)?(quero\s+)?(mais\s+)?(receber\s+)?(mensagen[s]?|contato|msg)/,
+    /\bnao\s+(me\s+)?mande\s+mais/,
+    /\bnao\s+(me\s+)?envie\s+mais/,
+    /\bpar[ae]\s+de\s+(me\s+)?(mandar|enviar|contactar|ligar)/,
+    /\bnao\s+tenho\s+interesse/,
+    /\bsem\s+interesse/,
+    /\bnao\s+me\s+(ligue|chame|contate|procure)\s+mais/,
+    /\bremov[ae]\s+(meu\s+)?(numero|contato|cadastro)/,
+    /\bexclu[ia]\s+(meu\s+)?(numero|contato|cadastro)/,
+    /\bdesinscrever/,
+    /\bdescadastr/,
+    /\bsair\s+da\s+lista/,
+    /\bnao\s+pertub/,
+    /\bnao\s+incomod/,
+    /\bbloque/,
+    /\bdenunci/,
+  ]
+
+  for (const pattern of optOutPatterns) {
+    if (pattern.test(text)) {
+      return { detected: true, category: "opt_out", matchedPattern: pattern.source }
+    }
+  }
+
+  // --- WILL CONTACT LATER: lead says they'll reach out themselves ---
+  const willContactPatterns = [
+    /\b(eu\s+)?(entro|faco)\s+contato/,
+    /\b(eu\s+)?(te\s+)?ligo\s+(depois|amanha|mais\s+tarde|na\s+semana)/,
+    /\b(eu\s+)?(te\s+)?chamo\s+(depois|amanha|mais\s+tarde|quando)/,
+    /\b(eu\s+)?(te\s+)?procuro\s+(depois|amanha|mais\s+tarde|quando)/,
+    /\bquando\s+(eu\s+)?(tiver|puder|quiser)\s+(eu\s+)?(entro|faco)\s+contato/,
+    /\beu\s+(que\s+)?entro\s+em\s+contato/,
+    /\beu\s+retorno/,
+    /\bdepois\s+eu\s+(te\s+)?(ligo|chamo|procuro|falo)/,
+  ]
+
+  for (const pattern of willContactPatterns) {
+    if (pattern.test(text)) {
+      return { detected: true, category: "will_contact_later", matchedPattern: pattern.source }
+    }
+  }
+
+  // --- BOT / AUTOMATED MESSAGE from lead side ---
+  const botPatterns = [
+    /\bmensagem\s+automatica/,
+    /\bresposta\s+automatica/,
+    /\besta\s+(e|eh)\s+uma\s+mensagem\s+auto/,
+    /\bauto[\s-]?reply/,
+    /\b(este|esse)\s+numero\s+(nao|n)\s+(recebe|aceita)\s+(mensagen|chamada|ligac)/,
+    /\bnumero\s+(nao|n)\s+(existe|esta\s+ativo|disponivel)/,
+    /\bcaixa\s+postal/,
+    /\bvoicemail/,
+    /\bnumero\s+(desativado|inexistente|invalido)/,
+    /\bnao\s+e\s+possivel\s+entregar/,
+    /\bmessage\s+not\s+delivered/,
+  ]
+
+  for (const pattern of botPatterns) {
+    if (pattern.test(text)) {
+      return { detected: true, category: "bot_message", matchedPattern: pattern.source }
+    }
+  }
+
+  // --- DISSATISFACTION with service ---
+  const dissatisfactionPatterns = [
+    /\b(pessimo|horrivel|vergonha|absurdo|abuso)\s+(atendimento|servico|empresa)/,
+    /\b(voces|vcs)\s+s[ao]\s+(pessimo|horrivel|incompetente|ridiculo)/,
+    /\bvou\s+(denunciar|processar|reclamar\s+n[oa]|abrir\s+processo)/,
+    /\bprocon/,
+    /\breclame\s+aqui/,
+    /\bnunca\s+mais\s+(volto|contrato|indico|recomendo|piso)/,
+    /\bpior\s+(atendimento|empresa|servico|experiencia)/,
+    /\bgolpe/,
+    /\bestelionat/,
+    /\bfraud/,
+    /\bspam/,
+  ]
+
+  for (const pattern of dissatisfactionPatterns) {
+    if (pattern.test(text)) {
+      return { detected: true, category: "dissatisfaction", matchedPattern: pattern.source }
+    }
+  }
+
+  return { detected: false }
+}
+
+function negativeIntentLabel(category: NegativeIntentResult["category"]): string {
+  switch (category) {
+    case "opt_out": return "Pedido de remocao da lista de contatos"
+    case "will_contact_later": return "Lead disse que entrara em contato"
+    case "bot_message": return "Mensagem automatica/bot detectada"
+    case "dissatisfaction": return "Insatisfacao com atendimento"
+    default: return "Intencao negativa detectada"
+  }
 }
 
 function semanticSimilarityScore(a: string, b: string): number {
@@ -470,12 +589,14 @@ function normalizeFollowupIntervals(value: any): number[] {
     .map((item) => Number(item))
     .filter((item) => Number.isFinite(item))
     .map((item) => Math.floor(item))
-    .filter((item) => item >= 1 && item <= 60 * 24 * 30)
+    .filter((item) => item >= MIN_FOLLOWUP_INTERVAL_MINUTES && item <= 60 * 24 * 30)
     .filter((item, index, arr) => arr.indexOf(item) === index)
     .sort((a, b) => a - b)
 
   return normalized.length > 0 ? normalized : DEFAULT_FOLLOWUP_INTERVALS_MINUTES
 }
+
+const MIN_FOLLOWUP_INTERVAL_MINUTES = 10
 
 function resolveFollowupIntervalsFromConfig(config: NativeAgentConfig): number[] {
   if (Array.isArray(config.followupPlan) && config.followupPlan.length > 0) {
@@ -486,7 +607,7 @@ function resolveFollowupIntervalsFromConfig(config: NativeAgentConfig): number[]
       }))
       .filter((entry) => entry.enabled === true && Number.isFinite(entry.minutes))
       .map((entry) => Math.floor(entry.minutes))
-      .filter((entry) => entry >= 1 && entry <= 60 * 24 * 30)
+      .filter((entry) => entry >= MIN_FOLLOWUP_INTERVAL_MINUTES && entry <= 60 * 24 * 30)
 
     // Se followupPlan existe, respeita somente os itens ativos.
     // Todos desativados => sem follow-up.
@@ -661,30 +782,20 @@ function normalizeNotificationTargets(input: any): string[] {
     .map((value) => {
       const text = String(value || "").trim()
       if (!text) return ""
-      if (/@g\.us$/i.test(text) || /@lid$/i.test(text)) return text
 
-      const groupSuffixMatch = text.match(/^(.+)-group$/i)
-      if (groupSuffixMatch?.[1]) {
-        const normalizedGroup = String(groupSuffixMatch[1]).replace(/[^0-9-]/g, "")
-        if (normalizedGroup.length >= 8) {
-          return `${normalizedGroup}-group`
-        }
-      }
+      // ONLY allow group targets — never send notifications to individual leads
+      if (/@g\.us$/i.test(text)) return text
+      if (/-group$/i.test(text)) return text
 
-      const waMeMatch = text.match(/wa\.me\/(\d{10,15})/i)
-      if (waMeMatch?.[1]) {
-        const digits = waMeMatch[1]
-        return digits.startsWith("55") ? digits : `55${digits}`
-      }
-
+      // Try to detect group-shaped IDs (numeric-dash-numeric pattern)
       const groupCandidate = text.replace(/[^0-9-]/g, "")
       if (/^\d{8,}-\d{2,}$/.test(groupCandidate)) {
         return `${groupCandidate}-group`
       }
 
-      const digits = text.replace(/\D/g, "")
-      if (digits.length < 10 || digits.length > 15) return ""
-      return digits.startsWith("55") ? digits : `55${digits}`
+      // Reject individual phone numbers — notifications must go to groups only
+      console.warn(`[native-agent] Notification target rejected (not a group): ${text}`)
+      return ""
     })
     .filter(Boolean)
     .slice(0, 100)
@@ -788,6 +899,86 @@ export class NativeAgentOrchestratorService {
         phone,
       })
       .catch(() => {})
+
+    // -----------------------------------------------------------------------
+    // Auto-pause: detect negative intent BEFORE any AI processing
+    // -----------------------------------------------------------------------
+    const negativeIntent = detectNegativeLeadIntent(content)
+    if (negativeIntent.detected) {
+      const label = negativeIntentLabel(negativeIntent.category)
+      console.log(
+        `[native-agent][auto-pause] Negative intent detected for ${phone}@${tenant}: ${negativeIntent.category} (${negativeIntent.matchedPattern})`,
+      )
+
+      // 1) Pause the lead in {tenant}_pausar
+      const tables = getTablesForTenant(tenant)
+      const nowIso = new Date().toISOString()
+      const pausePayload: Record<string, any> = {
+        numero: phone,
+        pausar: true,
+        vaga: true,
+        agendamento: true,
+        pausado_em: nowIso,
+        updated_at: nowIso,
+      }
+
+      await this.upsertWithColumnFallback(tables.pausar, pausePayload, "numero")
+        .then((r) => {
+          if (r.error) console.warn("[native-agent][auto-pause] pause upsert error:", r.error)
+        })
+        .catch((err) => console.warn("[native-agent][auto-pause] pause upsert failed:", err))
+
+      // 2) Follow-ups already cancelled above — ensure nothing is re-queued
+      //    by returning early (no AI response, no new follow-ups enqueued)
+
+      // 3) Create notification for the attendant
+      const contactFirstName = firstName(input.contactName)
+      const leadLabel = contactFirstName || phone
+      await createNotification({
+        type: "lead_paused",
+        title: `Lead pausado automaticamente`,
+        message: `${leadLabel} foi pausado: ${label}. Mensagem: "${content.slice(0, 120)}"`,
+        phoneNumber: phone,
+        leadName: contactFirstName || input.contactName || undefined,
+        metadata: {
+          category: negativeIntent.category,
+          matchedPattern: negativeIntent.matchedPattern,
+          originalMessage: content.slice(0, 500),
+          sessionId,
+          autoPaused: true,
+        },
+        priority: "urgent",
+        tenant,
+      }).catch((err) => console.warn("[native-agent][auto-pause] notification error:", err))
+
+      // 4) Persist a system status message in chat history for traceability
+      await chat.persistMessage({
+        sessionId,
+        role: "system",
+        type: "status",
+        content: "lead_auto_paused",
+        additional: {
+          auto_paused: true,
+          category: negativeIntent.category,
+          label,
+          original_message: content.slice(0, 500),
+        },
+      }).catch(() => {})
+
+      // 5) Send WhatsApp notification to configured group targets (if any)
+      const groupTargets = normalizeNotificationTargets(config.toolNotificationTargets)
+      if (config.notifyOnHumanHandoff && groupTargets.length) {
+        const notifMsg = `⚠️ *Lead pausado automaticamente*\n\n📱 ${leadLabel} (${phone})\n📋 Motivo: ${label}\n💬 Mensagem: "${content.slice(0, 200)}"\n\nO lead foi pausado e nenhum follow-up sera enviado. Verifique no painel.`
+        await this.sendToolNotifications(tenant, groupTargets, notifMsg).catch(() => {})
+      }
+
+      return {
+        processed: true,
+        replied: false,
+        actions: [{ type: "handoff_human" as AgentActionPlan["type"], ok: true, details: { autoPaused: true, category: negativeIntent.category } }],
+        reason: "lead_auto_paused_negative_intent",
+      }
+    }
 
     if (!config.enabled) {
       return {
@@ -1324,7 +1515,13 @@ export class NativeAgentOrchestratorService {
     let failed = 0
     const failures: Array<{ target: string; error: string }> = []
 
-    for (const target of targets) {
+    // Safety: only send to groups, never to individual leads
+    const safeTargets = targets.filter((t) => /@g\.us$/i.test(t) || /-group$/i.test(t))
+    if (safeTargets.length < targets.length) {
+      console.warn(`[native-agent] Blocked ${targets.length - safeTargets.length} non-group notification target(s)`)
+    }
+
+    for (const target of safeTargets) {
       const result = await this.messaging
         .sendText({
           tenant,
@@ -1540,7 +1737,9 @@ export class NativeAgentOrchestratorService {
     const resolvedPromptBase = applyDynamicPromptVariables(String(config.promptBase || "").trim(), vars)
 
     const personalizationRule = config.useFirstNamePersonalization
-      ? `- Sempre trate o lead pelo primeiro nome quando estiver disponivel: ${contactFirstName || "nao informado"}.`
+      ? contactFirstName
+        ? `- Sempre trate o lead pelo primeiro nome: ${contactFirstName}.`
+        : `- Nome do lead nao disponivel. Use "voce". NAO pergunte o nome.`
       : "- Nao personalize por primeiro nome."
     const toneRule = `- Tom de conversa configurado: ${config.conversationTone}.`
     const humanizationRule = `- Nivel de humanizacao desejado: ${config.humanizationLevelPercent}% (evite resposta robotica e mantenha naturalidade).`
@@ -1601,6 +1800,17 @@ export class NativeAgentOrchestratorService {
     const pieces = [
       resolvedPromptBase,
       "",
+      "REGRA CRITICA DE IDENTIDADE E NOMES:",
+      contactFirstName
+        ? `- Voce e a IA assistente. O lead (cliente) com quem voce esta conversando se chama: ${contactFirstName}.`
+        : `- Voce e a IA assistente. O nome do lead NAO esta disponivel. Trate-o por "voce". NAO pergunte o nome.`,
+      `- NUNCA confunda SEU nome (definido no prompt acima) com o nome do lead.`,
+      `- NUNCA se apresente usando o nome do lead. NUNCA chame o lead pelo seu proprio nome de IA.`,
+      `- No historico abaixo, mensagens "user" sao do lead (${contactFirstName || "cliente"}), mensagens "assistant" sao SUAS (IA).`,
+      `- Se o nome do lead nao estiver disponivel, use "voce" em vez de inventar ou adivinhar um nome.`,
+      `- NUNCA pergunte o nome do lead. Se o nome nao esta no contexto, siga a conversa sem nome. Perguntar o nome repetidamente e proibido.`,
+      `- Cada conversa e ISOLADA: nao misture informacoes de um lead com outro. Use SOMENTE o contexto desta sessao (${ctx.sessionId}).`,
+      "",
       "REGRAS OPERACIONAIS:",
       "- O session_id e o telefone devem ser sempre no formato numerico, iniciando com 55.",
       "- Responda sempre em portugues do Brasil.",
@@ -1631,15 +1841,17 @@ export class NativeAgentOrchestratorService {
       "- Quando fizer sentido retomar depois, acione create_followup ou create_reminder.",
       "- Se precisar transferir para humano, acione handoff_human.",
       "",
-      `CONTEXTO:`,
+      `CONTEXTO DA SESSAO ATUAL (nao misture com outras sessoes):`,
       `- Data/hora atual ISO: ${now}`,
       `- Telefone do lead: ${ctx.phone}`,
-      `- Session ID: ${ctx.sessionId}`,
+      `- Session ID (identificador unico desta conversa): ${ctx.sessionId}`,
       `- Chat LID: ${ctx.chatLid || "nao informado"}`,
       `- Message ID: ${ctx.messageId || "nao informado"}`,
       `- Status webhook: ${ctx.status || "nao informado"}`,
       `- Moment webhook: ${ctx.moment ? String(ctx.moment) : "nao informado"}`,
-      `- Primeiro nome do lead: ${contactFirstName || "nao informado"}`,
+      contactFirstName
+        ? `- NOME DO LEAD (cliente): ${contactFirstName} — use SOMENTE este nome para se referir ao lead.`
+        : `- NOME DO LEAD (cliente): desconhecido — use "voce" para se dirigir ao lead. NAO pergunte o nome.`,
       `- Mensagens do lead na conversa: ${Number(ctx.userMessagesCount || 0)}`,
       `- Mensagens ja enviadas pela IA: ${Number(ctx.assistantMessagesCount || 0)}`,
       `- Trigger interno fromMe: ${internalFromMeTrigger || "nao"}`,

@@ -151,6 +151,7 @@ const DEFAULT_FOLLOWUP_BUSINESS_START = "07:00"
 const DEFAULT_FOLLOWUP_BUSINESS_END = "23:00"
 const DEFAULT_FOLLOWUP_BUSINESS_DAYS = [0, 1, 2, 3, 4, 5, 6] // Todos os dias
 const DEFAULT_FOLLOWUP_INTERVALS_MINUTES = [15, 60, 360, 1440, 2880, 4320, 7200]
+const MIN_FOLLOWUP_INTERVAL_MINUTES = 10
 
 function safeObject(input: any): Record<string, any> {
   if (input && typeof input === "object" && !Array.isArray(input)) return input
@@ -263,8 +264,8 @@ function readFollowupPlan(input: any, fallbackIntervals: number[]): Array<{ enab
     .map((entry) => {
       const raw = safeObject(entry)
       const enabled = readBoolean(raw.enabled, true)
-      const minutes = readNumber(raw.minutes, 0, 1, 60 * 24 * 30)
-      if (!Number.isFinite(minutes) || minutes <= 0) return null
+      const minutes = readNumber(raw.minutes, 0, MIN_FOLLOWUP_INTERVAL_MINUTES, 60 * 24 * 30)
+      if (!Number.isFinite(minutes) || minutes < MIN_FOLLOWUP_INTERVAL_MINUTES) return null
       return { enabled, minutes }
     })
     .filter((entry): entry is { enabled: boolean; minutes: number } => Boolean(entry))

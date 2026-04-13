@@ -17,6 +17,7 @@ import {
     MessageSquare,
     Megaphone,
     Bot,
+    RefreshCw,
 } from "lucide-react"
 import { toast } from "sonner"
 import {
@@ -227,6 +228,23 @@ export default function AdminUnitsPage() {
     const [loadingNativeAgent, setLoadingNativeAgent] = useState(false)
     const [savingNativeAgent, setSavingNativeAgent] = useState(false)
     const [connectingGoogle, setConnectingGoogle] = useState(false)
+
+    // ── Kommo CRM ──
+    const [kommoDialogOpen, setKommoDialogOpen] = useState(false)
+    const [kommoUnit, setKommoUnit] = useState<Unit | null>(null)
+    const [kommoEnabled, setKommoEnabled] = useState(false)
+    const [kommoSubdomain, setKommoSubdomain] = useState("")
+    const [kommoApiToken, setKommoApiToken] = useState("")
+    const [kommoSyncPipelines, setKommoSyncPipelines] = useState(true)
+    const [kommoSyncTags, setKommoSyncTags] = useState(true)
+    const [kommoSyncLeads, setKommoSyncLeads] = useState(true)
+    const [kommoSyncContacts, setKommoSyncContacts] = useState(false)
+    const [kommoAutoSyncInterval, setKommoAutoSyncInterval] = useState(30)
+    const [savingKommo, setSavingKommo] = useState(false)
+    const [testingKommo, setTestingKommo] = useState(false)
+    const [syncingKommo, setSyncingKommo] = useState(false)
+    const [kommoLastSync, setKommoLastSync] = useState("")
+    const [kommoLastSyncStatus, setKommoLastSyncStatus] = useState("")
 
     const handleDelete = (unit: Unit) => {
         setUnitToDelete(unit)
@@ -739,6 +757,132 @@ export default function AdminUnitsPage() {
         }
     }
 
+    // ── Kommo CRM functions ──
+
+    const openKommoDialog = async (unit: Unit) => {
+        setKommoUnit(unit)
+        const k = unit.metadata?.kommo || {}
+        setKommoEnabled(Boolean(k.enabled))
+        setKommoSubdomain(k.subdomain || "")
+        setKommoApiToken(k.apiToken ? `${String(k.apiToken).slice(0, 8)}...` : "")
+        setKommoSyncPipelines(k.syncPipelines !== false)
+        setKommoSyncTags(k.syncTags !== false)
+        setKommoSyncLeads(k.syncLeads !== false)
+        setKommoSyncContacts(Boolean(k.syncContacts))
+        setKommoAutoSyncInterval(Number(k.autoSyncIntervalMinutes) || 30)
+        setKommoLastSync(k.lastSyncAt || "")
+        setKommoLastSyncStatus(k.lastSyncStatus || "")
+        setKommoDialogOpen(true)
+
+        // Fetch latest config from server (may have masked token)
+        try {
+            const unitRef = String(unit.prefix || unit.id || "").trim()
+            const res = await fetch(`/api/admin/units/${encodeURIComponent(unitRef)}/kommo-config`)
+            const data = await res.json().catch(() => ({}))
+            if (res.ok && data.config) {
+                const c = data.config
+                setKommoEnabled(Boolean(c.enabled))
+                setKommoSubdomain(c.subdomain || "")
+                setKommoApiToken(c.apiToken || "")
+                setKommoSyncPipelines(c.syncPipelines !== false)
+                setKommoSyncTags(c.syncTags !== false)
+                setKommoSyncLeads(c.syncLeads !== false)
+                setKommoSyncContacts(Boolean(c.syncContacts))
+                setKommoAutoSyncInterval(Number(c.autoSyncIntervalMinutes) || 30)
+                setKommoLastSync(c.lastSyncAt || "")
+                setKommoLastSyncStatus(c.lastSyncStatus || "")
+            }
+        } catch {}
+    }
+
+    const saveKommoConfig = async () => {
+        if (!kommoUnit) return
+        setSavingKommo(true)
+        try {
+            const unitRef = String(kommoUnit.prefix || kommoUnit.id || "").trim()
+            const payload = {
+                enabled: kommoEnabled,
+                subdomain: kommoSubdomain.trim(),
+                apiToken: kommoApiToken.trim(),
+                syncPipelines: kommoSyncPipelines,
+                syncTags: kommoSyncTags,
+                syncLeads: kommoSyncLeads,
+                syncContacts: kommoSyncContacts,
+                autoSyncIntervalMinutes: kommoAutoSyncInterval,
+            }
+
+            const res = await fetch(`/api/admin/units/${encodeURIComponent(unitRef)}/kommo-config`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ config: payload }),
+            })
+            const data = await res.json().catch(() => ({}))
+            if (!res.ok) throw new Error(data.error || "Erro ao salvar configuracao Kommo")
+
+            toast.success("Configuracao Kommo salva com sucesso!")
+            fetchUnits()
+        } catch (error: any) {
+            toast.error(error?.message || "Falha ao salvar Kommo")
+        } finally {
+            setSavingKommo(false)
+        }
+    }
+
+    const testKommoConnection = async () => {
+        if (!kommoUnit) return
+        setTestingKommo(true)
+        try {
+            const unitRef = String(kommoUnit.prefix || kommoUnit.id || "").trim()
+            const res = await fetch(`/api/admin/units/${encodeURIComponent(unitRef)}/kommo-config`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ action: "test" }),
+            })
+            const data = await res.json().catch(() => ({}))
+            if (!res.ok) throw new Error(data.error || "Falha ao testar conexao")
+
+            if (data.ok) {
+                toast.success(`Conexao OK! Conta: ${data.accountName || "conectado"}`)
+            } else {
+                toast.error(`Falha: ${data.error || "Erro desconhecido"}`)
+            }
+        } catch (error: any) {
+            toast.error(error?.message || "Falha ao testar conexao Kommo")
+        } finally {
+            setTestingKommo(false)
+        }
+    }
+
+    const syncKommoNow = async () => {
+        if (!kommoUnit) return
+        setSyncingKommo(true)
+        try {
+            const unitRef = String(kommoUnit.prefix || kommoUnit.id || "").trim()
+            const res = await fetch(`/api/crm/kommo/sync`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "x-tenant-prefix": unitRef },
+                body: JSON.stringify({ tenant: unitRef }),
+            })
+            const data = await res.json().catch(() => ({}))
+            if (!res.ok) throw new Error(data.error || "Falha na sincronizacao")
+
+            if (data.success) {
+                toast.success(
+                    `Sync concluido! Pipelines: ${data.pipelines?.synced || 0}, Tags: ${data.tags?.synced || 0}, Leads: ${data.leads?.synced || 0} (${data.leads?.created || 0} novos, ${data.leads?.updated || 0} atualizados)`
+                )
+                setKommoLastSync(new Date().toISOString())
+                setKommoLastSyncStatus("success")
+            } else {
+                toast.error(`Sync com erros: ${data.errors?.join("; ") || "erro desconhecido"}`)
+                setKommoLastSyncStatus("error")
+            }
+        } catch (error: any) {
+            toast.error(error?.message || "Falha na sincronizacao Kommo")
+        } finally {
+            setSyncingKommo(false)
+        }
+    }
+
     useEffect(() => {
         fetchUnits()
         fetchWorkflows()
@@ -1172,6 +1316,13 @@ export default function AdminUnitsPage() {
                                         className="text-gray-600 hover:text-[#ededed] text-xs flex items-center gap-1 transition-colors"
                                     >
                                         <Bot className="w-3 h-3" /> Configurar Agente IA
+                                    </button>
+
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); openKommoDialog(unit) }}
+                                        className="text-gray-600 hover:text-[#ededed] text-xs flex items-center gap-1 transition-colors"
+                                    >
+                                        <RefreshCw className="w-3 h-3" /> Kommo CRM
                                     </button>
 
                                     <button
@@ -2365,6 +2516,138 @@ export default function AdminUnitsPage() {
                             disabled={loadingNativeAgent || savingNativeAgent}
                         >
                             {savingNativeAgent ? "Salvando..." : "Salvar Configuracao"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* DIALOG KOMMO CRM */}
+            <Dialog open={kommoDialogOpen} onOpenChange={setKommoDialogOpen}>
+                <DialogContent className="bg-[#121212] border-[#333] text-white max-w-lg max-h-[85vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle className="text-green-400">Kommo CRM — {kommoUnit?.name}</DialogTitle>
+                        <DialogDescription className="text-gray-400">
+                            Integre com o Kommo CRM para sincronizar funis, tags e leads.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="space-y-4">
+                        {/* Ativar */}
+                        <div className="flex items-center gap-3">
+                            <input
+                                type="checkbox"
+                                checked={kommoEnabled}
+                                onChange={(e) => setKommoEnabled(e.target.checked)}
+                                className="accent-green-400 w-4 h-4"
+                            />
+                            <Label className="text-white">Integracao ativa</Label>
+                        </div>
+
+                        {/* Subdomain */}
+                        <div>
+                            <Label className="text-gray-400 text-xs">Subdominio Kommo</Label>
+                            <div className="flex items-center gap-1">
+                                <Input
+                                    value={kommoSubdomain}
+                                    onChange={(e) => setKommoSubdomain(e.target.value)}
+                                    placeholder="minhaempresa"
+                                    className="bg-[#1a1a1a] border-[#333] text-white"
+                                />
+                                <span className="text-gray-500 text-xs whitespace-nowrap">.kommo.com</span>
+                            </div>
+                        </div>
+
+                        {/* API Token */}
+                        <div>
+                            <Label className="text-gray-400 text-xs">Token de API (Bearer)</Label>
+                            <Input
+                                value={kommoApiToken}
+                                onChange={(e) => setKommoApiToken(e.target.value)}
+                                placeholder="Token de longa duracao"
+                                type="password"
+                                className="bg-[#1a1a1a] border-[#333] text-white"
+                            />
+                        </div>
+
+                        {/* Test connection */}
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="border-[#333] text-gray-300 hover:text-white"
+                            onClick={testKommoConnection}
+                            disabled={testingKommo || !kommoSubdomain || !kommoApiToken}
+                        >
+                            {testingKommo ? "Testando..." : "Testar Conexao"}
+                        </Button>
+
+                        <hr className="border-[#333]" />
+
+                        {/* Sync options */}
+                        <p className="text-xs text-gray-500 font-semibold uppercase tracking-wider">Opcoes de Sincronizacao</p>
+
+                        <div className="space-y-2">
+                            <div className="flex items-center gap-3">
+                                <input type="checkbox" checked={kommoSyncPipelines} onChange={(e) => setKommoSyncPipelines(e.target.checked)} className="accent-green-400 w-4 h-4" />
+                                <Label className="text-white text-sm">Sincronizar Pipelines (Funis)</Label>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <input type="checkbox" checked={kommoSyncTags} onChange={(e) => setKommoSyncTags(e.target.checked)} className="accent-green-400 w-4 h-4" />
+                                <Label className="text-white text-sm">Sincronizar Tags</Label>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <input type="checkbox" checked={kommoSyncLeads} onChange={(e) => setKommoSyncLeads(e.target.checked)} className="accent-green-400 w-4 h-4" />
+                                <Label className="text-white text-sm">Sincronizar Leads</Label>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <input type="checkbox" checked={kommoSyncContacts} onChange={(e) => setKommoSyncContacts(e.target.checked)} className="accent-green-400 w-4 h-4" />
+                                <Label className="text-white text-sm">Sincronizar Contatos</Label>
+                            </div>
+                        </div>
+
+                        {/* Interval */}
+                        <div>
+                            <Label className="text-gray-400 text-xs">Intervalo de sync automatico (minutos)</Label>
+                            <Input
+                                type="number"
+                                min={5}
+                                max={1440}
+                                value={kommoAutoSyncInterval}
+                                onChange={(e) => setKommoAutoSyncInterval(Number(e.target.value) || 30)}
+                                className="bg-[#1a1a1a] border-[#333] text-white w-32"
+                            />
+                        </div>
+
+                        <hr className="border-[#333]" />
+
+                        {/* Sync now */}
+                        <div className="flex items-center gap-3">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="border-green-800 text-green-400 hover:bg-green-900/30"
+                                onClick={syncKommoNow}
+                                disabled={syncingKommo}
+                            >
+                                <RefreshCw className={`w-3 h-3 mr-1 ${syncingKommo ? "animate-spin" : ""}`} />
+                                {syncingKommo ? "Sincronizando..." : "Sincronizar Agora"}
+                            </Button>
+                            {kommoLastSync && (
+                                <span className="text-xs text-gray-500">
+                                    Ultimo sync: {new Date(kommoLastSync).toLocaleString("pt-BR")}
+                                    {kommoLastSyncStatus === "error" && <span className="text-red-400 ml-1">(erro)</span>}
+                                    {kommoLastSyncStatus === "success" && <span className="text-green-400 ml-1">(ok)</span>}
+                                </span>
+                            )}
+                        </div>
+                    </div>
+
+                    <DialogFooter>
+                        <Button
+                            className="bg-green-400 text-black hover:bg-green-500"
+                            onClick={saveKommoConfig}
+                            disabled={savingKommo}
+                        >
+                            {savingKommo ? "Salvando..." : "Salvar Configuracao"}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

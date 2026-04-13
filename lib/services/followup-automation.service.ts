@@ -26,6 +26,7 @@ function toDate(value: any): Date | null {
 }
 
 const DEFAULT_FOLLOWUP_INTERVALS = [15, 60, 360, 1440, 2880, 4320, 7200]
+const MIN_FOLLOWUP_INTERVAL_MINUTES = 10
 
 function normalizeFollowupIntervals(value: any): number[] {
     const source = Array.isArray(value) ? value : []
@@ -33,7 +34,7 @@ function normalizeFollowupIntervals(value: any): number[] {
         .map((item) => Number(item))
         .filter((item) => Number.isFinite(item))
         .map((item) => Math.floor(item))
-        .filter((item) => item >= 1 && item <= 60 * 24 * 30)
+        .filter((item) => item >= MIN_FOLLOWUP_INTERVAL_MINUTES && item <= 60 * 24 * 30)
         .filter((item, index, arr) => arr.indexOf(item) === index)
         .sort((a, b) => a - b)
 
@@ -49,7 +50,7 @@ function resolveFollowupIntervalsFromConfig(config: any): number[] {
             }))
             .filter((entry: any) => entry.enabled === true && Number.isFinite(entry.minutes))
             .map((entry: any) => Math.floor(entry.minutes))
-            .filter((entry: number) => entry >= 1 && entry <= 60 * 24 * 30)
+            .filter((entry: number) => entry >= MIN_FOLLOWUP_INTERVAL_MINUTES && entry <= 60 * 24 * 30)
 
         // Se followupPlan existe, respeita exatamente os itens ativos.
         // Se todos estiverem desativados, retorna [] para nao agendar follow-up.
@@ -420,10 +421,10 @@ export class FollowUpAutomationService {
     private extractConversationTopic(history: Array<{ role: string; content: string }>): string {
         const allText = history.map(m => m.content).join(' ').toLowerCase()
 
-        if (allText.includes('agendar') || allText.includes('agendamento') || allText.includes('horÃ¡rio') || allText.includes('horario') || allText.includes('manhÃ£') || allText.includes('tarde') || allText.includes('noite')) return 'agendamento'
-        if (allText.includes('preÃ§o') || allText.includes('preco') || allText.includes('valor') || allText.includes('investimento') || allText.includes('mensalidade') || allText.includes('r$')) return 'preÃ§o'
-        if (allText.includes('curso') || allText.includes('oratÃ³ria') || allText.includes('oratoria') || allText.includes('comunicaÃ§Ã£o') || allText.includes('comunicacao') || allText.includes('treinamento')) return 'curso'
-        if (allText.includes('diagnÃ³stico') || allText.includes('diagnostico') || allText.includes('avaliaÃ§Ã£o') || allText.includes('avaliacao')) return 'diagnÃ³stico'
+        if (allText.includes('agendar') || allText.includes('agendamento') || allText.includes('horario') || allText.includes('manha') || allText.includes('tarde') || allText.includes('noite')) return 'agendamento'
+        if (allText.includes('preco') || allText.includes('valor') || allText.includes('investimento') || allText.includes('mensalidade') || allText.includes('r$')) return 'preco'
+        if (allText.includes('curso') || allText.includes('oratoria') || allText.includes('comunicacao') || allText.includes('treinamento')) return 'curso'
+        if (allText.includes('diagnostico') || allText.includes('avaliacao')) return 'diagnostico'
         if (allText.includes('visita') || allText.includes('presencial') || allText.includes('conhecer')) return 'visita'
 
         return 'geral'

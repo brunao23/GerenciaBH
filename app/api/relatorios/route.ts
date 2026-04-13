@@ -401,7 +401,7 @@ function isAgendamentoExplicito(agendamento: any): boolean {
 
   const observacoes = String(
     agendamento?.observacoes ??
-      agendamento?.["observaÃƒÂ§ÃƒÂµes"] ??
+      agendamento?.["observacoes"] ??
       agendamento?.obs ??
       "",
   ).toLowerCase()
@@ -421,8 +421,8 @@ function isAgendamentoExplicito(agendamento: any): boolean {
     /agendad|marcad|confirmad/.test(status)
 
   const hasDiagnosticContext =
-    /diagn[oÃƒÂ³]stico/.test(observacoes) ||
-    /avaliacao|avaliaÃƒÂ§ÃƒÂ£o/.test(observacoes)
+    /diagn[oó]stico/.test(observacoes) ||
+    /avaliacao|avaliação/.test(observacoes)
 
   return (hasDefinedDay && hasDefinedTime) || hasConfirmation || hasDiagnosticContext
 }
