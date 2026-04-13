@@ -307,6 +307,56 @@ export class KommoService {
     }
   }
 
+  /**
+   * Fetch contacts by IDs in batches (max 50 per request via filter).
+   * Returns a map of contactId → KommoContact.
+   */
+  async getContactsByIds(contactIds: number[]): Promise<Map<number, KommoContact>> {
+    const result = new Map<number, KommoContact>()
+    if (!contactIds.length) return result
+
+    const unique = [...new Set(contactIds)]
+    const batchSize = 50
+
+    for (let i = 0; i < unique.length; i += batchSize) {
+      const batch = unique.slice(i, i + batchSize)
+      const contacts = await this.listContacts({
+        filter: { id: batch },
+        limit: batchSize,
+      })
+      for (const contact of contacts) {
+        result.set(contact.id, contact)
+      }
+    }
+
+    return result
+  }
+
+  /**
+   * Extract the first phone number from a Kommo contact's custom fields.
+   * Kommo stores phones in custom_fields_values with field_code "PHONE".
+   */
+  static extractPhoneFromContact(contact: KommoContact | null): string | null {
+    if (!contact?.custom_fields_values) return null
+
+    for (const field of contact.custom_fields_values) {
+      if (
+        field.field_code === "PHONE" ||
+        field.field_type === "phone" ||
+        /phone|telefone|celular|whatsapp/i.test(field.field_name)
+      ) {
+        const firstValue = field.values?.[0]?.value
+        if (firstValue) {
+          // Clean phone: keep only digits, remove country code prefix if needed
+          const digits = String(firstValue).replace(/\D/g, "")
+          if (digits.length >= 8) return digits
+        }
+      }
+    }
+
+    return null
+  }
+
   // ── Account Info ───────────────────────────────────────────────────
 
   async getAccount(): Promise<any> {

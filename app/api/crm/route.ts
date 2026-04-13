@@ -1211,68 +1211,119 @@ export async function GET(req: Request) {
         console.log(`[CRM] Total de cards apÃ³s deduplicaÃ§Ã£o: ${deduplicatedCards.length} (removidos: ${cards.length - deduplicatedCards.length})`)
 
         // ── Injetar leads do Kommo CRM ──────────────────────────────────────
+        // Leads do Kommo que têm telefone resolvido já entram pelo chat history
+        // (porque o lead_id = telefone). Aqui pegamos apenas os que NÃO apareceram
+        // ainda (sem chat history ou telefone não resolvido).
         try {
             const kommoConfig = await getKommoConfigForTenant(tenant)
             if (kommoConfig?.enabled && kommoConfig.syncLeads) {
-                // Fetch Kommo leads from lead_status table (kommo_* IDs)
-                const { data: kommoStatusRows } = await supabase
+                // Load cached leads index from metadata
+                let cachedLeadsIndex: Record<string, {
+                    name: string; contactName: string; phone: string;
+                    price: number; tags: string[]; pipeline_id: number;
+                    status_id: number; kommo_id: number
+                }> = {}
+                try {
+                    const registryTenant = await resolveTenantRegistryPrefix(tenant)
+                    const { data: regData } = await supabase
+                        .from("units_registry")
+                        .select("metadata")
+                        .eq("unit_prefix", registryTenant)
+                        .maybeSingle()
+                    if (regData?.metadata?.kommo?.cachedLeadsIndex) {
+                        cachedLeadsIndex = regData.metadata.kommo.cachedLeadsIndex
+                    }
+                } catch {}
+
+                // Enrich existing cards that match Kommo leads (by phone number)
+                const existingIds = new Set(deduplicatedCards.map(c => c.id))
+                const existingPhones = new Set<string>()
+                for (const card of deduplicatedCards) {
+                    const phone = normalizePhone(card.numero)
+                    if (phone) existingPhones.add(phone)
+                }
+
+                // Also check for leads with kommo_ prefix in status table that have NO chat history
+                const { data: kommoOnlyRows } = await supabase
                     .from(statusTable)
                     .select("lead_id, status, updated_at")
                     .like("lead_id", "kommo_%")
 
-                if (kommoStatusRows && kommoStatusRows.length > 0) {
-                    // Load cached leads index from metadata for names/tags/price
-                    let cachedLeadsIndex: Record<string, { name: string; price: number; tags: string[]; pipeline_id: number; status_id: number }> = {}
-                    try {
-                        const registryTenant = await resolveTenantRegistryPrefix(tenant)
-                        const { data: regData } = await supabase
-                            .from("units_registry")
-                            .select("metadata")
-                            .eq("unit_prefix", registryTenant)
-                            .maybeSingle()
-                        if (regData?.metadata?.kommo?.cachedLeadsIndex) {
-                            cachedLeadsIndex = regData.metadata.kommo.cachedLeadsIndex
+                // Merge both: cached index entries AND kommo-only status rows
+                const allKommoLeadIds = new Set<string>([
+                    ...Object.keys(cachedLeadsIndex),
+                    ...(kommoOnlyRows || []).map((r: any) => r.lead_id),
+                ])
+
+                let kommoAdded = 0
+                let kommoEnriched = 0
+
+                for (const leadId of allKommoLeadIds) {
+                    const cached = cachedLeadsIndex[leadId]
+                    const phone = cached?.phone || ""
+                    const normalizedPhone = phone ? normalizePhone(phone) : ""
+
+                    // If this lead's phone already exists as a chat-based card, enrich it with Kommo tags
+                    if (normalizedPhone && existingPhones.has(normalizedPhone)) {
+                        if (cached) {
+                            for (const card of deduplicatedCards) {
+                                if (normalizePhone(card.numero) === normalizedPhone) {
+                                    // Add Kommo tags
+                                    const kommoTags = cached.tags || []
+                                    if (kommoTags.length > 0) {
+                                        const existing = new Set(card.tags)
+                                        for (const t of kommoTags) {
+                                            if (!existing.has(t)) card.tags.push(t)
+                                        }
+                                    }
+                                    // Add "Kommo" marker tag
+                                    if (!card.tags.includes("Kommo")) card.tags.push("Kommo")
+                                    kommoEnriched++
+                                    break
+                                }
+                            }
                         }
-                    } catch {}
-
-                    const existingIds = new Set(deduplicatedCards.map(c => c.id))
-                    let kommoAdded = 0
-
-                    for (const row of kommoStatusRows) {
-                        const leadId = row.lead_id
-                        if (existingIds.has(leadId)) continue
-
-                        const cached = cachedLeadsIndex[leadId]
-                        const kommoName = cached?.name || leadId.replace("kommo_", "Lead Kommo #")
-                        const kommoTags = cached?.tags || []
-                        const kommoPrice = cached?.price || 0
-                        const updatedAt = row.updated_at || new Date().toISOString()
-
-                        const kommoCard: CRMCard = {
-                            id: leadId,
-                            numero: leadId,
-                            name: kommoName,
-                            lastMessage: kommoPrice > 0 ? `Valor: R$ ${kommoPrice.toLocaleString("pt-BR")}` : "Lead importado do Kommo",
-                            firstMessage: "Importado do Kommo CRM",
-                            lastInteraction: updatedAt,
-                            status: row.status || "entrada",
-                            unreadCount: 0,
-                            tags: kommoTags.length > 0 ? kommoTags : ["Kommo"],
-                            sentiment: "neutral",
-                            totalMessages: 0,
-                            totalMessagesFromLead: 0,
-                            totalMessagesFromAI: 0,
-                            messageHistory: [],
-                        }
-
-                        deduplicatedCards.push(kommoCard)
-                        existingIds.add(leadId)
-                        kommoAdded++
+                        continue
                     }
 
-                    if (kommoAdded > 0) {
-                        console.log(`[CRM] Adicionados ${kommoAdded} leads do Kommo CRM`)
+                    // If this lead_id already exists as a card, skip
+                    if (existingIds.has(leadId)) continue
+
+                    // This lead has no chat history — add as Kommo-only card
+                    const statusRow = (kommoOnlyRows || []).find((r: any) => r.lead_id === leadId)
+                    const displayName = cached?.contactName || cached?.name || leadId.replace("kommo_", "Lead Kommo #")
+                    const kommoTags = cached?.tags || []
+                    const kommoPrice = cached?.price || 0
+                    const updatedAt = statusRow?.updated_at || new Date().toISOString()
+                    const displayPhone = phone || leadId
+
+                    const kommoCard: CRMCard = {
+                        id: leadId,
+                        numero: displayPhone,
+                        name: displayName,
+                        lastMessage: kommoPrice > 0
+                            ? `Valor: R$ ${kommoPrice.toLocaleString("pt-BR")} — Kommo CRM`
+                            : "Lead importado do Kommo CRM",
+                        firstMessage: "Importado do Kommo CRM",
+                        lastInteraction: updatedAt,
+                        status: statusRow?.status || "entrada",
+                        unreadCount: 0,
+                        tags: kommoTags.length > 0 ? [...kommoTags, "Kommo"] : ["Kommo"],
+                        sentiment: "neutral",
+                        totalMessages: 0,
+                        totalMessagesFromLead: 0,
+                        totalMessagesFromAI: 0,
+                        messageHistory: [],
                     }
+
+                    deduplicatedCards.push(kommoCard)
+                    existingIds.add(leadId)
+                    if (phone) existingPhones.add(normalizedPhone)
+                    kommoAdded++
+                }
+
+                if (kommoAdded > 0 || kommoEnriched > 0) {
+                    console.log(`[CRM] Kommo: ${kommoAdded} leads adicionados, ${kommoEnriched} enriquecidos com tags`)
                 }
             }
         } catch (kommoErr: any) {

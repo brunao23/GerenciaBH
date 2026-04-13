@@ -323,6 +323,23 @@ async function syncTags(
 
 // ── Leads Sync ───────────────────────────────────────────────────────────
 
+/**
+ * Normalize a phone number from Kommo contact to match WhatsApp session_id format.
+ * Kommo may store phones as "+5511999998888", "5511999998888", "11999998888", etc.
+ */
+function normalizeKommoPhone(raw: string): string {
+  const digits = String(raw || "").replace(/\D/g, "")
+  if (!digits || digits.length < 8) return ""
+
+  // If starts with country code 55 (Brazil) and has 12-13 digits, keep as-is
+  if (digits.startsWith("55") && digits.length >= 12) return digits
+
+  // If 10-11 digits (DDD + number), prepend 55
+  if (digits.length >= 10 && digits.length <= 11) return `55${digits}`
+
+  return digits
+}
+
 async function syncLeads(
   tenant: string,
   kommo: KommoService,
@@ -343,6 +360,55 @@ async function syncLeads(
   })
 
   if (!leads.length) return stats
+
+  // ── Resolve contact phone numbers ──────────────────────────────────
+  // Collect all contact IDs from leads
+  const allContactIds: number[] = []
+  for (const lead of leads) {
+    const contacts = lead._embedded?.contacts || []
+    for (const c of contacts) {
+      if (c.id) allContactIds.push(c.id)
+    }
+  }
+
+  // Batch fetch contacts to get phone numbers
+  let contactsMap = new Map<number, any>()
+  if (allContactIds.length > 0) {
+    try {
+      contactsMap = await kommo.getContactsByIds([...new Set(allContactIds)])
+      console.log(`[KommoSync][${tenant}] Fetched ${contactsMap.size} contacts for phone resolution`)
+    } catch (e: any) {
+      console.warn(`[KommoSync][${tenant}] Failed to fetch contacts:`, e.message)
+    }
+  }
+
+  // Build lead → phone mapping
+  const leadPhoneMap = new Map<number, string>()
+  const leadContactNameMap = new Map<number, string>()
+
+  for (const lead of leads) {
+    const contactIds = lead._embedded?.contacts?.map((c) => c.id) || []
+    for (const cId of contactIds) {
+      const contact = contactsMap.get(cId)
+      if (!contact) continue
+
+      const phone = KommoService.extractPhoneFromContact(contact)
+      if (phone) {
+        const normalized = normalizeKommoPhone(phone)
+        if (normalized) {
+          leadPhoneMap.set(lead.id, normalized)
+          // Also store contact name (usually more useful than lead name)
+          const contactName = contact.name || contact.first_name || ""
+          if (contactName) leadContactNameMap.set(lead.id, contactName)
+          break // Use first contact with valid phone
+        }
+      }
+    }
+  }
+
+  console.log(
+    `[KommoSync][${tenant}] Phone resolved for ${leadPhoneMap.size}/${leads.length} leads`,
+  )
 
   if (dryRun) {
     stats.synced = leads.length
@@ -368,10 +434,21 @@ async function syncLeads(
   const now = new Date().toISOString()
   const toInsert: any[] = []
   const toUpdate: Array<{ leadId: string; status: string }> = []
+  const usedLeadIds = new Set<string>()
 
   for (const lead of leads) {
-    // Use kommo_<id> as lead_id to avoid collision with phone-based leads
-    const leadId = `kommo_${lead.id}`
+    // Use phone number as lead_id when available, fallback to kommo_<id>
+    const phone = leadPhoneMap.get(lead.id)
+    const leadId = phone || `kommo_${lead.id}`
+
+    // Avoid duplicates (multiple Kommo leads with same phone)
+    if (usedLeadIds.has(leadId)) {
+      stats.skipped++
+      stats.synced++
+      continue
+    }
+    usedLeadIds.add(leadId)
+
     const localStatus = statusMapping[lead.status_id] || "entrada"
 
     const existing = existingMap.get(leadId)
@@ -429,15 +506,20 @@ async function syncLeads(
     `[KommoSync][${tenant}] Leads: ${stats.synced} total, ${stats.created} created, ${stats.updated} updated, ${stats.skipped} skipped`,
   )
 
-  // Store lead metadata (name, tags, price) in a cache table or metadata
-  await cacheKommoLeadDetails(tenant, leads)
+  // Store lead metadata (name, tags, price, phone) in cache
+  await cacheKommoLeadDetails(tenant, leads, leadPhoneMap, leadContactNameMap)
 
   return stats
 }
 
 // ── Lead Details Cache ───────────────────────────────────────────────────
 
-async function cacheKommoLeadDetails(tenant: string, leads: KommoLead[]): Promise<void> {
+async function cacheKommoLeadDetails(
+  tenant: string,
+  leads: KommoLead[],
+  leadPhoneMap: Map<number, string>,
+  leadContactNameMap: Map<number, string>,
+): Promise<void> {
   try {
     const supabase = createBiaSupabaseServerClient()
     const registryTenant = await resolveTenantRegistryPrefix(tenant)
@@ -453,19 +535,35 @@ async function cacheKommoLeadDetails(tenant: string, leads: KommoLead[]): Promis
     const metadata = data.metadata && typeof data.metadata === "object" ? data.metadata : {}
     const kommoMeta = metadata.kommo || {}
 
-    // Store a lightweight leads index (not full data)
+    // Store leads index keyed by the ACTUAL lead_id used in CRM (phone or kommo_<id>)
     const leadsIndex: Record<
       string,
-      { name: string; price: number; tags: string[]; pipeline_id: number; status_id: number }
+      {
+        name: string
+        contactName: string
+        phone: string
+        price: number
+        tags: string[]
+        pipeline_id: number
+        status_id: number
+        kommo_id: number
+      }
     > = {}
 
     for (const lead of leads) {
-      leadsIndex[`kommo_${lead.id}`] = {
+      const phone = leadPhoneMap.get(lead.id) || ""
+      const leadId = phone || `kommo_${lead.id}`
+      const contactName = leadContactNameMap.get(lead.id) || ""
+
+      leadsIndex[leadId] = {
         name: lead.name,
+        contactName,
+        phone,
         price: lead.price,
         tags: lead._embedded?.tags?.map((t) => t.name) || [],
         pipeline_id: lead.pipeline_id,
         status_id: lead.status_id,
+        kommo_id: lead.id,
       }
     }
 
