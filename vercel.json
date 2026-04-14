@@ -15,6 +15,10 @@
     {
       "path": "/api/admin/reports/daily",
       "schedule": "0 23 * * *"
+    },
+    {
+      "path": "/api/lembretes/process",
+      "schedule": "0 */2 * * *"
     }
   ]
 }

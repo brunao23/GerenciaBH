@@ -30,6 +30,7 @@ import {
   Building2,
   Bot,
   ShieldCheck,
+  Bell,
 } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useState } from "react"
@@ -39,6 +40,7 @@ const items = [
   { title: "CRM", url: "/crm", icon: LayoutTemplate },
   { title: "Conversas", url: "/conversas", icon: MessageCircle },
   { title: "Agendamentos", url: "/agendamentos", icon: Calendar },
+  { title: "Lembretes", url: "/lembretes", icon: Bell },
   { title: "Follow-ups", url: "/followups", icon: Workflow },
   { title: "Pausas", url: "/pausas", icon: PauseCircle },
   { title: "Disparos", url: "/disparos", icon: Megaphone },
