@@ -181,7 +181,7 @@ export default function LembretesPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex items-center justify-between p-3 rounded-lg bg-black/30 border border-border-gray/20">
+          <div className="flex items-center justify-between p-3 rounded-lg bg-foreground/5 border border-border-gray/20">
             <div className="flex items-center gap-3">
               <CalendarDays className="w-5 h-5 text-blue-400" />
               <div>
@@ -195,7 +195,7 @@ export default function LembretesPage() {
             />
           </div>
 
-          <div className="flex items-center justify-between p-3 rounded-lg bg-black/30 border border-border-gray/20">
+          <div className="flex items-center justify-between p-3 rounded-lg bg-foreground/5 border border-border-gray/20">
             <div className="flex items-center gap-3">
               <CalendarClock className="w-5 h-5 text-yellow-400" />
               <div>
@@ -209,7 +209,7 @@ export default function LembretesPage() {
             />
           </div>
 
-          <div className="flex items-center justify-between p-3 rounded-lg bg-black/30 border border-border-gray/20">
+          <div className="flex items-center justify-between p-3 rounded-lg bg-foreground/5 border border-border-gray/20">
             <div className="flex items-center gap-3">
               <Timer className="w-5 h-5 text-red-400" />
               <div>
@@ -244,7 +244,7 @@ export default function LembretesPage() {
                 type="time"
                 value={config.businessStart}
                 onChange={(e) => setConfig((p) => ({ ...p, businessStart: e.target.value }))}
-                className="bg-black/40 border-border-gray text-pure-white"
+                className="bg-foreground/8 border-border-gray text-pure-white"
               />
             </div>
             <div className="flex-1">
@@ -253,7 +253,7 @@ export default function LembretesPage() {
                 type="time"
                 value={config.businessEnd}
                 onChange={(e) => setConfig((p) => ({ ...p, businessEnd: e.target.value }))}
-                className="bg-black/40 border-border-gray text-pure-white"
+                className="bg-foreground/8 border-border-gray text-pure-white"
               />
             </div>
           </div>
@@ -268,7 +268,7 @@ export default function LembretesPage() {
                   className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
                     config.businessDays.includes(index)
                       ? "bg-accent-green text-black"
-                      : "bg-black/40 text-text-gray border border-border-gray/30 hover:border-accent-green/50"
+                      : "bg-foreground/8 text-text-gray border border-border-gray/30 hover:border-accent-green/50"
                   }`}
                 >
                   {label}
@@ -293,7 +293,7 @@ export default function LembretesPage() {
         <CardContent>
           <div className="flex flex-wrap gap-2">
             {variables.map((v) => (
-              <div key={v.key} className="flex items-center gap-2 bg-black/30 rounded-lg px-3 py-1.5 border border-border-gray/20">
+              <div key={v.key} className="flex items-center gap-2 bg-foreground/5 rounded-lg px-3 py-1.5 border border-border-gray/20">
                 <Badge variant="outline" className="text-accent-green border-accent-green/40 font-mono text-xs">
                   {v.key}
                 </Badge>
@@ -351,7 +351,7 @@ export default function LembretesPage() {
               value={config.templates[item.type]}
               onChange={(e) => updateTemplate(item.type, e.target.value)}
               rows={4}
-              className="bg-black/40 border-border-gray text-pure-white font-mono text-sm resize-none"
+              className="bg-foreground/8 border-border-gray text-pure-white font-mono text-sm resize-none"
               placeholder="Digite o template do lembrete..."
             />
 
@@ -376,7 +376,7 @@ export default function LembretesPage() {
             </div>
 
             {previewType === item.type && (
-              <div className="bg-green-950/20 border border-green-800/30 rounded-lg p-4">
+              <div className="bg-primary/8 border border-green-800/30 rounded-lg p-4">
                 <p className="text-xs text-green-400 mb-2 flex items-center gap-1">
                   <CheckCircle2 className="w-3 h-3" />
                   Preview (dados fictícios)

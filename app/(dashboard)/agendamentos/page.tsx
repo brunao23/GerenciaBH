@@ -693,10 +693,10 @@ export default function AgendamentosPage() {
                     value={newAgendamento.status}
                     onValueChange={(value) => setNewAgendamento({ ...newAgendamento, status: value })}
                   >
-                    <SelectTrigger className="bg-[#101218] border-border-gray/90 text-pure-white w-full data-[state=open]:bg-[#101218]">
+                    <SelectTrigger className="bg-card border-border-gray/90 text-pure-white w-full data-[state=open]:bg-card">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent className="bg-[#101218] border-border-gray/90 text-pure-white z-[220] shadow-2xl">
+                    <SelectContent className="bg-card border-border-gray/90 text-pure-white z-[220] shadow-2xl">
                       <SelectItem value="pendente">Pendente</SelectItem>
                       <SelectItem value="confirmado">Confirmado</SelectItem>
                       <SelectItem value="agendado">Agendado</SelectItem>
@@ -711,10 +711,10 @@ export default function AgendamentosPage() {
                     value={getMarcacaoValue(newAgendamento.observacao_marcacao)}
                     onValueChange={(value) => setNewAgendamento({ ...newAgendamento, observacao_marcacao: value })}
                   >
-                    <SelectTrigger className="bg-[#101218] border-border-gray/90 text-pure-white w-full data-[state=open]:bg-[#101218]">
+                    <SelectTrigger className="bg-card border-border-gray/90 text-pure-white w-full data-[state=open]:bg-card">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent className="bg-[#101218] border-border-gray/90 text-pure-white z-[220] shadow-2xl">
+                    <SelectContent className="bg-card border-border-gray/90 text-pure-white z-[220] shadow-2xl">
                       {marcacaoOptions.map((option) => (
                         <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
                       ))}
@@ -797,7 +797,7 @@ export default function AgendamentosPage() {
         </TabsList>
 
         <TabsContent value="agendamentos" className="flex-1 flex flex-col overflow-hidden mt-0">
-          <Card className="genial-card flex flex-col h-full overflow-hidden border-none shadow-xl bg-black/40 backdrop-blur-xl">
+          <Card className="genial-card flex flex-col h-full overflow-hidden border-none shadow-xl bg-foreground/8 backdrop-blur-xl">
             <CardHeader className="border-b border-border/50 bg-card/50 backdrop-blur-sm py-4 shrink-0">
               <div className="flex flex-col md:flex-row gap-4 items-end md:items-center justify-between">
                 <div className="flex flex-1 gap-4 items-center w-full">
@@ -812,13 +812,13 @@ export default function AgendamentosPage() {
                   </div>
 
                   <Select value={status} onValueChange={setStatus}>
-                    <SelectTrigger className="w-[160px] bg-[#101218] border-border-gray/90 text-pure-white data-[state=open]:bg-[#101218]">
+                    <SelectTrigger className="w-[160px] bg-card border-border-gray/90 text-pure-white data-[state=open]:bg-card">
                       <div className="flex items-center gap-2">
                         <Filter className="w-4 h-4 text-accent-green" />
                         <SelectValue placeholder="Status" />
                       </div>
                     </SelectTrigger>
-                    <SelectContent className="bg-[#101218] border-border-gray/90 text-pure-white shadow-2xl">
+                    <SelectContent className="bg-card border-border-gray/90 text-pure-white shadow-2xl">
                       <SelectItem value="todos">Todos</SelectItem>
                       {statuses.map((s) => (
                         <SelectItem key={s} value={s}>
@@ -835,14 +835,14 @@ export default function AgendamentosPage() {
                       type="date"
                       value={dayStart}
                       onChange={(e) => setDayStart(e.target.value)}
-                      className="w-32 bg-[#101218] border border-border-gray/80 h-8 text-xs text-pure-white"
+                      className="w-32 bg-card border border-border-gray/80 h-8 text-xs text-pure-white"
                     />
                     <span className="text-text-gray">-</span>
                     <Input
                       type="date"
                       value={dayEnd}
                       onChange={(e) => setDayEnd(e.target.value)}
-                      className="w-32 bg-[#101218] border border-border-gray/80 h-8 text-xs text-pure-white"
+                      className="w-32 bg-card border border-border-gray/80 h-8 text-xs text-pure-white"
                     />
                   </div>
 
@@ -1017,10 +1017,10 @@ export default function AgendamentosPage() {
                             onValueChange={(value) => handleInlineSelectSave(r.id, "status", value)}
                             disabled={savingInlineIds.has(r.id)}
                           >
-                            <SelectTrigger className="h-8 bg-[#101218] border-border-gray/90 text-pure-white text-xs px-2 data-[state=open]:bg-[#101218]">
+                            <SelectTrigger className="h-8 bg-card border-border-gray/90 text-pure-white text-xs px-2 data-[state=open]:bg-card">
                               <SelectValue />
                             </SelectTrigger>
-                            <SelectContent className="bg-[#101218] border-border-gray/90 text-pure-white z-[220] shadow-2xl">
+                            <SelectContent className="bg-card border-border-gray/90 text-pure-white z-[220] shadow-2xl">
                               <SelectItem value="pendente">Pendente</SelectItem>
                               <SelectItem value="confirmado">Confirmado</SelectItem>
                               <SelectItem value="agendado">Agendado</SelectItem>
@@ -1034,10 +1034,10 @@ export default function AgendamentosPage() {
                             onValueChange={(value) => handleInlineSelectSave(r.id, "observacao_marcacao", value)}
                             disabled={savingInlineIds.has(r.id)}
                           >
-                            <SelectTrigger className="h-8 bg-[#101218] border-border-gray/90 text-pure-white text-xs px-2 data-[state=open]:bg-[#101218]">
+                            <SelectTrigger className="h-8 bg-card border-border-gray/90 text-pure-white text-xs px-2 data-[state=open]:bg-card">
                               <SelectValue />
                             </SelectTrigger>
-                            <SelectContent className="bg-[#101218] border-border-gray/90 text-pure-white z-[220] shadow-2xl">
+                            <SelectContent className="bg-card border-border-gray/90 text-pure-white z-[220] shadow-2xl">
                               {marcacaoOptions.map((option) => (
                                 <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
                               ))}
@@ -1166,10 +1166,10 @@ export default function AgendamentosPage() {
                       value={editingAgendamento.status || "pendente"}
                       onValueChange={(value) => setEditingAgendamento({ ...editingAgendamento, status: value })}
                     >
-                      <SelectTrigger className="bg-[#101218] border-border-gray/90 text-pure-white w-full data-[state=open]:bg-[#101218]">
+                      <SelectTrigger className="bg-card border-border-gray/90 text-pure-white w-full data-[state=open]:bg-card">
                         <SelectValue />
                       </SelectTrigger>
-                      <SelectContent className="bg-[#101218] border-border-gray/90 text-pure-white z-[220] shadow-2xl">
+                      <SelectContent className="bg-card border-border-gray/90 text-pure-white z-[220] shadow-2xl">
                         <SelectItem value="pendente">Pendente</SelectItem>
                         <SelectItem value="confirmado">Confirmado</SelectItem>
                         <SelectItem value="agendado">Agendado</SelectItem>
@@ -1184,10 +1184,10 @@ export default function AgendamentosPage() {
                       value={getMarcacaoValue(editingAgendamento.observacao_marcacao)}
                       onValueChange={(value) => setEditingAgendamento({ ...editingAgendamento, observacao_marcacao: value })}
                     >
-                      <SelectTrigger className="bg-[#101218] border-border-gray/90 text-pure-white w-full data-[state=open]:bg-[#101218]">
+                      <SelectTrigger className="bg-card border-border-gray/90 text-pure-white w-full data-[state=open]:bg-card">
                         <SelectValue />
                       </SelectTrigger>
-                      <SelectContent className="bg-[#101218] border-border-gray/90 text-pure-white z-[220] shadow-2xl">
+                      <SelectContent className="bg-card border-border-gray/90 text-pure-white z-[220] shadow-2xl">
                         {marcacaoOptions.map((option) => (
                           <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
                         ))}
@@ -1263,7 +1263,7 @@ export default function AgendamentosPage() {
         </TabsContent>
 
         <TabsContent value="followup" className="flex-1 overflow-hidden mt-0">
-          <Card className="genial-card h-full border-none shadow-xl bg-black/40 backdrop-blur-xl">
+          <Card className="genial-card h-full border-none shadow-xl bg-foreground/8 backdrop-blur-xl">
             <CardContent className="p-6 h-full overflow-auto genial-scrollbar">
               <FollowUpScheduler />
             </CardContent>

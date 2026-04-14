@@ -398,16 +398,16 @@ export function MetaTemplatesPanel() {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="template_boas_vindas"
-                  className="bg-black/40 border-border-gray text-pure-white"
+                  className="bg-foreground/8 border-border-gray text-pure-white"
                 />
               </div>
               <div className="space-y-2">
                 <Label>Categoria</Label>
                 <Select value={category} onValueChange={setCategory}>
-                  <SelectTrigger className="bg-black/40 border-border-gray text-pure-white">
+                  <SelectTrigger className="bg-foreground/8 border-border-gray text-pure-white">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent className="bg-[#1a1a1a] border-[#333] text-pure-white">
+                  <SelectContent className="bg-secondary border-border text-pure-white">
                     <SelectItem value="MARKETING">MARKETING</SelectItem>
                     <SelectItem value="UTILITY">UTILITY</SelectItem>
                     <SelectItem value="AUTHENTICATION">AUTHENTICATION</SelectItem>
@@ -423,16 +423,16 @@ export function MetaTemplatesPanel() {
                   value={language}
                   onChange={(e) => setLanguage(e.target.value)}
                   placeholder="pt_BR"
-                  className="bg-black/40 border-border-gray text-pure-white"
+                  className="bg-foreground/8 border-border-gray text-pure-white"
                 />
               </div>
               <div className="space-y-2">
                 <Label>Header</Label>
                 <Select value={headerType} onValueChange={(v) => setHeaderType(v as typeof headerType)}>
-                  <SelectTrigger className="bg-black/40 border-border-gray text-pure-white">
+                  <SelectTrigger className="bg-foreground/8 border-border-gray text-pure-white">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent className="bg-[#1a1a1a] border-[#333] text-pure-white">
+                  <SelectContent className="bg-secondary border-border text-pure-white">
                     <SelectItem value="NONE">Sem header</SelectItem>
                     <SelectItem value="TEXT">Texto</SelectItem>
                     <SelectItem value="IMAGE">Imagem</SelectItem>
@@ -450,7 +450,7 @@ export function MetaTemplatesPanel() {
                   value={headerText}
                   onChange={(e) => setHeaderText(e.target.value)}
                   placeholder="Titulo curto"
-                  className="bg-black/40 border-border-gray text-pure-white"
+                  className="bg-foreground/8 border-border-gray text-pure-white"
                 />
               </div>
             )}
@@ -462,7 +462,7 @@ export function MetaTemplatesPanel() {
                   value={headerMediaHandle}
                   onChange={(e) => setHeaderMediaHandle(e.target.value)}
                   placeholder="Ex: 4::abc123..."
-                  className="bg-black/40 border-border-gray text-pure-white"
+                  className="bg-foreground/8 border-border-gray text-pure-white"
                 />
                 <div className="text-[11px] text-text-gray">
                   Use o handle de midia gerado pela Meta para exemplo do template.
@@ -476,7 +476,7 @@ export function MetaTemplatesPanel() {
                 value={body}
                 onChange={(e) => setBody(e.target.value)}
                 placeholder="Ola {primeiro_nome}, sua visita esta confirmada."
-                className="min-h-[120px] bg-black/40 border-border-gray text-pure-white"
+                className="min-h-[120px] bg-foreground/8 border-border-gray text-pure-white"
               />
               <div className="text-[11px] text-text-gray">
                 Use {`{nome}`} ou {`{primeiro_nome}`} para variaveis.
@@ -489,7 +489,7 @@ export function MetaTemplatesPanel() {
                 value={footerText}
                 onChange={(e) => setFooterText(e.target.value)}
                 placeholder="Equipe GerencIA"
-                className="bg-black/40 border-border-gray text-pure-white"
+                className="bg-foreground/8 border-border-gray text-pure-white"
               />
             </div>
 
@@ -514,10 +514,10 @@ export function MetaTemplatesPanel() {
                         updateButton(index, { type: value as TemplateButton["type"] })
                       }
                     >
-                      <SelectTrigger className="bg-black/40 border-border-gray text-pure-white">
+                      <SelectTrigger className="bg-foreground/8 border-border-gray text-pure-white">
                         <SelectValue />
                       </SelectTrigger>
-                      <SelectContent className="bg-[#1a1a1a] border-[#333] text-pure-white">
+                      <SelectContent className="bg-secondary border-border text-pure-white">
                         <SelectItem value="QUICK_REPLY">Resposta rapida</SelectItem>
                         <SelectItem value="URL">Link</SelectItem>
                         <SelectItem value="PHONE_NUMBER">Telefone</SelectItem>
@@ -530,14 +530,14 @@ export function MetaTemplatesPanel() {
                       value={btn.text}
                       onChange={(e) => updateButton(index, { text: e.target.value })}
                       placeholder="Ex: Confirmar"
-                      className="bg-black/40 border-border-gray text-pure-white"
+                      className="bg-foreground/8 border-border-gray text-pure-white"
                     />
                     {btn.type !== "QUICK_REPLY" && (
                       <Input
                         value={btn.value || ""}
                         onChange={(e) => updateButton(index, { value: e.target.value })}
                         placeholder={btn.type === "URL" ? "https://seusite.com" : "+55 31 99999-9999"}
-                        className="bg-black/40 border-border-gray text-pure-white"
+                        className="bg-foreground/8 border-border-gray text-pure-white"
                       />
                     )}
                   </div>
@@ -574,7 +574,7 @@ export function MetaTemplatesPanel() {
                   value={advancedJson}
                   onChange={(e) => setAdvancedJson(e.target.value)}
                   placeholder='[{"type":"BODY","text":"Ola {{1}}"}]'
-                  className="min-h-[140px] bg-black/40 border-border-gray text-pure-white"
+                  className="min-h-[140px] bg-foreground/8 border-border-gray text-pure-white"
                 />
                 <div className="text-[11px] text-text-gray">
                   Aceita array direto ou objeto com campo components.
@@ -605,13 +605,13 @@ export function MetaTemplatesPanel() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Buscar por nome"
-                className="bg-black/40 border-border-gray text-pure-white"
+                className="bg-foreground/8 border-border-gray text-pure-white"
               />
               <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="bg-black/40 border-border-gray text-pure-white">
+                <SelectTrigger className="bg-foreground/8 border-border-gray text-pure-white">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-[#1a1a1a] border-[#333] text-pure-white">
+                <SelectContent className="bg-secondary border-border text-pure-white">
                   <SelectItem value="ALL">Todos</SelectItem>
                   <SelectItem value="APPROVED">Aprovados</SelectItem>
                   <SelectItem value="PENDING">Pendentes</SelectItem>
@@ -636,7 +636,7 @@ export function MetaTemplatesPanel() {
               {filteredTemplates.map((tpl) => (
                 <div
                   key={tpl.id || tpl.name}
-                  className="rounded-lg border border-border-gray/60 bg-black/30 p-3"
+                  className="rounded-lg border border-border-gray/60 bg-foreground/5 p-3"
                 >
                   {(() => {
                     const status = String(tpl.status || "").toUpperCase()

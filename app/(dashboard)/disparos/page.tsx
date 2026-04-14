@@ -1304,10 +1304,10 @@ export default function DisparosPage() {
               value={metaReportPeriod}
               onValueChange={(value) => setMetaReportPeriod(value as Periodo)}
             >
-              <SelectTrigger className="bg-black/40 border-border-gray text-pure-white h-9 w-[160px]">
+              <SelectTrigger className="bg-foreground/8 border-border-gray text-pure-white h-9 w-[160px]">
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent className="bg-[#1a1a1a] border-[#333] text-pure-white">
+              <SelectContent className="bg-secondary border-border text-pure-white">
                 <SelectItem value="dia">Hoje</SelectItem>
                 <SelectItem value="semana">Ultima semana</SelectItem>
                 <SelectItem value="mes">Ultimo mes</SelectItem>
@@ -1351,7 +1351,7 @@ export default function DisparosPage() {
                   return (
                     <div
                       key={item.label}
-                      className="rounded-lg border border-border-gray/60 bg-black/30 p-3"
+                      className="rounded-lg border border-border-gray/60 bg-foreground/5 p-3"
                     >
                       <div className="flex items-center justify-between">
                         <div className="text-xs text-text-gray">{item.label}</div>
@@ -1373,7 +1373,7 @@ export default function DisparosPage() {
                   return (
                     <div
                       key={item.label}
-                      className="rounded-lg border border-border-gray/60 bg-black/30 p-3"
+                      className="rounded-lg border border-border-gray/60 bg-foreground/5 p-3"
                     >
                       <div className="flex items-center justify-between">
                         <div className="text-xs text-text-gray">{item.label}</div>
@@ -1386,7 +1386,7 @@ export default function DisparosPage() {
               </div>
 
               <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-                <div className="rounded-lg border border-border-gray/60 bg-black/30 p-3">
+                <div className="rounded-lg border border-border-gray/60 bg-foreground/5 p-3">
                   <div className="text-xs text-text-gray">Custo total (Meta)</div>
                   {costSummary?.hasRates ? (
                     <>
@@ -1453,7 +1453,7 @@ export default function DisparosPage() {
                     </div>
                   )}
                 </div>
-                <div className="rounded-lg border border-border-gray/60 bg-black/30 p-3">
+                <div className="rounded-lg border border-border-gray/60 bg-foreground/5 p-3">
                   <div className="text-xs text-text-gray">Tarifas oficiais (Meta)</div>
                   <div className="mt-2 space-y-1 text-xs">
                     <div className="flex items-center justify-between">
@@ -1502,14 +1502,14 @@ export default function DisparosPage() {
                     </div>
                   )}
                 </div>
-                <div className="rounded-lg border border-border-gray/60 bg-black/30 p-3">
+                <div className="rounded-lg border border-border-gray/60 bg-foreground/5 p-3">
                   <div className="text-xs text-text-gray">Cliques (quick replies)</div>
                   <div className="text-2xl font-semibold text-amber-300">
                     {metaReport.clicks.length}
                   </div>
                   <div className="text-[11px] text-text-gray">Cliques de URLs n?o s?o reportados.</div>
                 </div>
-                <div className="rounded-lg border border-border-gray/60 bg-black/30 p-3">
+                <div className="rounded-lg border border-border-gray/60 bg-foreground/5 p-3">
                   <div className="text-xs text-text-gray">
                     Custo por categoria
                     {costSummary?.categorySource === "pricing_analytics" ? " (meta)" : ""}
@@ -1532,7 +1532,7 @@ export default function DisparosPage() {
                   )}
                 </div>
               </div><div className="grid gap-4 lg:grid-cols-2">
-                <div className="rounded-lg border border-border-gray/60 bg-black/30 p-3">
+                <div className="rounded-lg border border-border-gray/60 bg-foreground/5 p-3">
                   <div className="text-sm text-pure-white mb-2">Volume de disparo</div>
                   {metaSeriesHasData ? (
                     <div className="h-[220px] w-full">
@@ -1562,7 +1562,7 @@ export default function DisparosPage() {
                     <div className="text-xs text-text-gray">Sem dados de volume no perÃ­odo.</div>
                   )}
                 </div>
-                <div className="rounded-lg border border-border-gray/60 bg-black/30 p-3">
+                <div className="rounded-lg border border-border-gray/60 bg-foreground/5 p-3">
                   <div className="text-sm text-pure-white mb-2">Top cliques (quick replies)</div>
                   {topClicks.length === 0 ? (
                     <div className="text-xs text-text-gray">Nenhum quick reply registrado.</div>
@@ -1583,7 +1583,7 @@ export default function DisparosPage() {
               </div>
 
               <div className="grid gap-4 lg:grid-cols-2">
-                <div className="rounded-lg border border-border-gray/60 bg-black/30 p-3">
+                <div className="rounded-lg border border-border-gray/60 bg-foreground/5 p-3">
                   <div className="text-sm text-pure-white mb-2">Categorias de conversa</div>
                   {Object.keys(metaReport.byConversationCategory).length === 0 ? (
                     <div className="text-xs text-text-gray">Nenhuma categoria registrada.</div>
@@ -1598,7 +1598,7 @@ export default function DisparosPage() {
                     </div>
                   )}
                 </div>
-                <div className="rounded-lg border border-border-gray/60 bg-black/30 p-3">
+                <div className="rounded-lg border border-border-gray/60 bg-foreground/5 p-3">
                   <div className="text-sm text-pure-white mb-2">Categorias de preco</div>
                   {Object.keys(metaReport.byPricingCategory).length === 0 ? (
                     <div className="text-xs text-text-gray">Nenhuma categoria registrada.</div>
@@ -1616,7 +1616,7 @@ export default function DisparosPage() {
               </div>
 
               <div className="grid gap-4 lg:grid-cols-2">
-                <div className="rounded-lg border border-border-gray/60 bg-black/30 p-3">
+                <div className="rounded-lg border border-border-gray/60 bg-foreground/5 p-3">
                   <div className="text-sm text-pure-white mb-2">Quem abriu</div>
                   {metaReport.openedBy.length === 0 ? (
                     <div className="text-xs text-text-gray">Nenhuma leitura registrada.</div>
@@ -1633,7 +1633,7 @@ export default function DisparosPage() {
                     </div>
                   )}
                 </div>
-                <div className="rounded-lg border border-border-gray/60 bg-black/30 p-3">
+                <div className="rounded-lg border border-border-gray/60 bg-foreground/5 p-3">
                   <div className="text-sm text-pure-white mb-2">Cliques (quick replies)</div>
                   {metaReport.clicks.length === 0 ? (
                     <div className="text-xs text-text-gray">Nenhum quick reply registrado.</div>
@@ -1698,7 +1698,7 @@ export default function DisparosPage() {
               value={listText}
               onChange={(e) => setListText(e.target.value)}
               placeholder={"5511999999999,Joao\n5511888888888,Maria"}
-              className="min-h-[180px] bg-black/40 border-border-gray text-pure-white"
+              className="min-h-[180px] bg-foreground/8 border-border-gray text-pure-white"
             />
             <div className="flex items-center justify-between">
               <div className="text-xs text-text-gray">
@@ -1762,10 +1762,10 @@ export default function DisparosPage() {
                   <div className="space-y-2">
                     <Label>Template</Label>
                     <Select value={metaSelectedTemplate} onValueChange={setMetaSelectedTemplate}>
-                      <SelectTrigger className="bg-black/40 border-border-gray text-pure-white">
+                      <SelectTrigger className="bg-foreground/8 border-border-gray text-pure-white">
                         <SelectValue placeholder="Selecione..." />
                       </SelectTrigger>
-                      <SelectContent className="bg-[#1a1a1a] border-[#333] text-pure-white">
+                      <SelectContent className="bg-secondary border-border text-pure-white">
                         {metaTemplatesCatalog.map((tpl) => (
                           <SelectItem key={tpl.name} value={tpl.name}>
                             {tpl.name}{tpl.status ? ` (${tpl.status})` : ""}
@@ -1780,7 +1780,7 @@ export default function DisparosPage() {
                       value={metaTemplateLanguage}
                       onChange={(e) => setMetaTemplateLanguage(e.target.value)}
                       placeholder="pt_BR"
-                      className="bg-black/40 border-border-gray text-pure-white"
+                      className="bg-foreground/8 border-border-gray text-pure-white"
                     />
                   </div>
                   {selectedMetaTemplate && (
@@ -1807,7 +1807,7 @@ export default function DisparosPage() {
                               setMetaParamValues((prev) => ({ ...prev, [field.id]: e.target.value }))
                             }
                             placeholder="Valor"
-                            className="bg-black/40 border-border-gray text-pure-white"
+                            className="bg-foreground/8 border-border-gray text-pure-white"
                           />
                         </div>
                       ))}
@@ -1823,13 +1823,13 @@ export default function DisparosPage() {
                           value={metaHeaderMediaId}
                           onChange={(e) => setMetaHeaderMediaId(e.target.value)}
                           placeholder="Media ID (upload Meta)"
-                          className="bg-black/40 border-border-gray text-pure-white"
+                          className="bg-foreground/8 border-border-gray text-pure-white"
                         />
                         <Input
                           value={metaHeaderMediaLink}
                           onChange={(e) => setMetaHeaderMediaLink(e.target.value)}
                           placeholder="https://... (link publico)"
-                          className="bg-black/40 border-border-gray text-pure-white"
+                          className="bg-foreground/8 border-border-gray text-pure-white"
                         />
                       </div>
                       <div className="flex items-center gap-3">
@@ -1862,7 +1862,7 @@ export default function DisparosPage() {
                     onChange={(e) => setTemplatesText(e.target.value)}
                     placeholder="template_boas_vindas|{primeiro_nome}
 template_followup|{nome}"
-                    className="min-h-[140px] bg-black/40 border-border-gray text-pure-white"
+                    className="min-h-[140px] bg-foreground/8 border-border-gray text-pure-white"
                   />
                   <div className="space-y-2">
                     <Label>Idioma do template</Label>
@@ -1870,7 +1870,7 @@ template_followup|{nome}"
                       value={metaTemplateLanguage}
                       onChange={(e) => setMetaTemplateLanguage(e.target.value)}
                       placeholder="pt_BR"
-                      className="bg-black/40 border-border-gray text-pure-white"
+                      className="bg-foreground/8 border-border-gray text-pure-white"
                     />
                   </div>
                   <div className="space-y-2">
@@ -1879,7 +1879,7 @@ template_followup|{nome}"
                       value={metaManualTemplateName}
                       onChange={(e) => setMetaManualTemplateName(e.target.value)}
                       placeholder="template_boas_vindas"
-                      className="bg-black/40 border-border-gray text-pure-white"
+                      className="bg-foreground/8 border-border-gray text-pure-white"
                     />
                   </div>
                   <div className="space-y-2">
@@ -1888,7 +1888,7 @@ template_followup|{nome}"
                       value={metaManualComponents}
                       onChange={(e) => setMetaManualComponents(e.target.value)}
                       placeholder='[{"type":"BODY","text":"Ola {{1}}"}]'
-                      className="min-h-[140px] bg-black/40 border-border-gray text-pure-white"
+                      className="min-h-[140px] bg-foreground/8 border-border-gray text-pure-white"
                     />
                     <div className="text-[11px] text-text-gray">
                       Se informado, o JSON substitui a lista manual.
@@ -1906,7 +1906,7 @@ template_followup|{nome}"
 ---
 
 Oi {primeiro_nome}, passando para lembrar..."
-                  className="min-h-[180px] bg-black/40 border-border-gray text-pure-white"
+                  className="min-h-[180px] bg-foreground/8 border-border-gray text-pure-white"
                 />
               </>
             )}
@@ -1929,7 +1929,7 @@ Oi {primeiro_nome}, passando para lembrar..."
                 value={openaiApiKey}
                 onChange={(e) => setOpenaiApiKey(e.target.value)}
                 placeholder="OpenAI API Key (opcional)"
-                className="bg-black/40 border-border-gray text-pure-white"
+                className="bg-foreground/8 border-border-gray text-pure-white"
               />
             )}
             {!showAi && (
@@ -1938,7 +1938,7 @@ Oi {primeiro_nome}, passando para lembrar..."
               </Badge>
             )}
             {preview && (
-              <div className="rounded-lg border border-border-gray bg-black/40 p-3 text-xs text-text-gray">
+              <div className="rounded-lg border border-border-gray bg-foreground/8 p-3 text-xs text-text-gray">
                 <div className="text-[10px] uppercase text-text-gray mb-1">Previa</div>
                 <div className="text-pure-white">{preview}</div>
               </div>
@@ -1963,7 +1963,7 @@ Oi {primeiro_nome}, passando para lembrar..."
                 type="number"
                 value={delayMin}
                 onChange={(e) => setDelayMin(Number(e.target.value))}
-                className="bg-black/40 border-border-gray text-pure-white"
+                className="bg-foreground/8 border-border-gray text-pure-white"
               />
             </div>
             <div className="space-y-2">
@@ -1972,7 +1972,7 @@ Oi {primeiro_nome}, passando para lembrar..."
                 type="number"
                 value={delayMax}
                 onChange={(e) => setDelayMax(Number(e.target.value))}
-                className="bg-black/40 border-border-gray text-pure-white"
+                className="bg-foreground/8 border-border-gray text-pure-white"
               />
             </div>
             <div className="space-y-2">
@@ -1981,7 +1981,7 @@ Oi {primeiro_nome}, passando para lembrar..."
                 type="number"
                 value={cooldownEvery}
                 onChange={(e) => setCooldownEvery(Number(e.target.value))}
-                className="bg-black/40 border-border-gray text-pure-white"
+                className="bg-foreground/8 border-border-gray text-pure-white"
               />
             </div>
             <div className="space-y-2">
@@ -1990,7 +1990,7 @@ Oi {primeiro_nome}, passando para lembrar..."
                 type="number"
                 value={cooldownMin}
                 onChange={(e) => setCooldownMin(Number(e.target.value))}
-                className="bg-black/40 border-border-gray text-pure-white"
+                className="bg-foreground/8 border-border-gray text-pure-white"
               />
             </div>
             <div className="space-y-2">
@@ -1999,7 +1999,7 @@ Oi {primeiro_nome}, passando para lembrar..."
                 type="number"
                 value={cooldownMax}
                 onChange={(e) => setCooldownMax(Number(e.target.value))}
-                className="bg-black/40 border-border-gray text-pure-white"
+                className="bg-foreground/8 border-border-gray text-pure-white"
               />
             </div>
           </CardContent>
@@ -2035,7 +2035,7 @@ Oi {primeiro_nome}, passando para lembrar..."
                 Parar
               </Button>
             </div>
-            <Progress value={progress} className="h-2 bg-[#222]" />
+            <Progress value={progress} className="h-2 bg-muted" />
             <div className="text-xs text-text-gray">{progress}% concluído</div>
           </CardContent>
         </Card>

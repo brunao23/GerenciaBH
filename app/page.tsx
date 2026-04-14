@@ -2,7 +2,7 @@
 
 export default function HomePage() {
   return (
-    <div className="relative h-[100svh] min-h-[100svh] overflow-x-hidden overflow-y-auto bg-[#050505] text-pure-white">
+    <div className="relative h-[100svh] min-h-[100svh] overflow-x-hidden overflow-y-auto bg-background text-pure-white">
       <div className="pointer-events-none fixed inset-0">
         <div className="absolute -top-40 right-[-10%] h-[520px] w-[520px] rounded-full bg-[radial-gradient(circle,_rgba(34,197,94,0.35),_transparent_70%)] blur-2xl animate-float-slow" />
         <div className="absolute bottom-[-30%] left-[-15%] h-[520px] w-[520px] rounded-full bg-[radial-gradient(circle,_rgba(34,197,94,0.35),_transparent_70%)] blur-2xl animate-float" />
@@ -85,7 +85,7 @@ export default function HomePage() {
                 ].map((item, idx) => (
                   <div
                     key={item.label}
-                    className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm animate-fade-up"
+                    className="flex items-center justify-between rounded-2xl border border-white/10 bg-foreground/8 px-4 py-3 text-sm animate-fade-up"
                     style={{ animationDelay: `${idx * 0.1}s` }}
                   >
                     <span className="text-text-gray">{item.label}</span>

@@ -61,7 +61,7 @@ export function PeriodFilter({
             })}
 
             {value === "custom" && (
-                <div className="flex items-center gap-2 flex-wrap rounded-lg border border-border-gray/60 bg-black/20 p-2">
+                <div className="flex items-center gap-2 flex-wrap rounded-lg border border-border-gray/60 bg-foreground/5 p-2">
                     <input
                         type="date"
                         value={customStartDate}

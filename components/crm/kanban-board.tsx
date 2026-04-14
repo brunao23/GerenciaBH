@@ -485,7 +485,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                                                                 {...provided.draggableProps}
                                                                                 {...provided.dragHandleProps}
                                                                                 style={{ ...provided.draggableProps.style }}
-                                                                                className={`bg-[#1a1a1a] border border-border-gray rounded-lg p-3 shadow-sm hover:border-accent-green/50 transition-all group cursor-pointer ${snapshot.isDragging ? 'shadow-lg ring-2 ring-accent-green/20 rotate-2' : ''
+                                                                                className={`bg-secondary border border-border-gray rounded-lg p-3 shadow-sm hover:border-accent-green/50 transition-all group cursor-pointer ${snapshot.isDragging ? 'shadow-lg ring-2 ring-accent-green/20 rotate-2' : ''
                                                                                     }`}
                                                                                 onClick={() => handleCardClick(card)}
                                                                             >

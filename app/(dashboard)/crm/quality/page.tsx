@@ -234,7 +234,7 @@ export default function QualityAnalysisPage() {
             )}
 
             <div className="flex-1 overflow-auto space-y-6">
-                <Card className="genial-card border-none shadow-xl bg-black/40 backdrop-blur-xl">
+                <Card className="genial-card border-none shadow-xl bg-foreground/8 backdrop-blur-xl">
                     <CardHeader className="border-b border-border/50 bg-card/50 backdrop-blur-sm">
                         <CardTitle className="text-pure-white flex items-center gap-2">
                             <Users className="w-5 h-5 text-accent-green" />
@@ -311,7 +311,7 @@ export default function QualityAnalysisPage() {
                     </CardContent>
                 </Card>
 
-                <Card className="genial-card border-none shadow-xl bg-black/40 backdrop-blur-xl">
+                <Card className="genial-card border-none shadow-xl bg-foreground/8 backdrop-blur-xl">
                     <CardHeader className="border-b border-border/50 bg-card/50 backdrop-blur-sm">
                         <CardTitle className="text-pure-white flex items-center gap-2">
                             <AlertTriangle className="w-5 h-5 text-red-400" />

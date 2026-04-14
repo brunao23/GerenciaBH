@@ -155,7 +155,7 @@ function Section({ title, icon, children, defaultOpen = true }: SectionProps) {
     const [isOpen, setIsOpen] = useState(defaultOpen);
 
     return (
-        <div className="bg-[#1e1e2e] rounded-xl border border-white/10 overflow-hidden">
+        <div className="bg-secondary rounded-xl border border-border overflow-hidden">
             <button
                 onClick={() => setIsOpen(!isOpen)}
                 className="w-full flex items-center justify-between p-4 hover:bg-white/5 transition-colors"
@@ -359,7 +359,7 @@ export default function AdminAgentesPage() {
 
     if (loading) {
         return (
-            <div className="min-h-screen bg-[#0a0a14] flex items-center justify-center">
+            <div className="min-h-screen bg-background flex items-center justify-center">
                 <div className="flex items-center gap-3">
                     <div className="w-8 h-8 border-4 border-purple-500 border-t-transparent rounded-full animate-spin" />
                     <span className="text-white">Carregando empresas...</span>
@@ -371,7 +371,7 @@ export default function AdminAgentesPage() {
     // Se nenhuma empresa selecionada, mostrar lista
     if (!selectedEmpresa) {
         return (
-            <div className="min-h-screen bg-[#0a0a14] p-6">
+            <div className="min-h-screen bg-background p-6">
                 <div className="max-w-6xl mx-auto">
                     {/* Header */}
                     <div className="flex items-center gap-4 mb-8">
@@ -391,7 +391,7 @@ export default function AdminAgentesPage() {
                             type="text"
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-12 pr-4 py-3 rounded-xl bg-[#1a1a2e] border border-white/10 text-white focus:border-purple-500 focus:outline-none"
+                            className="w-full pl-12 pr-4 py-3 rounded-xl bg-secondary border border-border text-white focus:border-purple-500 focus:outline-none"
                             placeholder="Buscar empresa..."
                         />
                     </div>
@@ -402,7 +402,7 @@ export default function AdminAgentesPage() {
                             <button
                                 key={empresa.id}
                                 onClick={() => loadConfig(empresa)}
-                                className="p-6 rounded-xl bg-[#1a1a2e] border border-white/10 hover:border-purple-500/50 hover:bg-[#1e1e35] transition-all text-left group"
+                                className="p-6 rounded-xl bg-secondary border border-border hover:border-purple-500/50 hover:bg-muted transition-all text-left group"
                             >
                                 <div className="flex items-center gap-3 mb-3">
                                     <div className="p-2 rounded-lg bg-gradient-to-br from-purple-500/30 to-blue-500/30 group-hover:from-purple-500/50 group-hover:to-blue-500/50 transition-colors">
@@ -439,7 +439,7 @@ export default function AdminAgentesPage() {
 
     // Editor de configuração
     return (
-        <div className="min-h-screen bg-[#0a0a14] p-6">
+        <div className="min-h-screen bg-background p-6">
             <div className="max-w-4xl mx-auto space-y-6">
                 {/* Header */}
                 <div className="flex items-center justify-between">
@@ -504,9 +504,9 @@ export default function AdminAgentesPage() {
 
                 {/* Preview do Prompt */}
                 {showPreview && previewPrompt && (
-                    <div className="bg-[#1a1a2e] rounded-xl border border-white/10 p-4">
+                    <div className="bg-secondary rounded-xl border border-border p-4">
                         <h3 className="text-lg font-semibold text-white mb-3">Preview do Prompt</h3>
-                        <pre className="bg-black/30 p-4 rounded-lg text-xs text-gray-300 overflow-auto max-h-96">
+                        <pre className="bg-foreground/5 p-4 rounded-lg text-xs text-muted-foreground overflow-auto max-h-96">
                             {JSON.stringify(previewPrompt, null, 2)}
                         </pre>
                     </div>
@@ -523,7 +523,7 @@ export default function AdminAgentesPage() {
                                         type="text"
                                         value={config.agente_nome}
                                         onChange={(e) => setConfig(prev => ({ ...prev, agente_nome: e.target.value }))}
-                                        className="w-full px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white focus:border-purple-500 focus:outline-none"
+                                        className="w-full px-4 py-2 rounded-lg bg-foreground/5 border border-border text-white focus:border-purple-500 focus:outline-none"
                                         placeholder="Ex: Luna, Ana, Carlos..."
                                     />
                                 </div>
@@ -532,7 +532,7 @@ export default function AdminAgentesPage() {
                                     <select
                                         value={config.agente_genero}
                                         onChange={(e) => setConfig(prev => ({ ...prev, agente_genero: e.target.value as 'feminino' | 'masculino' }))}
-                                        className="w-full px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white focus:border-purple-500 focus:outline-none"
+                                        className="w-full px-4 py-2 rounded-lg bg-foreground/5 border border-border text-white focus:border-purple-500 focus:outline-none"
                                     >
                                         <option value="feminino">Feminino</option>
                                         <option value="masculino">Masculino</option>
@@ -544,7 +544,7 @@ export default function AdminAgentesPage() {
                                         type="text"
                                         value={config.agente_cargo}
                                         onChange={(e) => setConfig(prev => ({ ...prev, agente_cargo: e.target.value }))}
-                                        className="w-full px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white focus:border-purple-500 focus:outline-none"
+                                        className="w-full px-4 py-2 rounded-lg bg-foreground/5 border border-border text-white focus:border-purple-500 focus:outline-none"
                                     />
                                 </div>
                                 <div>
@@ -553,7 +553,7 @@ export default function AdminAgentesPage() {
                                         type="text"
                                         value={config.tom_de_voz}
                                         onChange={(e) => setConfig(prev => ({ ...prev, tom_de_voz: e.target.value }))}
-                                        className="w-full px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white focus:border-purple-500 focus:outline-none"
+                                        className="w-full px-4 py-2 rounded-lg bg-foreground/5 border border-border text-white focus:border-purple-500 focus:outline-none"
                                     />
                                 </div>
                                 <div className="col-span-2">
@@ -562,7 +562,7 @@ export default function AdminAgentesPage() {
                                         type="text"
                                         value={config.agente_personalidade}
                                         onChange={(e) => setConfig(prev => ({ ...prev, agente_personalidade: e.target.value }))}
-                                        className="w-full px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white focus:border-purple-500 focus:outline-none"
+                                        className="w-full px-4 py-2 rounded-lg bg-foreground/5 border border-border text-white focus:border-purple-500 focus:outline-none"
                                     />
                                 </div>
                                 <div className="col-span-2 flex items-center gap-2">
@@ -571,9 +571,9 @@ export default function AdminAgentesPage() {
                                         id="usar_emojis_admin"
                                         checked={config.usar_emojis}
                                         onChange={(e) => setConfig(prev => ({ ...prev, usar_emojis: e.target.checked }))}
-                                        className="w-4 h-4 rounded bg-black/30 border-white/10"
+                                        className="w-4 h-4 rounded bg-foreground/5 border-white/10"
                                     />
-                                    <label htmlFor="usar_emojis_admin" className="text-sm text-gray-300">Usar emojis</label>
+                                    <label htmlFor="usar_emojis_admin" className="text-sm text-muted-foreground">Usar emojis</label>
                                 </div>
                             </div>
                         </Section>
@@ -587,7 +587,7 @@ export default function AdminAgentesPage() {
                                         type="text"
                                         value={config.unidade_nome}
                                         onChange={(e) => setConfig(prev => ({ ...prev, unidade_nome: e.target.value }))}
-                                        className="w-full px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white focus:border-purple-500 focus:outline-none"
+                                        className="w-full px-4 py-2 rounded-lg bg-foreground/5 border border-border text-white focus:border-purple-500 focus:outline-none"
                                     />
                                 </div>
                                 <div className="col-span-2">
@@ -596,7 +596,7 @@ export default function AdminAgentesPage() {
                                         type="text"
                                         value={config.unidade_endereco_completo}
                                         onChange={(e) => setConfig(prev => ({ ...prev, unidade_endereco_completo: e.target.value }))}
-                                        className="w-full px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white focus:border-purple-500 focus:outline-none"
+                                        className="w-full px-4 py-2 rounded-lg bg-foreground/5 border border-border text-white focus:border-purple-500 focus:outline-none"
                                     />
                                 </div>
                                 <div>
@@ -605,7 +605,7 @@ export default function AdminAgentesPage() {
                                         type="text"
                                         value={config.unidade_bairro}
                                         onChange={(e) => setConfig(prev => ({ ...prev, unidade_bairro: e.target.value }))}
-                                        className="w-full px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white focus:border-purple-500 focus:outline-none"
+                                        className="w-full px-4 py-2 rounded-lg bg-foreground/5 border border-border text-white focus:border-purple-500 focus:outline-none"
                                     />
                                 </div>
                                 <div>
@@ -614,7 +614,7 @@ export default function AdminAgentesPage() {
                                         type="text"
                                         value={config.unidade_cidade}
                                         onChange={(e) => setConfig(prev => ({ ...prev, unidade_cidade: e.target.value }))}
-                                        className="w-full px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white focus:border-purple-500 focus:outline-none"
+                                        className="w-full px-4 py-2 rounded-lg bg-foreground/5 border border-border text-white focus:border-purple-500 focus:outline-none"
                                     />
                                 </div>
                                 <div>
@@ -623,7 +623,7 @@ export default function AdminAgentesPage() {
                                         type="text"
                                         value={config.unidade_estado}
                                         onChange={(e) => setConfig(prev => ({ ...prev, unidade_estado: e.target.value }))}
-                                        className="w-full px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white focus:border-purple-500 focus:outline-none"
+                                        className="w-full px-4 py-2 rounded-lg bg-foreground/5 border border-border text-white focus:border-purple-500 focus:outline-none"
                                         maxLength={2}
                                     />
                                 </div>
@@ -633,7 +633,7 @@ export default function AdminAgentesPage() {
                                         type="text"
                                         value={config.unidade_cep}
                                         onChange={(e) => setConfig(prev => ({ ...prev, unidade_cep: e.target.value }))}
-                                        className="w-full px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white focus:border-purple-500 focus:outline-none"
+                                        className="w-full px-4 py-2 rounded-lg bg-foreground/5 border border-border text-white focus:border-purple-500 focus:outline-none"
                                     />
                                 </div>
                                 <div className="col-span-2">
@@ -642,7 +642,7 @@ export default function AdminAgentesPage() {
                                         type="text"
                                         value={config.unidade_referencias}
                                         onChange={(e) => setConfig(prev => ({ ...prev, unidade_referencias: e.target.value }))}
-                                        className="w-full px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white focus:border-purple-500 focus:outline-none"
+                                        className="w-full px-4 py-2 rounded-lg bg-foreground/5 border border-border text-white focus:border-purple-500 focus:outline-none"
                                     />
                                 </div>
                                 <div>
@@ -651,7 +651,7 @@ export default function AdminAgentesPage() {
                                         type="text"
                                         value={config.unidade_telefone}
                                         onChange={(e) => setConfig(prev => ({ ...prev, unidade_telefone: e.target.value }))}
-                                        className="w-full px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white focus:border-purple-500 focus:outline-none"
+                                        className="w-full px-4 py-2 rounded-lg bg-foreground/5 border border-border text-white focus:border-purple-500 focus:outline-none"
                                     />
                                 </div>
                                 <div>
@@ -660,7 +660,7 @@ export default function AdminAgentesPage() {
                                         type="email"
                                         value={config.unidade_email}
                                         onChange={(e) => setConfig(prev => ({ ...prev, unidade_email: e.target.value }))}
-                                        className="w-full px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white focus:border-purple-500 focus:outline-none"
+                                        className="w-full px-4 py-2 rounded-lg bg-foreground/5 border border-border text-white focus:border-purple-500 focus:outline-none"
                                     />
                                 </div>
                                 <div className="col-span-2">
@@ -668,7 +668,7 @@ export default function AdminAgentesPage() {
                                     <textarea
                                         value={config.contexto_regional}
                                         onChange={(e) => setConfig(prev => ({ ...prev, contexto_regional: e.target.value }))}
-                                        className="w-full px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white focus:border-purple-500 focus:outline-none"
+                                        className="w-full px-4 py-2 rounded-lg bg-foreground/5 border border-border text-white focus:border-purple-500 focus:outline-none"
                                         rows={2}
                                     />
                                 </div>
@@ -677,7 +677,7 @@ export default function AdminAgentesPage() {
                                     <textarea
                                         value={config.estacionamento_info}
                                         onChange={(e) => setConfig(prev => ({ ...prev, estacionamento_info: e.target.value }))}
-                                        className="w-full px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white focus:border-purple-500 focus:outline-none"
+                                        className="w-full px-4 py-2 rounded-lg bg-foreground/5 border border-border text-white focus:border-purple-500 focus:outline-none"
                                         rows={2}
                                     />
                                 </div>
@@ -686,7 +686,7 @@ export default function AdminAgentesPage() {
                                     <textarea
                                         value={config.transporte_publico_info}
                                         onChange={(e) => setConfig(prev => ({ ...prev, transporte_publico_info: e.target.value }))}
-                                        className="w-full px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white focus:border-purple-500 focus:outline-none"
+                                        className="w-full px-4 py-2 rounded-lg bg-foreground/5 border border-border text-white focus:border-purple-500 focus:outline-none"
                                         rows={2}
                                     />
                                 </div>
@@ -702,7 +702,7 @@ export default function AdminAgentesPage() {
                                         type="time"
                                         value={config.horario_segunda_a_sexta_inicio}
                                         onChange={(e) => setConfig(prev => ({ ...prev, horario_segunda_a_sexta_inicio: e.target.value }))}
-                                        className="w-full px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white focus:border-purple-500 focus:outline-none"
+                                        className="w-full px-4 py-2 rounded-lg bg-foreground/5 border border-border text-white focus:border-purple-500 focus:outline-none"
                                     />
                                 </div>
                                 <div>
@@ -711,7 +711,7 @@ export default function AdminAgentesPage() {
                                         type="time"
                                         value={config.horario_segunda_a_sexta_fim}
                                         onChange={(e) => setConfig(prev => ({ ...prev, horario_segunda_a_sexta_fim: e.target.value }))}
-                                        className="w-full px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white focus:border-purple-500 focus:outline-none"
+                                        className="w-full px-4 py-2 rounded-lg bg-foreground/5 border border-border text-white focus:border-purple-500 focus:outline-none"
                                     />
                                 </div>
                                 <div>
@@ -720,7 +720,7 @@ export default function AdminAgentesPage() {
                                         type="time"
                                         value={config.horario_sabado_inicio}
                                         onChange={(e) => setConfig(prev => ({ ...prev, horario_sabado_inicio: e.target.value }))}
-                                        className="w-full px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white focus:border-purple-500 focus:outline-none"
+                                        className="w-full px-4 py-2 rounded-lg bg-foreground/5 border border-border text-white focus:border-purple-500 focus:outline-none"
                                     />
                                 </div>
                                 <div>
@@ -729,7 +729,7 @@ export default function AdminAgentesPage() {
                                         type="time"
                                         value={config.horario_sabado_fim}
                                         onChange={(e) => setConfig(prev => ({ ...prev, horario_sabado_fim: e.target.value }))}
-                                        className="w-full px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white focus:border-purple-500 focus:outline-none"
+                                        className="w-full px-4 py-2 rounded-lg bg-foreground/5 border border-border text-white focus:border-purple-500 focus:outline-none"
                                     />
                                 </div>
                                 <div className="col-span-2 flex items-center gap-4">
@@ -738,18 +738,18 @@ export default function AdminAgentesPage() {
                                             type="checkbox"
                                             checked={config.funciona_domingo}
                                             onChange={(e) => setConfig(prev => ({ ...prev, funciona_domingo: e.target.checked }))}
-                                            className="w-4 h-4 rounded bg-black/30 border-white/10"
+                                            className="w-4 h-4 rounded bg-foreground/5 border-white/10"
                                         />
-                                        <span className="text-sm text-gray-300">Funciona domingo</span>
+                                        <span className="text-sm text-muted-foreground">Funciona domingo</span>
                                     </label>
                                     <label className="flex items-center gap-2">
                                         <input
                                             type="checkbox"
                                             checked={config.fecha_almoco}
                                             onChange={(e) => setConfig(prev => ({ ...prev, fecha_almoco: e.target.checked }))}
-                                            className="w-4 h-4 rounded bg-black/30 border-white/10"
+                                            className="w-4 h-4 rounded bg-foreground/5 border-white/10"
                                         />
-                                        <span className="text-sm text-gray-300">Fecha para almoço</span>
+                                        <span className="text-sm text-muted-foreground">Fecha para almoço</span>
                                     </label>
                                 </div>
                             </div>
@@ -763,14 +763,14 @@ export default function AdminAgentesPage() {
                                         type="text"
                                         value={novoMembro.nome}
                                         onChange={(e) => setNovoMembro(prev => ({ ...prev, nome: e.target.value }))}
-                                        className="flex-1 px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white focus:border-purple-500 focus:outline-none"
+                                        className="flex-1 px-4 py-2 rounded-lg bg-foreground/5 border border-border text-white focus:border-purple-500 focus:outline-none"
                                         placeholder="Nome"
                                     />
                                     <input
                                         type="text"
                                         value={novoMembro.cargo}
                                         onChange={(e) => setNovoMembro(prev => ({ ...prev, cargo: e.target.value }))}
-                                        className="flex-1 px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white focus:border-purple-500 focus:outline-none"
+                                        className="flex-1 px-4 py-2 rounded-lg bg-foreground/5 border border-border text-white focus:border-purple-500 focus:outline-none"
                                         placeholder="Cargo"
                                     />
                                     <button onClick={addMembro} className="px-4 py-2 rounded-lg bg-purple-600 text-white">+</button>
@@ -795,7 +795,7 @@ export default function AdminAgentesPage() {
                                         type="text"
                                         value={config.produto_nome}
                                         onChange={(e) => setConfig(prev => ({ ...prev, produto_nome: e.target.value }))}
-                                        className="w-full px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white focus:border-purple-500 focus:outline-none"
+                                        className="w-full px-4 py-2 rounded-lg bg-foreground/5 border border-border text-white focus:border-purple-500 focus:outline-none"
                                     />
                                 </div>
                                 <div>
@@ -804,7 +804,7 @@ export default function AdminAgentesPage() {
                                         type="text"
                                         value={config.produto_duracao_media}
                                         onChange={(e) => setConfig(prev => ({ ...prev, produto_duracao_media: e.target.value }))}
-                                        className="w-full px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white focus:border-purple-500 focus:outline-none"
+                                        className="w-full px-4 py-2 rounded-lg bg-foreground/5 border border-border text-white focus:border-purple-500 focus:outline-none"
                                     />
                                 </div>
                                 <div className="col-span-2">
@@ -812,7 +812,7 @@ export default function AdminAgentesPage() {
                                     <textarea
                                         value={config.produto_descricao}
                                         onChange={(e) => setConfig(prev => ({ ...prev, produto_descricao: e.target.value }))}
-                                        className="w-full px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white focus:border-purple-500 focus:outline-none"
+                                        className="w-full px-4 py-2 rounded-lg bg-foreground/5 border border-border text-white focus:border-purple-500 focus:outline-none"
                                         rows={2}
                                     />
                                 </div>
@@ -823,14 +823,14 @@ export default function AdminAgentesPage() {
                                             type="text"
                                             value={config.servico_gratuito_nome}
                                             onChange={(e) => setConfig(prev => ({ ...prev, servico_gratuito_nome: e.target.value }))}
-                                            className="w-full px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white focus:border-purple-500 focus:outline-none"
+                                            className="w-full px-4 py-2 rounded-lg bg-foreground/5 border border-border text-white focus:border-purple-500 focus:outline-none"
                                             placeholder="Nome"
                                         />
                                         <input
                                             type="text"
                                             value={config.servico_gratuito_duracao}
                                             onChange={(e) => setConfig(prev => ({ ...prev, servico_gratuito_duracao: e.target.value }))}
-                                            className="w-full px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white focus:border-purple-500 focus:outline-none"
+                                            className="w-full px-4 py-2 rounded-lg bg-foreground/5 border border-border text-white focus:border-purple-500 focus:outline-none"
                                             placeholder="Duração"
                                         />
                                     </div>
@@ -846,14 +846,14 @@ export default function AdminAgentesPage() {
                                         type="text"
                                         value={novoCurso.nome}
                                         onChange={(e) => setNovoCurso(prev => ({ ...prev, nome: e.target.value }))}
-                                        className="px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white focus:border-purple-500 focus:outline-none"
+                                        className="px-4 py-2 rounded-lg bg-foreground/5 border border-border text-white focus:border-purple-500 focus:outline-none"
                                         placeholder="Nome"
                                     />
                                     <input
                                         type="text"
                                         value={novoCurso.descricao}
                                         onChange={(e) => setNovoCurso(prev => ({ ...prev, descricao: e.target.value }))}
-                                        className="px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white focus:border-purple-500 focus:outline-none"
+                                        className="px-4 py-2 rounded-lg bg-foreground/5 border border-border text-white focus:border-purple-500 focus:outline-none"
                                         placeholder="Descrição"
                                     />
                                     <div className="flex gap-2">
@@ -861,7 +861,7 @@ export default function AdminAgentesPage() {
                                             type="text"
                                             value={novoCurso.duracao}
                                             onChange={(e) => setNovoCurso(prev => ({ ...prev, duracao: e.target.value }))}
-                                            className="flex-1 px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white focus:border-purple-500 focus:outline-none"
+                                            className="flex-1 px-4 py-2 rounded-lg bg-foreground/5 border border-border text-white focus:border-purple-500 focus:outline-none"
                                             placeholder="Duração"
                                         />
                                         <button onClick={addCurso} className="px-4 py-2 rounded-lg bg-purple-600 text-white">+</button>
@@ -891,7 +891,7 @@ export default function AdminAgentesPage() {
                                         type="number"
                                         value={config.preco_minimo}
                                         onChange={(e) => setConfig(prev => ({ ...prev, preco_minimo: Number(e.target.value) }))}
-                                        className="w-full px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white focus:border-purple-500 focus:outline-none"
+                                        className="w-full px-4 py-2 rounded-lg bg-foreground/5 border border-border text-white focus:border-purple-500 focus:outline-none"
                                     />
                                 </div>
                                 <div>
@@ -900,7 +900,7 @@ export default function AdminAgentesPage() {
                                         type="number"
                                         value={config.preco_maximo}
                                         onChange={(e) => setConfig(prev => ({ ...prev, preco_maximo: Number(e.target.value) }))}
-                                        className="w-full px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white focus:border-purple-500 focus:outline-none"
+                                        className="w-full px-4 py-2 rounded-lg bg-foreground/5 border border-border text-white focus:border-purple-500 focus:outline-none"
                                     />
                                 </div>
                                 <div className="col-span-2">
@@ -909,7 +909,7 @@ export default function AdminAgentesPage() {
                                         type="text"
                                         value={config.preco_texto_apresentacao}
                                         onChange={(e) => setConfig(prev => ({ ...prev, preco_texto_apresentacao: e.target.value }))}
-                                        className="w-full px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white focus:border-purple-500 focus:outline-none"
+                                        className="w-full px-4 py-2 rounded-lg bg-foreground/5 border border-border text-white focus:border-purple-500 focus:outline-none"
                                     />
                                 </div>
                             </div>
@@ -923,7 +923,7 @@ export default function AdminAgentesPage() {
                                         type="text"
                                         value={novoDiferencial}
                                         onChange={(e) => setNovoDiferencial(e.target.value)}
-                                        className="flex-1 px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white focus:border-purple-500 focus:outline-none"
+                                        className="flex-1 px-4 py-2 rounded-lg bg-foreground/5 border border-border text-white focus:border-purple-500 focus:outline-none"
                                         placeholder="Adicionar diferencial..."
                                     />
                                     <button onClick={addDiferencial} className="px-4 py-2 rounded-lg bg-purple-600 text-white">+</button>
@@ -947,7 +947,7 @@ export default function AdminAgentesPage() {
                                         type="text"
                                         value={novaRegra}
                                         onChange={(e) => setNovaRegra(e.target.value)}
-                                        className="flex-1 px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white focus:border-purple-500 focus:outline-none"
+                                        className="flex-1 px-4 py-2 rounded-lg bg-foreground/5 border border-border text-white focus:border-purple-500 focus:outline-none"
                                         placeholder="Adicionar regra..."
                                     />
                                     <button onClick={addRegra} className="px-4 py-2 rounded-lg bg-purple-600 text-white">+</button>

@@ -2022,7 +2022,7 @@ export default function ConversasPage() {
                 <div className="p-4 space-y-4">
                   {/* Dados do Formulário */}
                   {current.formData && (
-                    <div className="bg-[#1a1a1a] rounded-lg p-4 mb-4 border border-border-gray">
+                    <div className="bg-secondary rounded-lg p-4 mb-4 border border-border-gray">
                       <h4 className="text-sm font-semibold text-pure-white mb-3 flex items-center gap-2">
                         <User className="w-4 h-4 text-accent-green" />
                         Dados do Formulário
@@ -2156,17 +2156,17 @@ export default function ConversasPage() {
             </CardContent>
 
             {/* Footer de Envio de Mensagem */}
-            <div className="p-4 border-t border-border-gray bg-[#151515]">
+            <div className="p-4 border-t border-border-gray bg-card">
               <div className="flex items-center gap-3 mb-3 flex-wrap">
                 <span className="text-xs text-text-gray font-medium flex items-center gap-1">
                   <PauseCircle className="w-3 h-3 text-green-500" />
                   Ao assumir, pausar IA por:
                 </span>
                 <Select value={pauseDuration} onValueChange={setPauseDuration}>
-                  <SelectTrigger className="h-7 w-[140px] text-xs bg-black/40 border-border-gray text-pure-white focus:ring-accent-green">
+                  <SelectTrigger className="h-7 w-[140px] text-xs bg-foreground/8 border-border-gray text-pure-white focus:ring-accent-green">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent className="bg-[#1a1a1a] border-[#333] text-pure-white">
+                  <SelectContent className="bg-secondary border-border text-pure-white">
                     <SelectItem value="10">10 minutos</SelectItem>
                     <SelectItem value="20">20 minutos</SelectItem>
                     <SelectItem value="30">30 minutos</SelectItem>
@@ -2188,7 +2188,7 @@ export default function ConversasPage() {
                   value={messageInput}
                   onChange={e => setMessageInput(e.target.value)}
                   placeholder="Digite sua resposta aqui... (Enter envia)"
-                  className="min-h-[50px] max-h-[120px] bg-black/40 border-border-gray resize-none text-pure-white placeholder:text-gray-600 focus:border-accent-green genial-scrollbar"
+                  className="min-h-[50px] max-h-[120px] bg-foreground/8 border-border-gray resize-none text-pure-white placeholder:text-gray-600 focus:border-accent-green genial-scrollbar"
                   onKeyDown={e => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault()
@@ -2283,10 +2283,10 @@ export default function ConversasPage() {
                   <div className="space-y-2">
                     <Label>Template</Label>
                     <Select value={bulkMetaSelectedTemplate} onValueChange={setBulkMetaSelectedTemplate}>
-                      <SelectTrigger className="bg-black/40 border-border-gray text-pure-white">
+                      <SelectTrigger className="bg-foreground/8 border-border-gray text-pure-white">
                         <SelectValue placeholder="Selecione..." />
                       </SelectTrigger>
-                      <SelectContent className="bg-[#1a1a1a] border-[#333] text-pure-white">
+                      <SelectContent className="bg-secondary border-border text-pure-white">
                         {bulkMetaTemplatesCatalog.map((tpl) => (
                           <SelectItem key={tpl.name} value={tpl.name}>
                             {tpl.name}{tpl.status ? ` (${tpl.status})` : ""}
@@ -2301,7 +2301,7 @@ export default function ConversasPage() {
                       value={bulkMetaLanguage}
                       onChange={(e) => setBulkMetaLanguage(e.target.value)}
                       placeholder="pt_BR"
-                      className="bg-black/40 border-border-gray text-pure-white"
+                      className="bg-foreground/8 border-border-gray text-pure-white"
                     />
                   </div>
                   {selectedBulkMetaTemplate && (
@@ -2328,7 +2328,7 @@ export default function ConversasPage() {
                               setBulkMetaParamValues((prev) => ({ ...prev, [field.id]: e.target.value }))
                             }
                             placeholder="Valor"
-                            className="bg-black/40 border-border-gray text-pure-white"
+                            className="bg-foreground/8 border-border-gray text-pure-white"
                           />
                         </div>
                       ))}
@@ -2344,13 +2344,13 @@ export default function ConversasPage() {
                           value={bulkMetaHeaderMediaId}
                           onChange={(e) => setBulkMetaHeaderMediaId(e.target.value)}
                           placeholder="Media ID (upload Meta)"
-                          className="bg-black/40 border-border-gray text-pure-white"
+                          className="bg-foreground/8 border-border-gray text-pure-white"
                         />
                         <Input
                           value={bulkMetaHeaderMediaLink}
                           onChange={(e) => setBulkMetaHeaderMediaLink(e.target.value)}
                           placeholder="https://... (link publico)"
-                          className="bg-black/40 border-border-gray text-pure-white"
+                          className="bg-foreground/8 border-border-gray text-pure-white"
                         />
                       </div>
                       <div className="flex items-center gap-3">
@@ -2384,7 +2384,7 @@ export default function ConversasPage() {
                       value={bulkMetaTemplates}
                       onChange={(e) => setBulkMetaTemplates(e.target.value)}
                       placeholder="template_boas_vindas|{primeiro_nome}"
-                      className="min-h-[120px] bg-black/40 border-border-gray text-pure-white"
+                      className="min-h-[120px] bg-foreground/8 border-border-gray text-pure-white"
                     />
                     <div className="text-[11px] text-text-gray">
                       Um template por linha. Use | para parametros (ex: template|{"{primeiro_nome}"}).
@@ -2396,7 +2396,7 @@ export default function ConversasPage() {
                       value={bulkMetaLanguage}
                       onChange={(e) => setBulkMetaLanguage(e.target.value)}
                       placeholder="pt_BR"
-                      className="bg-black/40 border-border-gray text-pure-white"
+                      className="bg-foreground/8 border-border-gray text-pure-white"
                     />
                   </div>
                   <div className="space-y-2">
@@ -2405,7 +2405,7 @@ export default function ConversasPage() {
                       value={bulkMetaManualTemplateName}
                       onChange={(e) => setBulkMetaManualTemplateName(e.target.value)}
                       placeholder="template_boas_vindas"
-                      className="bg-black/40 border-border-gray text-pure-white"
+                      className="bg-foreground/8 border-border-gray text-pure-white"
                     />
                   </div>
                   <div className="space-y-2">
@@ -2414,7 +2414,7 @@ export default function ConversasPage() {
                       value={bulkMetaManualComponents}
                       onChange={(e) => setBulkMetaManualComponents(e.target.value)}
                       placeholder='[{"type":"BODY","text":"Ola {{1}}"}]'
-                      className="min-h-[120px] bg-black/40 border-border-gray text-pure-white"
+                      className="min-h-[120px] bg-foreground/8 border-border-gray text-pure-white"
                     />
                     <div className="text-[11px] text-text-gray">
                       Se informado, o JSON substitui a lista manual.
@@ -2429,7 +2429,7 @@ export default function ConversasPage() {
                   value={bulkMessage}
                   onChange={(e) => setBulkMessage(e.target.value)}
                   placeholder="Oi {nome}, tudo bem?"
-                  className="min-h-[120px] bg-black/40 border-border-gray text-pure-white"
+                  className="min-h-[120px] bg-foreground/8 border-border-gray text-pure-white"
                 />
                 <div className="text-[11px] text-text-gray">
                   Use {`{nome}`} ou {`{primeiro_nome}`} para personalizar.
@@ -2443,19 +2443,19 @@ export default function ConversasPage() {
                 type="number"
                 value={bulkDelaySeconds}
                 onChange={(e) => setBulkDelaySeconds(e.target.value)}
-                className="bg-black/40 border-border-gray text-pure-white"
+                className="bg-foreground/8 border-border-gray text-pure-white"
               />
             </div>
 
             {bulkSending && (
               <div className="space-y-2">
-                <Progress value={bulkProgress} className="h-2 bg-[#222]" />
+                <Progress value={bulkProgress} className="h-2 bg-muted" />
                 <div className="text-xs text-text-gray">{bulkProgress}% concluido</div>
               </div>
             )}
 
             {bulkResults.length > 0 && (
-              <div className="max-h-48 overflow-auto rounded-lg border border-border-gray bg-black/30 p-2 space-y-2 text-xs">
+              <div className="max-h-48 overflow-auto rounded-lg border border-border-gray bg-foreground/5 p-2 space-y-2 text-xs">
                 {bulkResults.map((result, idx) => (
                   <div key={`${result.sessionId}-${idx}`} className="flex items-center justify-between gap-2">
                     <div className="min-w-0">

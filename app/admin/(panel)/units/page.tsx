@@ -1088,12 +1088,12 @@ export default function AdminUnitsPage() {
     const inactiveUnits = units.filter(u => !u.is_active).length
 
     return (
-        <div className="p-8 space-y-8 max-w-[1600px] mx-auto min-h-screen bg-[#000000]">
+        <div className="p-8 space-y-8 max-w-[1600px] mx-auto min-h-screen bg-background">
             {/* Header / Stats */}
             <div className="flex flex-col gap-6">
                 <div className="flex justify-between items-center">
                     <div>
-                        <h1 className="text-2xl font-semibold text-[#ededed] tracking-tight">Gerenciar todas as unidades</h1>
+                        <h1 className="text-2xl font-semibold text-foreground tracking-tight">Gerenciar todas as unidades</h1>
                         <p className="text-gray-500 text-sm">Visão geral do sistema SaaS</p>
                     </div>
                     <div className="flex gap-4">
@@ -1108,7 +1108,7 @@ export default function AdminUnitsPage() {
                         <Button
                             onClick={() => setCreating(true)} // Opens create box/modal? For now, I'll scroll to create or open dialog. Actually user wants "Nova Unidade" button. 
                             // I will use a Dialog for creation to keep UI clean like screenshot 
-                            className="bg-transparent border border-gray-700 hover:border-green-400 text-[#ededed] hover:text-green-400 h-10 px-6 rounded-md transition-all"
+                            className="bg-transparent border border-gray-700 hover:border-green-400 text-foreground hover:text-green-400 h-10 px-6 rounded-md transition-all"
                         >
                             + Nova Unidade
                         </Button>
@@ -1116,7 +1116,7 @@ export default function AdminUnitsPage() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <Card className="bg-[#121212] border border-[#2a2a2a] shadow-lg">
+                    <Card className="bg-card border border-border shadow-lg">
                         <CardContent className="p-6">
                             <div className="flex items-center gap-4 mb-2">
                                 <Database className="w-5 h-5 text-green-500" />
@@ -1125,7 +1125,7 @@ export default function AdminUnitsPage() {
                             <div className="text-4xl font-bold text-green-500">{units.length}</div>
                         </CardContent>
                     </Card>
-                    <Card className="bg-[#121212] border border-[#2a2a2a] shadow-lg">
+                    <Card className="bg-card border border-border shadow-lg">
                         <CardContent className="p-6">
                             <div className="flex items-center gap-4 mb-2">
                                 <Activity className="w-5 h-5 text-green-500" />
@@ -1134,7 +1134,7 @@ export default function AdminUnitsPage() {
                             <div className="text-4xl font-bold text-green-500">{activeUnits}</div>
                         </CardContent>
                     </Card>
-                    <Card className="bg-[#121212] border border-[#2a2a2a] shadow-lg">
+                    <Card className="bg-card border border-border shadow-lg">
                         <CardContent className="p-6">
                             <div className="flex items-center gap-4 mb-2">
                                 <Server className="w-5 h-5 text-red-500" />
@@ -1145,9 +1145,9 @@ export default function AdminUnitsPage() {
                     </Card>
                 </div>
 
-                <Card className="bg-[#121212] border border-[#2a2a2a] shadow-lg">
+                <Card className="bg-card border border-border shadow-lg">
                     <CardHeader>
-                        <CardTitle className="text-[#ededed] flex items-center gap-2">
+                        <CardTitle className="text-foreground flex items-center gap-2">
                             <Megaphone className="w-5 h-5 text-green-400" />
                             Aviso do administrador para clientes
                         </CardTitle>
@@ -1160,10 +1160,10 @@ export default function AdminUnitsPage() {
                             <div className="space-y-2">
                                 <Label>Destino</Label>
                                 <Select value={broadcastTarget} onValueChange={setBroadcastTarget}>
-                                    <SelectTrigger className="bg-[#1a1a1a] border-[#333] text-white">
+                                    <SelectTrigger className="bg-secondary border-border text-white">
                                         <SelectValue placeholder="Selecione" />
                                     </SelectTrigger>
-                                    <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                                    <SelectContent className="bg-secondary border-border text-white">
                                         <SelectItem value="all">Todas unidades ativas</SelectItem>
                                         {units
                                             .filter((unit) => unit.is_active)
@@ -1181,7 +1181,7 @@ export default function AdminUnitsPage() {
                                     value={broadcastTitle}
                                     onChange={(e) => setBroadcastTitle(e.target.value)}
                                     placeholder="Ex: Nova atualizacao do modulo de disparos"
-                                    className="bg-[#1a1a1a] border-[#333] text-white"
+                                    className="bg-secondary border-border text-white"
                                     maxLength={140}
                                 />
                             </div>
@@ -1192,7 +1192,7 @@ export default function AdminUnitsPage() {
                                 value={broadcastMessage}
                                 onChange={(e) => setBroadcastMessage(e.target.value)}
                                 placeholder="Descreva a atualizacao para o cliente."
-                                className="min-h-[120px] bg-[#1a1a1a] border-[#333] text-white"
+                                className="min-h-[120px] bg-secondary border-border text-white"
                                 maxLength={800}
                             />
                         </div>
@@ -1212,7 +1212,7 @@ export default function AdminUnitsPage() {
             {/* CREATE FORM (CONDITIONAL OR DIALOG? Screenshot says "+ Nova Unidade" button. Previous UI had a card. I'll Keep the button opening a Dialog for creation to match clean screenshot look) */}
             {/* Wait, previous code had inline form. I will wrap it in a Dialog to match the screenshot's clean "Dashboard" feel. */}
             <Dialog open={creating} onOpenChange={setCreating}>
-                <DialogContent className="bg-[#121212] border-[#2a2a2a] text-[#ededed]">
+                <DialogContent className="bg-card border-border text-foreground">
                     <DialogHeader>
                         <DialogTitle className="text-green-500 flex items-center gap-2">
                             <Plus className="w-5 h-5" /> Nova Unidade
@@ -1228,7 +1228,7 @@ export default function AdminUnitsPage() {
                                 placeholder="Ex: Vox Curitiba"
                                 value={newName}
                                 onChange={(e) => handleNameChange(e.target.value)}
-                                className="bg-[#1a1a1a] border-[#333] text-white focus:border-green-500"
+                                className="bg-secondary border-border text-white focus:border-green-500"
                             />
                         </div>
                         <div className="space-y-2">
@@ -1236,7 +1236,7 @@ export default function AdminUnitsPage() {
                             <Input
                                 value={newPrefix}
                                 readOnly
-                                className="bg-[#1a1a1a] border-[#333] text-gray-500 font-mono"
+                                className="bg-secondary border-border text-gray-500 font-mono"
                             />
                         </div>
                         <Button
@@ -1251,7 +1251,7 @@ export default function AdminUnitsPage() {
             </Dialog>
 
             {/* Grid Title */}
-            <h2 className="text-xl font-bold text-[#ededed] pt-4">Todas as Unidades</h2>
+            <h2 className="text-xl font-bold text-foreground pt-4">Todas as Unidades</h2>
 
             {/* UNITS GRID */}
             {loading ? (
@@ -1259,7 +1259,7 @@ export default function AdminUnitsPage() {
             ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                     {units.map(unit => (
-                        <Card key={unit.id} className="bg-[#121212] border border-[#2a2a2a] hover:border-green-500/50 transition-all duration-300 group">
+                        <Card key={unit.id} className="bg-card border border-border hover:border-green-500/50 transition-all duration-300 group">
                             <CardContent className="p-6 space-y-4">
                                 <div className="flex items-start justify-between">
                                     <div className="flex items-center gap-3">
@@ -1267,7 +1267,7 @@ export default function AdminUnitsPage() {
                                             <Database className="w-5 h-5 text-green-500" />
                                         </div>
                                         <div>
-                                            <h3 className="font-bold text-[#ededed] text-lg">{unit.name}</h3>
+                                            <h3 className="font-bold text-foreground text-lg">{unit.name}</h3>
                                             <p className="text-xs text-gray-500 font-mono">{unit.prefix}</p>
                                         </div>
                                     </div>
@@ -1283,7 +1283,7 @@ export default function AdminUnitsPage() {
                                     </div>
                                     <div className="flex justify-between text-sm">
                                         <span className="text-gray-500">Último acesso:</span>
-                                        <span className="text-[#ededed]">
+                                        <span className="text-foreground">
                                             {unit.created_at ? new Date(unit.created_at).toLocaleDateString('pt-BR') : 'Nunca'}
                                         </span>
                                     </div>
@@ -1299,28 +1299,28 @@ export default function AdminUnitsPage() {
                                 <div className="flex flex-wrap gap-3 items-center pt-2 border-t border-[#222] mt-4">
                                     <button
                                         onClick={(e) => { e.stopPropagation(); openLinkDialog(unit) }}
-                                        className="text-gray-600 hover:text-[#ededed] text-xs flex items-center gap-1 transition-colors"
+                                        className="text-gray-600 hover:text-foreground text-xs flex items-center gap-1 transition-colors"
                                     >
                                         <LinkIcon className="w-3 h-3" /> Configurar N8N
                                     </button>
 
                                     <button
                                         onClick={(e) => { e.stopPropagation(); openMessagingDialog(unit) }}
-                                        className="text-gray-600 hover:text-[#ededed] text-xs flex items-center gap-1 transition-colors"
+                                        className="text-gray-600 hover:text-foreground text-xs flex items-center gap-1 transition-colors"
                                     >
                                         <MessageSquare className="w-3 h-3" /> Configurar WhatsApp
                                     </button>
 
                                     <button
                                         onClick={(e) => { e.stopPropagation(); openNativeAgentDialog(unit) }}
-                                        className="text-gray-600 hover:text-[#ededed] text-xs flex items-center gap-1 transition-colors"
+                                        className="text-gray-600 hover:text-foreground text-xs flex items-center gap-1 transition-colors"
                                     >
                                         <Bot className="w-3 h-3" /> Configurar Agente IA
                                     </button>
 
                                     <button
                                         onClick={(e) => { e.stopPropagation(); openKommoDialog(unit) }}
-                                        className="text-gray-600 hover:text-[#ededed] text-xs flex items-center gap-1 transition-colors"
+                                        className="text-gray-600 hover:text-foreground text-xs flex items-center gap-1 transition-colors"
                                     >
                                         <RefreshCw className="w-3 h-3" /> Kommo CRM
                                     </button>
@@ -1341,7 +1341,7 @@ export default function AdminUnitsPage() {
             {/* KEEP EXISTING DIALOGS for Workflow and Deletion, just style them */}
             {/* DIALOG DE VINCULO N8N */}
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-                <DialogContent className="bg-[#121212] border-[#333] text-white">
+                <DialogContent className="bg-card border-border text-white">
                     <DialogHeader>
                         <DialogTitle>Gerenciar Integração N8N</DialogTitle>
                         <DialogDescription className="text-gray-400">
@@ -1353,10 +1353,10 @@ export default function AdminUnitsPage() {
                         <div className="space-y-2">
                             <Label>Fluxo Principal (Z-API)</Label>
                             <Select onValueChange={setSelectedWorkflowId} value={selectedWorkflowId}>
-                                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                                <SelectTrigger className="bg-secondary border-border">
                                     <SelectValue placeholder="Selecione um fluxo..." />
                                 </SelectTrigger>
-                                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                                <SelectContent className="bg-secondary border-border text-white">
                                     {loadingWorkflows ? (
                                         <div className="p-2 text-center text-xs text-gray-400">Carregando...</div>
                                     ) : (
@@ -1375,7 +1375,7 @@ export default function AdminUnitsPage() {
             </Dialog>
 
             <Dialog open={messagingDialogOpen} onOpenChange={setMessagingDialogOpen}>
-                <DialogContent className="bg-[#121212] border-[#333] text-white">
+                <DialogContent className="bg-card border-border text-white">
                     <DialogHeader>
                         <DialogTitle>Configurar WhatsApp</DialogTitle>
                         <DialogDescription className="text-gray-400">
@@ -1386,10 +1386,10 @@ export default function AdminUnitsPage() {
                         <div className="space-y-2">
                             <Label>Provider</Label>
                             <Select value={messagingProvider} onValueChange={(v) => setMessagingProvider(v as "zapi" | "evolution" | "meta")}>
-                                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                                <SelectTrigger className="bg-secondary border-border">
                                     <SelectValue placeholder="Selecione..." />
                                 </SelectTrigger>
-                                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                                <SelectContent className="bg-secondary border-border text-white">
                                     <SelectItem value="zapi">Z-API</SelectItem>
                                     <SelectItem value="evolution">Evolution API</SelectItem>
                                     <SelectItem value="meta">Meta Cloud API</SelectItem>
@@ -1405,7 +1405,7 @@ export default function AdminUnitsPage() {
                                         placeholder="https://api.z-api.io/instances/XXX/token/YYY/send-text"
                                         value={sendTextUrl}
                                         onChange={(e) => setSendTextUrl(e.target.value)}
-                                        className="bg-[#1a1a1a] border-[#333] text-white"
+                                        className="bg-secondary border-border text-white"
                                     />
                                 </div>
                                 <div className="space-y-2">
@@ -1414,7 +1414,7 @@ export default function AdminUnitsPage() {
                                         placeholder="Client-Token do header"
                                         value={clientToken}
                                         onChange={(e) => setClientToken(e.target.value)}
-                                        className="bg-[#1a1a1a] border-[#333] text-white"
+                                        className="bg-secondary border-border text-white"
                                     />
                                 </div>
                                 <div className="space-y-2">
@@ -1423,7 +1423,7 @@ export default function AdminUnitsPage() {
                                         placeholder="https://api.z-api.io"
                                         value={apiUrl}
                                         onChange={(e) => setApiUrl(e.target.value)}
-                                        className="bg-[#1a1a1a] border-[#333] text-white"
+                                        className="bg-secondary border-border text-white"
                                     />
                                 </div>
                                 <div className="space-y-2">
@@ -1432,7 +1432,7 @@ export default function AdminUnitsPage() {
                                         placeholder="instance id"
                                         value={instanceId}
                                         onChange={(e) => setInstanceId(e.target.value)}
-                                        className="bg-[#1a1a1a] border-[#333] text-white"
+                                        className="bg-secondary border-border text-white"
                                     />
                                 </div>
                                 <div className="space-y-2">
@@ -1441,7 +1441,7 @@ export default function AdminUnitsPage() {
                                         placeholder="token da instancia"
                                         value={providerToken}
                                         onChange={(e) => setProviderToken(e.target.value)}
-                                        className="bg-[#1a1a1a] border-[#333] text-white"
+                                        className="bg-secondary border-border text-white"
                                     />
                                 </div>
                             </div>
@@ -1455,7 +1455,7 @@ export default function AdminUnitsPage() {
                                         placeholder="https://api.iagoflow.com"
                                         value={apiUrl}
                                         onChange={(e) => setApiUrl(e.target.value)}
-                                        className="bg-[#1a1a1a] border-[#333] text-white"
+                                        className="bg-secondary border-border text-white"
                                     />
                                 </div>
                                 <div className="space-y-2">
@@ -1464,7 +1464,7 @@ export default function AdminUnitsPage() {
                                         placeholder="Nome da instancia"
                                         value={instanceName}
                                         onChange={(e) => setInstanceName(e.target.value)}
-                                        className="bg-[#1a1a1a] border-[#333] text-white"
+                                        className="bg-secondary border-border text-white"
                                     />
                                 </div>
                                 <div className="space-y-2">
@@ -1473,7 +1473,7 @@ export default function AdminUnitsPage() {
                                         placeholder="apikey"
                                         value={providerToken}
                                         onChange={(e) => setProviderToken(e.target.value)}
-                                        className="bg-[#1a1a1a] border-[#333] text-white"
+                                        className="bg-secondary border-border text-white"
                                     />
                                 </div>
                             </div>
@@ -1487,7 +1487,7 @@ export default function AdminUnitsPage() {
                                         placeholder="EAA..."
                                         value={metaAccessToken}
                                         onChange={(e) => setMetaAccessToken(e.target.value)}
-                                        className="bg-[#1a1a1a] border-[#333] text-white"
+                                        className="bg-secondary border-border text-white"
                                     />
                                 </div>
                                 <div className="space-y-2">
@@ -1496,7 +1496,7 @@ export default function AdminUnitsPage() {
                                         placeholder="123456789012345"
                                         value={metaPhoneNumberId}
                                         onChange={(e) => setMetaPhoneNumberId(e.target.value)}
-                                        className="bg-[#1a1a1a] border-[#333] text-white"
+                                        className="bg-secondary border-border text-white"
                                     />
                                 </div>
                                 <div className="space-y-2">
@@ -1505,7 +1505,7 @@ export default function AdminUnitsPage() {
                                         placeholder="WhatsApp Business Account ID"
                                         value={metaWabaId}
                                         onChange={(e) => setMetaWabaId(e.target.value)}
-                                        className="bg-[#1a1a1a] border-[#333] text-white"
+                                        className="bg-secondary border-border text-white"
                                     />
                                 </div>
                                 <div className="space-y-2">
@@ -1514,7 +1514,7 @@ export default function AdminUnitsPage() {
                                         placeholder="Token de verificacao do webhook"
                                         value={metaVerifyToken}
                                         onChange={(e) => setMetaVerifyToken(e.target.value)}
-                                        className="bg-[#1a1a1a] border-[#333] text-white"
+                                        className="bg-secondary border-border text-white"
                                     />
                                 </div>
                                 <div className="space-y-2">
@@ -1523,7 +1523,7 @@ export default function AdminUnitsPage() {
                                         placeholder="Usado para validar X-Hub-Signature-256"
                                         value={metaAppSecret}
                                         onChange={(e) => setMetaAppSecret(e.target.value)}
-                                        className="bg-[#1a1a1a] border-[#333] text-white"
+                                        className="bg-secondary border-border text-white"
                                     />
                                 </div>
                                 <div className="space-y-2">
@@ -1532,13 +1532,13 @@ export default function AdminUnitsPage() {
                                         placeholder="v21.0"
                                         value={metaApiVersion}
                                         onChange={(e) => setMetaApiVersion(e.target.value)}
-                                        className="bg-[#1a1a1a] border-[#333] text-white"
+                                        className="bg-secondary border-border text-white"
                                     />
                                 </div>
                             </div>
                         )}
 
-                        <div className="mt-2 rounded-md border border-[#333] bg-[#101010] p-4 space-y-3">
+                        <div className="mt-2 rounded-md border border-border bg-card p-4 space-y-3">
                             <div>
                                 <h4 className="text-sm font-semibold text-white">Relatorio semanal automatico</h4>
                                 <p className="text-xs text-gray-400">
@@ -1552,10 +1552,10 @@ export default function AdminUnitsPage() {
                                     value={weeklyReportEnabled ? "on" : "off"}
                                     onValueChange={(v) => setWeeklyReportEnabled(v === "on")}
                                 >
-                                    <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                                    <SelectTrigger className="bg-secondary border-border">
                                         <SelectValue placeholder="Selecione..." />
                                     </SelectTrigger>
-                                    <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                                    <SelectContent className="bg-secondary border-border text-white">
                                         <SelectItem value="on">Ativado</SelectItem>
                                         <SelectItem value="off">Desativado</SelectItem>
                                     </SelectContent>
@@ -1566,10 +1566,10 @@ export default function AdminUnitsPage() {
                                 <div className="space-y-2">
                                     <Label>Dia do envio</Label>
                                     <Select value={weeklyReportDayOfWeek} onValueChange={setWeeklyReportDayOfWeek}>
-                                        <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                                        <SelectTrigger className="bg-secondary border-border">
                                             <SelectValue placeholder="Selecione..." />
                                         </SelectTrigger>
-                                        <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                                        <SelectContent className="bg-secondary border-border text-white">
                                             <SelectItem value="1">Segunda-feira</SelectItem>
                                             <SelectItem value="2">Terça-feira</SelectItem>
                                             <SelectItem value="3">Quarta-feira</SelectItem>
@@ -1588,7 +1588,7 @@ export default function AdminUnitsPage() {
                                         max={23}
                                         value={weeklyReportHour}
                                         onChange={(e) => setWeeklyReportHour(e.target.value)}
-                                        className="bg-[#1a1a1a] border-[#333] text-white"
+                                        className="bg-secondary border-border text-white"
                                     />
                                 </div>
                             </div>
@@ -1599,7 +1599,7 @@ export default function AdminUnitsPage() {
                                     value={weeklyReportTimezone}
                                     onChange={(e) => setWeeklyReportTimezone(e.target.value)}
                                     placeholder="America/Sao_Paulo"
-                                    className="bg-[#1a1a1a] border-[#333] text-white"
+                                    className="bg-secondary border-border text-white"
                                 />
                             </div>
 
@@ -1609,7 +1609,7 @@ export default function AdminUnitsPage() {
                                     value={weeklyReportGroups}
                                     onChange={(e) => setWeeklyReportGroups(e.target.value)}
                                     placeholder={"1203630xxxx-yyyy@g.us\n1203630zzzz-wwww@g.us"}
-                                    className="bg-[#1a1a1a] border-[#333] text-white min-h-[100px]"
+                                    className="bg-secondary border-border text-white min-h-[100px]"
                                 />
                                 <p className="text-xs text-gray-500">
                                     Aceita formato completo @g.us ou ID com hifen.
@@ -1623,7 +1623,7 @@ export default function AdminUnitsPage() {
                                     onChange={(e) => setWeeklyReportNotes(e.target.value)}
                                     maxLength={800}
                                     placeholder="Ex: Semana com bom volume, priorizar retorno dos leads mornos."
-                                    className="bg-[#1a1a1a] border-[#333] text-white min-h-[80px]"
+                                    className="bg-secondary border-border text-white min-h-[80px]"
                                 />
                             </div>
                         </div>
@@ -1641,7 +1641,7 @@ export default function AdminUnitsPage() {
             </Dialog>
 
             <Dialog open={nativeAgentDialogOpen} onOpenChange={setNativeAgentDialogOpen}>
-                <DialogContent className="bg-[#121212] border-[#333] text-white max-w-3xl">
+                <DialogContent className="bg-card border-border text-white max-w-3xl">
                     <DialogHeader>
                         <DialogTitle>Configurar Agente IA Nativo</DialogTitle>
                         <DialogDescription className="text-gray-400">
@@ -1662,10 +1662,10 @@ export default function AdminUnitsPage() {
                                                 setNativeAgentConfig((prev) => ({ ...prev, enabled: v === "on" }))
                                             }
                                         >
-                                            <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                                            <SelectTrigger className="bg-secondary border-border">
                                                 <SelectValue />
                                             </SelectTrigger>
-                                            <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                                            <SelectContent className="bg-secondary border-border text-white">
                                                 <SelectItem value="on">Ativado</SelectItem>
                                                 <SelectItem value="off">Desativado</SelectItem>
                                             </SelectContent>
@@ -1683,10 +1683,10 @@ export default function AdminUnitsPage() {
                                                 }))
                                             }
                                         >
-                                            <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                                            <SelectTrigger className="bg-secondary border-border">
                                                 <SelectValue />
                                             </SelectTrigger>
-                                            <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                                            <SelectContent className="bg-secondary border-border text-white">
                                                 <SelectItem value="on">Ativada</SelectItem>
                                                 <SelectItem value="off">Desativada</SelectItem>
                                             </SelectContent>
@@ -1707,7 +1707,7 @@ export default function AdminUnitsPage() {
                                                 }))
                                             }
                                             placeholder="AIza... ou *** para manter"
-                                            className="bg-[#1a1a1a] border-[#333] text-white"
+                                            className="bg-secondary border-border text-white"
                                         />
                                     </div>
                                     <div className="space-y-2">
@@ -1721,7 +1721,7 @@ export default function AdminUnitsPage() {
                                                 }))
                                             }
                                             placeholder="gemini-2.5-flash"
-                                            className="bg-[#1a1a1a] border-[#333] text-white"
+                                            className="bg-secondary border-border text-white"
                                         />
                                     </div>
                                 </div>
@@ -1737,7 +1737,7 @@ export default function AdminUnitsPage() {
                                             }))
                                         }
                                         placeholder="America/Sao_Paulo"
-                                        className="bg-[#1a1a1a] border-[#333] text-white"
+                                        className="bg-secondary border-border text-white"
                                     />
                                 </div>
 
@@ -1752,7 +1752,7 @@ export default function AdminUnitsPage() {
                                             }))
                                         }
                                         placeholder="Defina aqui o comportamento, tom e regras da unidade."
-                                        className="bg-[#1a1a1a] border-[#333] text-white min-h-[180px]"
+                                        className="bg-secondary border-border text-white min-h-[180px]"
                                     />
                                     <div className="text-xs text-gray-400">
                                         Variaveis dinamicas disponiveis no prompt:
@@ -1773,10 +1773,10 @@ export default function AdminUnitsPage() {
                                                 }))
                                             }
                                         >
-                                            <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                                            <SelectTrigger className="bg-secondary border-border">
                                                 <SelectValue />
                                             </SelectTrigger>
-                                            <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                                            <SelectContent className="bg-secondary border-border text-white">
                                                 <SelectItem value="on">Ativado</SelectItem>
                                                 <SelectItem value="off">Desativado</SelectItem>
                                             </SelectContent>
@@ -1793,10 +1793,10 @@ export default function AdminUnitsPage() {
                                                 }))
                                             }
                                         >
-                                            <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                                            <SelectTrigger className="bg-secondary border-border">
                                                 <SelectValue />
                                             </SelectTrigger>
-                                            <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                                            <SelectContent className="bg-secondary border-border text-white">
                                                 <SelectItem value="on">Ativado</SelectItem>
                                                 <SelectItem value="off">Desativado</SelectItem>
                                             </SelectContent>
@@ -1813,10 +1813,10 @@ export default function AdminUnitsPage() {
                                                 }))
                                             }
                                         >
-                                            <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                                            <SelectTrigger className="bg-secondary border-border">
                                                 <SelectValue />
                                             </SelectTrigger>
-                                            <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                                            <SelectContent className="bg-secondary border-border text-white">
                                                 <SelectItem value="on">Ativado</SelectItem>
                                                 <SelectItem value="off">Desativado</SelectItem>
                                             </SelectContent>
@@ -1836,10 +1836,10 @@ export default function AdminUnitsPage() {
                                                 }))
                                             }
                                         >
-                                            <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                                            <SelectTrigger className="bg-secondary border-border">
                                                 <SelectValue />
                                             </SelectTrigger>
-                                            <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                                            <SelectContent className="bg-secondary border-border text-white">
                                                 <SelectItem value="on">Ativado</SelectItem>
                                                 <SelectItem value="off">Desativado</SelectItem>
                                             </SelectContent>
@@ -1856,10 +1856,10 @@ export default function AdminUnitsPage() {
                                                 }))
                                             }
                                         >
-                                            <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                                            <SelectTrigger className="bg-secondary border-border">
                                                 <SelectValue />
                                             </SelectTrigger>
-                                            <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                                            <SelectContent className="bg-secondary border-border text-white">
                                                 <SelectItem value="on">Sim</SelectItem>
                                                 <SelectItem value="off">Nao</SelectItem>
                                             </SelectContent>
@@ -1876,10 +1876,10 @@ export default function AdminUnitsPage() {
                                                 }))
                                             }
                                         >
-                                            <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                                            <SelectTrigger className="bg-secondary border-border">
                                                 <SelectValue />
                                             </SelectTrigger>
-                                            <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                                            <SelectContent className="bg-secondary border-border text-white">
                                                 <SelectItem value="on">Ativado</SelectItem>
                                                 <SelectItem value="off">Desativado</SelectItem>
                                             </SelectContent>
@@ -1896,10 +1896,10 @@ export default function AdminUnitsPage() {
                                                 }))
                                             }
                                         >
-                                            <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                                            <SelectTrigger className="bg-secondary border-border">
                                                 <SelectValue />
                                             </SelectTrigger>
-                                            <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                                            <SelectContent className="bg-secondary border-border text-white">
                                                 <SelectItem value="on">Ativado</SelectItem>
                                                 <SelectItem value="off">Desativado</SelectItem>
                                             </SelectContent>
@@ -1921,7 +1921,7 @@ export default function AdminUnitsPage() {
                                                     responseDelayMinSeconds: Number(e.target.value || 0),
                                                 }))
                                             }
-                                            className="bg-[#1a1a1a] border-[#333] text-white"
+                                            className="bg-secondary border-border text-white"
                                         />
                                     </div>
                                     <div className="space-y-2">
@@ -1937,7 +1937,7 @@ export default function AdminUnitsPage() {
                                                     responseDelayMaxSeconds: Number(e.target.value || 0),
                                                 }))
                                             }
-                                            className="bg-[#1a1a1a] border-[#333] text-white"
+                                            className="bg-secondary border-border text-white"
                                         />
                                     </div>
                                     <div className="space-y-2">
@@ -1953,12 +1953,12 @@ export default function AdminUnitsPage() {
                                                     inboundMessageBufferSeconds: Number(e.target.value || 0),
                                                 }))
                                             }
-                                            className="bg-[#1a1a1a] border-[#333] text-white"
+                                            className="bg-secondary border-border text-white"
                                         />
                                     </div>
                                 </div>
 
-                                <div className="space-y-3 rounded-md border border-[#2a2a2a] p-3">
+                                <div className="space-y-3 rounded-md border border-border p-3">
                                     <div className="text-sm font-medium">Humanizacao e delays Z-API</div>
                                     <div className="grid gap-3 md:grid-cols-2">
                                         <div className="space-y-2">
@@ -1974,7 +1974,7 @@ export default function AdminUnitsPage() {
                                                         zapiDelayMessageSeconds: Number(e.target.value || 2),
                                                     }))
                                                 }
-                                                className="bg-[#1a1a1a] border-[#333] text-white"
+                                                className="bg-secondary border-border text-white"
                                             />
                                         </div>
                                         <div className="space-y-2">
@@ -1990,7 +1990,7 @@ export default function AdminUnitsPage() {
                                                         zapiDelayTypingSeconds: Number(e.target.value || 0),
                                                     }))
                                                 }
-                                                className="bg-[#1a1a1a] border-[#333] text-white"
+                                                className="bg-secondary border-border text-white"
                                             />
                                         </div>
                                     </div>
@@ -2006,10 +2006,10 @@ export default function AdminUnitsPage() {
                                                     }))
                                                 }
                                             >
-                                                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                                                <SelectTrigger className="bg-secondary border-border">
                                                     <SelectValue />
                                                 </SelectTrigger>
-                                                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                                                <SelectContent className="bg-secondary border-border text-white">
                                                     <SelectItem value="on">Ativado</SelectItem>
                                                     <SelectItem value="off">Desativado</SelectItem>
                                                 </SelectContent>
@@ -2028,13 +2028,13 @@ export default function AdminUnitsPage() {
                                                         messageBlockMaxChars: Number(e.target.value || 280),
                                                     }))
                                                 }
-                                                className="bg-[#1a1a1a] border-[#333] text-white"
+                                                className="bg-secondary border-border text-white"
                                             />
                                         </div>
                                     </div>
                                 </div>
 
-                                <div className="space-y-3 rounded-md border border-[#2a2a2a] p-3">
+                                <div className="space-y-3 rounded-md border border-border p-3">
                                     <div className="text-sm font-medium">Modo numeros teste</div>
                                     <div className="grid gap-3 md:grid-cols-2">
                                         <div className="space-y-2">
@@ -2048,10 +2048,10 @@ export default function AdminUnitsPage() {
                                                     }))
                                                 }
                                             >
-                                                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                                                <SelectTrigger className="bg-secondary border-border">
                                                     <SelectValue />
                                                 </SelectTrigger>
-                                                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                                                <SelectContent className="bg-secondary border-border text-white">
                                                     <SelectItem value="on">Ativado</SelectItem>
                                                     <SelectItem value="off">Desativado</SelectItem>
                                                 </SelectContent>
@@ -2067,12 +2067,12 @@ export default function AdminUnitsPage() {
                                             value={testAllowedNumbersInput}
                                             onChange={(e) => setTestAllowedNumbersInput(e.target.value)}
                                             placeholder={"559999999999\n5511999887766"}
-                                            className="bg-[#1a1a1a] border-[#333] text-white min-h-[110px]"
+                                            className="bg-secondary border-border text-white min-h-[110px]"
                                         />
                                     </div>
                                 </div>
 
-                                <div className="space-y-3 rounded-md border border-[#2a2a2a] p-3">
+                                <div className="space-y-3 rounded-md border border-border p-3">
                                     <div className="text-sm font-medium">Notificacoes de tools</div>
                                     <div className="grid gap-3 md:grid-cols-2">
                                         <div className="space-y-2">
@@ -2086,10 +2086,10 @@ export default function AdminUnitsPage() {
                                                     }))
                                                 }
                                             >
-                                                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                                                <SelectTrigger className="bg-secondary border-border">
                                                     <SelectValue />
                                                 </SelectTrigger>
-                                                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                                                <SelectContent className="bg-secondary border-border text-white">
                                                     <SelectItem value="on">Ativado</SelectItem>
                                                     <SelectItem value="off">Desativado</SelectItem>
                                                 </SelectContent>
@@ -2105,7 +2105,7 @@ export default function AdminUnitsPage() {
                                             value={toolNotificationTargetsInput}
                                             onChange={(e) => setToolNotificationTargetsInput(e.target.value)}
                                             placeholder={"5511999999999\n1203630XXXXXX-1111111111@g.us"}
-                                            className="bg-[#1a1a1a] border-[#333] text-white min-h-[100px]"
+                                            className="bg-secondary border-border text-white min-h-[100px]"
                                         />
                                     </div>
                                     <div className="grid gap-3 md:grid-cols-3">
@@ -2120,10 +2120,10 @@ export default function AdminUnitsPage() {
                                                     }))
                                                 }
                                             >
-                                                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                                                <SelectTrigger className="bg-secondary border-border">
                                                     <SelectValue />
                                                 </SelectTrigger>
-                                                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                                                <SelectContent className="bg-secondary border-border text-white">
                                                     <SelectItem value="on">Sim</SelectItem>
                                                     <SelectItem value="off">Nao</SelectItem>
                                                 </SelectContent>
@@ -2140,10 +2140,10 @@ export default function AdminUnitsPage() {
                                                     }))
                                                 }
                                             >
-                                                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                                                <SelectTrigger className="bg-secondary border-border">
                                                     <SelectValue />
                                                 </SelectTrigger>
-                                                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                                                <SelectContent className="bg-secondary border-border text-white">
                                                     <SelectItem value="on">Sim</SelectItem>
                                                     <SelectItem value="off">Nao</SelectItem>
                                                 </SelectContent>
@@ -2160,10 +2160,10 @@ export default function AdminUnitsPage() {
                                                     }))
                                                 }
                                             >
-                                                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                                                <SelectTrigger className="bg-secondary border-border">
                                                     <SelectValue />
                                                 </SelectTrigger>
-                                                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                                                <SelectContent className="bg-secondary border-border text-white">
                                                     <SelectItem value="on">Sim</SelectItem>
                                                     <SelectItem value="off">Nao</SelectItem>
                                                 </SelectContent>
@@ -2172,14 +2172,14 @@ export default function AdminUnitsPage() {
                                     </div>
                                 </div>
 
-                                <div className="space-y-3 rounded-md border border-[#2a2a2a] p-3">
+                                <div className="space-y-3 rounded-md border border-border p-3">
                                     <div className="text-sm font-medium">Webhook de entrada (Z-API)</div>
                                     <div className="space-y-2">
                                         <Label>URL padrão desta unidade</Label>
                                         <Input
                                             value={webhookTenantUrl}
                                             readOnly
-                                            className="bg-[#0f0f0f] border-[#333] text-gray-300"
+                                            className="bg-card border-border text-muted-foreground"
                                         />
                                     </div>
                                     <div className="space-y-2">
@@ -2193,7 +2193,7 @@ export default function AdminUnitsPage() {
                                                 }))
                                             }
                                             placeholder={webhookTenantUrl || "https://seu-dominio.com/webhook"}
-                                            className="bg-[#1a1a1a] border-[#333] text-white"
+                                            className="bg-secondary border-border text-white"
                                         />
                                     </div>
                                     <div className="space-y-2">
@@ -2207,10 +2207,10 @@ export default function AdminUnitsPage() {
                                                 }))
                                             }
                                         >
-                                            <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                                            <SelectTrigger className="bg-secondary border-border">
                                                 <SelectValue />
                                             </SelectTrigger>
-                                            <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                                            <SelectContent className="bg-secondary border-border text-white">
                                                 <SelectItem value="on">Ativado</SelectItem>
                                                 <SelectItem value="off">Desativado</SelectItem>
                                             </SelectContent>
@@ -2229,7 +2229,7 @@ export default function AdminUnitsPage() {
                                                     }))
                                                 }
                                                 placeholder="Informe segredo ou *** para manter"
-                                                className="bg-[#1a1a1a] border-[#333] text-white"
+                                                className="bg-secondary border-border text-white"
                                             />
                                         </div>
                                         <div className="space-y-2">
@@ -2243,7 +2243,7 @@ export default function AdminUnitsPage() {
                                                     }))
                                                 }
                                                 placeholder="Ex: 3EADC8513F54729D85E27E2C1A39BB00"
-                                                className="bg-[#1a1a1a] border-[#333] text-white"
+                                                className="bg-secondary border-border text-white"
                                             />
                                         </div>
                                     </div>
@@ -2253,7 +2253,7 @@ export default function AdminUnitsPage() {
                                             <Button
                                                 type="button"
                                                 onClick={addWebhookExtraUrl}
-                                                className="h-7 px-2 bg-[#1f1f1f] hover:bg-[#2a2a2a] text-white border border-[#333]"
+                                                className="h-7 px-2 bg-secondary hover:bg-muted text-white border border-border"
                                             >
                                                 <Plus className="w-3 h-3 mr-1" /> Adicionar link
                                             </Button>
@@ -2270,7 +2270,7 @@ export default function AdminUnitsPage() {
                                                             value={url}
                                                             onChange={(e) => updateWebhookExtraUrl(index, e.target.value)}
                                                             placeholder="https://seu-dominio.com/webhook-extra"
-                                                            className="bg-[#1a1a1a] border-[#333] text-white"
+                                                            className="bg-secondary border-border text-white"
                                                         />
                                                         <Button
                                                             type="button"
@@ -2291,13 +2291,13 @@ export default function AdminUnitsPage() {
                                             <Input
                                                 value={webhookUrlWithSecret}
                                                 readOnly
-                                                className="bg-[#0f0f0f] border-[#333] text-gray-300"
+                                                className="bg-card border-border text-muted-foreground"
                                             />
                                         </div>
                                     )}
                                 </div>
 
-                                <div className="space-y-3 rounded-md border border-[#2a2a2a] p-3">
+                                <div className="space-y-3 rounded-md border border-border p-3">
                                     <div className="text-sm font-medium">Google Calendar</div>
                                     <div className="space-y-2">
                                         <Label>Integração Calendar</Label>
@@ -2312,10 +2312,10 @@ export default function AdminUnitsPage() {
                                                 }))
                                             }
                                         >
-                                            <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                                            <SelectTrigger className="bg-secondary border-border">
                                                 <SelectValue />
                                             </SelectTrigger>
-                                            <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                                            <SelectContent className="bg-secondary border-border text-white">
                                                 <SelectItem value="on">Ativado</SelectItem>
                                                 <SelectItem value="off">Desativado</SelectItem>
                                             </SelectContent>
@@ -2333,7 +2333,7 @@ export default function AdminUnitsPage() {
                                                     type="button"
                                                     onClick={connectGoogleCalendarOAuth}
                                                     disabled={connectingGoogle || loadingNativeAgent}
-                                                    className="bg-white text-black hover:bg-[#f4f4f4] border border-[#ddd]"
+                                                    className="bg-secondary text-foreground hover:bg-muted border border-border"
                                                 >
                                                     <span className="inline-flex items-center gap-2">
                                                         <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
@@ -2369,7 +2369,7 @@ export default function AdminUnitsPage() {
                                                         calendarEventDurationMinutes: Number(e.target.value || 50),
                                                     }))
                                                 }
-                                                className="bg-[#1a1a1a] border-[#333] text-white"
+                                                className="bg-secondary border-border text-white"
                                             />
                                         </div>
                                         <div className="space-y-2">
@@ -2385,7 +2385,7 @@ export default function AdminUnitsPage() {
                                                         calendarMinLeadMinutes: Number(e.target.value || 0),
                                                     }))
                                                 }
-                                                className="bg-[#1a1a1a] border-[#333] text-white"
+                                                className="bg-secondary border-border text-white"
                                             />
                                         </div>
                                         <div className="space-y-2">
@@ -2401,7 +2401,7 @@ export default function AdminUnitsPage() {
                                                         calendarBufferMinutes: Number(e.target.value || 0),
                                                     }))
                                                 }
-                                                className="bg-[#1a1a1a] border-[#333] text-white"
+                                                className="bg-secondary border-border text-white"
                                             />
                                         </div>
                                     </div>
@@ -2418,7 +2418,7 @@ export default function AdminUnitsPage() {
                                                     }))
                                                 }
                                                 placeholder="08:00"
-                                                className="bg-[#1a1a1a] border-[#333] text-white"
+                                                className="bg-secondary border-border text-white"
                                             />
                                         </div>
                                         <div className="space-y-2">
@@ -2432,7 +2432,7 @@ export default function AdminUnitsPage() {
                                                     }))
                                                 }
                                                 placeholder="20:00"
-                                                className="bg-[#1a1a1a] border-[#333] text-white"
+                                                className="bg-secondary border-border text-white"
                                             />
                                         </div>
                                     </div>
@@ -2448,12 +2448,12 @@ export default function AdminUnitsPage() {
                                                 }))
                                             }
                                             placeholder="1,2,3,4,5,6"
-                                            className="bg-[#1a1a1a] border-[#333] text-white"
+                                            className="bg-secondary border-border text-white"
                                         />
                                     </div>
                                 </div>
 
-                                <div className="space-y-3 rounded-md border border-[#2a2a2a] p-3">
+                                <div className="space-y-3 rounded-md border border-border p-3">
                                     <div className="flex items-center justify-between">
                                         <div className="text-sm font-medium">Painel Debug / Bug (IA)</div>
                                         <Button
@@ -2463,7 +2463,7 @@ export default function AdminUnitsPage() {
                                                 if (!unitRef) return
                                                 fetchNativeAgentDebugLogs(unitRef)
                                             }}
-                                            className="h-7 px-2 bg-[#1f1f1f] hover:bg-[#2a2a2a] text-white border border-[#333]"
+                                            className="h-7 px-2 bg-secondary hover:bg-muted text-white border border-border"
                                             disabled={loadingNativeAgentDebug}
                                         >
                                             {loadingNativeAgentDebug ? "Atualizando..." : "Atualizar"}
@@ -2483,7 +2483,7 @@ export default function AdminUnitsPage() {
                                                     className={`rounded border px-3 py-2 text-xs ${
                                                         item.severity === "error"
                                                             ? "border-red-700/60 bg-red-900/20"
-                                                            : "border-[#2f2f2f] bg-[#171717]"
+                                                            : "border-border bg-card"
                                                     }`}
                                                 >
                                                     <div className="flex items-center justify-between gap-2">
@@ -2492,10 +2492,10 @@ export default function AdminUnitsPage() {
                                                             {new Date(item.createdAt).toLocaleString("pt-BR")}
                                                         </span>
                                                     </div>
-                                                    <div className="mt-1 text-gray-300 break-all">
+                                                    <div className="mt-1 text-muted-foreground break-all">
                                                         session: {item.sessionId}
                                                     </div>
-                                                    <div className="mt-1 text-gray-300">{item.content}</div>
+                                                    <div className="mt-1 text-muted-foreground">{item.content}</div>
                                                     {item.error && (
                                                         <div className="mt-1 text-red-300 break-all">
                                                             erro: {item.error}
@@ -2523,7 +2523,7 @@ export default function AdminUnitsPage() {
 
             {/* DIALOG KOMMO CRM */}
             <Dialog open={kommoDialogOpen} onOpenChange={setKommoDialogOpen}>
-                <DialogContent className="bg-[#121212] border-[#333] text-white max-w-lg max-h-[85vh] overflow-y-auto">
+                <DialogContent className="bg-card border-border text-white max-w-lg max-h-[85vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle className="text-green-400">Kommo CRM — {kommoUnit?.name}</DialogTitle>
                         <DialogDescription className="text-gray-400">
@@ -2551,7 +2551,7 @@ export default function AdminUnitsPage() {
                                     value={kommoSubdomain}
                                     onChange={(e) => setKommoSubdomain(e.target.value)}
                                     placeholder="minhaempresa"
-                                    className="bg-[#1a1a1a] border-[#333] text-white"
+                                    className="bg-secondary border-border text-white"
                                 />
                                 <span className="text-gray-500 text-xs whitespace-nowrap">.kommo.com</span>
                             </div>
@@ -2565,7 +2565,7 @@ export default function AdminUnitsPage() {
                                 onChange={(e) => setKommoApiToken(e.target.value)}
                                 placeholder="Token de longa duracao"
                                 type="password"
-                                className="bg-[#1a1a1a] border-[#333] text-white"
+                                className="bg-secondary border-border text-white"
                             />
                         </div>
 
@@ -2573,14 +2573,14 @@ export default function AdminUnitsPage() {
                         <Button
                             variant="outline"
                             size="sm"
-                            className="border-[#333] text-gray-300 hover:text-white"
+                            className="border-border text-muted-foreground hover:text-white"
                             onClick={testKommoConnection}
                             disabled={testingKommo || !kommoSubdomain || !kommoApiToken}
                         >
                             {testingKommo ? "Testando..." : "Testar Conexao"}
                         </Button>
 
-                        <hr className="border-[#333]" />
+                        <hr className="border-border" />
 
                         {/* Sync options */}
                         <p className="text-xs text-gray-500 font-semibold uppercase tracking-wider">Opcoes de Sincronizacao</p>
@@ -2613,11 +2613,11 @@ export default function AdminUnitsPage() {
                                 max={1440}
                                 value={kommoAutoSyncInterval}
                                 onChange={(e) => setKommoAutoSyncInterval(Number(e.target.value) || 30)}
-                                className="bg-[#1a1a1a] border-[#333] text-white w-32"
+                                className="bg-secondary border-border text-white w-32"
                             />
                         </div>
 
-                        <hr className="border-[#333]" />
+                        <hr className="border-border" />
 
                         {/* Sync now */}
                         <div className="flex items-center gap-3">
@@ -2654,7 +2654,7 @@ export default function AdminUnitsPage() {
             </Dialog>
 
             <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-                <DialogContent className="bg-[#121212] border-red-900/50 text-white">
+                <DialogContent className="bg-card border-red-900/50 text-white">
                     <DialogHeader>
                         <DialogTitle className="text-red-500">Confirmar Exclusão</DialogTitle>
                         <DialogDescription className="text-gray-400">

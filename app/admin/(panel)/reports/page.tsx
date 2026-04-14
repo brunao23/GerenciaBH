@@ -306,7 +306,7 @@ export default function AdminReportsPage() {
         <div className="flex flex-wrap gap-2">
           <Button
             variant="outline"
-            className="border-[#333] text-white hover:bg-[#171717]"
+            className="border-border text-white hover:bg-card"
             onClick={() => loadUnits(true)}
             disabled={refreshing || loading}
           >
@@ -315,7 +315,7 @@ export default function AdminReportsPage() {
           </Button>
           <Button
             variant="outline"
-            className="border-[#333] text-white hover:bg-[#171717]"
+            className="border-border text-white hover:bg-card"
             onClick={() => runDispatch({ dryRun: true })}
             disabled={runningDryRun || loading}
           >
@@ -342,19 +342,19 @@ export default function AdminReportsPage() {
       )}
 
       <div className="grid gap-4 md:grid-cols-3">
-        <Card className="bg-[#121212] border-[#2a2a2a]">
+        <Card className="bg-card border-border">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm text-gray-400">Total de tenants</CardTitle>
           </CardHeader>
           <CardContent className="text-3xl font-bold text-white">{unitsWithWeekly.length}</CardContent>
         </Card>
-        <Card className="bg-[#121212] border-[#2a2a2a]">
+        <Card className="bg-card border-border">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm text-gray-400">Semanal habilitado</CardTitle>
           </CardHeader>
           <CardContent className="text-3xl font-bold text-emerald-400">{enabledCount}</CardContent>
         </Card>
-        <Card className="bg-[#121212] border-[#2a2a2a]">
+        <Card className="bg-card border-border">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm text-gray-400">Com grupos configurados</CardTitle>
           </CardHeader>
@@ -362,7 +362,7 @@ export default function AdminReportsPage() {
         </Card>
       </div>
 
-      <Card className="bg-[#121212] border-[#2a2a2a]">
+      <Card className="bg-card border-border">
         <CardHeader>
           <CardTitle className="text-white">Tenants dos clientes</CardTitle>
           <CardDescription className="text-gray-400">
@@ -384,10 +384,10 @@ export default function AdminReportsPage() {
                   .filter(Boolean).length
 
                 return (
-                  <div key={unit.id} className="rounded-md border border-[#2a2a2a] bg-[#0f0f0f] p-4">
+                  <div key={unit.id} className="rounded-md border border-border bg-card p-4">
                     <div className="mb-2 flex flex-wrap items-center gap-2">
                       <span className="font-semibold text-white">{unit.name}</span>
-                      <Badge variant="outline" className="border-[#333] text-gray-300">
+                      <Badge variant="outline" className="border-border text-muted-foreground">
                         {unit.prefix || "sem-prefixo"}
                       </Badge>
                       {unit.isActive ? (
@@ -398,16 +398,16 @@ export default function AdminReportsPage() {
                     </div>
 
                     <div className="grid gap-2 text-sm md:grid-cols-2 lg:grid-cols-4">
-                      <div className="text-gray-300">
+                      <div className="text-muted-foreground">
                         <span className="text-gray-500">Ultimo envio:</span> {formatDateTime(unit.weekly.lastSentAt)}
                       </div>
-                      <div className="text-gray-300">
+                      <div className="text-muted-foreground">
                         <span className="text-gray-500">Ultima tentativa:</span> {formatDateTime(unit.weekly.lastAttemptAt)}
                       </div>
-                      <div className="text-gray-300">
+                      <div className="text-muted-foreground">
                         <span className="text-gray-500">Leads:</span> {unit.weekly.lastMetrics?.leadsAtendidos ?? "-"}
                       </div>
-                      <div className="text-gray-300">
+                      <div className="text-muted-foreground">
                         <span className="text-gray-500">Conversao:</span> {formatPercent(unit.weekly.lastMetrics?.conversionRate)}
                       </div>
                     </div>
@@ -418,7 +418,7 @@ export default function AdminReportsPage() {
                         <select
                           value={draft.enabled ? "on" : "off"}
                           onChange={(e) => updateDraft(unit.id, { enabled: e.target.value === "on" })}
-                          className="w-full rounded-md border border-[#333] bg-[#1a1a1a] px-3 py-2 text-sm text-white"
+                          className="w-full rounded-md border border-border bg-secondary px-3 py-2 text-sm text-white"
                         >
                           <option value="on">Ativado</option>
                           <option value="off">Desativado</option>
@@ -430,7 +430,7 @@ export default function AdminReportsPage() {
                         <select
                           value={draft.dayOfWeek}
                           onChange={(e) => updateDraft(unit.id, { dayOfWeek: e.target.value })}
-                          className="w-full rounded-md border border-[#333] bg-[#1a1a1a] px-3 py-2 text-sm text-white"
+                          className="w-full rounded-md border border-border bg-secondary px-3 py-2 text-sm text-white"
                         >
                           <option value="1">1 - Segunda</option>
                           <option value="2">2 - Terca</option>
@@ -450,7 +450,7 @@ export default function AdminReportsPage() {
                           max={23}
                           value={draft.hour}
                           onChange={(e) => updateDraft(unit.id, { hour: e.target.value })}
-                          className="bg-[#1a1a1a] border-[#333] text-white"
+                          className="bg-secondary border-border text-white"
                         />
                       </div>
 
@@ -459,7 +459,7 @@ export default function AdminReportsPage() {
                         <Input
                           value={draft.timezone}
                           onChange={(e) => updateDraft(unit.id, { timezone: e.target.value })}
-                          className="bg-[#1a1a1a] border-[#333] text-white"
+                          className="bg-secondary border-border text-white"
                           placeholder="America/Sao_Paulo"
                         />
                       </div>
@@ -471,7 +471,7 @@ export default function AdminReportsPage() {
                         <Textarea
                           value={draft.groupsText}
                           onChange={(e) => updateDraft(unit.id, { groupsText: e.target.value })}
-                          className="min-h-[110px] bg-[#1a1a1a] border-[#333] text-white"
+                          className="min-h-[110px] bg-secondary border-border text-white"
                           placeholder={"1203630xxxx-yyyy@g.us\n1203630zzzz-wwww@g.us"}
                         />
                         <p className="text-[11px] text-gray-500">{groupCount} grupo(s) informado(s).</p>
@@ -482,7 +482,7 @@ export default function AdminReportsPage() {
                         <Textarea
                           value={draft.notes}
                           onChange={(e) => updateDraft(unit.id, { notes: e.target.value })}
-                          className="min-h-[110px] bg-[#1a1a1a] border-[#333] text-white"
+                          className="min-h-[110px] bg-secondary border-border text-white"
                           placeholder="Observacao fixa para este tenant"
                         />
                       </div>
@@ -521,7 +521,7 @@ export default function AdminReportsPage() {
       </Card>
 
       {lastDispatch && (
-        <Card className="bg-[#121212] border-[#2a2a2a]">
+        <Card className="bg-card border-border">
           <CardHeader>
             <CardTitle className="text-white flex items-center gap-2">
               <Database className="h-5 w-5 text-green-400" />
@@ -533,7 +533,7 @@ export default function AdminReportsPage() {
           </CardHeader>
           <CardContent className="space-y-2">
             {lastDispatch.units.map((row, idx) => (
-              <div key={`${row.tenant}-${idx}`} className="text-sm text-gray-300">
+              <div key={`${row.tenant}-${idx}`} className="text-sm text-muted-foreground">
                 {row.tenant}: grupos={row.groups}, enviados={row.sent}, falhas={row.failed}
                 {row.error ? `, detalhe=${row.error}` : ""}
               </div>

@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs grep:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx vercel:*)",
+      "Bash(npx next:*)",
+      "Bash(curl:*)",
+      "WebSearch",
+      "WebFetch(domain:developers.kommo.com)",
+      "Bash(grep -E \"\\(lib|app\\)/.*\\\\.\\(ts|tsx\\)$\")",
+      "Bash(grep -r \"use client\" /c/Users/WINDOWS/Downloads/GerenciaBH/app/\\\\\\(dashboard\\\\\\)/*/page.tsx)",
+      "Bash(find /c/Users/WINDOWS/Downloads/GerenciaBH -name \"*.sql\" -exec grep -l \"lembretes\" {} \\\\;)",
+      "Bash(ls /c/Users/WINDOWS/Downloads/GerenciaBH/components/ui/*.tsx)",
+      "Bash(xargs -I {} basename {})",
+      "Bash(find /c/Users/WINDOWS/Downloads/GerenciaBH -type f -name \"*.sql\" -exec grep -l \"google_event_id\\\\|google_event_link\\\\|google_meet_link\" {} \\\\;)",
+      "Bash(grep -E \"\\\\.\\(tsx?|css\\)$\")"
+    ]
+  }
+}

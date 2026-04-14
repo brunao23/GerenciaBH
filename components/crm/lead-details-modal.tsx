@@ -72,7 +72,7 @@ export function LeadDetailsModal({ isOpen, onClose, lead }: LeadDetailsProps) {
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="max-w-2xl bg-[#0a0a0a] border-border-gray">
+            <DialogContent className="max-w-2xl bg-background border-border-gray">
                 <DialogHeader>
                     <DialogTitle className="text-2xl text-pure-white flex items-center gap-3">
                         {lead.name}
@@ -89,7 +89,7 @@ export function LeadDetailsModal({ isOpen, onClose, lead }: LeadDetailsProps) {
                 <div className="space-y-6 mt-4">
                     {/* Informações Gerais */}
                     <div className="grid grid-cols-2 gap-4">
-                        <div className="bg-[#1a1a1a] p-4 rounded-lg">
+                        <div className="bg-secondary p-4 rounded-lg">
                             <div className="flex items-center gap-2 text-text-gray text-xs mb-1">
                                 <MessageSquare className="w-3 h-3" />
                                 Total de Mensagens
@@ -99,7 +99,7 @@ export function LeadDetailsModal({ isOpen, onClose, lead }: LeadDetailsProps) {
                             </div>
                         </div>
 
-                        <div className="bg-[#1a1a1a] p-4 rounded-lg">
+                        <div className="bg-secondary p-4 rounded-lg">
                             <div className="flex items-center gap-2 text-text-gray text-xs mb-1">
                                 <TrendingUp className="w-3 h-3" />
                                 Sentimento
@@ -109,7 +109,7 @@ export function LeadDetailsModal({ isOpen, onClose, lead }: LeadDetailsProps) {
                             </Badge>
                         </div>
 
-                        <div className="bg-[#1a1a1a] p-4 rounded-lg">
+                        <div className="bg-secondary p-4 rounded-lg">
                             <div className="flex items-center gap-2 text-text-gray text-xs mb-1">
                                 <Clock className="w-3 h-3" />
                                 Última Interação
@@ -119,7 +119,7 @@ export function LeadDetailsModal({ isOpen, onClose, lead }: LeadDetailsProps) {
                             </div>
                         </div>
 
-                        <div className="bg-[#1a1a1a] p-4 rounded-lg">
+                        <div className="bg-secondary p-4 rounded-lg">
                             <div className="flex items-center gap-2 text-text-gray text-xs mb-1">
                                 <Calendar className="w-3 h-3" />
                                 Tags
@@ -148,7 +148,7 @@ export function LeadDetailsModal({ isOpen, onClose, lead }: LeadDetailsProps) {
                                     <User className="w-4 h-4 text-accent-green" />
                                     Dados do Formulário
                                 </h3>
-                                <div className="bg-[#1a1a1a] rounded-lg p-4 space-y-3">
+                                <div className="bg-secondary rounded-lg p-4 space-y-3">
                                     <div className="grid grid-cols-2 gap-3">
                                         {lead.formData.nome && (
                                             <div>
@@ -216,11 +216,11 @@ export function LeadDetailsModal({ isOpen, onClose, lead }: LeadDetailsProps) {
                             <MessageSquare className="w-4 h-4 text-accent-green" />
                             Últimas Mensagens
                         </h3>
-                        <ScrollArea className="h-64 bg-[#1a1a1a] rounded-lg p-4">
+                        <ScrollArea className="h-64 bg-secondary rounded-lg p-4">
                             <div className="space-y-3">
                                 {lead.messageHistory && lead.messageHistory.length > 0 ? (
                                     lead.messageHistory.map((msg, i) => (
-                                        <div key={i} className={`p-3 rounded-lg ${msg.type === 'human' ? 'bg-accent-green/10 border-l-2 border-accent-green' : 'bg-[#0a0a0a] border-l-2 border-blue-500'}`}>
+                                        <div key={i} className={`p-3 rounded-lg ${msg.type === 'human' ? 'bg-accent-green/10 border-l-2 border-accent-green' : 'bg-background border-l-2 border-blue-500'}`}>
                                             <div className="flex justify-between items-start mb-1">
                                                 <span className="text-xs font-medium text-pure-white">
                                                     {msg.type === 'human' ? '👤 Lead' : '🤖 IA'}

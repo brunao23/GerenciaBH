@@ -140,7 +140,7 @@ export default function AdminLeadsPage() {
                 return (
                   <div
                     key={empresa.id}
-                    className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border-gray bg-black/40 p-4"
+                    className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border-gray bg-foreground/8 p-4"
                   >
                     <div>
                       <div className="text-pure-white font-semibold">{empresa.nome}</div>

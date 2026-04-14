@@ -515,7 +515,7 @@ export default function FollowUpConfigPage() {
 
       <div className="flex-1 overflow-auto space-y-6 pr-1 pb-28">
         {/* Status do Follow-up */}
-        <Card className="genial-card border-none shadow-xl bg-black/40 backdrop-blur-xl">
+        <Card className="genial-card border-none shadow-xl bg-foreground/8 backdrop-blur-xl">
           <CardHeader>
             <CardTitle className="text-pure-white flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -599,7 +599,7 @@ export default function FollowUpConfigPage() {
         </Card>
 
         {/* Conectar WhatsApp - QR Code */}
-        <Card className="genial-card border-none shadow-xl bg-black/40 backdrop-blur-xl">
+        <Card className="genial-card border-none shadow-xl bg-foreground/8 backdrop-blur-xl">
           <CardHeader>
             <CardTitle className="text-pure-white flex items-center gap-2">
               <Activity className="w-5 h-5 text-accent-green" />
@@ -661,7 +661,7 @@ export default function FollowUpConfigPage() {
         </Card>
 
         {/* Configuracoes da Evolution API */}
-        <Card className="genial-card border-none shadow-xl bg-black/40 backdrop-blur-xl">
+        <Card className="genial-card border-none shadow-xl bg-foreground/8 backdrop-blur-xl">
           <CardHeader>
             <CardTitle className="text-pure-white flex items-center gap-2">
               <Settings className="w-5 h-5 text-accent-green" />
@@ -784,7 +784,7 @@ export default function FollowUpConfigPage() {
         </Card>
 
         {/* Configuracao Nativa de Follow-up (Tenant) */}
-        <Card className="genial-card border-none shadow-xl bg-black/40 backdrop-blur-xl">
+        <Card className="genial-card border-none shadow-xl bg-foreground/8 backdrop-blur-xl">
           <CardHeader>
             <CardTitle className="text-pure-white flex items-center gap-2">
               <Clock className="w-5 h-5 text-accent-green" />
@@ -894,7 +894,7 @@ export default function FollowUpConfigPage() {
           </CardContent>
         </Card>
         {/* Informacoes sobre Intervalos */}
-        <Card className="genial-card border-none shadow-xl bg-black/40 backdrop-blur-xl">
+        <Card className="genial-card border-none shadow-xl bg-foreground/8 backdrop-blur-xl">
           <CardHeader>
             <CardTitle className="text-pure-white flex items-center gap-2">
               <Clock className="w-5 h-5 text-accent-green" />

@@ -344,7 +344,7 @@ export default function FollowupsPage() {
         </div>
       </div>
 
-      <Card className="genial-card border-none shadow-xl bg-black/40 backdrop-blur-xl">
+      <Card className="genial-card border-none shadow-xl bg-foreground/8 backdrop-blur-xl">
         <CardHeader>
           <CardTitle className="text-pure-white flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -416,7 +416,7 @@ export default function FollowupsPage() {
         })}
       </div>
 
-      <Card className="genial-card border-none shadow-xl bg-black/40 backdrop-blur-xl">
+      <Card className="genial-card border-none shadow-xl bg-foreground/8 backdrop-blur-xl">
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "todos" | "em-followup")} className="w-full">
           <CardHeader className="border-b border-border/50 bg-card/50 backdrop-blur-sm py-4">
             <TabsList className="grid w-full max-w-md grid-cols-2">

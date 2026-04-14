@@ -268,10 +268,10 @@ export default function ConfiguracaoPage() {
           <div className="space-y-2">
             <Label>Provider</Label>
             <Select value={provider} onValueChange={(v) => setProvider(v as "zapi" | "evolution" | "meta")} disabled={loadingConfig}>
-              <SelectTrigger className="bg-black/40 border-border-gray text-pure-white">
+              <SelectTrigger className="bg-foreground/8 border-border-gray text-pure-white">
                 <SelectValue placeholder="Selecione..." />
               </SelectTrigger>
-              <SelectContent className="bg-[#1a1a1a] border-[#333] text-pure-white">
+              <SelectContent className="bg-secondary border-border text-pure-white">
                 <SelectItem value="zapi">Z-API</SelectItem>
                 <SelectItem value="evolution">Evolution API</SelectItem>
                 <SelectItem value="meta">Meta Cloud API</SelectItem>
@@ -287,7 +287,7 @@ export default function ConfiguracaoPage() {
                   value={sendTextUrl}
                   onChange={(e) => setSendTextUrl(e.target.value)}
                   placeholder="https://api.z-api.io/instances/XXX/token/YYY/send-text"
-                  className="bg-black/40 border-border-gray text-pure-white"
+                  className="bg-foreground/8 border-border-gray text-pure-white"
                 />
               </div>
               <div className="space-y-2">
@@ -296,7 +296,7 @@ export default function ConfiguracaoPage() {
                   value={clientToken}
                   onChange={(e) => setClientToken(e.target.value)}
                   placeholder="Client-Token do header"
-                  className="bg-black/40 border-border-gray text-pure-white"
+                  className="bg-foreground/8 border-border-gray text-pure-white"
                 />
               </div>
               <div className="space-y-2">
@@ -305,7 +305,7 @@ export default function ConfiguracaoPage() {
                   value={apiUrl}
                   onChange={(e) => setApiUrl(e.target.value)}
                   placeholder="https://api.z-api.io"
-                  className="bg-black/40 border-border-gray text-pure-white"
+                  className="bg-foreground/8 border-border-gray text-pure-white"
                 />
               </div>
               <div className="space-y-2">
@@ -314,7 +314,7 @@ export default function ConfiguracaoPage() {
                   value={instanceId}
                   onChange={(e) => setInstanceId(e.target.value)}
                   placeholder="instance id"
-                  className="bg-black/40 border-border-gray text-pure-white"
+                  className="bg-foreground/8 border-border-gray text-pure-white"
                 />
               </div>
               <div className="space-y-2">
@@ -323,11 +323,11 @@ export default function ConfiguracaoPage() {
                   value={providerToken}
                   onChange={(e) => setProviderToken(e.target.value)}
                   placeholder="token da instancia"
-                  className="bg-black/40 border-border-gray text-pure-white"
+                  className="bg-foreground/8 border-border-gray text-pure-white"
                 />
               </div>
 
-              <div className="md:col-span-2 rounded-lg border border-border-gray/60 bg-black/30 p-4 space-y-3">
+              <div className="md:col-span-2 rounded-lg border border-border-gray/60 bg-foreground/5 p-4 space-y-3">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="text-sm text-pure-white font-medium flex items-center gap-2">
@@ -389,7 +389,7 @@ export default function ConfiguracaoPage() {
                       value={zapiPhoneCodeNumber}
                       onChange={(e) => setZapiPhoneCodeNumber(e.target.value)}
                       placeholder="5511999999999"
-                      className="bg-black/40 border-border-gray text-pure-white"
+                      className="bg-foreground/8 border-border-gray text-pure-white"
                     />
                   </div>
                   <div className="flex items-end">
@@ -432,7 +432,7 @@ export default function ConfiguracaoPage() {
                   value={apiUrl}
                   onChange={(e) => setApiUrl(e.target.value)}
                   placeholder="https://api.evolution.com"
-                  className="bg-black/40 border-border-gray text-pure-white"
+                  className="bg-foreground/8 border-border-gray text-pure-white"
                 />
               </div>
               <div className="space-y-2">
@@ -441,7 +441,7 @@ export default function ConfiguracaoPage() {
                   value={instanceName}
                   onChange={(e) => setInstanceName(e.target.value)}
                   placeholder="Nome da instancia"
-                  className="bg-black/40 border-border-gray text-pure-white"
+                  className="bg-foreground/8 border-border-gray text-pure-white"
                 />
               </div>
               <div className="space-y-2">
@@ -450,7 +450,7 @@ export default function ConfiguracaoPage() {
                   value={providerToken}
                   onChange={(e) => setProviderToken(e.target.value)}
                   placeholder="API token"
-                  className="bg-black/40 border-border-gray text-pure-white"
+                  className="bg-foreground/8 border-border-gray text-pure-white"
                 />
               </div>
             </div>
@@ -464,7 +464,7 @@ export default function ConfiguracaoPage() {
                   value={metaAccessToken}
                   onChange={(e) => setMetaAccessToken(e.target.value)}
                   placeholder="EAA..."
-                  className="bg-black/40 border-border-gray text-pure-white"
+                  className="bg-foreground/8 border-border-gray text-pure-white"
                   type="password"
                 />
               </div>
@@ -474,7 +474,7 @@ export default function ConfiguracaoPage() {
                   value={metaPhoneNumberId}
                   onChange={(e) => setMetaPhoneNumberId(e.target.value)}
                   placeholder="123456789012345"
-                  className="bg-black/40 border-border-gray text-pure-white"
+                  className="bg-foreground/8 border-border-gray text-pure-white"
                 />
               </div>
               <div className="space-y-2">
@@ -483,7 +483,7 @@ export default function ConfiguracaoPage() {
                   value={metaWabaId}
                   onChange={(e) => setMetaWabaId(e.target.value)}
                   placeholder="WhatsApp Business Account ID"
-                  className="bg-black/40 border-border-gray text-pure-white"
+                  className="bg-foreground/8 border-border-gray text-pure-white"
                 />
               </div>
               <div className="space-y-2">
@@ -492,7 +492,7 @@ export default function ConfiguracaoPage() {
                   value={metaApiVersion}
                   onChange={(e) => setMetaApiVersion(e.target.value)}
                   placeholder="v21.0"
-                  className="bg-black/40 border-border-gray text-pure-white"
+                  className="bg-foreground/8 border-border-gray text-pure-white"
                 />
               </div>
               <div className="space-y-2">
@@ -501,7 +501,7 @@ export default function ConfiguracaoPage() {
                   value={metaPricingMarket}
                   onChange={(e) => setMetaPricingMarket(e.target.value)}
                   placeholder="BR / Brasil"
-                  className="bg-black/40 border-border-gray text-pure-white"
+                  className="bg-foreground/8 border-border-gray text-pure-white"
                 />
               </div>
               <div className="space-y-2">
@@ -510,7 +510,7 @@ export default function ConfiguracaoPage() {
                   value={metaPricingCurrency}
                   onChange={(e) => setMetaPricingCurrency(e.target.value)}
                   placeholder="USD"
-                  className="bg-black/40 border-border-gray text-pure-white"
+                  className="bg-foreground/8 border-border-gray text-pure-white"
                 />
               </div>
             </div>

@@ -383,7 +383,7 @@ export default function PausasPage() {
               Pausar em Massa
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-2xl bg-[#121212] border-[#333] text-white">
+          <DialogContent className="max-w-2xl bg-card border-border text-white">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2 text-xl">
                 <FileText className="w-5 h-5 text-green-500" />
@@ -401,7 +401,7 @@ export default function PausasPage() {
                 <Label>Lista de Números (Excel, CSV, Texto)</Label>
                 <Textarea
                   placeholder={"27999999999\n5527988888888\n..."}
-                  className="h-48 bg-[#0a0a0a] border-[#333] font-mono text-sm"
+                  className="h-48 bg-background border-border font-mono text-sm"
                   value={importText}
                   onChange={(e) => setImportText(e.target.value)}
                   disabled={isImporting}
@@ -418,13 +418,13 @@ export default function PausasPage() {
                     <span>Processando: {importStats.processed}/{importStats.total}</span>
                     <span>{importProgress}%</span>
                   </div>
-                  <Progress value={importProgress} className="h-2 bg-[#333]" />
+                  <Progress value={importProgress} className="h-2 bg-muted" />
                 </div>
               )}
 
               {/* Resultado Final */}
               {!isImporting && importStats && importStats.processed > 0 && (
-                <Alert className={`bg-[#1a1a1a] ${importStats.errors > 0 ? 'border-red-900' : 'border-green-900'}`}>
+                <Alert className={`bg-secondary ${importStats.errors > 0 ? 'border-red-900' : 'border-green-900'}`}>
                   {importStats.errors > 0 ? <AlertCircle className="h-4 w-4 text-red-500" /> : <CheckCircle2 className="h-4 w-4 text-green-500" />}
                   <AlertTitle>{importStats.errors > 0 ? 'Atenção' : 'Sucesso!'}</AlertTitle>
                   <AlertDescription>
@@ -458,7 +458,7 @@ export default function PausasPage() {
 
       {/* MODAL DE ADICAO INDIVIDUAL (CONFIRMACAO) */}
       <Dialog open={confirmPausaOpen} onOpenChange={setConfirmPausaOpen}>
-        <DialogContent className="max-w-md bg-[#121212] border-[#333] text-white">
+        <DialogContent className="max-w-md bg-card border-border text-white">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-xl">
               <Pause className="w-5 h-5 text-green-500" />
@@ -470,7 +470,7 @@ export default function PausasPage() {
           </DialogHeader>
 
           <div className="py-6">
-            <div className="rounded-lg border border-[#333] bg-[#1a1a1a] px-4 py-3 text-center">
+            <div className="rounded-lg border border-border bg-secondary px-4 py-3 text-center">
               <p className="text-xs text-gray-500 mb-1">Numero para pausar</p>
               <p className="text-lg font-mono font-bold text-white">{novoNumero}</p>
             </div>

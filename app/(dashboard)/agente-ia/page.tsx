@@ -638,7 +638,7 @@ export default function AgenteIAPage() {
     <div className="space-y-6 pb-8">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-[#ededed] tracking-tight">Configurar Agente IA</h1>
+          <h1 className="text-2xl font-semibold text-foreground tracking-tight">Configurar Agente IA</h1>
           <p className="text-sm text-gray-400 mt-1">
             Configure o agente da sua unidade: comportamento, numeros de teste, notificacoes e agenda.
           </p>
@@ -647,7 +647,7 @@ export default function AgenteIAPage() {
           <Button
             onClick={save}
             disabled={loading || saving}
-            className="border border-[#22c55e] bg-[#22c55e] text-black hover:bg-[#16a34a] hover:border-[#16a34a]"
+            className="border border-primary bg-primary text-black hover:bg-primary/80 hover:border-primary/80"
           >
             <Save className="mr-2 h-4 w-4" />
             {saving ? "Salvando..." : "Salvar configuracoes"}
@@ -655,7 +655,7 @@ export default function AgenteIAPage() {
         </div>
       </div>
 
-      <Card className="bg-[#121212] border-[#2a2a2a] text-white">
+      <Card className="bg-card border-border text-foreground">
         <CardHeader>
           <CardTitle>Ativacao e comportamento</CardTitle>
           <CardDescription className="text-gray-400">
@@ -671,10 +671,10 @@ export default function AgenteIAPage() {
                 onValueChange={(v) => setConfig((prev) => ({ ...prev, enabled: v === "on" }))}
                 disabled={loading}
               >
-                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                <SelectTrigger className="bg-secondary border-border">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                <SelectContent className="bg-secondary border-border text-foreground">
                   <SelectItem value="on">Ativado</SelectItem>
                   <SelectItem value="off">Desativado</SelectItem>
                 </SelectContent>
@@ -687,10 +687,10 @@ export default function AgenteIAPage() {
                 onValueChange={(v) => setConfig((prev) => ({ ...prev, autoReplyEnabled: v === "on" }))}
                 disabled={loading}
               >
-                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                <SelectTrigger className="bg-secondary border-border">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                <SelectContent className="bg-secondary border-border text-foreground">
                   <SelectItem value="on">Ativado</SelectItem>
                   <SelectItem value="off">Desativado</SelectItem>
                 </SelectContent>
@@ -703,10 +703,10 @@ export default function AgenteIAPage() {
                 onValueChange={(v) => setConfig((prev) => ({ ...prev, conversationTone: v as ConversationTone }))}
                 disabled={loading}
               >
-                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                <SelectTrigger className="bg-secondary border-border">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                <SelectContent className="bg-secondary border-border text-foreground">
                   <SelectItem value="consultivo">Consultivo</SelectItem>
                   <SelectItem value="acolhedor">Acolhedor</SelectItem>
                   <SelectItem value="direto">Direto</SelectItem>
@@ -724,10 +724,10 @@ export default function AgenteIAPage() {
                 onValueChange={(v) => setConfig((prev) => ({ ...prev, moderateEmojiEnabled: v === "on" }))}
                 disabled={loading}
               >
-                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                <SelectTrigger className="bg-secondary border-border">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                <SelectContent className="bg-secondary border-border text-foreground">
                   <SelectItem value="on">Ativado</SelectItem>
                   <SelectItem value="off">Desativado</SelectItem>
                 </SelectContent>
@@ -742,10 +742,10 @@ export default function AgenteIAPage() {
                 }
                 disabled={loading}
               >
-                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                <SelectTrigger className="bg-secondary border-border">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                <SelectContent className="bg-secondary border-border text-foreground">
                   <SelectItem value="on">Ativado</SelectItem>
                   <SelectItem value="off">Desativado</SelectItem>
                 </SelectContent>
@@ -758,10 +758,10 @@ export default function AgenteIAPage() {
                 onValueChange={(v) => setConfig((prev) => ({ ...prev, allowLanguageVices: v === "on" }))}
                 disabled={loading}
               >
-                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                <SelectTrigger className="bg-secondary border-border">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                <SelectContent className="bg-secondary border-border text-foreground">
                   <SelectItem value="off">Nao</SelectItem>
                   <SelectItem value="on">Sim</SelectItem>
                 </SelectContent>
@@ -780,7 +780,7 @@ export default function AgenteIAPage() {
                 onChange={(e) =>
                   setConfig((prev) => ({ ...prev, humanizationLevelPercent: Number(e.target.value || 0) }))
                 }
-                className="bg-[#1a1a1a] border-[#333] text-white"
+                className="bg-secondary border-border text-foreground"
                 disabled={loading}
               />
             </div>
@@ -794,7 +794,7 @@ export default function AgenteIAPage() {
                 onChange={(e) =>
                   setConfig((prev) => ({ ...prev, firstNameUsagePercent: Number(e.target.value || 0) }))
                 }
-                className="bg-[#1a1a1a] border-[#333] text-white"
+                className="bg-secondary border-border text-foreground"
                 disabled={loading}
               />
             </div>
@@ -805,10 +805,10 @@ export default function AgenteIAPage() {
                 onValueChange={(v) => setConfig((prev) => ({ ...prev, autoLearningEnabled: v === "on" }))}
                 disabled={loading}
               >
-                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                <SelectTrigger className="bg-secondary border-border">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                <SelectContent className="bg-secondary border-border text-foreground">
                   <SelectItem value="on">Ativado</SelectItem>
                   <SelectItem value="off">Desativado</SelectItem>
                 </SelectContent>
@@ -823,10 +823,10 @@ export default function AgenteIAPage() {
                 }
                 disabled={loading}
               >
-                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                <SelectTrigger className="bg-secondary border-border">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                <SelectContent className="bg-secondary border-border text-foreground">
                   <SelectItem value="on">Ativado</SelectItem>
                   <SelectItem value="off">Desativado</SelectItem>
                 </SelectContent>
@@ -841,10 +841,10 @@ export default function AgenteIAPage() {
                 }
                 disabled={loading}
               >
-                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                <SelectTrigger className="bg-secondary border-border">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                <SelectContent className="bg-secondary border-border text-foreground">
                   <SelectItem value="on">Ativado</SelectItem>
                   <SelectItem value="off">Desativado</SelectItem>
                 </SelectContent>
@@ -860,10 +860,10 @@ export default function AgenteIAPage() {
                 onValueChange={(v) => setConfig((prev) => ({ ...prev, blockGroupMessages: v === "on" }))}
                 disabled={loading}
               >
-                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                <SelectTrigger className="bg-secondary border-border">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                <SelectContent className="bg-secondary border-border text-foreground">
                   <SelectItem value="on">Ativado</SelectItem>
                   <SelectItem value="off">Desativado</SelectItem>
                 </SelectContent>
@@ -878,10 +878,10 @@ export default function AgenteIAPage() {
                 }
                 disabled={loading}
               >
-                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                <SelectTrigger className="bg-secondary border-border">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                <SelectContent className="bg-secondary border-border text-foreground">
                   <SelectItem value="on">Ativado</SelectItem>
                   <SelectItem value="off">Desativado</SelectItem>
                 </SelectContent>
@@ -896,10 +896,10 @@ export default function AgenteIAPage() {
                 }
                 disabled={loading}
               >
-                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                <SelectTrigger className="bg-secondary border-border">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                <SelectContent className="bg-secondary border-border text-foreground">
                   <SelectItem value="on">Ativado</SelectItem>
                   <SelectItem value="off">Desativado</SelectItem>
                 </SelectContent>
@@ -914,10 +914,10 @@ export default function AgenteIAPage() {
                 }
                 disabled={loading}
               >
-                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                <SelectTrigger className="bg-secondary border-border">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                <SelectContent className="bg-secondary border-border text-foreground">
                   <SelectItem value="on">Ativado</SelectItem>
                   <SelectItem value="off">Desativado</SelectItem>
                 </SelectContent>
@@ -930,7 +930,7 @@ export default function AgenteIAPage() {
             <Textarea
               value={config.promptBase}
               onChange={(e) => setConfig((prev) => ({ ...prev, promptBase: e.target.value }))}
-              className="bg-[#1a1a1a] border-[#333] text-white min-h-[150px]"
+              className="bg-secondary border-border text-foreground min-h-[150px]"
               placeholder="Defina instrucoes principais da IA..."
               disabled={loading}
             />
@@ -947,7 +947,7 @@ export default function AgenteIAPage() {
                 onChange={(e) =>
                   setConfig((prev) => ({ ...prev, responseDelayMinSeconds: Number(e.target.value || 0) }))
                 }
-                className="bg-[#1a1a1a] border-[#333] text-white"
+                className="bg-secondary border-border text-foreground"
                 disabled={loading}
               />
             </div>
@@ -961,7 +961,7 @@ export default function AgenteIAPage() {
                 onChange={(e) =>
                   setConfig((prev) => ({ ...prev, responseDelayMaxSeconds: Number(e.target.value || 0) }))
                 }
-                className="bg-[#1a1a1a] border-[#333] text-white"
+                className="bg-secondary border-border text-foreground"
                 disabled={loading}
               />
             </div>
@@ -978,7 +978,7 @@ export default function AgenteIAPage() {
                     inboundMessageBufferSeconds: Number(e.target.value || 0),
                   }))
                 }
-                className="bg-[#1a1a1a] border-[#333] text-white"
+                className="bg-secondary border-border text-foreground"
                 disabled={loading}
               />
             </div>
@@ -992,7 +992,7 @@ export default function AgenteIAPage() {
                 onChange={(e) =>
                   setConfig((prev) => ({ ...prev, zapiDelayMessageSeconds: Number(e.target.value || 1) }))
                 }
-                className="bg-[#1a1a1a] border-[#333] text-white"
+                className="bg-secondary border-border text-foreground"
                 disabled={loading}
               />
             </div>
@@ -1006,7 +1006,7 @@ export default function AgenteIAPage() {
                 onChange={(e) =>
                   setConfig((prev) => ({ ...prev, zapiDelayTypingSeconds: Number(e.target.value || 0) }))
                 }
-                className="bg-[#1a1a1a] border-[#333] text-white"
+                className="bg-secondary border-border text-foreground"
                 disabled={loading}
               />
             </div>
@@ -1023,7 +1023,7 @@ export default function AgenteIAPage() {
                 onChange={(e) =>
                   setConfig((prev) => ({ ...prev, messageBlockMaxChars: Number(e.target.value || 280) }))
                 }
-                className="bg-[#1a1a1a] border-[#333] text-white"
+                className="bg-secondary border-border text-foreground"
                 disabled={loading}
               />
             </div>
@@ -1034,10 +1034,10 @@ export default function AgenteIAPage() {
                 onValueChange={(v) => setConfig((prev) => ({ ...prev, schedulingEnabled: v === "on" }))}
                 disabled={loading}
               >
-                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                <SelectTrigger className="bg-secondary border-border">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                <SelectContent className="bg-secondary border-border text-foreground">
                   <SelectItem value="on">Ativado</SelectItem>
                   <SelectItem value="off">Desativado</SelectItem>
                 </SelectContent>
@@ -1050,10 +1050,10 @@ export default function AgenteIAPage() {
                 onValueChange={(v) => setConfig((prev) => ({ ...prev, followupEnabled: v === "on" }))}
                 disabled={loading}
               >
-                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                <SelectTrigger className="bg-secondary border-border">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                <SelectContent className="bg-secondary border-border text-foreground">
                   <SelectItem value="on">Ativado</SelectItem>
                   <SelectItem value="off">Desativado</SelectItem>
                 </SelectContent>
@@ -1066,10 +1066,10 @@ export default function AgenteIAPage() {
                 onValueChange={(v) => setConfig((prev) => ({ ...prev, remindersEnabled: v === "on" }))}
                 disabled={loading}
               >
-                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                <SelectTrigger className="bg-secondary border-border">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                <SelectContent className="bg-secondary border-border text-foreground">
                   <SelectItem value="on">Ativado</SelectItem>
                   <SelectItem value="off">Desativado</SelectItem>
                 </SelectContent>
@@ -1079,7 +1079,7 @@ export default function AgenteIAPage() {
         </CardContent>
       </Card>
 
-      <Card className="bg-[#121212] border-[#2a2a2a] text-white">
+      <Card className="bg-card border-border text-foreground">
         <CardHeader>
           <CardTitle>Respostas em audio</CardTitle>
           <CardDescription className="text-gray-400">
@@ -1095,10 +1095,10 @@ export default function AgenteIAPage() {
                 onValueChange={(v) => setConfig((prev) => ({ ...prev, audioRepliesEnabled: v === "on" }))}
                 disabled={loading}
               >
-                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                <SelectTrigger className="bg-secondary border-border">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                <SelectContent className="bg-secondary border-border text-foreground">
                   <SelectItem value="on">Ativado</SelectItem>
                   <SelectItem value="off">Desativado</SelectItem>
                 </SelectContent>
@@ -1111,10 +1111,10 @@ export default function AgenteIAPage() {
                 onValueChange={(v) => setConfig((prev) => ({ ...prev, audioProvider: v as AudioProvider }))}
                 disabled={loading}
               >
-                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                <SelectTrigger className="bg-secondary border-border">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                <SelectContent className="bg-secondary border-border text-foreground">
                   <SelectItem value="elevenlabs">ElevenLabs</SelectItem>
                   <SelectItem value="custom_http">Outro provedor (HTTP)</SelectItem>
                 </SelectContent>
@@ -1130,7 +1130,7 @@ export default function AgenteIAPage() {
                 onChange={(e) =>
                   setConfig((prev) => ({ ...prev, audioEveryNMessages: Number(e.target.value || 1) }))
                 }
-                className="bg-[#1a1a1a] border-[#333] text-white"
+                className="bg-secondary border-border text-foreground"
                 disabled={loading}
               />
             </div>
@@ -1145,7 +1145,7 @@ export default function AgenteIAPage() {
                 max={2000}
                 value={config.audioMinChars}
                 onChange={(e) => setConfig((prev) => ({ ...prev, audioMinChars: Number(e.target.value || 1) }))}
-                className="bg-[#1a1a1a] border-[#333] text-white"
+                className="bg-secondary border-border text-foreground"
                 disabled={loading}
               />
             </div>
@@ -1157,7 +1157,7 @@ export default function AgenteIAPage() {
                 max={4000}
                 value={config.audioMaxChars}
                 onChange={(e) => setConfig((prev) => ({ ...prev, audioMaxChars: Number(e.target.value || 20) }))}
-                className="bg-[#1a1a1a] border-[#333] text-white"
+                className="bg-secondary border-border text-foreground"
                 disabled={loading}
               />
             </div>
@@ -1168,10 +1168,10 @@ export default function AgenteIAPage() {
                 onValueChange={(v) => setConfig((prev) => ({ ...prev, audioWaveformEnabled: v === "on" }))}
                 disabled={loading}
               >
-                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                <SelectTrigger className="bg-secondary border-border">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                <SelectContent className="bg-secondary border-border text-foreground">
                   <SelectItem value="on">Ativado</SelectItem>
                   <SelectItem value="off">Desativado</SelectItem>
                 </SelectContent>
@@ -1187,7 +1187,7 @@ export default function AgenteIAPage() {
                   type="password"
                   value={config.audioApiKey}
                   onChange={(e) => setConfig((prev) => ({ ...prev, audioApiKey: e.target.value }))}
-                  className="bg-[#1a1a1a] border-[#333] text-white"
+                  className="bg-secondary border-border text-foreground"
                   placeholder="elevenlabs_api_key..."
                   disabled={loading}
                 />
@@ -1197,7 +1197,7 @@ export default function AgenteIAPage() {
                 <Input
                   value={config.audioVoiceId}
                   onChange={(e) => setConfig((prev) => ({ ...prev, audioVoiceId: e.target.value }))}
-                  className="bg-[#1a1a1a] border-[#333] text-white"
+                  className="bg-secondary border-border text-foreground"
                   placeholder="JBFqnCBsd6RMkjVDRZzb"
                   disabled={loading}
                 />
@@ -1207,7 +1207,7 @@ export default function AgenteIAPage() {
                 <Input
                   value={config.audioModelId}
                   onChange={(e) => setConfig((prev) => ({ ...prev, audioModelId: e.target.value }))}
-                  className="bg-[#1a1a1a] border-[#333] text-white"
+                  className="bg-secondary border-border text-foreground"
                   placeholder="eleven_multilingual_v2"
                   disabled={loading}
                 />
@@ -1217,7 +1217,7 @@ export default function AgenteIAPage() {
                 <Input
                   value={config.audioOutputFormat}
                   onChange={(e) => setConfig((prev) => ({ ...prev, audioOutputFormat: e.target.value }))}
-                  className="bg-[#1a1a1a] border-[#333] text-white"
+                  className="bg-secondary border-border text-foreground"
                   placeholder="mp3_44100_128"
                   disabled={loading}
                 />
@@ -1230,7 +1230,7 @@ export default function AgenteIAPage() {
                 <Input
                   value={config.audioCustomEndpoint}
                   onChange={(e) => setConfig((prev) => ({ ...prev, audioCustomEndpoint: e.target.value }))}
-                  className="bg-[#1a1a1a] border-[#333] text-white"
+                  className="bg-secondary border-border text-foreground"
                   placeholder="https://seu-provedor.com/tts"
                   disabled={loading}
                 />
@@ -1240,7 +1240,7 @@ export default function AgenteIAPage() {
                 <Input
                   value={config.audioCustomAuthHeader}
                   onChange={(e) => setConfig((prev) => ({ ...prev, audioCustomAuthHeader: e.target.value }))}
-                  className="bg-[#1a1a1a] border-[#333] text-white"
+                  className="bg-secondary border-border text-foreground"
                   placeholder="Authorization"
                   disabled={loading}
                 />
@@ -1251,7 +1251,7 @@ export default function AgenteIAPage() {
                   type="password"
                   value={config.audioCustomAuthToken}
                   onChange={(e) => setConfig((prev) => ({ ...prev, audioCustomAuthToken: e.target.value }))}
-                  className="bg-[#1a1a1a] border-[#333] text-white"
+                  className="bg-secondary border-border text-foreground"
                   placeholder="Bearer xxxxx"
                   disabled={loading}
                 />
@@ -1261,7 +1261,7 @@ export default function AgenteIAPage() {
         </CardContent>
       </Card>
 
-      <Card className="bg-[#121212] border-[#2a2a2a] text-white">
+      <Card className="bg-card border-border text-foreground">
         <CardHeader>
           <CardTitle>Follow-up adaptativo</CardTitle>
           <CardDescription className="text-gray-400">
@@ -1274,7 +1274,7 @@ export default function AgenteIAPage() {
             <Input
               value={followupIntervalsInput}
               onChange={(e) => setFollowupIntervalsInput(e.target.value)}
-              className="bg-[#1a1a1a] border-[#333] text-white"
+              className="bg-secondary border-border text-foreground"
               placeholder="15,60,360,1440,2880,4320,7200"
               disabled={loading}
             />
@@ -1289,7 +1289,7 @@ export default function AgenteIAPage() {
                 onChange={(e) =>
                   setConfig((prev) => ({ ...prev, followupBusinessStart: e.target.value }))
                 }
-                className="bg-[#1a1a1a] border-[#333] text-white"
+                className="bg-secondary border-border text-foreground"
                 disabled={loading}
               />
             </div>
@@ -1301,7 +1301,7 @@ export default function AgenteIAPage() {
                 onChange={(e) =>
                   setConfig((prev) => ({ ...prev, followupBusinessEnd: e.target.value }))
                 }
-                className="bg-[#1a1a1a] border-[#333] text-white"
+                className="bg-secondary border-border text-foreground"
                 disabled={loading}
               />
             </div>
@@ -1310,7 +1310,7 @@ export default function AgenteIAPage() {
               <Input
                 value={followupBusinessDaysInput}
                 onChange={(e) => setFollowupBusinessDaysInput(e.target.value)}
-                className="bg-[#1a1a1a] border-[#333] text-white"
+                className="bg-secondary border-border text-foreground"
                 placeholder="0,1,2,3,4,5,6"
                 disabled={loading}
               />
@@ -1319,7 +1319,7 @@ export default function AgenteIAPage() {
         </CardContent>
       </Card>
 
-      <Card className="bg-[#121212] border-[#2a2a2a] text-white">
+      <Card className="bg-card border-border text-foreground">
         <CardHeader>
           <CardTitle>Modo numeros teste</CardTitle>
           <CardDescription className="text-gray-400">
@@ -1334,10 +1334,10 @@ export default function AgenteIAPage() {
               onValueChange={(v) => setConfig((prev) => ({ ...prev, testModeEnabled: v === "on" }))}
               disabled={loading}
             >
-              <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+              <SelectTrigger className="bg-secondary border-border">
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+              <SelectContent className="bg-secondary border-border text-foreground">
                 <SelectItem value="on">Ativado</SelectItem>
                 <SelectItem value="off">Desativado</SelectItem>
               </SelectContent>
@@ -1349,7 +1349,7 @@ export default function AgenteIAPage() {
             <Textarea
               value={testAllowedNumbersInput}
               onChange={(e) => setTestAllowedNumbersInput(e.target.value)}
-              className="bg-[#1a1a1a] border-[#333] text-white min-h-[120px]"
+              className="bg-secondary border-border text-foreground min-h-[120px]"
               placeholder={"5565999999999\n5565988888888"}
               disabled={loading}
             />
@@ -1357,7 +1357,7 @@ export default function AgenteIAPage() {
         </CardContent>
       </Card>
 
-      <Card className="bg-[#121212] border-[#2a2a2a] text-white">
+      <Card className="bg-card border-border text-foreground">
         <CardHeader>
           <CardTitle>Notificacoes de tools</CardTitle>
           <CardDescription className="text-gray-400">
@@ -1374,10 +1374,10 @@ export default function AgenteIAPage() {
               }
               disabled={loading}
             >
-              <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+              <SelectTrigger className="bg-secondary border-border">
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+              <SelectContent className="bg-secondary border-border text-foreground">
                 <SelectItem value="on">Ativado</SelectItem>
                 <SelectItem value="off">Desativado</SelectItem>
               </SelectContent>
@@ -1392,10 +1392,10 @@ export default function AgenteIAPage() {
                 onValueChange={(v) => setConfig((prev) => ({ ...prev, notifyOnScheduleSuccess: v === "on" }))}
                 disabled={loading}
               >
-                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                <SelectTrigger className="bg-secondary border-border">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                <SelectContent className="bg-secondary border-border text-foreground">
                   <SelectItem value="on">Ativado</SelectItem>
                   <SelectItem value="off">Desativado</SelectItem>
                 </SelectContent>
@@ -1408,10 +1408,10 @@ export default function AgenteIAPage() {
                 onValueChange={(v) => setConfig((prev) => ({ ...prev, notifyOnScheduleError: v === "on" }))}
                 disabled={loading}
               >
-                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                <SelectTrigger className="bg-secondary border-border">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                <SelectContent className="bg-secondary border-border text-foreground">
                   <SelectItem value="on">Ativado</SelectItem>
                   <SelectItem value="off">Desativado</SelectItem>
                 </SelectContent>
@@ -1424,10 +1424,10 @@ export default function AgenteIAPage() {
                 onValueChange={(v) => setConfig((prev) => ({ ...prev, notifyOnHumanHandoff: v === "on" }))}
                 disabled={loading}
               >
-                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                <SelectTrigger className="bg-secondary border-border">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                <SelectContent className="bg-secondary border-border text-foreground">
                   <SelectItem value="on">Ativado</SelectItem>
                   <SelectItem value="off">Desativado</SelectItem>
                 </SelectContent>
@@ -1440,7 +1440,7 @@ export default function AgenteIAPage() {
             <Textarea
               value={toolNotificationTargetsInput}
               onChange={(e) => setToolNotificationTargetsInput(e.target.value)}
-              className="bg-[#1a1a1a] border-[#333] text-white min-h-[120px]"
+              className="bg-secondary border-border text-foreground min-h-[120px]"
               placeholder={"5565999999999\n120363040490321289-group"}
               disabled={loading}
             />
@@ -1448,7 +1448,7 @@ export default function AgenteIAPage() {
         </CardContent>
       </Card>
 
-      <Card className="bg-[#121212] border-[#2a2a2a] text-white">
+      <Card className="bg-card border-border text-foreground">
         <CardHeader>
           <CardTitle>Google Calendar</CardTitle>
           <CardDescription className="text-gray-400">
@@ -1470,10 +1470,10 @@ export default function AgenteIAPage() {
                 }
                 disabled={loading}
               >
-                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                <SelectTrigger className="bg-secondary border-border">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                <SelectContent className="bg-secondary border-border text-foreground">
                   <SelectItem value="on">Ativado</SelectItem>
                   <SelectItem value="off">Desativado</SelectItem>
                 </SelectContent>
@@ -1486,7 +1486,7 @@ export default function AgenteIAPage() {
                   type="button"
                   onClick={connectGoogleCalendarOAuth}
                   disabled={loading || connectingGoogle || googleCalendarConnected}
-                  className="bg-white text-black hover:bg-[#f4f4f4] border border-[#ddd]"
+                  className="bg-secondary text-foreground hover:bg-muted border border-border"
                 >
                   <span className="inline-flex items-center gap-2">
                     <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
@@ -1508,7 +1508,7 @@ export default function AgenteIAPage() {
                     variant="outline"
                     onClick={disconnectGoogleCalendarOAuth}
                     disabled={loading || disconnectingGoogle}
-                    className="border-[#ef4444] text-[#ef4444] hover:bg-[#ef4444]/10"
+                    className="border-destructive text-destructive hover:bg-destructive/10"
                   >
                     {disconnectingGoogle ? "Desconectando..." : "Desconectar"}
                   </Button>
@@ -1534,7 +1534,7 @@ export default function AgenteIAPage() {
                 onChange={(e) =>
                   setConfig((prev) => ({ ...prev, calendarEventDurationMinutes: Number(e.target.value || 50) }))
                 }
-                className="bg-[#1a1a1a] border-[#333] text-white"
+                className="bg-secondary border-border text-foreground"
                 disabled={loading}
               />
             </div>
@@ -1548,7 +1548,7 @@ export default function AgenteIAPage() {
                 onChange={(e) =>
                   setConfig((prev) => ({ ...prev, calendarMinLeadMinutes: Number(e.target.value || 15) }))
                 }
-                className="bg-[#1a1a1a] border-[#333] text-white"
+                className="bg-secondary border-border text-foreground"
                 disabled={loading}
               />
             </div>
@@ -1562,7 +1562,7 @@ export default function AgenteIAPage() {
                 onChange={(e) =>
                   setConfig((prev) => ({ ...prev, calendarBufferMinutes: Number(e.target.value || 0) }))
                 }
-                className="bg-[#1a1a1a] border-[#333] text-white"
+                className="bg-secondary border-border text-foreground"
                 disabled={loading}
               />
             </div>
@@ -1579,7 +1579,7 @@ export default function AgenteIAPage() {
                 onChange={(e) =>
                   setConfig((prev) => ({ ...prev, calendarMaxAdvanceDays: Number(e.target.value || 0) }))
                 }
-                className="bg-[#1a1a1a] border-[#333] text-white"
+                className="bg-secondary border-border text-foreground"
                 disabled={loading}
               />
             </div>
@@ -1593,7 +1593,7 @@ export default function AgenteIAPage() {
                 onChange={(e) =>
                   setConfig((prev) => ({ ...prev, calendarMaxAdvanceWeeks: Number(e.target.value || 0) }))
                 }
-                className="bg-[#1a1a1a] border-[#333] text-white"
+                className="bg-secondary border-border text-foreground"
                 disabled={loading}
               />
             </div>
@@ -1610,7 +1610,7 @@ export default function AgenteIAPage() {
                     calendarMaxAppointmentsPerDay: Number(e.target.value || 0),
                   }))
                 }
-                className="bg-[#1a1a1a] border-[#333] text-white"
+                className="bg-secondary border-border text-foreground"
                 disabled={loading}
               />
             </div>
@@ -1623,10 +1623,10 @@ export default function AgenteIAPage() {
                 }
                 disabled={loading}
               >
-                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                <SelectTrigger className="bg-secondary border-border">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                <SelectContent className="bg-secondary border-border text-foreground">
                   <SelectItem value="on">Ativado</SelectItem>
                   <SelectItem value="off">Desativado</SelectItem>
                 </SelectContent>
@@ -1641,7 +1641,7 @@ export default function AgenteIAPage() {
                 value={config.calendarBusinessStart}
                 onChange={(e) => setConfig((prev) => ({ ...prev, calendarBusinessStart: e.target.value }))}
                 placeholder="08:00"
-                className="bg-[#1a1a1a] border-[#333] text-white"
+                className="bg-secondary border-border text-foreground"
                 disabled={loading}
               />
             </div>
@@ -1651,7 +1651,7 @@ export default function AgenteIAPage() {
                 value={config.calendarBusinessEnd}
                 onChange={(e) => setConfig((prev) => ({ ...prev, calendarBusinessEnd: e.target.value }))}
                 placeholder="20:00"
-                className="bg-[#1a1a1a] border-[#333] text-white"
+                className="bg-secondary border-border text-foreground"
                 disabled={loading}
               />
             </div>
@@ -1665,7 +1665,7 @@ export default function AgenteIAPage() {
                 setConfig((prev) => ({ ...prev, calendarBusinessDays: parseBusinessDaysInput(e.target.value) }))
               }
               placeholder="1,2,3,4,5,6"
-              className="bg-[#1a1a1a] border-[#333] text-white"
+              className="bg-secondary border-border text-foreground"
               disabled={loading}
             />
           </div>
@@ -1676,7 +1676,7 @@ export default function AgenteIAPage() {
               <Textarea
                 value={calendarBlockedDatesInput}
                 onChange={(e) => setCalendarBlockedDatesInput(e.target.value)}
-                className="bg-[#1a1a1a] border-[#333] text-white min-h-[96px]"
+                className="bg-secondary border-border text-foreground min-h-[96px]"
                 placeholder={"2026-04-10\n2026-04-21"}
                 disabled={loading}
               />
@@ -1686,7 +1686,7 @@ export default function AgenteIAPage() {
               <Textarea
                 value={calendarBlockedTimeRangesInput}
                 onChange={(e) => setCalendarBlockedTimeRangesInput(e.target.value)}
-                className="bg-[#1a1a1a] border-[#333] text-white min-h-[96px]"
+                className="bg-secondary border-border text-foreground min-h-[96px]"
                 placeholder={"12:00-13:00\n18:00-19:30"}
                 disabled={loading}
               />
@@ -1703,10 +1703,10 @@ export default function AgenteIAPage() {
                 }
                 disabled={loading}
               >
-                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                <SelectTrigger className="bg-secondary border-border">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                <SelectContent className="bg-secondary border-border text-foreground">
                   <SelectItem value="on">Ativado</SelectItem>
                   <SelectItem value="off">Desativado</SelectItem>
                 </SelectContent>
@@ -1725,10 +1725,10 @@ export default function AgenteIAPage() {
                 }
                 disabled={loading}
               >
-                <SelectTrigger className="bg-[#1a1a1a] border-[#333]">
+                <SelectTrigger className="bg-secondary border-border">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-[#1a1a1a] border-[#333] text-white">
+                <SelectContent className="bg-secondary border-border text-foreground">
                   <SelectItem value="on">Ativado</SelectItem>
                   <SelectItem value="off">Desativado</SelectItem>
                 </SelectContent>
@@ -1747,7 +1747,7 @@ export default function AgenteIAPage() {
         <Button
           onClick={save}
           disabled={loading || saving}
-          className="border border-[#22c55e] bg-[#22c55e] text-black hover:bg-[#16a34a] hover:border-[#16a34a]"
+          className="border border-primary bg-primary text-black hover:bg-primary/80 hover:border-primary/80"
         >
           <Save className="mr-2 h-4 w-4" />
           {saving ? "Salvando..." : "Salvar configuracoes"}
