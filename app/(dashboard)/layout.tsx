@@ -8,21 +8,23 @@ import { ThemeProvider } from "../../components/theme-provider"
 import NotificationsMenu from "../../components/notifications-menu"
 import { Toaster } from "../../components/ui/sonner"
 import { TenantSelector } from "../../components/saas/TenantSelector"
+import { ThemeToggle } from "../../components/theme-toggle"
 
 const NotificationCenter = lazy(() => import("../../components/notification-center"))
 const FeedbackWidget = lazy(() => import("../../components/feedback-widget"))
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
-    <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
+    <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
       <SidebarProvider>
         <AppSidebar />
         <SidebarInset>
-          <header className="sticky top-0 z-10 flex h-14 sm:h-16 items-center gap-2 sm:gap-3 border-b border-accent-green/15 bg-card/85 px-3 sm:px-4 backdrop-blur-md safe-area-top">
-            <SidebarTrigger className="genial-hover border border-transparent hover:border-accent-green/35 hover:bg-accent-green/10 rounded-md" />
-            <div className="font-semibold text-accent-green font-display tracking-tight text-sm sm:text-base">GerencIA</div>
+          <header className="sticky top-0 z-10 flex h-14 sm:h-16 items-center gap-2 sm:gap-3 border-b border-border bg-card/90 px-3 sm:px-4 backdrop-blur-xl safe-area-top">
+            <SidebarTrigger className="genial-hover border border-transparent hover:border-primary/30 hover:bg-primary/8 rounded-lg" />
+            <div className="font-semibold text-primary font-display tracking-tight text-sm sm:text-base">GerencIA</div>
             <div className="ml-auto flex items-center gap-2">
               <TenantSelector />
+              <ThemeToggle />
               <NotificationsMenu />
             </div>
           </header>
