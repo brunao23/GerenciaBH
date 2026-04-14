@@ -532,6 +532,18 @@ export class FollowUpAutomationService {
         attemptNumber: number,
         previousFollowUps: string[] = []
     ): Promise<AIAnalysisResult> {
+        // Follow-ups agora são gerados exclusivamente via Gemini (agent-task-queue).
+        // Este serviço OpenAI foi desativado intencionalmente.
+        console.log('[FollowUp-OpenAI] Desativado. Follow-ups via Gemini nativo (agent-task-queue).')
+        return {
+            shouldSendFollowup: false,
+            contextualMessage: undefined,
+            reasoning: 'Serviço OpenAI desativado — follow-ups via Gemini nativo',
+            sentiment: 'neutral',
+            urgency: 'low'
+        }
+
+        // --- Código OpenAI original desativado abaixo ---
         try {
             const apiKey = process.env.OPENAI_API_KEY
             if (!apiKey) {
@@ -615,6 +627,7 @@ ${previousFollowUpsText}
 7. Se o lead demonstrou desinteresse claro, shouldSendFollowup = false
 8. Cada tentativa DEVE ter uma abordagem completamente diferente da anterior
 9. Mensagens marcadas como [HUMANO] sao do atendente da equipe, nao sao do lead
+10. JAMAIS abrevie, encurte ou crie apelidos do nome do lead. Use SEMPRE o nome EXATO como informado. Proibido: Cah (Camila), Fer (Fernanda), Gabi (Gabriela), Rafa (Rafael), Lu (Lucas). Se o nome parecer apelido (ex: Caaah, Feer), use 'voce'
 
 Retorne JSON:
 {

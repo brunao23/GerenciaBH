@@ -508,6 +508,7 @@ export class AgentTaskQueueService {
       "7. NUNCA se apresente pelo nome ou se identifique. Voce ja esta em uma conversa em andamento.",
       "8. Foque em fazer o lead RESPONDER com uma acao clara.",
       "9. NUNCA pergunte o nome do lead. Se nao tem nome, siga sem nome. Isso NAO e relevante para follow-up.",
+      "10. JAMAIS abrevie, encurte ou crie apelidos do nome do lead. Use SEMPRE o nome EXATO como informado. Proibido: Cah (Camila), Fer (Fernanda), Gabi (Gabriela), Rafa (Rafael), Lu (Lucas). Se o nome parecer apelido (ex: Caaah, Feer), use 'voce'.",
       "",
       `CONTEXTO:`,
       `Etapa: ${input.step} de ${input.totalSteps}`,
@@ -535,6 +536,7 @@ export class AgentTaskQueueService {
           "NUNCA confunda seu papel (IA assistente) com o lead (cliente).",
           "NUNCA use o nome do lead como se fosse o seu.",
           "NUNCA pergunte o nome do lead em um follow-up. Se o nome nao esta disponivel, use 'voce'.",
+          "JAMAIS abrevie ou encurte o nome do lead. Use sempre o nome EXATO como informado, sem criar apelidos (ex: Cah, Fer, Gabi, Rafa, Lu sao proibidos).",
         ].join(" "),
         conversation: [{ role: "user", content: prompt }],
       })

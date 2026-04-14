@@ -106,6 +106,11 @@ export interface NativeAgentConfig {
   followupBusinessEnd: string    // HH:MM - default "23:00"
   followupBusinessDays: number[] // 0=Dom, 1=Seg...6=Sab - default [0,1,2,3,4,5,6]
   followupPlan?: Array<{ enabled: boolean; minutes: number }>
+
+  // Semantic cache (ML)
+  semanticCacheEnabled: boolean
+  semanticCacheSimilarityThreshold: number // 0.80 - 0.99
+  semanticCacheTtlHours: number            // default 168 (7 days)
 }
 
 const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
@@ -147,6 +152,10 @@ const DEFAULT_AUDIO_MIN_CHARS = 1
 const DEFAULT_AUDIO_MAX_CHARS = 600
 const DEFAULT_AUDIO_CUSTOM_AUTH_HEADER = "Authorization"
 const DEFAULT_AUDIO_WAVEFORM_ENABLED = true
+const DEFAULT_SEMANTIC_CACHE_ENABLED = true
+const DEFAULT_SEMANTIC_CACHE_SIMILARITY_THRESHOLD = 0.92
+const DEFAULT_SEMANTIC_CACHE_TTL_HOURS = 168
+
 const DEFAULT_DURATION_MIN = 50
 const DEFAULT_MIN_LEAD_MIN = 15
 const DEFAULT_BUFFER_MIN = 0
@@ -688,6 +697,14 @@ function normalizeConfig(input: any): NativeAgentConfig {
     followupBusinessEnd: readBusinessTime(raw.followupBusinessEnd, DEFAULT_FOLLOWUP_BUSINESS_END),
     followupBusinessDays: readFollowupBusinessDays(raw.followupBusinessDays),
     followupPlan: readFollowupPlan(raw.followupPlan, normalizedFollowupIntervals),
+
+    // Semantic cache
+    semanticCacheEnabled: readBoolean(raw.semanticCacheEnabled, DEFAULT_SEMANTIC_CACHE_ENABLED),
+    semanticCacheSimilarityThreshold: readNumber(
+      raw.semanticCacheSimilarityThreshold,
+      DEFAULT_SEMANTIC_CACHE_SIMILARITY_THRESHOLD,
+    ),
+    semanticCacheTtlHours: readNumber(raw.semanticCacheTtlHours, DEFAULT_SEMANTIC_CACHE_TTL_HOURS),
   }
 
   return mergeWithEnv(base)
@@ -1029,6 +1046,11 @@ export async function updateNativeAgentConfigForTenant(
       followupBusinessEnd: config.followupBusinessEnd,
       followupBusinessDays: config.followupBusinessDays,
       followupPlan: Array.isArray(config.followupPlan) ? config.followupPlan : existingFollowupPlan,
+
+      // Semantic cache
+      semanticCacheEnabled: config.semanticCacheEnabled,
+      semanticCacheSimilarityThreshold: config.semanticCacheSimilarityThreshold,
+      semanticCacheTtlHours: config.semanticCacheTtlHours,
     },
   }
 

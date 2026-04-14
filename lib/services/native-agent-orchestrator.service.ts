@@ -1,4 +1,5 @@
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
+import { SemanticCacheService, type CacheHitResult } from "@/lib/services/semantic-cache.service"
 import { getTablesForTenant } from "@/lib/helpers/tenant"
 import { getTableColumns } from "@/lib/helpers/supabase-table-columns"
 import {
@@ -828,6 +829,7 @@ export class NativeAgentOrchestratorService {
   private readonly messaging = new TenantMessagingService()
   private readonly taskQueue = new AgentTaskQueueService()
   private readonly learning = new NativeAgentLearningService()
+  private readonly semanticCache = new SemanticCacheService()
 
   async handleInboundMessage(input: HandleInboundMessageInput): Promise<HandleInboundMessageResult> {
     const tenant = normalizeTenant(input.tenant)
@@ -1045,33 +1047,104 @@ export class NativeAgentOrchestratorService {
       userMessagesCount,
       fromMeTriggerContent: isFromMeTrigger ? fromMeTriggerContent : undefined,
     })
+
+    // ── Semantic Cache: lookup ──────────────────────────────────
+    let cacheHit: CacheHitResult | null = null
+    let cacheEmbedding: number[] | null = null
+    const cacheEnabled = config.semanticCacheEnabled && !!config.geminiApiKey
+    const effectiveMessage = effectiveLeadMessage || content
+
+    if (cacheEnabled && conversation.length >= 3) {
+      try {
+        cacheEmbedding = await this.semanticCache.generateEmbedding(
+          effectiveMessage,
+          config.geminiApiKey!,
+        )
+        cacheHit = await this.semanticCache.findCachedResponse({
+          tenant,
+          message: effectiveMessage,
+          embedding: cacheEmbedding,
+          similarityThreshold: config.semanticCacheSimilarityThreshold,
+        })
+        if (cacheHit) {
+          console.log(
+            `[native-agent][semantic-cache] HIT tenant=${tenant} sim=${cacheHit.similarity.toFixed(3)} cat=${cacheHit.category}`,
+          )
+        }
+      } catch (cacheErr) {
+        console.warn("[native-agent][semantic-cache] lookup failed:", cacheErr)
+        cacheHit = null
+      }
+    }
+
     let decision
-    try {
-      decision = await gemini.decideNextTurnWithTools({
-        systemPrompt: basePrompt,
-        conversation,
-        functionDeclarations: this.buildFunctionDeclarations(config),
-        onToolCall: (toolCall) =>
-          this.executeToolCall({
-            toolCall,
-            tenant,
-            phone,
-            sessionId,
-            contactName: input.contactName,
-            config,
-            chat,
-          }),
-      })
-    } catch (toolError) {
-      console.error("[native-agent] tool-calling fallback to legacy JSON:", toolError)
-      const legacyDecision = await gemini.decideNextTurn({
-        systemPrompt: basePrompt,
-        conversation,
-      })
+    if (cacheHit) {
+      // Serve from cache — zero Gemini tokens
       decision = {
-        ...legacyDecision,
-        toolCalls: [],
-        executions: [],
+        reply: cacheHit.responseText,
+        actions: [{ type: "none" }] as AgentActionPlan[],
+        handoff: false,
+        toolCalls: [] as GeminiToolCall[],
+        executions: [] as GeminiToolExecution[],
+      }
+    } else {
+      // Normal Gemini flow
+      try {
+        decision = await gemini.decideNextTurnWithTools({
+          systemPrompt: basePrompt,
+          conversation,
+          functionDeclarations: this.buildFunctionDeclarations(config),
+          onToolCall: (toolCall) =>
+            this.executeToolCall({
+              toolCall,
+              tenant,
+              phone,
+              sessionId,
+              contactName: input.contactName,
+              config,
+              chat,
+            }),
+        })
+      } catch (toolError) {
+        console.error("[native-agent] tool-calling fallback to legacy JSON:", toolError)
+        const legacyDecision = await gemini.decideNextTurn({
+          systemPrompt: basePrompt,
+          conversation,
+        })
+        decision = {
+          ...legacyDecision,
+          toolCalls: [],
+          executions: [],
+        }
+      }
+
+      // ── Semantic Cache: store ──────────────────────────────────
+      if (cacheEnabled && cacheEmbedding && decision?.reply) {
+        try {
+          const hasToolCalls = (decision.toolCalls?.length || 0) > 0
+          const cacheCheck = this.semanticCache.shouldCache({
+            message: effectiveMessage,
+            responseText: decision.reply,
+            hasToolCalls,
+            conversationLength: conversation.length,
+          })
+          if (cacheCheck.cacheable) {
+            await this.semanticCache.storeResponse({
+              tenant,
+              message: effectiveMessage,
+              embedding: cacheEmbedding,
+              responseText: decision.reply,
+              hasToolCalls,
+              category: cacheCheck.category,
+              ttlHours: config.semanticCacheTtlHours,
+            })
+            console.log(
+              `[native-agent][semantic-cache] STORED tenant=${tenant} cat=${cacheCheck.category}`,
+            )
+          }
+        } catch (storeErr) {
+          console.warn("[native-agent][semantic-cache] store failed:", storeErr)
+        }
       }
     }
 
@@ -1832,6 +1905,7 @@ export class NativeAgentOrchestratorService {
       `- No historico abaixo, mensagens "user" sao do lead (${contactFirstName || "cliente"}), mensagens "assistant" sao SUAS (IA).`,
       `- Se o nome do lead nao estiver disponivel, use "voce" em vez de inventar ou adivinhar um nome.`,
       `- NUNCA pergunte o nome do lead. Se o nome nao esta no contexto, siga a conversa sem nome. Perguntar o nome repetidamente e proibido.`,
+      `- JAMAIS abrevie, encurte ou crie apelidos a partir do nome do lead. Use SEMPRE o nome EXATO e COMPLETO (primeiro nome) como informado. Exemplos proibidos: "Cah" para Camila, "Fer" para Fernanda, "Gabi" para Gabriela, "Rafa" para Rafael, "Lu" para Lucas. Se o nome do WhatsApp parecer apelido (ex: "Caaah", "Feer"), NAO repita — use "voce" ate confirmar o nome real.`,
       `- Cada conversa e ISOLADA: nao misture informacoes de um lead com outro. Use SOMENTE o contexto desta sessao (${ctx.sessionId}).`,
       "",
       "REGRAS OPERACIONAIS:",
