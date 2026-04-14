@@ -54,10 +54,13 @@ const DEFAULT_TTL_HOURS = 168 // 7 days
 
 // Patterns that indicate the message should NOT be cached
 const PII_PATTERNS = [
-  /\d{3}\.?\d{3}\.?\d{3}-?\d{2}/,           // CPF
+  /\d{3}\.?\d{3}\.?\d{3}-?\d{2}/,           // CPF (xxx.xxx.xxx-xx)
   /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/,  // Email
-  /\(?\d{2}\)?\s?\d{4,5}-?\d{4}/,            // Telefone
+  /(?<!\d)\(?\d{2}\)?\s?\d{4,5}-\d{4}(?!\d)/,         // Telefone (com hífen obrigatório para não pegar preços)
 ]
+
+// Preço NÃO é PII — R$ 210,00 não deve bloquear cache
+const PRICE_PATTERN = /R\$\s*[\d.,]+/
 
 const TEMPORAL_KEYWORDS = [
   "hoje", "amanha", "amanhã", "agora", "neste momento",
@@ -68,9 +71,13 @@ const TEMPORAL_KEYWORDS = [
 const TEMPORAL_PATTERNS = [
   /\d{1,2}\/\d{1,2}\/\d{2,4}/,   // DD/MM/YYYY
   /\d{4}-\d{2}-\d{2}/,            // YYYY-MM-DD
-  /\d{1,2}:\d{2}/,                // HH:MM
-  /\d{1,2}\s*h\s*\d{0,2}/i,       // 14h, 14h30
+  /\b\d{1,2}:\d{2}\b/,            // HH:MM (com word boundary)
+  /\b\d{1,2}\s*h\s*\d{2}\b/i,     // 14h30 (com minutos obrigatórios, para não pegar "1h" solto)
 ]
+
+// Palavras temporais que são genéricas e NÃO devem bloquear cache
+// (ex: "manhã", "tarde", "noite" são períodos, não datas específicas)
+const TEMPORAL_GENERIC_SAFE = ["manha", "tarde", "noite", "periodo", "turno"]
 
 // Category detection patterns
 const CATEGORY_PATTERNS: Array<{ category: string; patterns: RegExp[] }> = [
@@ -133,12 +140,19 @@ function hashMessage(normalized: string): string {
 }
 
 function hasPII(text: string): boolean {
-  return PII_PATTERNS.some((p) => p.test(text))
+  // Remove preços antes de checar PII (R$ 210,00 não é PII)
+  const withoutPrices = text.replace(PRICE_PATTERN, "")
+  return PII_PATTERNS.some((p) => p.test(withoutPrices))
 }
 
 function hasTemporalReference(text: string): boolean {
   const lower = normalizeForCache(text)
-  if (TEMPORAL_KEYWORDS.some((kw) => lower.includes(kw))) return true
+  // Checa keywords temporais, mas ignora genéricos como "manhã/tarde/noite"
+  const hasSpecificTemporal = TEMPORAL_KEYWORDS.some((kw) => {
+    if (TEMPORAL_GENERIC_SAFE.some((safe) => kw.includes(safe))) return false
+    return lower.includes(kw)
+  })
+  if (hasSpecificTemporal) return true
   return TEMPORAL_PATTERNS.some((p) => p.test(text))
 }
 
@@ -305,37 +319,43 @@ export class SemanticCacheService {
       return { cacheable: false, reason: "response_too_short" }
     }
 
-    // Never cache PII
+    // Detect category early — categories de alto valor relaxam regras
+    const category = detectCategory(input.message)
+    const isHighValueCategory = category === "price" || category === "faq" || category === "location" || category === "hours"
+
+    // Never cache PII (mas preços são OK)
     if (hasPII(input.message) || hasPII(input.responseText)) {
       return { cacheable: false, reason: "contains_pii" }
     }
 
-    // Never cache temporal responses
-    if (hasTemporalReference(input.responseText)) {
+    // Temporal: bloqueia apenas se NÃO for categoria de alto valor
+    // (respostas de preço/FAQ podem mencionar horários genéricos)
+    if (!isHighValueCategory && hasTemporalReference(input.responseText)) {
       return { cacheable: false, reason: "temporal_response" }
     }
 
-    // Never cache very early conversations (first message is context-dependent)
-    if (input.conversationLength < 3) {
+    // Mensagem do lead com referência temporal específica (hoje, amanhã) — não cachear
+    if (hasTemporalReference(input.message)) {
+      return { cacheable: false, reason: "temporal_message" }
+    }
+
+    // Conversas muito curtas: relaxa para categorias de alto valor
+    if (input.conversationLength < 2) {
       return { cacheable: false, reason: "conversation_too_short" }
     }
 
-    // Never cache very long messages (likely unique/complex)
+    // Never cache very long input messages (likely unique/complex)
     if (input.message.length > 500) {
       return { cacheable: false, reason: "message_too_long" }
     }
 
-    // Detect category
-    const category = detectCategory(input.message)
-
-    // Prefer caching recognized categories
+    // Categorias reconhecidas: cachear
     if (category) {
       return { cacheable: true, category }
     }
 
-    // For unrecognized messages, cache only if response is generic enough
-    // (no names, no specific references)
-    if (input.responseText.length < 300 && !hasTemporalReference(input.message)) {
+    // Para mensagens sem categoria: cache se resposta é razoavelmente genérica
+    if (input.responseText.length < 500 && !hasTemporalReference(input.message)) {
       return { cacheable: true, category: "general" }
     }
 
