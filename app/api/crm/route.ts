@@ -465,13 +465,33 @@ function isMissingTableError(error: any): boolean {
 function extractContactName(messages: any[]): string {
     if (!messages || messages.length === 0) return ""
 
+    // Prioridade 1: pushName/contactName de mensagens do LEAD (user/human) — fonte mais confiável
     for (const msg of messages) {
         if (!msg || !msg.message) continue
+        try {
+            const type = String(msg.message?.type ?? "").toLowerCase()
+            const role = String(msg.message?.role ?? "").toLowerCase()
+            const isUser = type === "human" || type === "user" || role === "user" || role === "human"
+            if (!isUser) continue
 
+            const metaName = extractNameFromMessageMeta(msg.message)
+            if (metaName) return metaName
+        } catch (e) { continue }
+    }
+
+    // Prioridade 2: pushName de qualquer mensagem (incluindo IA que pode ter chatName)
+    for (const msg of messages) {
+        if (!msg || !msg.message) continue
         try {
             const metaName = extractNameFromMessageMeta(msg.message)
             if (metaName) return metaName
+        } catch (e) { continue }
+    }
 
+    // Prioridade 3: Extrair nome do texto — "Oi {Nome}" da IA ou "meu nome é X" do lead
+    for (const msg of messages) {
+        if (!msg || !msg.message) continue
+        try {
             const content = String(msg.message?.content || msg.message?.text || "")
             if (!content || content.trim().length < 3) continue
 
@@ -479,7 +499,7 @@ function extractContactName(messages: any[]): string {
                 /"PrimeiroNome"\s*:\s*"([^"]+)"/i,
                 /"Nome"\s*:\s*"([^"]+)"/i,
                 /nome\s+(?:do\s+)?(?:cliente|lead|usuario|contato):\s*([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Ú][a-zà-ú]+)?)/i,
-                /(?:oi|ola|bom\s+dia|boa\s+tarde|boa\s+noite),?\s+([A-ZÀ-Ú][a-zà-ú]+)/i,
+                /(?:oi|ola|olá|bom\s+dia|boa\s+tarde|boa\s+noite)[,!]?\s+([A-ZÀ-Ú][a-zà-ú]{2,})/i,
                 /(?:meu\s+nome\s+(?:e|é)|me\s+chamo|pode\s+me\s+chamar\s+de)\s+([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Ú][a-zà-ú]+)?)/i,
             ]
 
@@ -490,7 +510,6 @@ function extractContactName(messages: any[]): string {
                 if (normalized) return normalized
             }
         } catch (e) {
-            console.warn("[extractContactName] Erro ao processar mensagem:", e)
             continue
         }
     }
@@ -916,6 +935,27 @@ export async function GET(req: Request) {
                     break
                 }
             }
+        }
+
+        // Filtrar grupos — remover sessões de grupos WhatsApp (exceto grupos de notificação)
+        const notificationGroupKeywords = ["notifica", "alerta", "aviso", "report", "relatorio"]
+        let groupsRemoved = 0
+        for (const sessionId of sessionMap.keys()) {
+            const lower = sessionId.toLowerCase()
+            const isGroup = lower.includes("@g.us") || lower.startsWith("group_")
+            if (isGroup) {
+                // Verificar se é grupo de notificação (manter esses)
+                const msgs = sessionMap.get(sessionId) || []
+                const firstContent = String(msgs[0]?.message?.content || msgs[0]?.message?.text || "").toLowerCase()
+                const isNotificationGroup = notificationGroupKeywords.some(kw => lower.includes(kw) || firstContent.includes(kw))
+                if (!isNotificationGroup) {
+                    sessionMap.delete(sessionId)
+                    groupsRemoved++
+                }
+            }
+        }
+        if (groupsRemoved > 0) {
+            console.log(`[CRM] Grupos removidos: ${groupsRemoved} (mantidos apenas grupos de notificação)`)
         }
 
         const cards: CRMCard[] = []

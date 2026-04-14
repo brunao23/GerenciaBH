@@ -379,12 +379,79 @@ function extractNameFromMeta(msg: any): string | null {
     if (!raw || raw.length < 2) continue
     if (raw.includes("@")) continue
 
-    const first = raw.split(" ")[0]
-    if (!first || first.length < 2) continue
-    const lower = first.toLowerCase()
-    if (blocked.has(lower)) continue
-    if (/^\d+$/.test(lower)) continue
-    return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase()
+    const parts = raw.split(" ").filter(p => p.length >= 2)
+    if (parts.length === 0) continue
+    const firstLower = parts[0].toLowerCase()
+    if (blocked.has(firstLower)) continue
+    if (/^\d+$/.test(firstLower)) continue
+
+    const formatted = parts
+      .slice(0, 3)
+      .map(p => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase())
+      .join(" ")
+    return formatted
+  }
+
+  return null
+}
+
+function isUserMessage(msg: any): boolean {
+  if (!msg) return false
+  const type = String(msg.type ?? "").toLowerCase()
+  if (type === "human" || type === "user") return true
+  const role = String(msg.role ?? "").toLowerCase()
+  if (role === "user" || role === "human") return true
+  return false
+}
+
+function extractContactNameFromMessages(rows: Row[], sessionId: string): string | null {
+  const sessionRows = rows.filter(r => r.session_id === sessionId)
+
+  // Priority 1: pushName from USER messages (most reliable — it's the lead's own name)
+  for (const row of sessionRows) {
+    const msg = row.message ?? {}
+    if (isUserMessage(msg)) {
+      const name = extractNameFromMeta(msg)
+      if (name) return name
+    }
+  }
+
+  // Priority 2: pushName from ANY message
+  for (const row of sessionRows) {
+    const msg = row.message ?? {}
+    const name = extractNameFromMeta(msg)
+    if (name) return name
+  }
+
+  // Priority 3: text patterns (greeting, "meu nome é", formData)
+  for (const row of sessionRows) {
+    const msg = row.message ?? {}
+    const content = String(msg.content ?? msg.text ?? "")
+
+    // Check formData
+    const formData = msg.formData ?? msg.form_data ?? msg.metadata?.formData
+    if (formData) {
+      const fname = formData.primeiroNome ?? formData.primeiro_nome ?? formData.nome ?? formData.name
+      if (fname && String(fname).trim().length >= 2 && !/^\d+$/.test(String(fname).trim())) {
+        const parts = String(fname).trim().split(/\s+/).slice(0, 3)
+        return parts.map((p: string) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join(" ")
+      }
+    }
+
+    // Text pattern extraction
+    const patterns = [
+      /(?:meu nome [eé]|me chamo|sou o|sou a|aqui [eé] o|aqui [eé] a)\s+([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Ú][a-zà-ú]+)?)/i,
+      /^(?:oi|ol[aá]|bom dia|boa tarde|boa noite)[,!]?\s+(?:(?:aqui|sou)\s+)?([A-ZÀ-Ú][a-zà-ú]+)/i,
+    ]
+    for (const pattern of patterns) {
+      const match = content.match(pattern)
+      if (match?.[1]) {
+        const n = match[1].trim()
+        if (n.length >= 2 && !/^\d+$/.test(n)) {
+          return n.charAt(0).toUpperCase() + n.slice(1).toLowerCase()
+        }
+      }
+    }
   }
 
   return null
@@ -637,14 +704,13 @@ export async function GET(req: Request) {
       const role = normalizeRole(msg)
       const createdAt = String(row.created_at ?? msg.created_at ?? new Date().toISOString())
       const numero = extractNumber(row.session_id)
-      const extractedName = extractNameFromMeta(msg)
 
       let session = bySession.get(row.session_id)
       if (!session) {
         session = {
           session_id: row.session_id,
           numero,
-          contact_name: extractedName || (numero ? `Lead ${numero.slice(-4)}` : "Lead"),
+          contact_name: null as any,
           messages: [
             {
               role,
@@ -661,9 +727,6 @@ export async function GET(req: Request) {
       }
 
       session.messages_count += 1
-      if (!session.contact_name && extractedName) {
-        session.contact_name = extractedName
-      }
 
       if (!hasSearch) continue
 
@@ -677,6 +740,32 @@ export async function GET(req: Request) {
           session.strong_match = true
         }
       }
+    }
+
+    // --- Group filtering: remove group chats except notification groups ---
+    const notificationGroupKeywords = ["notifica", "alerta", "aviso", "report", "relatorio"]
+    let groupsRemoved = 0
+    for (const sessionId of bySession.keys()) {
+      const lower = sessionId.toLowerCase()
+      const isGroup = lower.includes("@g.us") || lower.startsWith("group_")
+      if (isGroup) {
+        const session = bySession.get(sessionId)!
+        const firstContent = String(session.messages?.[0]?.content || "").toLowerCase()
+        const isNotificationGroup = notificationGroupKeywords.some(kw => lower.includes(kw) || firstContent.includes(kw))
+        if (!isNotificationGroup) {
+          bySession.delete(sessionId)
+          groupsRemoved++
+        }
+      }
+    }
+    if (groupsRemoved > 0) {
+      console.log(`[ChatsSummary] Removed ${groupsRemoved} group sessions`)
+    }
+
+    // --- Resolve contact names with priority: user pushName > any pushName > text patterns ---
+    for (const [sessionId, session] of bySession.entries()) {
+      const bestName = extractContactNameFromMessages(rows, sessionId)
+      session.contact_name = bestName || (session.numero ? `Lead ${session.numero.slice(-4)}` : "Lead")
     }
 
     let payload = Array.from(bySession.values())
