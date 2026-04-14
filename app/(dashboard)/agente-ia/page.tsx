@@ -87,6 +87,11 @@ type TenantNativeAgentConfig = {
   calendarBusinessStart: string
   calendarBusinessEnd: string
   calendarBusinessDays: number[]
+  calendarDaySchedule: Record<string, { start: string; end: string; enabled: boolean }>
+  calendarLunchBreakEnabled: boolean
+  calendarLunchBreakStart: string
+  calendarLunchBreakEnd: string
+  calendarCheckGoogleEvents: boolean
 }
 
 const defaultConfig: TenantNativeAgentConfig = {
@@ -157,6 +162,19 @@ const defaultConfig: TenantNativeAgentConfig = {
   calendarBusinessStart: "08:00",
   calendarBusinessEnd: "20:00",
   calendarBusinessDays: [1, 2, 3, 4, 5, 6],
+  calendarDaySchedule: {
+    "1": { start: "08:00", end: "20:00", enabled: true },
+    "2": { start: "08:00", end: "20:00", enabled: true },
+    "3": { start: "08:00", end: "20:00", enabled: true },
+    "4": { start: "08:00", end: "20:00", enabled: true },
+    "5": { start: "08:00", end: "20:00", enabled: true },
+    "6": { start: "08:00", end: "18:00", enabled: true },
+    "7": { start: "08:00", end: "18:00", enabled: false },
+  },
+  calendarLunchBreakEnabled: false,
+  calendarLunchBreakStart: "12:00",
+  calendarLunchBreakEnd: "13:00",
+  calendarCheckGoogleEvents: true,
 }
 
 function normalizeConfig(raw: any): TenantNativeAgentConfig {
@@ -316,6 +334,27 @@ function normalizeConfig(raw: any): TenantNativeAgentConfig {
     calendarBusinessStart: String(source.calendarBusinessStart || "08:00"),
     calendarBusinessEnd: String(source.calendarBusinessEnd || "20:00"),
     calendarBusinessDays: businessDays.length ? businessDays : [1, 2, 3, 4, 5, 6],
+    calendarDaySchedule: (() => {
+      const raw = source.calendarDaySchedule && typeof source.calendarDaySchedule === "object" ? source.calendarDaySchedule : {}
+      const result: Record<string, { start: string; end: string; enabled: boolean }> = {}
+      const bStart = String(source.calendarBusinessStart || "08:00")
+      const bEnd = String(source.calendarBusinessEnd || "20:00")
+      const bDays = businessDays.length ? businessDays : [1, 2, 3, 4, 5, 6]
+      for (let d = 1; d <= 7; d++) {
+        const key = String(d)
+        const dayRaw = raw[key] && typeof raw[key] === "object" ? raw[key] : {}
+        result[key] = {
+          start: String(dayRaw.start || bStart),
+          end: String(dayRaw.end || bEnd),
+          enabled: dayRaw.enabled !== undefined ? dayRaw.enabled === true : bDays.includes(d),
+        }
+      }
+      return result
+    })(),
+    calendarLunchBreakEnabled: source.calendarLunchBreakEnabled === true,
+    calendarLunchBreakStart: String(source.calendarLunchBreakStart || "12:00"),
+    calendarLunchBreakEnd: String(source.calendarLunchBreakEnd || "13:00"),
+    calendarCheckGoogleEvents: source.calendarCheckGoogleEvents !== false,
   }
 }
 
@@ -608,6 +647,11 @@ export default function AgenteIAPage() {
         calendarBusinessStart: toOptionalText(config.calendarBusinessStart) || "08:00",
         calendarBusinessEnd: toOptionalText(config.calendarBusinessEnd) || "20:00",
         calendarBusinessDays: parseBusinessDaysInput(config.calendarBusinessDays.join(",")),
+        calendarDaySchedule: config.calendarDaySchedule,
+        calendarLunchBreakEnabled: config.calendarLunchBreakEnabled,
+        calendarLunchBreakStart: toOptionalText(config.calendarLunchBreakStart) || "12:00",
+        calendarLunchBreakEnd: toOptionalText(config.calendarLunchBreakEnd) || "13:00",
+        calendarCheckGoogleEvents: config.calendarCheckGoogleEvents,
       }
 
       const res = await fetch("/api/tenant/native-agent-config", {
@@ -1634,40 +1678,114 @@ export default function AgenteIAPage() {
             </div>
           </div>
 
-          <div className="grid md:grid-cols-2 gap-4">
+          <div className="space-y-3">
+            <Label className="text-base font-semibold">Horarios de Atendimento por Dia</Label>
+            <p className="text-xs text-muted-foreground">Configure o horario de abertura e fechamento para cada dia da semana individualmente.</p>
             <div className="space-y-2">
-              <Label>Horario inicial</Label>
-              <Input
-                value={config.calendarBusinessStart}
-                onChange={(e) => setConfig((prev) => ({ ...prev, calendarBusinessStart: e.target.value }))}
-                placeholder="08:00"
-                className="bg-secondary border-border text-foreground"
-                disabled={loading}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Horario final</Label>
-              <Input
-                value={config.calendarBusinessEnd}
-                onChange={(e) => setConfig((prev) => ({ ...prev, calendarBusinessEnd: e.target.value }))}
-                placeholder="20:00"
-                className="bg-secondary border-border text-foreground"
-                disabled={loading}
-              />
+              {[
+                { key: "1", label: "Segunda" },
+                { key: "2", label: "Terca" },
+                { key: "3", label: "Quarta" },
+                { key: "4", label: "Quinta" },
+                { key: "5", label: "Sexta" },
+                { key: "6", label: "Sabado" },
+                { key: "7", label: "Domingo" },
+              ].map((day) => {
+                const schedule = config.calendarDaySchedule[day.key] || { start: "08:00", end: "20:00", enabled: false }
+                return (
+                  <div key={day.key} className={`flex items-center gap-3 p-3 rounded-lg border ${schedule.enabled ? "border-primary/30 bg-primary/5" : "border-border bg-secondary/50 opacity-60"}`}>
+                    <label className="flex items-center gap-2 min-w-[100px] cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={schedule.enabled}
+                        onChange={(e) => {
+                          const newSchedule = { ...config.calendarDaySchedule }
+                          newSchedule[day.key] = { ...schedule, enabled: e.target.checked }
+                          const enabledDays = Object.entries(newSchedule).filter(([, v]) => v.enabled).map(([k]) => Number(k))
+                          setConfig((prev) => ({ ...prev, calendarDaySchedule: newSchedule, calendarBusinessDays: enabledDays }))
+                        }}
+                        className="w-4 h-4 rounded accent-primary"
+                        disabled={loading}
+                      />
+                      <span className={`text-sm font-medium ${schedule.enabled ? "text-foreground" : "text-muted-foreground"}`}>{day.label}</span>
+                    </label>
+                    <div className="flex items-center gap-2 flex-1">
+                      <Input
+                        value={schedule.start}
+                        onChange={(e) => {
+                          const newSchedule = { ...config.calendarDaySchedule }
+                          newSchedule[day.key] = { ...schedule, start: e.target.value }
+                          setConfig((prev) => ({ ...prev, calendarDaySchedule: newSchedule }))
+                        }}
+                        placeholder="08:00"
+                        className="bg-secondary border-border text-foreground h-8 w-20 text-center text-sm"
+                        disabled={loading || !schedule.enabled}
+                      />
+                      <span className="text-muted-foreground text-xs">ate</span>
+                      <Input
+                        value={schedule.end}
+                        onChange={(e) => {
+                          const newSchedule = { ...config.calendarDaySchedule }
+                          newSchedule[day.key] = { ...schedule, end: e.target.value }
+                          setConfig((prev) => ({ ...prev, calendarDaySchedule: newSchedule }))
+                        }}
+                        placeholder="20:00"
+                        className="bg-secondary border-border text-foreground h-8 w-20 text-center text-sm"
+                        disabled={loading || !schedule.enabled}
+                      />
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           </div>
 
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={config.calendarLunchBreakEnabled}
+                  onChange={(e) => setConfig((prev) => ({ ...prev, calendarLunchBreakEnabled: e.target.checked }))}
+                  className="w-4 h-4 rounded accent-primary"
+                  disabled={loading}
+                />
+                <Label className="cursor-pointer">Horario de Almoco (bloquear agendamentos)</Label>
+              </label>
+            </div>
+            {config.calendarLunchBreakEnabled && (
+              <div className="flex items-center gap-3 pl-6">
+                <Input
+                  value={config.calendarLunchBreakStart}
+                  onChange={(e) => setConfig((prev) => ({ ...prev, calendarLunchBreakStart: e.target.value }))}
+                  placeholder="12:00"
+                  className="bg-secondary border-border text-foreground h-8 w-24 text-center"
+                  disabled={loading}
+                />
+                <span className="text-muted-foreground text-sm">ate</span>
+                <Input
+                  value={config.calendarLunchBreakEnd}
+                  onChange={(e) => setConfig((prev) => ({ ...prev, calendarLunchBreakEnd: e.target.value }))}
+                  placeholder="13:00"
+                  className="bg-secondary border-border text-foreground h-8 w-24 text-center"
+                  disabled={loading}
+                />
+              </div>
+            )}
+          </div>
+
           <div className="space-y-2">
-            <Label>Dias uteis (1=Seg, 7=Dom)</Label>
-            <Input
-              value={config.calendarBusinessDays.join(",")}
-              onChange={(e) =>
-                setConfig((prev) => ({ ...prev, calendarBusinessDays: parseBusinessDaysInput(e.target.value) }))
-              }
-              placeholder="1,2,3,4,5,6"
-              className="bg-secondary border-border text-foreground"
-              disabled={loading}
-            />
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={config.calendarCheckGoogleEvents}
+                onChange={(e) => setConfig((prev) => ({ ...prev, calendarCheckGoogleEvents: e.target.checked }))}
+                className="w-4 h-4 rounded accent-primary"
+                disabled={loading}
+              />
+              <Label className="cursor-pointer">Verificar eventos no Google Agenda antes de agendar</Label>
+            </label>
+            <p className="text-xs text-muted-foreground pl-6">Quando ativado, o sistema consulta o Google Calendar para evitar conflitos com eventos existentes.</p>
           </div>
 
           <div className="grid md:grid-cols-2 gap-4">

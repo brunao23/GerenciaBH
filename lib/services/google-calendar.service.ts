@@ -252,6 +252,51 @@ export class GoogleCalendarService {
     }
   }
 
+  async listEvents(params: {
+    timeMin: string
+    timeMax: string
+    timezone?: string
+    maxResults?: number
+  }): Promise<Array<{ id: string; summary?: string; start: string; end: string }>> {
+    const accessToken = await fetchAccessToken(this.config)
+    const tz = params.timezone || "America/Sao_Paulo"
+    const searchParams = new URLSearchParams({
+      timeMin: params.timeMin,
+      timeMax: params.timeMax,
+      timeZone: tz,
+      singleEvents: "true",
+      orderBy: "startTime",
+      maxResults: String(params.maxResults || 250),
+    })
+    const endpoint = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(
+      this.config.calendarId,
+    )}/events?${searchParams.toString()}`
+
+    const response = await fetch(endpoint, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+
+    const responseText = await response.text()
+    let responseJson: any = null
+    try { responseJson = responseText ? JSON.parse(responseText) : null } catch { responseJson = null }
+
+    if (!response.ok) {
+      const errorMessage = responseJson?.error?.message || responseText || "Google events list failed"
+      throw new Error(errorMessage)
+    }
+
+    const items = Array.isArray(responseJson?.items) ? responseJson.items : []
+    return items
+      .filter((item: any) => item?.status !== "cancelled")
+      .map((item: any) => ({
+        id: String(item.id || ""),
+        summary: item.summary || undefined,
+        start: String(item.start?.dateTime || item.start?.date || ""),
+        end: String(item.end?.dateTime || item.end?.date || ""),
+      }))
+  }
+
   async updateEvent(input: UpdateCalendarEventInput): Promise<{
     eventId: string
     htmlLink?: string

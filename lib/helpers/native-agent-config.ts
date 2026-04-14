@@ -88,6 +88,18 @@ export interface NativeAgentConfig {
   calendarBusinessEnd: string
   calendarBusinessDays: number[]
 
+  // Per-day schedule overrides: { [dayNumber]: { start: "HH:MM", end: "HH:MM", enabled: boolean } }
+  // dayNumber: 1=Mon, 2=Tue, ... 7=Sun
+  calendarDaySchedule: Record<string, { start: string; end: string; enabled: boolean }>
+
+  // Lunch break config
+  calendarLunchBreakEnabled: boolean
+  calendarLunchBreakStart: string  // HH:MM
+  calendarLunchBreakEnd: string    // HH:MM
+
+  // Google Calendar conflict checking
+  calendarCheckGoogleEvents: boolean
+
   // Follow-up business hours (per-tenant)
   followupIntervalsMinutes: number[] // ex: [15,60,360,...]
   followupBusinessStart: string  // HH:MM - default "07:00"
@@ -147,6 +159,19 @@ const DEFAULT_BLOCKED_TIME_RANGES: string[] = []
 const DEFAULT_BUSINESS_START = "08:00"
 const DEFAULT_BUSINESS_END = "20:00"
 const DEFAULT_BUSINESS_DAYS = [1, 2, 3, 4, 5, 6]
+const DEFAULT_DAY_SCHEDULE: Record<string, { start: string; end: string; enabled: boolean }> = {
+  "1": { start: "08:00", end: "20:00", enabled: true },
+  "2": { start: "08:00", end: "20:00", enabled: true },
+  "3": { start: "08:00", end: "20:00", enabled: true },
+  "4": { start: "08:00", end: "20:00", enabled: true },
+  "5": { start: "08:00", end: "20:00", enabled: true },
+  "6": { start: "08:00", end: "18:00", enabled: true },
+  "7": { start: "08:00", end: "18:00", enabled: false },
+}
+const DEFAULT_LUNCH_BREAK_ENABLED = false
+const DEFAULT_LUNCH_BREAK_START = "12:00"
+const DEFAULT_LUNCH_BREAK_END = "13:00"
+const DEFAULT_CHECK_GOOGLE_EVENTS = true
 const DEFAULT_FOLLOWUP_BUSINESS_START = "07:00"
 const DEFAULT_FOLLOWUP_BUSINESS_END = "23:00"
 const DEFAULT_FOLLOWUP_BUSINESS_DAYS = [0, 1, 2, 3, 4, 5, 6] // Todos os dias
@@ -236,6 +261,24 @@ function readBusinessTime(input: any, fallback: string): string {
   if (!/^([01]?\d|2[0-3]):[0-5]\d$/.test(text)) return fallback
   const [h, m] = text.split(":")
   return `${String(Number(h)).padStart(2, "0")}:${String(Number(m)).padStart(2, "0")}`
+}
+
+function readDaySchedule(input: any, businessStart: string, businessEnd: string, businessDays: number[]): Record<string, { start: string; end: string; enabled: boolean }> {
+  const result: Record<string, { start: string; end: string; enabled: boolean }> = {}
+  const raw = safeObject(input)
+
+  for (let d = 1; d <= 7; d++) {
+    const key = String(d)
+    const dayRaw = safeObject(raw[key])
+    const enabled = dayRaw.enabled !== undefined
+      ? readBoolean(dayRaw.enabled, businessDays.includes(d))
+      : businessDays.includes(d)
+    const start = readBusinessTime(dayRaw.start, businessStart)
+    const end = readBusinessTime(dayRaw.end, businessEnd)
+    result[key] = { start, end, enabled }
+  }
+
+  return result
 }
 
 function readFollowupIntervals(input: any): number[] {
@@ -628,6 +671,17 @@ function normalizeConfig(input: any): NativeAgentConfig {
     calendarBusinessStart: readBusinessTime(raw.calendarBusinessStart, DEFAULT_BUSINESS_START),
     calendarBusinessEnd: readBusinessTime(raw.calendarBusinessEnd, DEFAULT_BUSINESS_END),
     calendarBusinessDays: readBusinessDays(raw.calendarBusinessDays),
+
+    calendarDaySchedule: readDaySchedule(
+      raw.calendarDaySchedule,
+      readBusinessTime(raw.calendarBusinessStart, DEFAULT_BUSINESS_START),
+      readBusinessTime(raw.calendarBusinessEnd, DEFAULT_BUSINESS_END),
+      readBusinessDays(raw.calendarBusinessDays),
+    ),
+    calendarLunchBreakEnabled: readBoolean(raw.calendarLunchBreakEnabled, DEFAULT_LUNCH_BREAK_ENABLED),
+    calendarLunchBreakStart: readBusinessTime(raw.calendarLunchBreakStart, DEFAULT_LUNCH_BREAK_START),
+    calendarLunchBreakEnd: readBusinessTime(raw.calendarLunchBreakEnd, DEFAULT_LUNCH_BREAK_END),
+    calendarCheckGoogleEvents: readBoolean(raw.calendarCheckGoogleEvents, DEFAULT_CHECK_GOOGLE_EVENTS),
 
     followupIntervalsMinutes: normalizedFollowupIntervals,
     followupBusinessStart: readBusinessTime(raw.followupBusinessStart, DEFAULT_FOLLOWUP_BUSINESS_START),

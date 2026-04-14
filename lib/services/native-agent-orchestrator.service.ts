@@ -1792,6 +1792,29 @@ export class NativeAgentOrchestratorService {
       Array.isArray(config.calendarBlockedTimeRanges) && config.calendarBlockedTimeRanges.length > 0
         ? `- Faixas de horario bloqueadas (nao agendar): ${config.calendarBlockedTimeRanges.join(", ")}.`
         : "- Nao ha faixas de horario bloqueadas configuradas."
+
+    // Build per-day schedule description for the agent
+    const dayNames: Record<string, string> = { "1": "Segunda", "2": "Terca", "3": "Quarta", "4": "Quinta", "5": "Sexta", "6": "Sabado", "7": "Domingo" }
+    const dayScheduleObj = config.calendarDaySchedule && typeof config.calendarDaySchedule === "object" ? config.calendarDaySchedule : {}
+    const dayScheduleLines: string[] = []
+    for (let d = 1; d <= 7; d++) {
+      const key = String(d)
+      const dc = dayScheduleObj[key]
+      if (dc && dc.enabled) {
+        dayScheduleLines.push(`  ${dayNames[key]}: ${dc.start} ate ${dc.end}`)
+      } else {
+        dayScheduleLines.push(`  ${dayNames[key]}: FECHADO`)
+      }
+    }
+    const dayScheduleRule = `- HORARIOS DE ATENDIMENTO POR DIA (OBRIGATORIO respeitar):\n${dayScheduleLines.join("\n")}`
+
+    const lunchBreakRule = config.calendarLunchBreakEnabled
+      ? `- HORARIO DE ALMOCO (bloqueado para agendamentos): ${config.calendarLunchBreakStart || "12:00"} ate ${config.calendarLunchBreakEnd || "13:00"}. NUNCA oferecer ou aceitar horario dentro deste periodo.`
+      : "- Sem horario de almoco configurado."
+
+    const googleEventsRule = config.calendarCheckGoogleEvents !== false && config.googleCalendarEnabled
+      ? "- O sistema verifica eventos no Google Agenda automaticamente. Se um horario estiver ocupado no Google Calendar, ele NAO aparecera nos slots disponiveis."
+      : ""
     const internalFromMeTrigger = String(ctx.fromMeTriggerContent || "").replace(/\s+/g, " ").trim()
     const internalFromMeRule = internalFromMeTrigger
       ? `- GATILHO INTERNO FROMME detectado: "${internalFromMeTrigger.slice(0, 240)}". Isso NAO e mensagem do lead. Nao agradeca, nao responda como se o lead tivesse enviado essa frase; use apenas para iniciar/retomar o atendimento de forma natural e contextual.`
@@ -1833,11 +1856,20 @@ export class NativeAgentOrchestratorService {
       overlapRule,
       blockedDatesRule,
       blockedTimesRule,
+      dayScheduleRule,
+      lunchBreakRule,
+      googleEventsRule,
       internalFromMeRule,
-      "- Antes de oferecer agenda, use get_available_slots para listar horarios validos.",
+      "",
+      "REGRAS CRITICAS DE AGENDAMENTO (PRECISAO OBRIGATORIA):",
+      "- SEMPRE use get_available_slots ANTES de sugerir qualquer horario ao lead. NUNCA invente horarios sem consultar a ferramenta.",
+      "- NUNCA sugira um horario e depois diga que esta fora do expediente. Isso e PROIBIDO. Consulte os slots ANTES de falar.",
+      "- Se o lead pedir um horario que NAO esta nos slots disponiveis, diga que aquele horario nao esta disponivel e sugira os proximos horarios livres.",
+      "- Se o horario estiver ocupado, diga 'Esse horario ja esta ocupado' e sugira o proximo disponivel.",
       "- Quando o lead confirmar data e hora, acione schedule_appointment.",
       "- Se o lead pedir remarcacao, acione edit_appointment para atualizar o horario.",
       "- Se a tool de agendamento retornar erro, explique o motivo ao lead e proponha proximo horario valido.",
+      "- NUNCA pergunte se o lead quer agendar em um horario fora do expediente configurado. Respeite rigorosamente os horarios acima.",
       "- Quando fizer sentido retomar depois, acione create_followup ou create_reminder.",
       "- Se precisar transferir para humano, acione handoff_human.",
       "",
@@ -2335,11 +2367,15 @@ export class NativeAgentOrchestratorService {
       )
       const maxSlots = Math.max(1, Math.min(80, Number(params.action.max_slots || 20)))
 
-      const businessStart = parseTimeToMinutes(params.config.calendarBusinessStart || "08:00")
-      const businessEnd = parseTimeToMinutes(params.config.calendarBusinessEnd || "20:00")
-      if (businessStart === null || businessEnd === null || businessStart >= businessEnd) {
+      const defaultBusinessStart = parseTimeToMinutes(params.config.calendarBusinessStart || "08:00")
+      const defaultBusinessEnd = parseTimeToMinutes(params.config.calendarBusinessEnd || "20:00")
+      if (defaultBusinessStart === null || defaultBusinessEnd === null || defaultBusinessStart >= defaultBusinessEnd) {
         return { ok: false, error: "invalid_business_hours_config" }
       }
+
+      const daySchedule = params.config.calendarDaySchedule && typeof params.config.calendarDaySchedule === "object"
+        ? params.config.calendarDaySchedule
+        : {}
 
       const allowedDaysRaw = Array.isArray(params.config.calendarBusinessDays)
         ? params.config.calendarBusinessDays
@@ -2354,6 +2390,10 @@ export class NativeAgentOrchestratorService {
       if (!allowedDays.length) {
         return { ok: false, error: "invalid_business_days_config" }
       }
+
+      const lunchEnabled = params.config.calendarLunchBreakEnabled === true
+      const lunchStart = lunchEnabled ? parseTimeToMinutes(params.config.calendarLunchBreakStart || "12:00") : null
+      const lunchEnd = lunchEnabled ? parseTimeToMinutes(params.config.calendarLunchBreakEnd || "13:00") : null
 
       const maxAdvanceDays = Math.max(0, Number(params.config.calendarMaxAdvanceDays || 0))
       const maxAdvanceWeeks = Math.max(0, Number(params.config.calendarMaxAdvanceWeeks || 0))
@@ -2429,6 +2469,39 @@ export class NativeAgentOrchestratorService {
         }
       }
 
+      // --- Fetch Google Calendar events for conflict checking ---
+      const googleEventRanges = new Map<string, Array<{ start: number; end: number }>>()
+      if (params.config.calendarCheckGoogleEvents !== false && params.config.googleCalendarEnabled) {
+        try {
+          const calendar = new GoogleCalendarService({
+            calendarId: params.config.googleCalendarId || "primary",
+            authMode: params.config.googleAuthMode || "service_account",
+            serviceAccountEmail: params.config.googleServiceAccountEmail,
+            serviceAccountPrivateKey: params.config.googleServiceAccountPrivateKey,
+            delegatedUser: params.config.googleDelegatedUser,
+            oauthClientId: params.config.googleOAuthClientId,
+            oauthClientSecret: params.config.googleOAuthClientSecret,
+            oauthRefreshToken: params.config.googleOAuthRefreshToken,
+          })
+          const timeMin = `${startDateIso}T00:00:00-03:00`
+          const timeMax = `${endDateIso}T23:59:59-03:00`
+          const gcalEvents = await calendar.listEvents({ timeMin, timeMax, timezone, maxResults: 250 })
+          for (const ev of gcalEvents) {
+            const evStart = new Date(ev.start)
+            const evEnd = new Date(ev.end)
+            if (Number.isNaN(evStart.getTime()) || Number.isNaN(evEnd.getTime())) continue
+            const evDateIso = `${evStart.getFullYear()}-${String(evStart.getMonth() + 1).padStart(2, "0")}-${String(evStart.getDate()).padStart(2, "0")}`
+            const evStartMin = evStart.getHours() * 60 + evStart.getMinutes()
+            const evEndMin = evEnd.getHours() * 60 + evEnd.getMinutes()
+            const bucket = googleEventRanges.get(evDateIso) || []
+            bucket.push({ start: evStartMin, end: evEndMin > evStartMin ? evEndMin : 24 * 60 })
+            googleEventRanges.set(evDateIso, bucket)
+          }
+        } catch (gcalErr: any) {
+          console.warn(`[getAvailableSlots] Google Calendar fetch failed (non-blocking): ${gcalErr?.message}`)
+        }
+      }
+
       const maxPerDay = Math.max(0, Number(params.config.calendarMaxAppointmentsPerDay || 0))
       const allowOverlap = params.config.allowOverlappingAppointments === true
       const cursor = new Date(Date.UTC(requestedStart.year, requestedStart.month - 1, requestedStart.day, 12, 0, 0))
@@ -2448,8 +2521,21 @@ export class NativeAgentOrchestratorService {
         const weekday = localDayOfWeek(dayParts)
         const appointmentStats = appointmentsByDate.get(dayIso)
 
-        if (allowedDays.includes(weekday) && !blockedDates.has(dayIso)) {
+        // Resolve per-day business hours (fallback to global defaults)
+        const dayKey = String(weekday)
+        const dayConfig = daySchedule[dayKey]
+        const isDayEnabled = dayConfig ? dayConfig.enabled !== false : allowedDays.includes(weekday)
+        const businessStart = isDayEnabled && dayConfig
+          ? (parseTimeToMinutes(dayConfig.start) ?? defaultBusinessStart)
+          : defaultBusinessStart
+        const businessEnd = isDayEnabled && dayConfig
+          ? (parseTimeToMinutes(dayConfig.end) ?? defaultBusinessEnd)
+          : defaultBusinessEnd
+
+        if (isDayEnabled && !blockedDates.has(dayIso) && businessStart < businessEnd) {
           if (!(maxPerDay > 0 && (appointmentStats?.count || 0) >= maxPerDay)) {
+            const gcalRangesForDay = googleEventRanges.get(dayIso) || []
+
             for (let startMinutes = businessStart; startMinutes + durationMinutes + bufferMinutes <= businessEnd; startMinutes += durationMinutes) {
               const slotHour = Math.floor(startMinutes / 60)
               const slotMinute = startMinutes % 60
@@ -2465,14 +2551,25 @@ export class NativeAgentOrchestratorService {
               const slotTime = `${String(slotHour).padStart(2, "0")}:${String(slotMinute).padStart(2, "0")}`
               const slotEndMinutes = startMinutes + durationMinutes
               const slotEndWithBuffer = slotEndMinutes + bufferMinutes
+
+              // Check lunch break
+              if (lunchEnabled && lunchStart !== null && lunchEnd !== null) {
+                if (startMinutes < lunchEnd && slotEndMinutes > lunchStart) continue
+              }
+
+              // Check blocked time ranges
               const blocked = blockedRanges.some((range) => startMinutes < range.end && slotEndMinutes > range.start)
               if (blocked) continue
+
+              // Check Google Calendar events
+              const gcalConflict = gcalRangesForDay.some((range) => startMinutes < range.end && slotEndMinutes > range.start)
+              if (gcalConflict) continue
 
               const diffMinutes = Math.floor((toComparableMs(slotParts) - toComparableMs(nowParts)) / 60000)
               if (diffMinutes < minLeadMinutes) continue
               if (maxReturnWindowDays > 0 && diffMinutes > maxReturnWindowDays * 24 * 60) continue
 
-              if (!allowOverlap && appointmentStats?.ranges?.some((range) => startMinutes < range.end && slotEndWithBuffer > range.start)) {
+              if (!allowOverlap && appointmentStats?.ranges?.some((range: { start: number; end: number }) => startMinutes < range.end && slotEndWithBuffer > range.start)) {
                 continue
               }
 
@@ -2764,11 +2861,20 @@ export class NativeAgentOrchestratorService {
     const minLeadMinutes = Math.max(0, Number(params.config.calendarMinLeadMinutes || 0))
     const bufferMinutes = Math.max(0, Number(params.config.calendarBufferMinutes || 0))
 
-    const businessStart = parseTimeToMinutes(params.config.calendarBusinessStart || "08:00")
-    const businessEnd = parseTimeToMinutes(params.config.calendarBusinessEnd || "20:00")
-    if (businessStart === null || businessEnd === null || businessStart >= businessEnd) {
+    const defaultBusinessStart = parseTimeToMinutes(params.config.calendarBusinessStart || "08:00")
+    const defaultBusinessEnd = parseTimeToMinutes(params.config.calendarBusinessEnd || "20:00")
+    if (defaultBusinessStart === null || defaultBusinessEnd === null || defaultBusinessStart >= defaultBusinessEnd) {
       return { ok: false, error: "invalid_business_hours_config" }
     }
+
+    const weekday = localDayOfWeek(requested)
+
+    // Use per-day schedule if available, otherwise fall back to global
+    const daySchedule = params.config.calendarDaySchedule && typeof params.config.calendarDaySchedule === "object"
+      ? params.config.calendarDaySchedule
+      : {}
+    const dayKey = String(weekday)
+    const dayConfig = daySchedule[dayKey]
 
     const allowedDaysRaw = Array.isArray(params.config.calendarBusinessDays)
       ? params.config.calendarBusinessDays
@@ -2780,19 +2886,34 @@ export class NativeAgentOrchestratorService {
           .filter((d) => Number.isInteger(d) && d >= 1 && d <= 7),
       ),
     )
-    if (!allowedDays.length) {
-      return { ok: false, error: "invalid_business_days_config" }
-    }
 
-    const weekday = localDayOfWeek(requested)
-    if (!allowedDays.includes(weekday)) {
+    const isDayEnabled = dayConfig ? dayConfig.enabled !== false : allowedDays.includes(weekday)
+    if (!isDayEnabled) {
       return { ok: false, error: "business_day_not_allowed" }
     }
+
+    const businessStart = isDayEnabled && dayConfig
+      ? (parseTimeToMinutes(dayConfig.start) ?? defaultBusinessStart)
+      : defaultBusinessStart
+    const businessEnd = isDayEnabled && dayConfig
+      ? (parseTimeToMinutes(dayConfig.end) ?? defaultBusinessEnd)
+      : defaultBusinessEnd
 
     const startMinutes = requested.hour * 60 + requested.minute
     const endMinutesWithBuffer = startMinutes + durationMinutes + bufferMinutes
     if (startMinutes < businessStart || endMinutesWithBuffer > businessEnd) {
       return { ok: false, error: "outside_business_hours" }
+    }
+
+    // Check lunch break
+    const lunchEnabled = params.config.calendarLunchBreakEnabled === true
+    const lunchStart = lunchEnabled ? parseTimeToMinutes(params.config.calendarLunchBreakStart || "12:00") : null
+    const lunchEnd = lunchEnabled ? parseTimeToMinutes(params.config.calendarLunchBreakEnd || "13:00") : null
+    if (lunchEnabled && lunchStart !== null && lunchEnd !== null) {
+      const appointmentEnd = startMinutes + durationMinutes
+      if (startMinutes < lunchEnd && appointmentEnd > lunchStart) {
+        return { ok: false, error: "lunch_break_conflict" }
+      }
     }
 
     const nowLocal = getNowPartsForTimezone(timezone)
@@ -2836,6 +2957,35 @@ export class NativeAgentOrchestratorService {
       }
     }
 
+    // --- Check Google Calendar for conflicts ---
+    if (params.config.calendarCheckGoogleEvents !== false && params.config.googleCalendarEnabled) {
+      try {
+        const gcalService = new GoogleCalendarService({
+          calendarId: params.config.googleCalendarId || "primary",
+          authMode: params.config.googleAuthMode || "service_account",
+          serviceAccountEmail: params.config.googleServiceAccountEmail,
+          serviceAccountPrivateKey: params.config.googleServiceAccountPrivateKey,
+          delegatedUser: params.config.googleDelegatedUser,
+          oauthClientId: params.config.googleOAuthClientId,
+          oauthClientSecret: params.config.googleOAuthClientSecret,
+          oauthRefreshToken: params.config.googleOAuthRefreshToken,
+        })
+        const checkStartIso = formatIsoFromParts(requested, timezone)
+        const checkEndIso = formatIsoFromParts(addMinutesToParts(requested, durationMinutes), timezone)
+        const gcalEvents = await gcalService.listEvents({
+          timeMin: checkStartIso,
+          timeMax: checkEndIso,
+          timezone,
+          maxResults: 10,
+        })
+        if (gcalEvents.length > 0) {
+          return { ok: false, error: "google_calendar_conflict" }
+        }
+      } catch (gcalErr: any) {
+        console.warn(`[createAppointment] Google Calendar conflict check failed (non-blocking): ${gcalErr?.message}`)
+      }
+    }
+
     const startIso = formatIsoFromParts(requested, timezone)
     const endIso = formatIsoFromParts(addMinutesToParts(requested, durationMinutes), timezone)
     const tables = getTablesForTenant(params.tenant)
@@ -2858,7 +3008,7 @@ export class NativeAgentOrchestratorService {
       const maxPerDay = Math.max(0, Number(params.config.calendarMaxAppointmentsPerDay || 0))
       if ((maxPerDay > 0 || !params.config.allowOverlappingAppointments) && dateColumn && timeColumn) {
         const dateVariants = Array.from(new Set([date, toBrDateFromIso(date)]))
-        let sameDayQuery: any = this.supabase
+        const sameDayQuery: any = this.supabase
           .from(agendamentosTable)
           .select("*")
           .in(dateColumn, dateVariants)
@@ -2870,7 +3020,7 @@ export class NativeAgentOrchestratorService {
         }
         const sameDayRows = Array.isArray(sameDayResult.data) ? sameDayResult.data : []
 
-        const activeSameDayRows = sameDayRows.filter((row) => {
+        const activeSameDayRows = sameDayRows.filter((row: any) => {
           const rowDate = normalizeDateToIso(row?.[dateColumn])
           if (rowDate !== date) return false
           const rowStatus = statusColumn ? row?.[statusColumn] : row?.status
@@ -2888,7 +3038,7 @@ export class NativeAgentOrchestratorService {
           }
           const requestedEndMinutes = requestedStartMinutes + durationMinutes + bufferMinutes
 
-          const overlapsExisting = activeSameDayRows.some((row) => {
+          const overlapsExisting = activeSameDayRows.some((row: any) => {
             const rowTime = normalizeTimeToHHmm(row?.[timeColumn])
             const rowStartMinutes = rowTime ? parseTimeToMinutes(rowTime) : null
             if (rowStartMinutes === null) return false
