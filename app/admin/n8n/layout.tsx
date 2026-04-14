@@ -14,6 +14,7 @@ import {
     BarChart3
 } from "lucide-react"
 import { useState } from "react"
+import { ThemeToggle } from "@/components/theme-toggle"
 
 const menuItems = [
     {
@@ -190,6 +191,7 @@ export default function N8NLayout({ children }: { children: React.ReactNode }) {
                                 </>
                             )}
                         </div>
+                        <ThemeToggle />
                     </div>
                 </div>
 

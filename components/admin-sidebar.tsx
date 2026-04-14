@@ -58,15 +58,15 @@ export function AdminSidebar() {
     }
 
     return (
-        <Sidebar className="bg-[#121212] border-r border-[#2a2a2a]">
-            <SidebarHeader className="px-4 py-6 border-b border-[#2a2a2a]">
-                <div className="flex items-center gap-4 px-2">
-                    <div className="w-10 h-10 bg-[#3ecf8e]/10 rounded-lg flex items-center justify-center border border-[#3ecf8e]/20">
-                        <Shield className="h-5 w-5 text-[#3ecf8e]" />
+        <Sidebar className="bg-sidebar border-r border-sidebar-border">
+            <SidebarHeader className="px-4 py-5 border-b border-sidebar-border">
+                <div className="flex items-center gap-3 px-2">
+                    <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center border border-primary/20">
+                        <Shield className="h-5 w-5 text-primary" />
                     </div>
                     <div className="flex-1">
-                        <span className="font-bold text-[#ededed] text-lg tracking-wide">GerencIA</span>
-                        <div className="text-[10px] text-[#888] uppercase tracking-[0.2em] font-medium">
+                        <span className="font-bold text-foreground text-lg tracking-tight">GerencIA</span>
+                        <div className="text-[10px] text-muted-foreground uppercase tracking-[0.2em] font-medium">
                             Master Panel
                         </div>
                     </div>
@@ -75,11 +75,11 @@ export function AdminSidebar() {
 
             <SidebarContent className="px-2 mt-4">
                 <SidebarGroup>
-                    <SidebarGroupLabel className="text-[#666] text-xs uppercase tracking-wider font-semibold px-4 mb-2">
+                    <SidebarGroupLabel className="text-muted-foreground text-[10px] uppercase tracking-[0.15em] font-semibold px-4 mb-2">
                         Gestão Global
                     </SidebarGroupLabel>
                     <SidebarGroupContent>
-                        <SidebarMenu className="space-y-1">
+                        <SidebarMenu className="space-y-0.5">
                             {adminItems.map((item) => {
                                 const active = pathname === item.url || (item.url !== "/" && pathname?.startsWith(item.url))
                                 const Icon = item.icon
@@ -90,18 +90,19 @@ export function AdminSidebar() {
                                             isActive={active}
                                             tooltip={item.title}
                                             className={`
-                        h-10 px-4 rounded-md transition-all duration-200
-                        ${active
-                                                    ? "bg-[#3ecf8e]/10 text-[#3ecf8e] border-l-2 border-[#3ecf8e]"
-                                                    : "text-[#999] hover:text-[#ededed] hover:bg-[#1a1a1a]"
+                                                h-10 px-3 rounded-lg transition-all duration-200
+                                                hover:bg-primary/8
+                                                ${active
+                                                    ? "bg-primary/10 text-primary border-l-[3px] border-primary font-medium"
+                                                    : "text-muted-foreground hover:text-foreground border-l-[3px] border-transparent"
                                                 }
-                      `}
+                                            `}
                                         >
                                             <Link href={item.url} className="flex items-center gap-3 w-full">
                                                 <Icon
-                                                    className={`h-4 w-4 ${active ? "text-[#3ecf8e]" : "text-[#777] group-hover:text-[#ededed]"}`}
+                                                    className={`h-4 w-4 transition-colors duration-200 ${active ? "text-primary" : ""}`}
                                                 />
-                                                <span className="font-medium text-sm">{item.title}</span>
+                                                <span className="text-sm">{item.title}</span>
                                             </Link>
                                         </SidebarMenuButton>
                                     </SidebarMenuItem>
@@ -112,11 +113,11 @@ export function AdminSidebar() {
                 </SidebarGroup>
             </SidebarContent>
 
-            <SidebarFooter className="px-4 py-6 border-t border-[#2a2a2a]">
-                <div className="space-y-3">
+            <SidebarFooter className="px-4 py-4 border-t border-sidebar-border">
+                <div className="space-y-2">
                     <button
                         onClick={handleLogout}
-                        className="flex items-center gap-3 w-full p-2 rounded-md text-[#666] hover:text-[#ff4b4b] hover:bg-[#ff4b4b]/10 transition-colors group"
+                        className="flex items-center gap-2.5 w-full p-2.5 rounded-lg text-muted-foreground hover:text-[var(--accent-red)] hover:bg-[var(--accent-red)]/8 transition-colors group"
                     >
                         <LogOut className="w-4 h-4" />
                         <span className="font-medium text-sm">Sair</span>

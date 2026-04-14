@@ -11,6 +11,7 @@ export const metadata: Metadata = {
 }
 
 import { TenantProvider } from '@/lib/contexts/TenantContext'
+import { ThemeProvider } from "@/components/theme-provider"
 import { Toaster } from "@/components/ui/sonner"
 
 const manrope = Manrope({
@@ -33,10 +34,12 @@ export default function RootLayout({
   return (
     <html lang="pt-BR" suppressHydrationWarning>
       <body className={`${manrope.variable} ${sora.variable} antialiased`} suppressHydrationWarning>
-        <TenantProvider>
-          {children}
-          <Toaster />
-        </TenantProvider>
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+          <TenantProvider>
+            {children}
+            <Toaster />
+          </TenantProvider>
+        </ThemeProvider>
       </body>
     </html>
   )
