@@ -231,7 +231,7 @@ export class SemanticCacheService {
 
     if (exactMatch) {
       // Record hit asynchronously
-      this.supabase.rpc("semantic_cache_record_hit", { cache_id: exactMatch.id }).catch(() => {})
+      void this.supabase.rpc("semantic_cache_record_hit", { cache_id: exactMatch.id })
       return {
         id: exactMatch.id,
         responseText: exactMatch.response_text,
@@ -250,14 +250,18 @@ export class SemanticCacheService {
       match_limit: 1,
     })
 
-    if (error || !matches || matches.length === 0) return null
+    if (error) {
+      console.warn("[semantic-cache] RPC match_semantic_cache error:", error.message, error.code)
+      return null
+    }
+    if (!matches || matches.length === 0) return null
 
     const best = matches[0]
     if (best.has_tool_calls) return null // Never serve cached tool-call responses
     if (best.similarity < threshold) return null
 
     // Record hit
-    this.supabase.rpc("semantic_cache_record_hit", { cache_id: best.id }).catch(() => {})
+    void this.supabase.rpc("semantic_cache_record_hit", { cache_id: best.id })
 
     return {
       id: best.id,
@@ -289,7 +293,7 @@ export class SemanticCacheService {
     const ttlHours = input.ttlHours ?? DEFAULT_TTL_HOURS
     const expiresAt = new Date(Date.now() + ttlHours * 3600_000).toISOString()
 
-    await this.supabase.from("semantic_cache").insert({
+    const { error: insertError } = await this.supabase.from("semantic_cache").insert({
       tenant: input.tenant,
       message_hash: hash,
       message_normalized: normalized,
@@ -299,6 +303,10 @@ export class SemanticCacheService {
       category: input.category || null,
       expires_at: expiresAt,
     })
+
+    if (insertError) {
+      throw new Error(`semantic_cache insert failed: ${insertError.message} (${insertError.code})`)
+    }
   }
 
   // ── Cacheability Check ───────────────────────────────────────

@@ -703,8 +703,10 @@ function normalizeConfig(input: any): NativeAgentConfig {
     semanticCacheSimilarityThreshold: readNumber(
       raw.semanticCacheSimilarityThreshold,
       DEFAULT_SEMANTIC_CACHE_SIMILARITY_THRESHOLD,
+      0.5,
+      1.0,
     ),
-    semanticCacheTtlHours: readNumber(raw.semanticCacheTtlHours, DEFAULT_SEMANTIC_CACHE_TTL_HOURS),
+    semanticCacheTtlHours: readNumber(raw.semanticCacheTtlHours, DEFAULT_SEMANTIC_CACHE_TTL_HOURS, 1, 8760),
   }
 
   return mergeWithEnv(base)
@@ -1040,6 +1042,11 @@ export async function updateNativeAgentConfigForTenant(
       calendarBusinessStart: config.calendarBusinessStart,
       calendarBusinessEnd: config.calendarBusinessEnd,
       calendarBusinessDays: config.calendarBusinessDays,
+      calendarDaySchedule: config.calendarDaySchedule,
+      calendarLunchBreakEnabled: config.calendarLunchBreakEnabled,
+      calendarLunchBreakStart: config.calendarLunchBreakStart,
+      calendarLunchBreakEnd: config.calendarLunchBreakEnd,
+      calendarCheckGoogleEvents: config.calendarCheckGoogleEvents,
 
       followupIntervalsMinutes: config.followupIntervalsMinutes,
       followupBusinessStart: config.followupBusinessStart,

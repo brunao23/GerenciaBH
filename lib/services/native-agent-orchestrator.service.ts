@@ -166,8 +166,6 @@ function detectNegativeLeadIntent(rawMessage: string): NegativeIntentResult {
     /\bnao\s+(me\s+)?mande\s+mais/,
     /\bnao\s+(me\s+)?envie\s+mais/,
     /\bpar[ae]\s+de\s+(me\s+)?(mandar|enviar|contactar|ligar)/,
-    /\bnao\s+tenho\s+interesse/,
-    /\bsem\s+interesse/,
     /\bnao\s+me\s+(ligue|chame|contate|procure)\s+mais/,
     /\bremov[ae]\s+(meu\s+)?(numero|contato|cadastro)/,
     /\bexclu[ia]\s+(meu\s+)?(numero|contato|cadastro)/,
@@ -176,8 +174,6 @@ function detectNegativeLeadIntent(rawMessage: string): NegativeIntentResult {
     /\bsair\s+da\s+lista/,
     /\bnao\s+pertub/,
     /\bnao\s+incomod/,
-    /\bbloque/,
-    /\bdenunci/,
   ]
 
   for (const pattern of optOutPatterns) {
@@ -257,6 +253,13 @@ function negativeIntentLabel(category: NegativeIntentResult["category"]): string
     case "dissatisfaction": return "Insatisfacao com atendimento"
     default: return "Intencao negativa detectada"
   }
+}
+
+function shouldAutoPauseFromNegativeIntent(result: NegativeIntentResult): boolean {
+  if (!result.detected) return false
+  // Alta precisao: so pausar automaticamente em casos explicitos de opt-out.
+  // "will_contact_later", "bot_message" e "dissatisfaction" nao devem pausar sem revisao humana.
+  return result.category === "opt_out"
 }
 
 function semanticSimilarityScore(a: string, b: string): number {
@@ -481,6 +484,70 @@ function toComparableMs(parts: LocalDateTimeParts): number {
 function localDayOfWeek(parts: LocalDateTimeParts): number {
   const jsDay = new Date(Date.UTC(parts.year, parts.month - 1, parts.day, 12, 0, 0)).getUTCDay()
   return jsDay === 0 ? 7 : jsDay
+}
+
+const WEEKDAY_NAME_PT: Record<number, string> = {
+  1: "segunda-feira",
+  2: "terca-feira",
+  3: "quarta-feira",
+  4: "quinta-feira",
+  5: "sexta-feira",
+  6: "sabado",
+  7: "domingo",
+}
+
+function formatDateIsoToBr(dateIso: string): string {
+  const parsed = parseDateTimeParts(dateIso, "00:00")
+  if (!parsed) return String(dateIso || "")
+  return `${String(parsed.day).padStart(2, "0")}/${String(parsed.month).padStart(2, "0")}/${String(parsed.year).padStart(4, "0")}`
+}
+
+function getSlotDateContext(dateIso: string, nowParts: LocalDateTimeParts): {
+  weekday: number
+  weekday_name_pt: string
+  date_br: string
+  days_from_today: number
+  relative_label: string
+} {
+  const slot = parseDateTimeParts(dateIso, "00:00")
+  if (!slot) {
+    return {
+      weekday: 0,
+      weekday_name_pt: "",
+      date_br: "",
+      days_from_today: 0,
+      relative_label: String(dateIso || ""),
+    }
+  }
+
+  const slotMidnight = Date.UTC(slot.year, slot.month - 1, slot.day, 0, 0, 0)
+  const nowMidnight = Date.UTC(nowParts.year, nowParts.month - 1, nowParts.day, 0, 0, 0)
+  const daysFromToday = Math.floor((slotMidnight - nowMidnight) / (24 * 60 * 60 * 1000))
+  const weekday = localDayOfWeek(slot)
+  const weekdayName = WEEKDAY_NAME_PT[weekday] || "dia"
+  const dateBr = formatDateIsoToBr(dateIso)
+
+  let relativeLabel = dateBr
+  if (daysFromToday === 0) {
+    relativeLabel = "hoje"
+  } else if (daysFromToday === 1) {
+    relativeLabel = "amanha"
+  } else if (daysFromToday === 2) {
+    relativeLabel = "depois de amanha"
+  } else if (daysFromToday >= 3 && daysFromToday <= 6) {
+    relativeLabel = weekdayName
+  } else if (daysFromToday >= 7) {
+    // Evita ambiguidade (ex.: "amanha" e "quarta-feira" para semanas diferentes).
+    relativeLabel = `${weekdayName} (${dateBr})`
+  }
+
+  return {
+    weekday,
+    weekday_name_pt: weekdayName,
+    date_br: dateBr,
+    days_from_today: daysFromToday,
+    relative_label: relativeLabel,
+  }
 }
 
 function parseTimeToMinutes(input: string): number | null {
@@ -939,7 +1006,7 @@ export class NativeAgentOrchestratorService {
     // Auto-pause: detect negative intent BEFORE any AI processing
     // -----------------------------------------------------------------------
     const negativeIntent = detectNegativeLeadIntent(content)
-    if (negativeIntent.detected) {
+    if (negativeIntent.detected && shouldAutoPauseFromNegativeIntent(negativeIntent)) {
       const label = negativeIntentLabel(negativeIntent.category)
       console.log(
         `[native-agent][auto-pause] Negative intent detected for ${phone}@${tenant}: ${negativeIntent.category} (${negativeIntent.matchedPattern})`,
@@ -1087,6 +1154,12 @@ export class NativeAgentOrchestratorService {
     const cacheEnabled = config.semanticCacheEnabled && !!config.geminiApiKey
     const effectiveMessage = effectiveLeadMessage || content
 
+    if (!cacheEnabled) {
+      console.log(`[native-agent][semantic-cache] DISABLED tenant=${tenant} enabled=${config.semanticCacheEnabled} hasKey=${!!config.geminiApiKey}`)
+    } else if (conversation.length < 2) {
+      console.log(`[native-agent][semantic-cache] SKIP tenant=${tenant} convLen=${conversation.length} (min=2)`)
+    }
+
     if (cacheEnabled && conversation.length >= 2) {
       try {
         cacheEmbedding = await this.semanticCache.generateEmbedding(
@@ -1102,6 +1175,10 @@ export class NativeAgentOrchestratorService {
         if (cacheHit) {
           console.log(
             `[native-agent][semantic-cache] HIT tenant=${tenant} sim=${cacheHit.similarity.toFixed(3)} cat=${cacheHit.category}`,
+          )
+        } else {
+          console.log(
+            `[native-agent][semantic-cache] MISS tenant=${tenant} threshold=${config.semanticCacheSimilarityThreshold ?? 0.92}`,
           )
         }
       } catch (cacheErr) {
@@ -1172,7 +1249,11 @@ export class NativeAgentOrchestratorService {
               ttlHours: config.semanticCacheTtlHours,
             })
             console.log(
-              `[native-agent][semantic-cache] STORED tenant=${tenant} cat=${cacheCheck.category}`,
+              `[native-agent][semantic-cache] STORED tenant=${tenant} cat=${cacheCheck.category} msgLen=${effectiveMessage.length} respLen=${decision.reply.length}`,
+            )
+          } else {
+            console.log(
+              `[native-agent][semantic-cache] NOT_CACHED tenant=${tenant} reason=${cacheCheck.reason} toolCalls=${hasToolCalls} convLen=${conversation.length} msgLen=${effectiveMessage.length}`,
             )
           }
         } catch (storeErr) {
@@ -1828,7 +1909,15 @@ export class NativeAgentOrchestratorService {
     },
   ): string {
     const contactFirstName = firstName(ctx.contactName)
+    const timezone = config.timezone || "America/Sao_Paulo"
     const now = new Date().toISOString()
+    const nowLocalParts = getNowPartsForTimezone(timezone)
+    const tomorrowLocalParts = addMinutesToParts(nowLocalParts, 24 * 60)
+    const nowLocalIso = formatIsoFromParts(nowLocalParts, timezone)
+    const todayIso = formatDateFromParts(nowLocalParts)
+    const tomorrowIso = formatDateFromParts(tomorrowLocalParts)
+    const todayWeekdayPt = WEEKDAY_NAME_PT[localDayOfWeek(nowLocalParts)] || ""
+    const tomorrowWeekdayPt = WEEKDAY_NAME_PT[localDayOfWeek(tomorrowLocalParts)] || ""
     const vars = buildPromptVariables({
       firstName: contactFirstName,
       fullName: String(ctx.contactName || "").trim(),
@@ -1979,9 +2068,14 @@ export class NativeAgentOrchestratorService {
       "- NUNCA pergunte se o lead quer agendar em um horario fora do expediente configurado. Respeite rigorosamente os horarios acima.",
       "- Quando fizer sentido retomar depois, acione create_followup ou create_reminder.",
       "- Se precisar transferir para humano, acione handoff_human.",
+      "- REGRA DE DATA RELATIVA: nunca use rotulos ambiguos. Se houver slot para semana seguinte, escreva com data explicita (ex.: 'quarta-feira (22/04)').",
+      "- REGRA DE CONSISTENCIA: NUNCA escreva duas opcoes equivalentes para o mesmo dia no mesmo turno (ex.: 'amanha 20h' e 'quarta-feira 20h' quando representam o mesmo dia).",
       "",
       `CONTEXTO DA SESSAO ATUAL (nao misture com outras sessoes):`,
       `- Data/hora atual ISO: ${now}`,
+      `- Data/hora local da unidade (${timezone}): ${nowLocalIso}`,
+      `- Hoje (local): ${todayIso} - ${todayWeekdayPt}`,
+      `- Amanha (local): ${tomorrowIso} - ${tomorrowWeekdayPt}`,
       `- Telefone do lead: ${ctx.phone}`,
       `- Session ID (identificador unico desta conversa): ${ctx.sessionId}`,
       `- Chat LID: ${ctx.chatLid || "nao informado"}`,
@@ -2148,6 +2242,8 @@ export class NativeAgentOrchestratorService {
 
     if (name === "get_current_datetime") {
       const timezone = String(args.timezone || params.config.timezone || "America/Sao_Paulo").trim()
+      const nowParts = getNowPartsForTimezone(timezone)
+      const tomorrowParts = addMinutesToParts(nowParts, 24 * 60)
       return {
         ok: true,
         action: { type: "none" },
@@ -2155,6 +2251,10 @@ export class NativeAgentOrchestratorService {
           ok: true,
           now_iso: new Date().toISOString(),
           timezone,
+          now_local_iso: formatIsoFromParts(nowParts, timezone),
+          today_iso: formatDateFromParts(nowParts),
+          tomorrow_iso: formatDateFromParts(tomorrowParts),
+          weekday_pt: WEEKDAY_NAME_PT[localDayOfWeek(nowParts)] || "",
         },
       }
     }
@@ -2175,6 +2275,7 @@ export class NativeAgentOrchestratorService {
         config: params.config,
         action,
       })
+      const slotNowParts = getNowPartsForTimezone(params.config.timezone || "America/Sao_Paulo")
 
       return {
         ok: result.ok,
@@ -2184,6 +2285,13 @@ export class NativeAgentOrchestratorService {
           ok: result.ok,
           total: Number(result.total || 0),
           slots: Array.isArray(result.slots) ? result.slots : [],
+          slots_with_context: Array.isArray(result.slots)
+            ? result.slots.map((slot) => ({
+              date: slot.date,
+              time: slot.time,
+              ...getSlotDateContext(slot.date, slotNowParts),
+            }))
+            : [],
           error: result.error,
         },
       }
@@ -2689,10 +2797,19 @@ export class NativeAgentOrchestratorService {
         cursor.setUTCDate(cursor.getUTCDate() + 1)
       }
 
+      const dedupedSlots: Array<{ date: string; time: string }> = []
+      const seenSlots = new Set<string>()
+      for (const slot of slots) {
+        const key = `${slot.date}|${slot.time}`
+        if (seenSlots.has(key)) continue
+        seenSlots.add(key)
+        dedupedSlots.push(slot)
+      }
+
       return {
         ok: true,
-        slots,
-        total: slots.length,
+        slots: dedupedSlots,
+        total: dedupedSlots.length,
       }
     } catch (error: any) {
       return { ok: false, error: error?.message || "get_available_slots_failed" }

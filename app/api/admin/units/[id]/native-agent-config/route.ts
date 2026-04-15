@@ -51,6 +51,44 @@ function toBusinessDays(value: any, fallback: number[]): number[] {
   return days.length ? Array.from(new Set(days)) : fallback
 }
 
+function toBusinessTime(value: any, fallback: string): string {
+  const text = String(value ?? "").trim()
+  if (!text) return fallback
+  if (!/^([01]?\d|2[0-3]):[0-5]\d$/.test(text)) return fallback
+  const [h, m] = text.split(":")
+  return `${String(Number(h)).padStart(2, "0")}:${String(Number(m)).padStart(2, "0")}`
+}
+
+function toDaySchedule(
+  value: any,
+  fallback: Record<string, { start: string; end: string; enabled: boolean }>,
+  fallbackStart: string,
+  fallbackEnd: string,
+  fallbackDays: number[],
+): Record<string, { start: string; end: string; enabled: boolean }> {
+  const base = fallback && typeof fallback === "object" ? fallback : {}
+  const raw = value && typeof value === "object" ? value : {}
+  const result: Record<string, { start: string; end: string; enabled: boolean }> = {}
+
+  for (let d = 1; d <= 7; d++) {
+    const key = String(d)
+    const baseEntry = base[key] || {
+      start: fallbackStart,
+      end: fallbackEnd,
+      enabled: fallbackDays.includes(d),
+    }
+    const dayRaw = raw[key] && typeof raw[key] === "object" ? raw[key] : {}
+
+    result[key] = {
+      start: toBusinessTime((dayRaw as any).start, baseEntry.start || fallbackStart),
+      end: toBusinessTime((dayRaw as any).end, baseEntry.end || fallbackEnd),
+      enabled: toBool((dayRaw as any).enabled, Boolean(baseEntry.enabled)),
+    }
+  }
+
+  return result
+}
+
 function toFollowupBusinessDays(value: any, fallback: number[]): number[] {
   if (Array.isArray(value)) {
     const days = value
@@ -460,6 +498,19 @@ export async function PATCH(req: NextRequest, context: { params: RouteParams }) 
         calendarBusinessStart: "08:00",
         calendarBusinessEnd: "20:00",
         calendarBusinessDays: [1, 2, 3, 4, 5, 6],
+        calendarDaySchedule: {
+          "1": { start: "08:00", end: "20:00", enabled: true },
+          "2": { start: "08:00", end: "20:00", enabled: true },
+          "3": { start: "08:00", end: "20:00", enabled: true },
+          "4": { start: "08:00", end: "20:00", enabled: true },
+          "5": { start: "08:00", end: "20:00", enabled: true },
+          "6": { start: "08:00", end: "18:00", enabled: true },
+          "7": { start: "08:00", end: "18:00", enabled: false },
+        },
+        calendarLunchBreakEnabled: false,
+        calendarLunchBreakStart: "12:00",
+        calendarLunchBreakEnd: "13:00",
+        calendarCheckGoogleEvents: true,
         followupIntervalsMinutes: [15, 60, 360, 1440, 2880, 4320, 7200],
         followupBusinessStart: "07:00",
         followupBusinessEnd: "23:00",
@@ -473,7 +524,15 @@ export async function PATCH(req: NextRequest, context: { params: RouteParams }) 
           { enabled: true, minutes: 4320 },
           { enabled: true, minutes: 7200 },
         ],
+        semanticCacheEnabled: true,
+        semanticCacheSimilarityThreshold: 0.92,
+        semanticCacheTtlHours: 168,
       }
+
+    const nextCalendarBusinessDays =
+      body?.calendarBusinessDays !== undefined
+        ? toBusinessDays(body.calendarBusinessDays, current.calendarBusinessDays)
+        : current.calendarBusinessDays
 
     const nextConfig: NativeAgentConfig = {
       enabled: toBool(body?.enabled, current.enabled),
@@ -728,10 +787,33 @@ export async function PATCH(req: NextRequest, context: { params: RouteParams }) 
         body?.calendarBusinessEnd !== undefined
           ? toOptionalText(body.calendarBusinessEnd) || current.calendarBusinessEnd
           : current.calendarBusinessEnd,
-      calendarBusinessDays:
-        body?.calendarBusinessDays !== undefined
-          ? toBusinessDays(body.calendarBusinessDays, current.calendarBusinessDays)
-          : current.calendarBusinessDays,
+      calendarBusinessDays: nextCalendarBusinessDays,
+      calendarDaySchedule:
+        body?.calendarDaySchedule !== undefined
+          ? toDaySchedule(
+            body.calendarDaySchedule,
+            current.calendarDaySchedule || {},
+            current.calendarBusinessStart || "08:00",
+            current.calendarBusinessEnd || "20:00",
+            nextCalendarBusinessDays || [1, 2, 3, 4, 5, 6],
+          )
+          : current.calendarDaySchedule,
+      calendarLunchBreakEnabled: toBool(
+        body?.calendarLunchBreakEnabled,
+        current.calendarLunchBreakEnabled,
+      ),
+      calendarLunchBreakStart:
+        body?.calendarLunchBreakStart !== undefined
+          ? toBusinessTime(body.calendarLunchBreakStart, current.calendarLunchBreakStart || "12:00")
+          : current.calendarLunchBreakStart,
+      calendarLunchBreakEnd:
+        body?.calendarLunchBreakEnd !== undefined
+          ? toBusinessTime(body.calendarLunchBreakEnd, current.calendarLunchBreakEnd || "13:00")
+          : current.calendarLunchBreakEnd,
+      calendarCheckGoogleEvents: toBool(
+        body?.calendarCheckGoogleEvents,
+        current.calendarCheckGoogleEvents,
+      ),
       followupIntervalsMinutes:
         body?.followupIntervalsMinutes !== undefined
           ? toFollowupIntervals(body.followupIntervalsMinutes, current.followupIntervalsMinutes)
@@ -760,6 +842,19 @@ export async function PATCH(req: NextRequest, context: { params: RouteParams }) 
               })),
           )
           : current.followupPlan,
+      semanticCacheEnabled: toBool(body?.semanticCacheEnabled, current.semanticCacheEnabled),
+      semanticCacheSimilarityThreshold: toNumber(
+        body?.semanticCacheSimilarityThreshold,
+        current.semanticCacheSimilarityThreshold,
+        0.5,
+        1.0,
+      ),
+      semanticCacheTtlHours: toNumber(
+        body?.semanticCacheTtlHours,
+        current.semanticCacheTtlHours,
+        1,
+        8760,
+      ),
     }
 
     if (body?.followupPlan !== undefined && Array.isArray(nextConfig.followupPlan)) {
