@@ -108,6 +108,7 @@ function fallbackConfig(): NativeAgentConfig {
     calendarBusinessStart: "08:00",
     calendarBusinessEnd: "20:00",
     calendarBusinessDays: [1, 2, 3, 4, 5, 6],
+    calendarHolidaysEnabled: true,
     webhookExtraUrls: [],
   }
 }

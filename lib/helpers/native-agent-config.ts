@@ -100,6 +100,9 @@ export interface NativeAgentConfig {
   // Google Calendar conflict checking
   calendarCheckGoogleEvents: boolean
 
+  // Auto-block Brazilian national holidays
+  calendarHolidaysEnabled: boolean
+
   // Follow-up business hours (per-tenant)
   followupIntervalsMinutes: number[] // ex: [15,60,360,...]
   followupBusinessStart: string  // HH:MM - default "07:00"
@@ -181,6 +184,7 @@ const DEFAULT_LUNCH_BREAK_ENABLED = false
 const DEFAULT_LUNCH_BREAK_START = "12:00"
 const DEFAULT_LUNCH_BREAK_END = "13:00"
 const DEFAULT_CHECK_GOOGLE_EVENTS = true
+const DEFAULT_HOLIDAYS_ENABLED = true
 const DEFAULT_FOLLOWUP_BUSINESS_START = "07:00"
 const DEFAULT_FOLLOWUP_BUSINESS_END = "23:00"
 const DEFAULT_FOLLOWUP_BUSINESS_DAYS = [0, 1, 2, 3, 4, 5, 6] // Todos os dias
@@ -691,6 +695,7 @@ function normalizeConfig(input: any): NativeAgentConfig {
     calendarLunchBreakStart: readBusinessTime(raw.calendarLunchBreakStart, DEFAULT_LUNCH_BREAK_START),
     calendarLunchBreakEnd: readBusinessTime(raw.calendarLunchBreakEnd, DEFAULT_LUNCH_BREAK_END),
     calendarCheckGoogleEvents: readBoolean(raw.calendarCheckGoogleEvents, DEFAULT_CHECK_GOOGLE_EVENTS),
+    calendarHolidaysEnabled: readBoolean(raw.calendarHolidaysEnabled, DEFAULT_HOLIDAYS_ENABLED),
 
     followupIntervalsMinutes: normalizedFollowupIntervals,
     followupBusinessStart: readBusinessTime(raw.followupBusinessStart, DEFAULT_FOLLOWUP_BUSINESS_START),

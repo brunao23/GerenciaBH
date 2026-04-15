@@ -416,6 +416,7 @@ export async function POST(req: Request) {
       calendarLunchBreakStart: "12:00",
       calendarLunchBreakEnd: "13:00",
       calendarCheckGoogleEvents: true,
+      calendarHolidaysEnabled: true,
       followupIntervalsMinutes: [15, 60, 360, 1440, 2880, 4320, 7200],
       followupBusinessStart: "07:00",
       followupBusinessEnd: "23:00",
@@ -715,6 +716,10 @@ export async function POST(req: Request) {
       calendarCheckGoogleEvents: toBool(
         body?.calendarCheckGoogleEvents,
         current.calendarCheckGoogleEvents,
+      ),
+      calendarHolidaysEnabled: toBool(
+        body?.calendarHolidaysEnabled,
+        current.calendarHolidaysEnabled,
       ),
       followupIntervalsMinutes:
         body?.followupIntervalsMinutes !== undefined

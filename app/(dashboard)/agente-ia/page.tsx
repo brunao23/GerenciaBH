@@ -92,6 +92,7 @@ type TenantNativeAgentConfig = {
   calendarLunchBreakStart: string
   calendarLunchBreakEnd: string
   calendarCheckGoogleEvents: boolean
+  calendarHolidaysEnabled: boolean
 }
 
 const defaultConfig: TenantNativeAgentConfig = {
@@ -175,6 +176,7 @@ const defaultConfig: TenantNativeAgentConfig = {
   calendarLunchBreakStart: "12:00",
   calendarLunchBreakEnd: "13:00",
   calendarCheckGoogleEvents: true,
+  calendarHolidaysEnabled: true,
 }
 
 function normalizeConfig(raw: any): TenantNativeAgentConfig {
@@ -355,6 +357,7 @@ function normalizeConfig(raw: any): TenantNativeAgentConfig {
     calendarLunchBreakStart: String(source.calendarLunchBreakStart || "12:00"),
     calendarLunchBreakEnd: String(source.calendarLunchBreakEnd || "13:00"),
     calendarCheckGoogleEvents: source.calendarCheckGoogleEvents !== false,
+    calendarHolidaysEnabled: source.calendarHolidaysEnabled !== false,
   }
 }
 
@@ -652,6 +655,7 @@ export default function AgenteIAPage() {
         calendarLunchBreakStart: toOptionalText(config.calendarLunchBreakStart) || "12:00",
         calendarLunchBreakEnd: toOptionalText(config.calendarLunchBreakEnd) || "13:00",
         calendarCheckGoogleEvents: config.calendarCheckGoogleEvents,
+        calendarHolidaysEnabled: config.calendarHolidaysEnabled,
       }
 
       const res = await fetch("/api/tenant/native-agent-config", {
@@ -1786,6 +1790,20 @@ export default function AgenteIAPage() {
               <Label className="cursor-pointer">Verificar eventos no Google Agenda antes de agendar</Label>
             </label>
             <p className="text-xs text-muted-foreground pl-6">Quando ativado, o sistema consulta o Google Calendar para evitar conflitos com eventos existentes.</p>
+          </div>
+
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={config.calendarHolidaysEnabled}
+                onChange={(e) => setConfig((prev) => ({ ...prev, calendarHolidaysEnabled: e.target.checked }))}
+                className="w-4 h-4 rounded accent-primary"
+                disabled={loading}
+              />
+              <Label className="cursor-pointer">Bloquear feriados nacionais brasileiros automaticamente</Label>
+            </label>
+            <p className="text-xs text-muted-foreground pl-6">Quando ativado, nenhum agendamento é permitido em feriados nacionais (Carnaval, Semana Santa, Tiradentes, Corpus Christi, Natal, etc.).</p>
           </div>
 
           <div className="grid md:grid-cols-2 gap-4">

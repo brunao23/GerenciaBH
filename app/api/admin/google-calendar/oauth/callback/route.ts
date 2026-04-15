@@ -190,6 +190,7 @@ export async function GET(req: NextRequest) {
         calendarBusinessStart: "08:00",
         calendarBusinessEnd: "20:00",
         calendarBusinessDays: [1, 2, 3, 4, 5, 6],
+        calendarHolidaysEnabled: true,
       } as NativeAgentConfig)
 
     const redirectUri = `${url.origin}/api/admin/google-calendar/oauth/callback`

@@ -177,6 +177,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         calendarBusinessStart: "08:00",
         calendarBusinessEnd: "20:00",
         calendarBusinessDays: [1, 2, 3, 4, 5, 6],
+        calendarHolidaysEnabled: true,
       } as NativeAgentConfig)
 
     const callbackPath = `/api/admin/units/${encodeURIComponent(id)}/google-calendar/oauth/callback`

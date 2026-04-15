@@ -541,6 +541,60 @@ function getPeriodoDoDia(parts: LocalDateTimeParts): "bom dia" | "boa tarde" | "
   return "boa noite"
 }
 
+function getEasterDate(year: number): { month: number; day: number } {
+  const a = year % 19
+  const b = Math.floor(year / 100)
+  const c = year % 100
+  const d = Math.floor(b / 4)
+  const e = b % 4
+  const f = Math.floor((b + 8) / 25)
+  const g = Math.floor((b - f + 1) / 3)
+  const h = (19 * a + b - d - g + 15) % 30
+  const i = Math.floor(c / 4)
+  const k = c % 4
+  const l = (32 + 2 * e + 2 * i - h - k) % 7
+  const m = Math.floor((a + 11 * h + 22 * l) / 451)
+  const month = Math.floor((h + l - 7 * m + 114) / 31)
+  const day = ((h + l - 7 * m + 114) % 31) + 1
+  return { month, day }
+}
+
+function shiftDate(year: number, month: number, day: number, deltaDays: number): string {
+  const d = new Date(Date.UTC(year, month - 1, day))
+  d.setUTCDate(d.getUTCDate() + deltaDays)
+  const y = d.getUTCFullYear()
+  const mo = d.getUTCMonth() + 1
+  const da = d.getUTCDate()
+  return `${y}-${String(mo).padStart(2, "0")}-${String(da).padStart(2, "0")}`
+}
+
+function getBrazilianNationalHolidays(year: number): Set<string> {
+  const h = new Set<string>()
+  const pad = (n: number) => String(n).padStart(2, "0")
+  const iso = (m: number, d: number) => `${year}-${pad(m)}-${pad(d)}`
+
+  // Feriados fixos nacionais
+  h.add(iso(1, 1))   // Ano Novo
+  h.add(iso(4, 21))  // Tiradentes
+  h.add(iso(5, 1))   // Dia do Trabalho
+  h.add(iso(9, 7))   // Independência
+  h.add(iso(10, 12)) // Nossa Senhora Aparecida
+  h.add(iso(11, 2))  // Finados
+  h.add(iso(11, 15)) // Proclamação da República
+  h.add(iso(11, 20)) // Consciência Negra (Lei federal desde 2023)
+  h.add(iso(12, 25)) // Natal
+
+  // Feriados móveis baseados na Páscoa
+  const easter = getEasterDate(year)
+  h.add(shiftDate(year, easter.month, easter.day, -48)) // Carnaval (segunda)
+  h.add(shiftDate(year, easter.month, easter.day, -47)) // Carnaval (terça)
+  h.add(shiftDate(year, easter.month, easter.day, -2))  // Sexta-feira Santa
+  h.add(shiftDate(year, easter.month, easter.day, 0))   // Páscoa (domingo)
+  h.add(shiftDate(year, easter.month, easter.day, 60))  // Corpus Christi
+
+  return h
+}
+
 function getSlotDateContext(dateIso: string, nowParts: LocalDateTimeParts): {
   weekday: number
   weekday_name_pt: string
@@ -2119,10 +2173,13 @@ export class NativeAgentOrchestratorService {
     const overlapRule = config.allowOverlappingAppointments
       ? "- Agendamento no mesmo horario esta permitido."
       : "- Nao agende dois leads no mesmo horario."
+    const holidaysRule = config.calendarHolidaysEnabled !== false
+      ? "- FERIADOS NACIONAIS BRASILEIROS estao automaticamente bloqueados (Ano Novo, Carnaval, Semana Santa, Tiradentes, Dia do Trabalho, Corpus Christi, Independencia, N.Sra.Aparecida, Finados, Proclamacao da Republica, Consciencia Negra, Natal). NUNCA ofereça horario em feriado."
+      : ""
     const blockedDatesRule =
       Array.isArray(config.calendarBlockedDates) && config.calendarBlockedDates.length > 0
-        ? `- Datas bloqueadas (nao agendar): ${config.calendarBlockedDates.join(", ")}.`
-        : "- Nao ha datas bloqueadas configuradas."
+        ? `- Datas adicionais bloqueadas (nao agendar): ${config.calendarBlockedDates.join(", ")}.`
+        : "- Nao ha datas adicionais bloqueadas configuradas."
     const blockedTimesRule =
       Array.isArray(config.calendarBlockedTimeRanges) && config.calendarBlockedTimeRanges.length > 0
         ? `- Faixas de horario bloqueadas (nao agendar): ${config.calendarBlockedTimeRanges.join(", ")}.`
@@ -2190,6 +2247,7 @@ export class NativeAgentOrchestratorService {
       returnWindowRule,
       maxPerDayRule,
       overlapRule,
+      holidaysRule,
       blockedDatesRule,
       blockedTimesRule,
       dayScheduleRule,
@@ -2791,6 +2849,21 @@ export class NativeAgentOrchestratorService {
             .filter((value) => /^\d{4}-\d{2}-\d{2}$/.test(value))
           : [],
       )
+
+      // Adiciona feriados nacionais brasileiros ao blockedDates
+      if (params.config.calendarHolidaysEnabled !== false) {
+        const endRef = requestedEnd || addMinutesToParts(requestedStart, 24 * 60 * 7)
+        const yearsToCheck = new Set<number>()
+        for (let yr = requestedStart.year; yr <= endRef.year; yr++) {
+          yearsToCheck.add(yr)
+        }
+        for (const yr of yearsToCheck) {
+          for (const holiday of getBrazilianNationalHolidays(yr)) {
+            blockedDates.add(holiday)
+          }
+        }
+      }
+
       const blockedRanges = Array.isArray(params.config.calendarBlockedTimeRanges)
         ? params.config.calendarBlockedTimeRanges
           .map((value) => parseTimeRangeToMinutes(String(value || "")))
@@ -3329,13 +3402,20 @@ export class NativeAgentOrchestratorService {
       }
     }
 
-    const blockedDates = Array.isArray(params.config.calendarBlockedDates)
-      ? params.config.calendarBlockedDates
-        .map((value) => String(value || "").trim())
-        .filter((value) => /^\d{4}-\d{2}-\d{2}$/.test(value))
-      : []
-    if (blockedDates.includes(date)) {
-      return { ok: false, error: "blocked_date" }
+    const blockedDatesSet = new Set(
+      Array.isArray(params.config.calendarBlockedDates)
+        ? params.config.calendarBlockedDates
+          .map((value) => String(value || "").trim())
+          .filter((value) => /^\d{4}-\d{2}-\d{2}$/.test(value))
+        : [],
+    )
+    if (params.config.calendarHolidaysEnabled !== false) {
+      for (const holiday of getBrazilianNationalHolidays(requested.year)) {
+        blockedDatesSet.add(holiday)
+      }
+    }
+    if (blockedDatesSet.has(date)) {
+      return { ok: false, error: "feriado_ou_data_bloqueada" }
     }
 
     const blockedRanges = Array.isArray(params.config.calendarBlockedTimeRanges)
