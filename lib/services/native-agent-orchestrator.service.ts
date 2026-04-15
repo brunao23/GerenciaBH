@@ -58,6 +58,10 @@ type AvailableSlotsResult = {
   slots?: Array<{ date: string; time: string }>
   total?: number
   error?: string
+  searched_date_from?: string
+  searched_date_to?: string
+  business_days_configured?: Array<{ number: number; name: string }>
+  business_hours_per_day?: Record<string, { start: string; end: string }>
 }
 
 type EditAppointmentResult = {
@@ -2362,7 +2366,7 @@ export class NativeAgentOrchestratorService {
       "- [PROIBIDO] NUNCA responda 'amanha tenho horario', 'semana que vem', 'segunda-feira', 'de manha' ou qualquer variacao sem antes chamar a ferramenta.",
       "- [PROIBIDO] NUNCA pergunte 'prefere manha ou tarde?' sem antes consultar os slots — voce nao sabe se ha disponibilidade em nenhum turno.",
       "- Se o lead perguntar 'tem horario?', 'quando voce tem?', 'qual o proximo horario?', 'tem amanha?' — chame get_available_slots IMEDIATAMENTE antes de responder.",
-      `- Ao chamar get_available_slots, use date_from = hoje (${todayIso}) e date_to = ate 14 dias no futuro. Nunca use date_from no passado.`,
+      `- Ao chamar get_available_slots, use date_from = hoje (${todayIso}) e date_to = ate 21 dias no futuro como busca inicial.`,
       "- NUNCA sugira um horario e depois diga que esta fora do expediente. Isso e PROIBIDO. Consulte os slots ANTES de falar.",
       "- Se o lead pedir um horario que NAO esta nos slots disponiveis, diga que aquele horario nao esta disponivel e sugira os proximos horarios livres.",
       "- Se o horario estiver ocupado, diga 'Esse horario ja esta ocupado' e sugira o proximo disponivel.",
@@ -2372,6 +2376,10 @@ export class NativeAgentOrchestratorService {
       "- NUNCA pergunte se o lead quer agendar em um horario fora do expediente configurado. Respeite rigorosamente os horarios acima.",
       "- Quando fizer sentido retomar depois, acione create_followup ou create_reminder.",
       "- Se precisar transferir para humano, acione handoff_human.",
+      "- [RETRY OBRIGATORIO QUANDO total=0] Se get_available_slots retornar total=0 (sem slots) na busca inicial de 21 dias: chame NOVAMENTE com date_to = 45 dias no futuro. Se ainda total=0, chame mais uma vez com date_to = 60 dias. Somente apos 3 tentativas (21, 45, 60 dias) sem resultado diga ao lead que nao ha horarios disponiveis no momento e oferea contato direto.",
+      "- [PROIBIDO AFIRMAR DIA SEM VERIFICAR] O response de get_available_slots inclui 'business_days_configured' com os dias da semana que a unidade REALMENTE atende e 'business_hours_per_day' com os horarios por dia. NUNCA diga 'nao atendemos aos sabados', 'nao temos domingo' ou qualquer afirmacao sobre dias especificos sem verificar 'business_days_configured'. Se sabado (6) ou domingo (7) estiver em 'business_days_configured', a unidade ATENDE nesses dias.",
+      "- [USO DE business_days_configured] Quando apresentar opcoes ao lead, use apenas os dias que estao em 'business_days_configured'. Se o lead pedir um dia que NAO esta na lista, informe que nao ha atendimento naquele dia da semana e sugira os dias configurados.",
+      "- [PRECISAO DE RANGE] Se o lead pedir um periodo especifico ('semana que vem', 'mes que vem', 'proximo mes'), ajuste date_from e date_to exatamente para cobrir esse periodo ao chamar get_available_slots.",
       "- REGRA DE DATA RELATIVA: use sempre o campo relative_label do slot como referencia. Exemplos de uso correto: 'hoje as 14h', 'amanha as 10h', 'depois de amanha as 9h', 'quinta-feira as 15h' (esta semana), 'proxima terca-feira (22/04) as 14h' (semana seguinte), 'quarta-feira (29/04) as 10h' (duas semanas ou mais). NUNCA use apenas 'dia 22' sem o dia da semana.",
       "- REGRA DE CONSISTENCIA: NUNCA escreva duas opcoes equivalentes para o mesmo dia no mesmo turno (ex.: 'amanha 20h' e 'quarta-feira 20h' quando representam o mesmo dia).",
       "- REGRA DE NATURALIDADE NA DATA: NUNCA diga 'o dia 21 que e uma terca-feira' nem 'para o dia 21, que e terca-feira'. A ordem correta e sempre o dia da semana primeiro: 'terca-feira, dia 21' ou 'terca (dia 21)' ou apenas 'terca-feira as 14h'. Use o campo relative_label do slot (amanha, depois de amanha, quarta-feira, etc.) como referencia principal — evite mencionar o numero do dia isolado como se fosse o protagonista.",
@@ -2629,6 +2637,10 @@ export class NativeAgentOrchestratorService {
             }))
             : [],
           holidays_in_range: holidaysInRange,
+          searched_date_from: result.searched_date_from,
+          searched_date_to: result.searched_date_to,
+          business_days_configured: result.business_days_configured,
+          business_hours_per_day: result.business_hours_per_day,
           error: result.error,
         },
       }
@@ -3169,10 +3181,36 @@ export class NativeAgentOrchestratorService {
         dedupedSlots.push(slot)
       }
 
+      const weekdayNamesPt: Record<number, string> = {
+        1: "segunda-feira", 2: "terca-feira", 3: "quarta-feira",
+        4: "quinta-feira", 5: "sexta-feira", 6: "sabado", 7: "domingo",
+      }
+      const businessDaysConfigured = allowedDays
+        .filter((d) => {
+          const dk = String(d)
+          const dc = daySchedule[dk]
+          return dc ? dc.enabled !== false : true
+        })
+        .sort((a, b) => a - b)
+        .map((d) => ({ number: d, name: weekdayNamesPt[d] || String(d) }))
+
+      const businessHoursPerDay: Record<string, { start: string; end: string }> = {}
+      for (const { number } of businessDaysConfigured) {
+        const dk = String(number)
+        const dc = daySchedule[dk]
+        const bStart = dc ? (dc.start || params.config.calendarBusinessStart || "08:00") : (params.config.calendarBusinessStart || "08:00")
+        const bEnd = dc ? (dc.end || params.config.calendarBusinessEnd || "20:00") : (params.config.calendarBusinessEnd || "20:00")
+        businessHoursPerDay[weekdayNamesPt[number] || dk] = { start: bStart, end: bEnd }
+      }
+
       return {
         ok: true,
         slots: dedupedSlots,
         total: dedupedSlots.length,
+        searched_date_from: formatDateFromParts(requestedStart),
+        searched_date_to: formatDateFromParts(endReference),
+        business_days_configured: businessDaysConfigured,
+        business_hours_per_day: businessHoursPerDay,
       }
     } catch (error: any) {
       return { ok: false, error: error?.message || "get_available_slots_failed" }
