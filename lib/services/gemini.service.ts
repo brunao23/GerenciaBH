@@ -395,9 +395,7 @@ export class GeminiService {
     if (parsed) return parsed
 
     return {
-      reply:
-        outputText ||
-        "Ola! Como posso te ajudar hoje?",
+      reply: outputText || "",
       actions: [{ type: "none" }],
       handoff: false,
     }
@@ -532,9 +530,7 @@ export class GeminiService {
     const handoff = actions.some((action) => action.type === "handoff_human")
 
     return {
-      reply:
-        latestText ||
-        "Ola! Como posso te ajudar hoje?",
+      reply: latestText || "",
       actions,
       handoff,
       toolCalls: allCalls,

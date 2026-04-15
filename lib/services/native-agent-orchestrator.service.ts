@@ -1595,11 +1595,72 @@ export class NativeAgentOrchestratorService {
         })
         .catch(() => {})
 
+      const isEdit = actionType === "edit_appointment"
+      const isSchedule = actionType === "schedule_appointment" || isEdit
+
+      // Notificações no painel interno (independente de toolNotificationsEnabled)
+      if (isSchedule) {
+        const leadLabel = firstName(params.contactName) || params.contactName || params.phone
+        const day = formatDateToBr(execution.action?.date)
+        const time = String(execution.action?.time || "").trim()
+        const when = day && time ? `${day} às ${time}` : day || time || "horário não informado"
+
+        if (execution.ok) {
+          await createNotification({
+            type: isEdit ? "agendamento_confirmed" : "agendamento_created",
+            title: isEdit ? "Agendamento remarcado" : "Novo agendamento",
+            message: `${leadLabel} — ${when}${execution.action?.note ? ` | ${execution.action.note}` : ""}`,
+            phoneNumber: params.phone,
+            leadName: params.contactName || undefined,
+            metadata: {
+              date: execution.action?.date,
+              time: execution.action?.time,
+              mode: execution.action?.appointment_mode,
+              appointmentId: execution.response?.appointmentId,
+              meetLink: execution.response?.meetLink,
+              sessionId: params.sessionId,
+            },
+            priority: "high",
+            tenant: params.tenant,
+          }).catch(() => {})
+        } else if (!isGuardrail) {
+          await createNotification({
+            type: "erro",
+            title: "Falha no agendamento",
+            message: `${leadLabel} tentou agendar ${when} — ${execution.error || execution.response?.error || "agendamento_falhou"}`,
+            phoneNumber: params.phone,
+            leadName: params.contactName || undefined,
+            metadata: {
+              date: execution.action?.date,
+              time: execution.action?.time,
+              error: execution.error,
+              sessionId: params.sessionId,
+            },
+            priority: "urgent",
+            tenant: params.tenant,
+          }).catch(() => {})
+        }
+      }
+
+      if (actionType === "handoff_human") {
+        const leadLabel = firstName(params.contactName) || params.contactName || params.phone
+        await createNotification({
+          type: "lead_paused",
+          title: "Lead aguarda atendimento humano",
+          message: `${leadLabel} — ${execution.action?.note || execution.error || execution.response?.reason || "Solicitou suporte humano"}`,
+          phoneNumber: params.phone,
+          leadName: params.contactName || undefined,
+          metadata: { sessionId: params.sessionId },
+          priority: "urgent",
+          tenant: params.tenant,
+        }).catch(() => {})
+      }
+
       if (!params.config.toolNotificationsEnabled) continue
       const targets = normalizeNotificationTargets(params.config.toolNotificationTargets)
       if (!targets.length) continue
 
-      if (actionType === "schedule_appointment" || actionType === "edit_appointment") {
+      if (isSchedule) {
         if (execution.ok && params.config.notifyOnScheduleSuccess) {
           const message = this.buildScheduleSuccessNotification({
             phone: params.phone,
@@ -1609,6 +1670,7 @@ export class NativeAgentOrchestratorService {
               meetLink: String(execution.response?.meetLink || ""),
               htmlLink: String(execution.response?.htmlLink || ""),
             },
+            isEdit,
           })
           const notifyResult = await this.sendToolNotifications(params.tenant, targets, message)
           if (notifyResult.failed > 0) {
@@ -1743,26 +1805,33 @@ export class NativeAgentOrchestratorService {
     contactName?: string
     action: AgentActionPlan
     result?: { meetLink?: string; htmlLink?: string }
+    isEdit?: boolean
   }): string {
     const name = String(input.contactName || firstName(input.contactName) || "Lead").trim()
     const day = formatDateToBr(input.action.date)
     const time = String(input.action.time || "nao informado").trim()
-    const notes = String(input.action.note || "Agendamento realizado via agente nativo.").trim()
+    const notes = String(input.action.note || "").trim()
     const contact = formatNotificationContact(input.phone)
-    const mode = input.action.appointment_mode === "online" ? "online" : "presencial"
+    const mode = input.action.appointment_mode === "online" ? "🌐 Online" : "🏠 Presencial"
     const meetLink = String(input.result?.meetLink || "").trim()
-    const notesWithMeet = meetLink ? `${notes} | meet=${meetLink}` : notes
+    const calLink = String(input.result?.htmlLink || "").trim()
+    const header = input.isEdit ? "📝 *AGENDAMENTO REMARCADO*" : "📅 *AGENDAMENTO CONFIRMADO*"
 
-    return [
-      "AGENDAMENTO REALIZADO COM SUCESSO",
+    const lines = [
+      header,
       "",
-      `Nome: ${name}`,
-      `Contato: ${contact}`,
-      `Dia: ${day}`,
-      `Horario: ${time}`,
-      `Modalidade: ${mode}`,
-      `Observacoes: ${notesWithMeet}`,
-    ].join("\n")
+      `👤 *Cliente:* ${name}`,
+      `📱 *Contato:* ${contact}`,
+      `📆 *Data:* ${day}`,
+      `🕐 *Horário:* ${time}`,
+      `📍 *Modalidade:* ${mode}`,
+    ]
+
+    if (notes) lines.push(`📋 *Obs:* ${notes}`)
+    if (meetLink) lines.push(`🔗 *Google Meet:* ${meetLink}`)
+    if (calLink) lines.push(`🗓️ *Calendário:* ${calLink}`)
+
+    return lines.join("\n")
   }
 
   private buildScheduleErrorNotification(input: {
@@ -1776,17 +1845,21 @@ export class NativeAgentOrchestratorService {
     const time = String(input.action.time || "nao informado").trim()
     const contact = formatNotificationContact(input.phone)
     const notes = String(input.action.note || "").trim()
-    const details = notes ? `${notes} | erro=${input.error}` : `erro=${input.error}`
 
-    return [
-      "🔴 Falha ao realizar agendamento",
+    const lines = [
+      "🔴 *FALHA NO AGENDAMENTO*",
       "",
-      `✅ Nome: ${name}`,
-      `✅ Contato: ${contact}`,
-      `✅ Dia: ${day}`,
-      `✅ Horario: ${time}`,
-      `✅ Observacoes: ${details}`,
-    ].join("\n")
+      `👤 *Cliente:* ${name}`,
+      `📱 *Contato:* ${contact}`,
+      `📆 *Data solicitada:* ${day}`,
+      `🕐 *Horário solicitado:* ${time}`,
+      `❌ *Erro:* ${input.error}`,
+    ]
+
+    if (notes) lines.push(`📋 *Obs:* ${notes}`)
+    lines.push("", "_Verifique o motivo e reagende manualmente se necessário._")
+
+    return lines.join("\n")
   }
 
   private buildHandoffNotification(input: {
@@ -1799,11 +1872,13 @@ export class NativeAgentOrchestratorService {
     const notes = String(input.reason || "Lead solicitou apoio humano.").trim()
 
     return [
-      "ATENCAO LEAD PRECISANDO DE AJUDA. AUTOMACAO PAUSADA 🔴",
+      "🙋 *LEAD PRECISA DE ATENDIMENTO HUMANO*",
       "",
-      `✅ Nome: ${name}`,
-      `✅ Contato: ${contact}`,
-      `✅ Observacoes: ${notes}`,
+      `👤 *Cliente:* ${name}`,
+      `📱 *Contato:* ${contact}`,
+      `💬 *Motivo:* ${notes}`,
+      "",
+      "_A automação foi pausada. Responda o quanto antes._",
     ].join("\n")
   }
 
