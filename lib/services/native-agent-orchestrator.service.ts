@@ -2206,17 +2206,29 @@ export class NativeAgentOrchestratorService {
     // Build per-day schedule description for the agent
     const dayNames: Record<string, string> = { "1": "Segunda", "2": "Terca", "3": "Quarta", "4": "Quinta", "5": "Sexta", "6": "Sabado", "7": "Domingo" }
     const dayScheduleObj = config.calendarDaySchedule && typeof config.calendarDaySchedule === "object" ? config.calendarDaySchedule : {}
+    // Compute allowed days from config (ISO 1=Mon..7=Sun), fallback to all weekdays if not set
+    const allowedDaysForPrompt: number[] = Array.from(
+      new Set(
+        (Array.isArray(config.calendarBusinessDays) ? config.calendarBusinessDays : [])
+          .map((d) => Number(d))
+          .filter((d) => Number.isInteger(d) && d >= 1 && d <= 7),
+      ),
+    )
     const dayScheduleLines: string[] = []
     for (let d = 1; d <= 7; d++) {
       const key = String(d)
       const dc = dayScheduleObj[key]
-      if (dc && dc.enabled) {
-        dayScheduleLines.push(`  ${dayNames[key]}: ${dc.start} ate ${dc.end}`)
+      // A day is open if: (a) dc exists and dc.enabled !== false, OR (b) dc doesn't exist but d is in calendarBusinessDays
+      const isDayOpen = dc ? dc.enabled !== false : allowedDaysForPrompt.includes(d)
+      if (isDayOpen) {
+        const openStart = dc?.start || config.calendarBusinessStart || "08:00"
+        const openEnd = dc?.end || config.calendarBusinessEnd || "20:00"
+        dayScheduleLines.push(`  ${dayNames[key]}: ${openStart} ate ${openEnd}`)
       } else {
         dayScheduleLines.push(`  ${dayNames[key]}: FECHADO`)
       }
     }
-    const dayScheduleRule = `- HORARIOS DE ATENDIMENTO POR DIA (OBRIGATORIO respeitar):\n${dayScheduleLines.join("\n")}`
+    const dayScheduleRule = `- HORARIOS DE ATENDIMENTO POR DIA (OBRIGATORIO respeitar — fonte de verdade sobre quais dias a unidade atende):\n${dayScheduleLines.join("\n")}`
 
     const lunchBreakRule = config.calendarLunchBreakEnabled
       ? `- HORARIO DE ALMOCO (bloqueado para agendamentos): ${config.calendarLunchBreakStart || "12:00"} ate ${config.calendarLunchBreakEnd || "13:00"}. NUNCA oferecer ou aceitar horario dentro deste periodo.`
@@ -2366,7 +2378,9 @@ export class NativeAgentOrchestratorService {
       "- [PROIBIDO] NUNCA responda 'amanha tenho horario', 'semana que vem', 'segunda-feira', 'de manha' ou qualquer variacao sem antes chamar a ferramenta.",
       "- [PROIBIDO] NUNCA pergunte 'prefere manha ou tarde?' sem antes consultar os slots — voce nao sabe se ha disponibilidade em nenhum turno.",
       "- Se o lead perguntar 'tem horario?', 'quando voce tem?', 'qual o proximo horario?', 'tem amanha?' — chame get_available_slots IMEDIATAMENTE antes de responder.",
-      `- Ao chamar get_available_slots, use date_from = hoje (${todayIso}) e date_to = ate 21 dias no futuro como busca inicial.`,
+      maxWindowDays > 0
+        ? `- Ao chamar get_available_slots, use date_from = hoje (${todayIso}) e date_to = ${todayIso} + ${maxWindowDays} dias (janela maxima configurada para esta unidade e ${maxWindowDays} dias no futuro). NUNCA busque alem dessa janela — slots fora dela nao existem por configuracao.`
+        : `- Ao chamar get_available_slots, use date_from = hoje (${todayIso}) e date_to = ate 21 dias no futuro como busca inicial.`,
       "- NUNCA sugira um horario e depois diga que esta fora do expediente. Isso e PROIBIDO. Consulte os slots ANTES de falar.",
       "- Se o lead pedir um horario que NAO esta nos slots disponiveis, diga que aquele horario nao esta disponivel e sugira os proximos horarios livres.",
       "- Se o horario estiver ocupado, diga 'Esse horario ja esta ocupado' e sugira o proximo disponivel.",
@@ -2376,7 +2390,9 @@ export class NativeAgentOrchestratorService {
       "- NUNCA pergunte se o lead quer agendar em um horario fora do expediente configurado. Respeite rigorosamente os horarios acima.",
       "- Quando fizer sentido retomar depois, acione create_followup ou create_reminder.",
       "- Se precisar transferir para humano, acione handoff_human.",
-      "- [RETRY OBRIGATORIO QUANDO total=0] Se get_available_slots retornar total=0 (sem slots) na busca inicial de 21 dias: chame NOVAMENTE com date_to = 45 dias no futuro. Se ainda total=0, chame mais uma vez com date_to = 60 dias. Somente apos 3 tentativas (21, 45, 60 dias) sem resultado diga ao lead que nao ha horarios disponiveis no momento e oferea contato direto.",
+      maxWindowDays > 0
+        ? `- [SEM RETRY ALEM DA JANELA CONFIGURADA] A janela maxima desta unidade e ${maxWindowDays} dias. Se get_available_slots retornar total=0 com essa janela completa, NAO ha slots disponiveis no periodo configurado — informe o lead e oferea contato direto. NAO tente datas alem de ${maxWindowDays} dias.`
+        : "- [RETRY OBRIGATORIO QUANDO total=0] Se get_available_slots retornar total=0 (sem slots) na busca inicial de 21 dias: chame NOVAMENTE com date_to = 45 dias no futuro. Se ainda total=0, chame mais uma vez com date_to = 60 dias. Somente apos 3 tentativas (21, 45, 60 dias) sem resultado diga ao lead que nao ha horarios disponiveis no momento e oferea contato direto.",
       "- [PROIBIDO AFIRMAR DIA SEM VERIFICAR] O response de get_available_slots inclui 'business_days_configured' com os dias da semana que a unidade REALMENTE atende e 'business_hours_per_day' com os horarios por dia. NUNCA diga 'nao atendemos aos sabados', 'nao temos domingo' ou qualquer afirmacao sobre dias especificos sem verificar 'business_days_configured'. Se sabado (6) ou domingo (7) estiver em 'business_days_configured', a unidade ATENDE nesses dias.",
       "- [USO DE business_days_configured] Quando apresentar opcoes ao lead, use apenas os dias que estao em 'business_days_configured'. Se o lead pedir um dia que NAO esta na lista, informe que nao ha atendimento naquele dia da semana e sugira os dias configurados.",
       "- [PRECISAO DE RANGE] Se o lead pedir um periodo especifico ('semana que vem', 'mes que vem', 'proximo mes'), ajuste date_from e date_to exatamente para cobrir esse periodo ao chamar get_available_slots.",
