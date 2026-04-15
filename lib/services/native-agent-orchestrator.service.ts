@@ -2359,6 +2359,9 @@ export class NativeAgentOrchestratorService {
       "- NUNCA pergunte se o lead quer agendar em um horario fora do expediente configurado. Respeite rigorosamente os horarios acima.",
       "- Quando fizer sentido retomar depois, acione create_followup ou create_reminder.",
       "- Se precisar transferir para humano, acione handoff_human.",
+      config.unitLatitude !== undefined && config.unitLongitude !== undefined
+        ? "- Se o lead perguntar onde fica a unidade, como chegar, o endereco ou a localizacao: acione send_location IMEDIATAMENTE (sem pedir confirmacao). Se a tool nao retornar ok=true, envie o link do Google Maps com o endereco textual. NUNCA envie o link de texto diretamente sem antes tentar send_location."
+        : null,
       maxWindowDays > 0
         ? `- [JANELA FIXA — SEM RETRY ALEM DE ${searchWindowEndIso}] Esta unidade aceita agendamentos somente ate ${searchWindowEndIso} (${maxWindowDays} dias). Se get_available_slots retornar total=0 com date_to=${searchWindowEndIso}, nao ha disponibilidade no periodo — informe o lead e oferea contato direto. NAO expanda a busca.`
         : `- [RETRY QUANDO total=0] Se get_available_slots retornar total=0 na busca inicial (ate ${searchWindowEndIso}): chame novamente com date_to=${formatDateFromParts(addMinutesToParts(nowLocalParts, 45 * 24 * 60))}. Se ainda total=0, tente date_to=${formatDateFromParts(addMinutesToParts(nowLocalParts, 60 * 24 * 60))}. Somente apos 3 tentativas sem resultado informe ao lead.`,
@@ -2528,6 +2531,19 @@ export class NativeAgentOrchestratorService {
           },
         },
       },
+      ...(config.unitLatitude !== undefined && config.unitLongitude !== undefined
+        ? [
+            {
+              name: "send_location",
+              description:
+                "Envia o pin de localizacao da unidade via WhatsApp quando o lead perguntar onde fica, como chegar ou pedir o endereco. Nao requer parametros: as coordenadas sao lidas da configuracao da unidade.",
+              parameters: {
+                type: "object",
+                properties: {},
+              },
+            },
+          ]
+        : []),
     ]
   }
 
@@ -2849,6 +2865,56 @@ export class NativeAgentOrchestratorService {
           ok: true,
           handoff: true,
           reason: reason || null,
+        },
+      }
+    }
+
+    if (name === "send_location") {
+      const lat = params.config.unitLatitude
+      const lng = params.config.unitLongitude
+
+      if (lat === undefined || lng === undefined) {
+        // Sem coordenadas — fallback texto
+        const address = params.config.unitAddress || params.config.unitName || ""
+        const fallback = address
+          ? `https://maps.google.com/?q=${encodeURIComponent(address)}`
+          : undefined
+
+        return {
+          ok: false,
+          action: { type: "none" },
+          error: "unit_coordinates_not_configured",
+          response: {
+            ok: false,
+            error: "unit_coordinates_not_configured",
+            fallback_link: fallback,
+          },
+        }
+      }
+
+      const locationSent = await this.messaging.sendLocation({
+        tenant: params.tenant,
+        phone: params.phone,
+        latitude: lat,
+        longitude: lng,
+        name: params.config.unitName,
+        address: params.config.unitAddress,
+        sessionId: params.sessionId,
+        source: "native-agent-location",
+        fallbackText: params.config.unitAddress
+          ? `https://maps.google.com/?q=${encodeURIComponent(params.config.unitAddress)}`
+          : `https://maps.google.com/?q=${lat},${lng}`,
+      })
+
+      return {
+        ok: locationSent.success,
+        action: { type: "none" },
+        error: locationSent.success ? undefined : locationSent.error,
+        response: {
+          ok: locationSent.success,
+          sent: locationSent.success,
+          provider: locationSent.provider,
+          error: locationSent.success ? undefined : locationSent.error,
         },
       }
     }

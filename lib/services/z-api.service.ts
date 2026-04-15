@@ -25,6 +25,14 @@ export interface SendAudioParams {
   waveform?: boolean
 }
 
+export interface SendLocationParams {
+  phone: string
+  latitude: number
+  longitude: number
+  name?: string
+  address?: string
+}
+
 export interface ZApiResponse {
   success?: boolean
   id?: string
@@ -37,6 +45,7 @@ export class ZApiService {
   private config: ZApiConfig
   private senderUrl: string
   private senderAudioUrl: string
+  private senderLocationUrl: string
   private statusUrl: string
   private qrCodeBytesUrl: string
   private qrCodeImageUrl: string
@@ -50,6 +59,7 @@ export class ZApiService {
       this.senderUrl = config.apiUrl
       const baseUrl = config.apiUrl.replace(/\/send-text.*/i, "")
       this.senderAudioUrl = `${baseUrl}/send-audio`
+      this.senderLocationUrl = `${baseUrl}/send-location`
       this.statusUrl = `${baseUrl}/status`
       this.qrCodeBytesUrl = `${baseUrl}/qr-code`
       this.qrCodeImageUrl = `${baseUrl}/qr-code/image`
@@ -62,6 +72,7 @@ export class ZApiService {
     const root = `${baseUrl}/instances/${this.config.instanceId}/token/${this.config.token}`
     this.senderUrl = `${root}/send-text`
     this.senderAudioUrl = `${root}/send-audio`
+    this.senderLocationUrl = `${root}/send-location`
     this.statusUrl = `${root}/status`
     this.qrCodeBytesUrl = `${root}/qr-code`
     this.qrCodeImageUrl = `${root}/qr-code/image`
@@ -357,6 +368,59 @@ export class ZApiService {
       }
     } catch (error: any) {
       console.error("[Z-API] Erro na requisicao de audio:", error)
+      return {
+        success: false,
+        error: error?.message || "Erro desconhecido",
+      }
+    }
+  }
+
+  async sendLocationMessage(params: SendLocationParams): Promise<ZApiResponse> {
+    try {
+      const uniqueTargets = this.buildTargets(params.phone)
+      if (!uniqueTargets.length) {
+        return { success: false, error: "Destino invalido para envio de localizacao" }
+      }
+
+      let lastError: string | undefined
+      let lastData: any = null
+
+      for (const target of uniqueTargets) {
+        const payload: Record<string, any> = {
+          phone: target,
+          latitude: params.latitude,
+          longitude: params.longitude,
+        }
+        if (params.name) payload.name = params.name
+        if (params.address) payload.address = params.address
+
+        const response = await fetch(this.senderLocationUrl, {
+          method: "POST",
+          headers: this.buildHeaders(),
+          body: JSON.stringify(payload),
+        })
+
+        const data = await this.parseResponse(response)
+        if (response.ok) {
+          return {
+            success: true,
+            id: data?.id || data?.messageId,
+            messageId: data?.messageId || data?.id,
+            data,
+          }
+        }
+
+        lastError = data?.message || (typeof data === "string" ? data : undefined) || `Erro HTTP ${response.status}`
+        lastData = data
+      }
+
+      return {
+        success: false,
+        error: lastError || "Falha ao enviar localizacao na Z-API",
+        data: lastData,
+      }
+    } catch (error: any) {
+      console.error("[Z-API] Erro na requisicao de localizacao:", error)
       return {
         success: false,
         error: error?.message || "Erro desconhecido",

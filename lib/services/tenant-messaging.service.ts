@@ -48,6 +48,21 @@ export interface SendTenantAudioInput {
 
 export type SendTenantAudioResult = SendTenantTextResult
 
+export interface SendTenantLocationInput {
+  tenant: string
+  phone: string
+  latitude: number
+  longitude: number
+  name?: string
+  address?: string
+  sessionId?: string
+  source?: string
+  persistInHistory?: boolean
+  fallbackText?: string // texto de fallback caso Z-API não suporte localização
+}
+
+export type SendTenantLocationResult = SendTenantTextResult
+
 export class TenantMessagingService {
   private normalizeRecipient(input: string): string {
     const raw = String(input || "").trim()
@@ -185,6 +200,121 @@ export class TenantMessagingService {
         success: false,
         provider,
         error: error?.message || "Failed to send message",
+      }
+    }
+  }
+
+  async supportsLocation(tenantInput: string): Promise<boolean> {
+    const tenant = normalizeTenant(tenantInput)
+    if (!tenant) return false
+    const config = await getMessagingConfigForTenant(tenant)
+    if (!config || config.isActive === false) return false
+    return config.provider === "zapi"
+  }
+
+  async sendLocation(input: SendTenantLocationInput): Promise<SendTenantLocationResult> {
+    const tenant = normalizeTenant(input.tenant)
+    if (!tenant) return { success: false, error: "Invalid tenant" }
+
+    const phone = this.normalizeRecipient(input.phone)
+    if (!phone) return { success: false, error: "phone is required" }
+
+    const config = await getMessagingConfigForTenant(tenant)
+    if (!config || config.isActive === false) {
+      return { success: false, error: "WhatsApp config missing or disabled" }
+    }
+
+    // Apenas Z-API suporta envio de localização nativa
+    if (config.provider !== "zapi") {
+      // Fallback: texto com link Google Maps
+      const fallback = input.fallbackText ||
+        `https://maps.google.com/?q=${input.latitude},${input.longitude}`
+      return this.sendText({
+        tenant: input.tenant,
+        phone: input.phone,
+        message: fallback,
+        sessionId: input.sessionId,
+        source: input.source,
+        persistInHistory: input.persistInHistory,
+      })
+    }
+
+    try {
+      const hasFullUrl = Boolean(config.sendTextUrl)
+      const hasParts = Boolean(config.apiUrl && config.instanceId && config.token)
+      if (!config.clientToken || (!hasFullUrl && !hasParts)) {
+        return { success: false, error: "Invalid Z-API config", provider: config.provider }
+      }
+
+      const zapi = new ZApiService({
+        instanceId: config.instanceId || "ZAPI",
+        token: config.token || "",
+        clientToken: config.clientToken,
+        apiUrl: config.sendTextUrl || config.apiUrl,
+      })
+
+      const sent = await zapi.sendLocationMessage({
+        phone,
+        latitude: input.latitude,
+        longitude: input.longitude,
+        name: input.name,
+        address: input.address,
+      })
+
+      if (!sent.success) {
+        // Fallback para texto com Google Maps
+        const fallback = input.fallbackText ||
+          `https://maps.google.com/?q=${input.latitude},${input.longitude}`
+        return this.sendText({
+          tenant: input.tenant,
+          phone: input.phone,
+          message: fallback,
+          sessionId: input.sessionId,
+          source: input.source,
+          persistInHistory: input.persistInHistory,
+        })
+      }
+
+      const messageId = String(sent.messageId || sent.id || "")
+
+      if (input.persistInHistory !== false) {
+        await this.persistOutgoingMessage({
+          tenant,
+          sessionId: input.sessionId || phone,
+          message: `[localização] ${input.name || ""} ${input.address || ""}`.trim(),
+          messageId,
+          source: input.source || "native-agent",
+          additional: {
+            media_type: "location",
+            latitude: input.latitude,
+            longitude: input.longitude,
+          },
+        })
+      }
+
+      return {
+        success: true,
+        messageId: messageId || undefined,
+        provider: config.provider,
+      }
+    } catch (error: any) {
+      // Fallback para texto com Google Maps
+      try {
+        const fallback = input.fallbackText ||
+          `https://maps.google.com/?q=${input.latitude},${input.longitude}`
+        return this.sendText({
+          tenant: input.tenant,
+          phone: input.phone,
+          message: fallback,
+          sessionId: input.sessionId,
+          source: input.source,
+          persistInHistory: input.persistInHistory,
+        })
+      } catch {
+        return {
+          success: false,
+          error: error?.message || "Failed to send location",
+        }
       }
     }
   }

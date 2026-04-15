@@ -114,6 +114,12 @@ export interface NativeAgentConfig {
   semanticCacheEnabled: boolean
   semanticCacheSimilarityThreshold: number // 0.80 - 0.99
   semanticCacheTtlHours: number            // default 168 (7 days)
+
+  // Localização da unidade (para envio de pin de localização via WhatsApp)
+  unitLatitude?: number
+  unitLongitude?: number
+  unitName?: string    // nome exibido no pin de localização
+  unitAddress?: string // endereço formatado exibido no pin de localização
 }
 
 const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
@@ -227,6 +233,12 @@ function readNumber(input: any, fallback: number, min: number, max: number): num
   if (value < min) return min
   if (value > max) return max
   return Math.floor(value)
+}
+
+function readFloat(input: any): number | undefined {
+  const value = Number(input)
+  if (!Number.isFinite(value)) return undefined
+  return value
 }
 
 function readBusinessDays(input: any): number[] {
@@ -712,6 +724,12 @@ function normalizeConfig(input: any): NativeAgentConfig {
       1.0,
     ),
     semanticCacheTtlHours: readNumber(raw.semanticCacheTtlHours, DEFAULT_SEMANTIC_CACHE_TTL_HOURS, 1, 8760),
+
+    // Localização da unidade
+    unitLatitude: readFloat(raw.unitLatitude),
+    unitLongitude: readFloat(raw.unitLongitude),
+    unitName: readString(raw.unitName),
+    unitAddress: readString(raw.unitAddress),
   }
 
   return mergeWithEnv(base)
