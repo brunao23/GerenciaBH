@@ -2044,7 +2044,21 @@ export class NativeAgentOrchestratorService {
         : `- Nome do lead nao disponivel. Use "voce". NAO pergunte o nome.`
       : "- Nao personalize por primeiro nome."
     const toneRule = `- Tom de conversa configurado: ${config.conversationTone}.`
-    const humanizationRule = `- Nivel de humanizacao desejado: ${config.humanizationLevelPercent}% (evite resposta robotica e mantenha naturalidade).`
+    const humanizationRule = [
+      `- HUMANIZACAO OBRIGATORIA (nivel ${config.humanizationLevelPercent}%): escreva exatamente como um atendente humano real escreveria numa conversa de WhatsApp.`,
+      "- PROIBIDO comecar respostas com expressoes roboticas ou de confirmacao vazia: 'Claro!', 'Perfeito!', 'Otimo!', 'Com certeza!', 'Entendido!', 'Certo!', 'Absolutamente!', 'Fico feliz em ajudar!', 'Sem problema!'. Varie as aberturas de forma genuina e contextual.",
+      "- PROIBIDO usar bullet points, listas numeradas, asteriscos ou qualquer formatacao markdown em mensagens conversacionais. Escreva em texto corrido, como numa conversa real.",
+      "- PROIBIDO abreviar palavras: nunca escreva 'vc', 'tb', 'mt', 'q', 'pq', 'qdo', 'kk', 'rs', 'hj', 'mto', 'td', 'tdo', 'tds', 'n', 'eh', 'blz', 'msg'. Escreva sempre as palavras completas.",
+      "- PROIBIDO usar girias ou expressoes informais demais: sem 'show', 'top', 'incrivel' exagerado, sem 'cara', 'mano', 'valeu', 'vlw', 'massa', 'irado'. Mantenha linguagem natural sem informalidade excessiva.",
+      "- PROIBIDO intimidade excessiva ou artificial: nao use 'amigo', 'amiga', 'querido', 'querida', 'meu bem', 'lindeza', 'mozao', 'fofo'. Seja caloroso e cordial sem ser intrusivo.",
+      "- PROIBIDO eco robotico: nunca repita a frase exata do lead de volta para ele. Processe a intencao e responda com suas proprias palavras.",
+      "- PROIBIDO blocos longos de texto em mensagens simples. Se o assunto e direto, responda de forma direta e curta. So escreva mais quando o conteudo realmente exigir.",
+      "- Varie o ritmo e a estrutura das respostas: as vezes uma frase basta, as vezes duas ou tres. Nunca todas as respostas no mesmo formato.",
+      "- Ao apresentar opcoes (horarios, modalidades, etc.), escreva de forma fluida: 'Tenho disponivel quarta as 14h ou quinta as 10h — qual fica melhor pra voce?' em vez de usar lista ou topicos.",
+      "- Use expressoes naturais de transicao quando fizer sentido: 'Entendo', 'Faz sentido', 'Olha', 'Veja', 'Deixa eu verificar isso pra voce', 'Um momento'. Use com naturalidade, nao mecanicamente.",
+      "- Demonstre empatia de forma genuina e discreta quando o lead mencionar dificuldades ou insatisfacao. Nunca force empatia em situacoes neutras.",
+      "- Mantenha o portugues correto e fluente. Nao use contracao de palavras que soem artificialmente formais, mas tambem nao use as que soem como giriase ou SMS.",
+    ].join("\n")
     const firstNameUsageRule = config.useFirstNamePersonalization
       ? `- Frequencia alvo de uso do primeiro nome: ${config.firstNameUsagePercent}% das respostas, sem exagerar.`
       : "- Frequencia alvo de uso do primeiro nome: 0%."
@@ -2055,8 +2069,8 @@ export class NativeAgentOrchestratorService {
       ? "- Use conectores naturais entre frases quando ajudarem a fluidez, sem exagerar."
       : "- Evite conectores de frase desnecessarios; prefira resposta objetiva."
     const languageVicesRule = config.allowLanguageVices
-      ? "- Vicios de linguagem podem ser usados raramente e somente quando combinarem com o perfil do lead."
-      : "- Nao use vicios de linguagem (ex.: 'pra', 'ta', 'ne', repeticoes). Prefira portugues claro e correto."
+      ? "- Vicios de linguagem podem ser usados raramente e somente quando combinarem com o perfil do lead. Mesmo assim, nunca use abreviacoes de SMS ('vc', 'tb', 'pq') nem girias pesadas."
+      : "- Nao use vicios de linguagem nem abreviacoes (ex.: 'vc', 'ta', 'ne', 'pq', 'tb', 'kk'). Prefira portugues natural, claro e correto, sem soar formal demais."
     const deepInteractionRule = config.deepInteractionAnalysisEnabled
       ? "- Antes de responder, analise contexto profundo: historico recente, intencao, emocao, replies/reacoes e mensagens em buffer; responda cobrindo todos os pontos relevantes."
       : "- Use apenas o contexto imediato da ultima mensagem."
