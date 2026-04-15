@@ -2020,11 +2020,17 @@ export class NativeAgentOrchestratorService {
     const now = new Date().toISOString()
     const nowLocalParts = getNowPartsForTimezone(timezone)
     const tomorrowLocalParts = addMinutesToParts(nowLocalParts, 24 * 60)
+    const dayAfterTomorrowLocalParts = addMinutesToParts(nowLocalParts, 48 * 60)
     const nowLocalIso = formatIsoFromParts(nowLocalParts, timezone)
     const todayIso = formatDateFromParts(nowLocalParts)
     const tomorrowIso = formatDateFromParts(tomorrowLocalParts)
+    const dayAfterTomorrowIso = formatDateFromParts(dayAfterTomorrowLocalParts)
+    const todayBr = formatDateIsoToBr(todayIso)
+    const tomorrowBr = formatDateIsoToBr(tomorrowIso)
+    const dayAfterTomorrowBr = formatDateIsoToBr(dayAfterTomorrowIso)
     const todayWeekdayPt = WEEKDAY_NAME_PT[localDayOfWeek(nowLocalParts)] || ""
     const tomorrowWeekdayPt = WEEKDAY_NAME_PT[localDayOfWeek(tomorrowLocalParts)] || ""
+    const dayAfterTomorrowWeekdayPt = WEEKDAY_NAME_PT[localDayOfWeek(dayAfterTomorrowLocalParts)] || ""
     const vars = buildPromptVariables({
       firstName: contactFirstName,
       fullName: String(ctx.contactName || "").trim(),
@@ -2206,8 +2212,9 @@ export class NativeAgentOrchestratorService {
       `CONTEXTO DA SESSAO ATUAL (nao misture com outras sessoes):`,
       `- Data/hora atual ISO: ${now}`,
       `- Data/hora local da unidade (${timezone}): ${nowLocalIso}`,
-      `- Hoje (local): ${todayIso} - ${todayWeekdayPt}`,
-      `- Amanha (local): ${tomorrowIso} - ${tomorrowWeekdayPt}`,
+      `- Hoje (local): ${todayIso} = ${todayBr} = ${todayWeekdayPt}`,
+      `- Amanha (local): ${tomorrowIso} = ${tomorrowBr} = ${tomorrowWeekdayPt}`,
+      `- Depois de amanha (local): ${dayAfterTomorrowIso} = ${dayAfterTomorrowBr} = ${dayAfterTomorrowWeekdayPt}`,
       `- Telefone do lead: ${ctx.phone}`,
       `- Session ID (identificador unico desta conversa): ${ctx.sessionId}`,
       `- Chat LID: ${ctx.chatLid || "nao informado"}`,
@@ -2376,6 +2383,10 @@ export class NativeAgentOrchestratorService {
       const timezone = String(args.timezone || params.config.timezone || "America/Sao_Paulo").trim()
       const nowParts = getNowPartsForTimezone(timezone)
       const tomorrowParts = addMinutesToParts(nowParts, 24 * 60)
+      const dayAfterTomorrowParts = addMinutesToParts(nowParts, 48 * 60)
+      const todayIsoTool = formatDateFromParts(nowParts)
+      const tomorrowIsoTool = formatDateFromParts(tomorrowParts)
+      const dayAfterTomorrowIsoTool = formatDateFromParts(dayAfterTomorrowParts)
       return {
         ok: true,
         action: { type: "none" },
@@ -2384,9 +2395,15 @@ export class NativeAgentOrchestratorService {
           now_iso: new Date().toISOString(),
           timezone,
           now_local_iso: formatIsoFromParts(nowParts, timezone),
-          today_iso: formatDateFromParts(nowParts),
-          tomorrow_iso: formatDateFromParts(tomorrowParts),
-          weekday_pt: WEEKDAY_NAME_PT[localDayOfWeek(nowParts)] || "",
+          today_iso: todayIsoTool,
+          today_br: formatDateIsoToBr(todayIsoTool),
+          today_weekday_pt: WEEKDAY_NAME_PT[localDayOfWeek(nowParts)] || "",
+          tomorrow_iso: tomorrowIsoTool,
+          tomorrow_br: formatDateIsoToBr(tomorrowIsoTool),
+          tomorrow_weekday_pt: WEEKDAY_NAME_PT[localDayOfWeek(tomorrowParts)] || "",
+          day_after_tomorrow_iso: dayAfterTomorrowIsoTool,
+          day_after_tomorrow_br: formatDateIsoToBr(dayAfterTomorrowIsoTool),
+          day_after_tomorrow_weekday_pt: WEEKDAY_NAME_PT[localDayOfWeek(dayAfterTomorrowParts)] || "",
         },
       }
     }
