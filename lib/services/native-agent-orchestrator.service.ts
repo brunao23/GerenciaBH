@@ -2152,7 +2152,7 @@ export class NativeAgentOrchestratorService {
       : "- Evite conectores de frase desnecessarios; prefira resposta objetiva."
     const languageVicesRule = config.allowLanguageVices
       ? "- Vicios de linguagem podem ser usados raramente e somente quando combinarem com o perfil do lead. Mesmo assim, nunca use abreviacoes de SMS ('vc', 'tb', 'pq') nem girias pesadas."
-      : "- Nao use vicios de linguagem nem abreviacoes (ex.: 'vc', 'ta', 'ne', 'pq', 'tb', 'kk'). Prefira portugues natural, claro e correto, sem soar formal demais."
+      : "- Nao use vicios de linguagem nem abreviacoes (ex.: 'vc', 'ta', 'ne', 'pq', 'tb', 'kk', 'pra'). Use SEMPRE a forma correta: 'para' (nunca 'pra'), 'está' (nunca 'ta'), 'você' (nunca 'vc'). Portugues natural, claro e correto, sem soar formal demais."
     const deepInteractionRule = config.deepInteractionAnalysisEnabled
       ? "- Antes de responder, analise contexto profundo: historico recente, intencao, emocao, replies/reacoes e mensagens em buffer; responda cobrindo todos os pontos relevantes."
       : "- Use apenas o contexto imediato da ultima mensagem."
@@ -2302,6 +2302,10 @@ export class NativeAgentOrchestratorService {
       "REGRAS OPERACIONAIS:",
       "- O session_id e o telefone devem ser sempre no formato numerico, iniciando com 55.",
       "- Responda sempre em portugues do Brasil.",
+      "- ORTOGRAFIA E GRAMATICA IMPECAVEIS: use sempre a forma correta das palavras, concordancia verbal e nominal perfeitas, sem contrações informais.",
+      "- PROIBIDO usar 'pra' — use SEMPRE 'para'. Exemplos: 'para você', 'para agendar', 'para amanhã'. NUNCA 'pra você', 'pra agendar', 'pra amanhã'.",
+      "- PROIBIDO usar formas coloquiais degeneradas: 'tá' (use 'está'), 'tô' (use 'estou'), 'né' (use 'não é'), 'num' (use 'não'), 'tava' (use 'estava'), 'cê' (use 'você'), 'pro' (use 'para o'), 'pras' (use 'para as'), 'dum' (use 'de um'), 'duma' (use 'de uma').",
+      "- Concordancia verbal obrigatoria: 'você está' (nao 'você ta'), 'nós temos' (nao 'a gente tem' em contexto formal), sujeito e verbo sempre concordando.",
       "- Mantenha respostas curtas, claras e comerciais.",
       "- Se o lead enviar emoji, reacao ou mensagem muito curta, responda de forma contextual com base no historico recente.",
       "- Evite respostas genericas para emoji/reacao. Interprete a intencao e confirme contexto quando necessario.",
