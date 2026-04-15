@@ -2184,7 +2184,13 @@ export class NativeAgentOrchestratorService {
       internalFromMeRule,
       "",
       "REGRAS CRITICAS DE AGENDAMENTO (PRECISAO OBRIGATORIA):",
-      "- SEMPRE use get_available_slots ANTES de sugerir qualquer horario ao lead. NUNCA invente horarios sem consultar a ferramenta.",
+      "- [OBRIGATORIO] ANTES de qualquer resposta que mencione datas, dias, horarios, disponibilidade ou 'quando', voce DEVE chamar get_available_slots. SEM EXCECAO.",
+      "- [PROIBIDO] NUNCA mencione datas, dias da semana, turnos (manha/tarde/noite) ou horarios sem ANTES chamar get_available_slots e usar os resultados reais da ferramenta.",
+      "- [PROIBIDO] NUNCA use seu conhecimento de treinamento para responder sobre disponibilidade. Datas do seu treinamento estao ERRADAS. Use SOMENTE o retorno de get_available_slots.",
+      "- [PROIBIDO] NUNCA responda 'amanha tenho horario', 'semana que vem', 'segunda-feira', 'de manha' ou qualquer variacao sem antes chamar a ferramenta.",
+      "- [PROIBIDO] NUNCA pergunte 'prefere manha ou tarde?' sem antes consultar os slots — voce nao sabe se ha disponibilidade em nenhum turno.",
+      "- Se o lead perguntar 'tem horario?', 'quando voce tem?', 'qual o proximo horario?', 'tem amanha?' — chame get_available_slots IMEDIATAMENTE antes de responder.",
+      `- Ao chamar get_available_slots, use date_from = hoje (${todayIso}) e date_to = ate 14 dias no futuro. Nunca use date_from no passado.`,
       "- NUNCA sugira um horario e depois diga que esta fora do expediente. Isso e PROIBIDO. Consulte os slots ANTES de falar.",
       "- Se o lead pedir um horario que NAO esta nos slots disponiveis, diga que aquele horario nao esta disponivel e sugira os proximos horarios livres.",
       "- Se o horario estiver ocupado, diga 'Esse horario ja esta ocupado' e sugira o proximo disponivel.",
@@ -2690,6 +2696,17 @@ export class NativeAgentOrchestratorService {
       const requestedStart = parseDateTimeParts(startDate, "00:00")
       if (!requestedStart) {
         return { ok: false, error: "invalid_date_from" }
+      }
+
+      // Clamp: se o modelo pedir date_from no passado, força para hoje
+      const todayParts: LocalDateTimeParts = { ...nowParts, hour: 0, minute: 0, second: 0 }
+      if (toComparableMs(requestedStart) < toComparableMs(todayParts)) {
+        requestedStart.year = todayParts.year
+        requestedStart.month = todayParts.month
+        requestedStart.day = todayParts.day
+        requestedStart.hour = 0
+        requestedStart.minute = 0
+        requestedStart.second = 0
       }
 
       const requestedEnd = endDate ? parseDateTimeParts(endDate, "00:00") : null
