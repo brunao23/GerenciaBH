@@ -113,11 +113,11 @@ const defaultConfig: TenantNativeAgentConfig = {
   preciseFirstMessageEnabled: true,
   responseDelayMinSeconds: 0,
   responseDelayMaxSeconds: 0,
-  inboundMessageBufferSeconds: 8,
-  zapiDelayMessageSeconds: 2,
-  zapiDelayTypingSeconds: 3,
+  inboundMessageBufferSeconds: 10,
+  zapiDelayMessageSeconds: 1,
+  zapiDelayTypingSeconds: 0,
   splitLongMessagesEnabled: true,
-  messageBlockMaxChars: 280,
+  messageBlockMaxChars: 400,
   schedulingEnabled: true,
   followupEnabled: true,
   followupIntervalsMinutes: [15, 60, 360, 1440, 2880, 4320, 7200],
@@ -602,7 +602,7 @@ export default function AgenteIAPage() {
         zapiDelayMessageSeconds: Math.max(1, Math.min(15, Number(config.zapiDelayMessageSeconds || 1))),
         zapiDelayTypingSeconds: Math.max(0, Math.min(15, Number(config.zapiDelayTypingSeconds || 0))),
         splitLongMessagesEnabled: config.splitLongMessagesEnabled,
-        messageBlockMaxChars: Math.max(80, Math.min(1200, Number(config.messageBlockMaxChars || 280))),
+        messageBlockMaxChars: Math.max(120, Math.min(1200, Number(config.messageBlockMaxChars || 400))),
         schedulingEnabled: config.schedulingEnabled,
         followupEnabled: config.followupEnabled,
         followupIntervalsMinutes: parseFollowupIntervalsInput(followupIntervalsInput),
@@ -1069,7 +1069,7 @@ export default function AgenteIAPage() {
                 max={1200}
                 value={config.messageBlockMaxChars}
                 onChange={(e) =>
-                  setConfig((prev) => ({ ...prev, messageBlockMaxChars: Number(e.target.value || 280) }))
+                  setConfig((prev) => ({ ...prev, messageBlockMaxChars: Number(e.target.value || 400) }))
                 }
                 className="bg-secondary border-border text-foreground"
                 disabled={loading}

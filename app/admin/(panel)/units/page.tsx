@@ -131,11 +131,11 @@ const defaultNativeAgentConfig: AdminNativeAgentConfig = {
     autoPauseOnHumanIntervention: false,
     responseDelayMinSeconds: 0,
     responseDelayMaxSeconds: 0,
-    inboundMessageBufferSeconds: 8,
-    zapiDelayMessageSeconds: 2,
-    zapiDelayTypingSeconds: 3,
+    inboundMessageBufferSeconds: 10,
+    zapiDelayMessageSeconds: 1,
+    zapiDelayTypingSeconds: 0,
     splitLongMessagesEnabled: true,
-    messageBlockMaxChars: 280,
+    messageBlockMaxChars: 400,
     testModeEnabled: false,
     testAllowedNumbers: [],
     toolNotificationsEnabled: false,
@@ -569,10 +569,10 @@ export default function AdminUnitsPage() {
                 responseDelayMinSeconds: Math.max(0, Number(nativeAgentConfig.responseDelayMinSeconds || 0)),
                 responseDelayMaxSeconds: Math.max(0, Number(nativeAgentConfig.responseDelayMaxSeconds || 0)),
                 inboundMessageBufferSeconds: Math.max(0, Math.min(120, Number(nativeAgentConfig.inboundMessageBufferSeconds || 0))),
-                zapiDelayMessageSeconds: Math.max(1, Math.min(15, Number(nativeAgentConfig.zapiDelayMessageSeconds || 2))),
+                zapiDelayMessageSeconds: Math.max(1, Math.min(15, Number(nativeAgentConfig.zapiDelayMessageSeconds || 1))),
                 zapiDelayTypingSeconds: Math.max(0, Math.min(15, Number(nativeAgentConfig.zapiDelayTypingSeconds || 0))),
                 splitLongMessagesEnabled: nativeAgentConfig.splitLongMessagesEnabled,
-                messageBlockMaxChars: Math.max(80, Math.min(1200, Number(nativeAgentConfig.messageBlockMaxChars || 280))),
+                messageBlockMaxChars: Math.max(120, Math.min(1200, Number(nativeAgentConfig.messageBlockMaxChars || 400))),
                 testModeEnabled: nativeAgentConfig.testModeEnabled,
                 testAllowedNumbers: parseTestNumbersInput(testAllowedNumbersInput),
                 toolNotificationsEnabled: nativeAgentConfig.toolNotificationsEnabled,
@@ -2025,7 +2025,7 @@ export default function AdminUnitsPage() {
                                                 onChange={(e) =>
                                                     setNativeAgentConfig((prev) => ({
                                                         ...prev,
-                                                        messageBlockMaxChars: Number(e.target.value || 280),
+                                                        messageBlockMaxChars: Number(e.target.value || 400),
                                                     }))
                                                 }
                                                 className="bg-secondary border-border text-white"

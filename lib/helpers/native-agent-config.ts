@@ -132,11 +132,11 @@ const DEFAULT_DEEP_INTERACTION_ANALYSIS_ENABLED = true
 const DEFAULT_PRECISE_FIRST_MESSAGE_ENABLED = true
 const DEFAULT_RESPONSE_DELAY_MIN_SEC = 0
 const DEFAULT_RESPONSE_DELAY_MAX_SEC = 0
-const DEFAULT_INBOUND_MESSAGE_BUFFER_SEC = 8
-const DEFAULT_ZAPI_DELAY_MESSAGE_SEC = 2
-const DEFAULT_ZAPI_DELAY_TYPING_SEC = 3
+const DEFAULT_INBOUND_MESSAGE_BUFFER_SEC = 10   // buffer para agrupar mensagens rápidas do lead
+const DEFAULT_ZAPI_DELAY_MESSAGE_SEC = 1          // gap pós-digitando (mínimo aceitável pela Z-API)
+const DEFAULT_ZAPI_DELAY_TYPING_SEC = 0           // 0 = modo automático: typing proporcional ao bloco
 const DEFAULT_SPLIT_LONG_MESSAGES = true
-const DEFAULT_MESSAGE_BLOCK_MAX_CHARS = 280
+const DEFAULT_MESSAGE_BLOCK_MAX_CHARS = 400       // ~1-2 frases curtas / 1 parágrafo médio
 const DEFAULT_TEST_MODE_ENABLED = false
 const DEFAULT_TEST_ALLOWED_NUMBERS: string[] = []
 const DEFAULT_TOOL_NOTIFICATIONS_ENABLED = false
@@ -580,7 +580,7 @@ function normalizeConfig(input: any): NativeAgentConfig {
     messageBlockMaxChars: readNumber(
       raw.messageBlockMaxChars,
       DEFAULT_MESSAGE_BLOCK_MAX_CHARS,
-      80,
+      120,
       1200,
     ),
     testModeEnabled: readBoolean(raw.testModeEnabled, DEFAULT_TEST_MODE_ENABLED),
@@ -813,8 +813,8 @@ export function validateNativeAgentConfig(config: NativeAgentConfig): string | n
   }
 
   if (config.splitLongMessagesEnabled) {
-    if (config.messageBlockMaxChars < 80 || config.messageBlockMaxChars > 1200) {
-      return "messageBlockMaxChars must be between 80 and 1200"
+    if (config.messageBlockMaxChars < 120 || config.messageBlockMaxChars > 1200) {
+      return "messageBlockMaxChars must be between 120 and 1200"
     }
   }
 

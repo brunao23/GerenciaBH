@@ -765,12 +765,24 @@ function clampMinutes(minutes: number): number {
   return Math.floor(minutes)
 }
 
-function clampBlockChars(value: any, fallback = 280): number {
+function clampBlockChars(value: any, fallback = 400): number {
   const numeric = Number(value)
   if (!Number.isFinite(numeric)) return fallback
-  if (numeric < 80) return 80
+  if (numeric < 120) return 120
   if (numeric > 1200) return 1200
   return Math.floor(numeric)
+}
+
+/**
+ * Calcula o delay de "digitando" proporcional ao tamanho do bloco.
+ * configValue = 0  → modo automático (proporcional, máx 5s)
+ * configValue > 0  → usa como teto máximo (ex.: config=3 → máx 3s dinâmico)
+ */
+function computeTypingSeconds(blockText: string, configValue: number): number {
+  const cap = configValue > 0 ? Math.min(configValue, 8) : 5
+  // ~80 chars por segundo de percepção: 1s para curtos, até cap para longos
+  const dynamic = Math.max(1, Math.ceil(blockText.length / 80))
+  return Math.min(cap, dynamic)
 }
 
 function normalizeFollowupIntervals(value: any): number[] {
@@ -810,168 +822,107 @@ function resolveFollowupIntervalsFromConfig(config: NativeAgentConfig): number[]
 /**
  * Divide mensagem longa em blocos para envio sequencial via WhatsApp.
  *
- * PRINCÍPIO: humanos NÃO escrevem mensagens com tamanho uniforme.
- * A cada turno, os blocos devem variar em tamanho e quantidade para
- * parecer uma conversa real, nunca um padrão repetitivo de bot.
+ * PRINCÍPIO HUMANO:
+ *  - Mensagens curtas (≤ ~1,2x o limite): SEMPRE uma mensagem só
+ *  - Parágrafos naturais (separados por \n\n): respeita as quebras do modelo
+ *  - Frases longas sem parágrafos: quebra em pontuação final
+ *  - Máximo 3 blocos por turno — humano não manda 5 mensagens seguidas
+ *  - Variação suave (±15%) para não ter padrão mecânico
+ *  - Nunca quebra no meio de uma frase
  */
 function splitLongMessageIntoBlocks(message: string, maxChars: number): string[] {
   const text = String(message || "").replace(/\r/g, "").trim()
   if (!text) return []
 
-  const baseLimit = clampBlockChars(maxChars)
+  const base = clampBlockChars(maxChars) // default 400
 
-  // ── Variação dinâmica: cada turno usa um limite diferente ────────
-  // Gera um fator aleatório entre 0.7 e 1.3 para variar o tamanho dos blocos
-  const variationFactor = 0.7 + Math.random() * 0.6
-  const limit = Math.floor(baseLimit * variationFactor)
-  const effectiveLimit = Math.max(80, Math.min(limit, 400))
+  // Textos que cabem em ~1,2x o limite: bloco único sempre
+  if (text.length <= Math.floor(base * 1.2)) return [text]
 
-  // Textos curtos: chance de enviar como bloco único (mais humano)
-  if (text.length <= baseLimit * 1.4) {
-    // 40% de chance de mandar tudo junto se cabe em ~1.4x o limite
-    if (Math.random() < 0.4) return [text]
-  }
-  if (text.length <= effectiveLimit) return [text]
+  // ── Variação leve: ±15% a cada turno ───────────────────────────────
+  const factor = 0.85 + Math.random() * 0.3 // 0.85 – 1.15
+  const limit = Math.max(120, Math.min(Math.floor(base * factor), 700))
 
+  // ── Tentativa 1: parágrafos naturais (\n\n) ─────────────────────────
   const paragraphs = text
     .split(/\n{2,}/g)
-    .map((part) => part.trim())
+    .map((p) => p.trim())
     .filter(Boolean)
 
-  // Se já tem parágrafos naturais e são poucos (2-4), usa eles direto
-  if (paragraphs.length >= 2 && paragraphs.length <= 4) {
-    const allFit = paragraphs.every((p) => p.length <= baseLimit * 1.5)
-    if (allFit) {
-      // Chance de agrupar alguns parágrafos para variar padrão
-      if (paragraphs.length === 2 && Math.random() < 0.3) return [text]
-      if (paragraphs.length >= 3 && Math.random() < 0.35) {
-        // Agrupa os primeiros parágrafos e deixa o último separado
-        const splitAt = 1 + Math.floor(Math.random() * (paragraphs.length - 1))
-        const first = paragraphs.slice(0, splitAt).join("\n\n")
-        const second = paragraphs.slice(splitAt).join("\n\n")
-        return [first, second].filter((b) => b.trim())
+  if (paragraphs.length >= 2) {
+    const allFit = paragraphs.every((p) => p.length <= limit * 1.4)
+    if (allFit && paragraphs.length <= 3) {
+      // 2 parágrafos pequenos: chance de mandar junto
+      if (paragraphs.length === 2 && text.length <= limit * 1.6 && Math.random() < 0.35) {
+        return [text]
       }
-      return paragraphs
+      return enforceBlocMax(paragraphs, base)
     }
+    // Parágrafos grandes: processa cada um separadamente depois
   }
+
+  // ── Tentativa 2: quebra por sentença (. ! ?) ─────────────────────────
+  const sentences = text
+    .replace(/\n+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+
+  if (sentences.length <= 1) return [text]
 
   const blocks: string[] = []
+  let current = ""
 
-  const splitBySentence = (input: string): string[] => {
-    const flattened = input.replace(/\n+/g, " ").replace(/\s+/g, " ").trim()
-    if (!flattened) return []
-    const parts = flattened.split(/(?<=[.!?])\s+/g).map((part) => part.trim()).filter(Boolean)
-    return parts.length ? parts : [flattened]
-  }
-
-  const splitByWords = (input: string): string[] => {
-    const words = input.split(/\s+/g).filter(Boolean)
-    const chunks: string[] = []
-    let current = ""
-    for (const word of words) {
-      if (!word) continue
-      if (!current) { current = word; continue }
-      const candidate = `${current} ${word}`
-      if (candidate.length > effectiveLimit) {
-        chunks.push(current.trim())
-        current = word
-        continue
-      }
-      current = candidate
-    }
-    if (current.trim()) chunks.push(current.trim())
-    return chunks
-  }
-
-  // Gera um limite local diferente para cada bloco (variação intra-turno)
-  const localLimit = () => {
-    const jitter = 0.75 + Math.random() * 0.5 // 0.75x a 1.25x
-    return Math.max(80, Math.floor(effectiveLimit * jitter))
-  }
-
-  for (const paragraph of paragraphs) {
-    const thisBlockLimit = localLimit()
-    if (paragraph.length <= thisBlockLimit) {
-      blocks.push(paragraph)
+  for (const sentence of sentences) {
+    if (!current) {
+      current = sentence
       continue
     }
-
-    const sentenceParts = splitBySentence(paragraph)
-    let current = ""
-    let currentLimit = localLimit()
-
-    for (const sentence of sentenceParts) {
-      if (!sentence) continue
-      if (sentence.length > currentLimit) {
-        if (current.trim()) { blocks.push(current.trim()); current = "" }
-        const wordChunks = splitByWords(sentence)
-        wordChunks.forEach((chunk) => blocks.push(chunk))
-        currentLimit = localLimit()
-        continue
-      }
-
-      if (!current) { current = sentence; continue }
-      const candidate = `${current} ${sentence}`
-      if (candidate.length > currentLimit) {
-        blocks.push(current.trim())
-        current = sentence
-        currentLimit = localLimit()
-        continue
-      }
+    const candidate = `${current} ${sentence}`
+    if (candidate.length <= limit) {
       current = candidate
+    } else {
+      blocks.push(current.trim())
+      current = sentence
     }
-
-    if (current.trim()) blocks.push(current.trim())
   }
+  if (current.trim()) blocks.push(current.trim())
 
-  // ── Compactação inteligente com variação ─────────────────────────
+  // ── Compactação: elimina blocos duplicados e minúsculos ───────────────
   const compacted: string[] = []
   for (const block of blocks) {
-    const clean = String(block || "").trim()
+    const clean = block.trim()
     if (!clean) continue
-
     if (compacted.length > 0) {
-      const previous = compacted[compacted.length - 1]
-      const similarity = semanticSimilarityScore(previous, clean)
-      if (similarity >= 0.9) continue
-
-      // Merge blocos pequenos com probabilidade variável
-      const shouldMergeTinyTail = clean.length < 60 && Math.random() < 0.6
-      if (shouldMergeTinyTail) {
-        const merged = `${previous}\n\n${clean}`.trim()
-        if (merged.length <= baseLimit + 120) {
-          compacted[compacted.length - 1] = merged
-          continue
-        }
-      }
-
-      // Ocasionalmente agrupa dois blocos médios (~30% chance)
-      const bothMedium = previous.length < baseLimit * 0.6 && clean.length < baseLimit * 0.6
-      if (bothMedium && Math.random() < 0.3) {
-        const merged = `${previous}\n\n${clean}`.trim()
-        if (merged.length <= baseLimit * 1.3) {
-          compacted[compacted.length - 1] = merged
-          continue
-        }
+      const prev = compacted[compacted.length - 1]
+      // Remove quasi-duplicatas
+      if (semanticSimilarityScore(prev, clean) >= 0.9) continue
+      // Merge de cauda muito curta (< 60 chars): preferir junto
+      if (clean.length < 60) {
+        const merged = `${prev} ${clean}`
+        compacted[compacted.length - 1] = merged
+        continue
       }
     }
-
     compacted.push(clean)
   }
 
-  // ── Limite máximo de blocos por turno (anti-spam) ────────────────
-  // Humanos mandam no máximo 4-5 mensagens seguidas, nunca 8+
-  const maxBlocks = 2 + Math.floor(Math.random() * 3) // 2 a 4 blocos
-  if (compacted.length > maxBlocks) {
-    const merged: string[] = []
-    const perGroup = Math.ceil(compacted.length / maxBlocks)
-    for (let i = 0; i < compacted.length; i += perGroup) {
-      merged.push(compacted.slice(i, i + perGroup).join("\n\n"))
-    }
-    return merged.filter((b) => b.trim())
-  }
+  return enforceBlocMax(compacted.length ? compacted : [text], base)
+}
 
-  return compacted.length ? compacted : [text]
+/** Garante no máximo 3 blocos por turno, consolidando os excedentes. */
+function enforceBlocMax(blocks: string[], base: number): string[] {
+  const MAX = 3
+  if (blocks.length <= MAX) return blocks
+  // Consolida agrupando os blocos em MAX grupos de tamanho similar
+  const merged: string[] = []
+  const perGroup = Math.ceil(blocks.length / MAX)
+  for (let i = 0; i < blocks.length; i += perGroup) {
+    merged.push(blocks.slice(i, i + perGroup).join("\n\n"))
+  }
+  return merged.filter((b) => b.trim())
 }
 
 function findLastLeadMessage(
@@ -1556,7 +1507,7 @@ export class NativeAgentOrchestratorService {
         sessionId,
         source: "native-agent",
         zapiDelayMessageSeconds: config.zapiDelayMessageSeconds,
-        zapiDelayTypingSeconds: config.zapiDelayTypingSeconds,
+        zapiDelayTypingSeconds: computeTypingSeconds(block, config.zapiDelayTypingSeconds),
       })
 
       if (!send.success) {
