@@ -164,20 +164,24 @@ function detectNegativeLeadIntent(rawMessage: string): NegativeIntentResult {
   if (!text || text.length < 3) return { detected: false }
 
   // --- OPT-OUT: lead asks to be removed from contact list ---
+  // ATENÇÃO: todos os padrões exigem âncoras obrigatórias para evitar falsos positivos
   const optOutPatterns = [
     /\b(me\s+)?tir[ae]\s+(da\s+lista|do\s+grupo|meu\s+numero|dos?\s+contatos?)/,
-    /\b(nao\s+)?(quero\s+)?(mais\s+)?(receber\s+)?(mensagen[s]?|contato|msg)/,
-    /\bnao\s+(me\s+)?mande\s+mais/,
-    /\bnao\s+(me\s+)?envie\s+mais/,
-    /\bpar[ae]\s+de\s+(me\s+)?(mandar|enviar|contactar|ligar)/,
-    /\bnao\s+me\s+(ligue|chame|contate|procure)\s+mais/,
-    /\bremov[ae]\s+(meu\s+)?(numero|contato|cadastro)/,
-    /\bexclu[ia]\s+(meu\s+)?(numero|contato|cadastro)/,
-    /\bdesinscrever/,
+    // Requer "nao" + verbo de vontade antes de "receber/contato/mensagem"
+    /\bnao\s+(quero|desejo|preciso)\s+(mais\s+)?(receber\s+)?(mensagen[s]?|contatos?|msgs?)\b/,
+    /\bnao\s+quero\s+mais\s+(esse\s+)?(tipo\s+de\s+)?(contato|mensagen[s]?|msgs?)\b/,
+    /\bnao\s+(me\s+)?mande\s+mais\b/,
+    /\bnao\s+(me\s+)?envie\s+mais\b/,
+    /\bpar[ae]\s+de\s+(me\s+)?(mandar|enviar|contactar|ligar)\b/,
+    /\bnao\s+me\s+(ligue|chame|contate|procure)\s+mais\b/,
+    /\bremov[ae]\s+(meu\s+)?(numero|contato|cadastro)\b/,
+    /\bexclu[ia]\s+(meu\s+)?(numero|contato|cadastro)\b/,
+    /\b(me\s+)?desinscrever?\b/,
     /\bdescadastr/,
-    /\bsair\s+da\s+lista/,
+    /\bsair\s+da\s+lista\b/,
     /\bnao\s+pertub/,
-    /\bnao\s+incomod/,
+    /\bnao\s+me\s+incomod/,
+    /\bnao\s+quero\s+ser\s+(mais\s+)?(contatado|contactado|chamado|incomodado)/,
   ]
 
   for (const pattern of optOutPatterns) {
@@ -261,9 +265,16 @@ function negativeIntentLabel(category: NegativeIntentResult["category"]): string
 
 function shouldAutoPauseFromNegativeIntent(result: NegativeIntentResult): boolean {
   if (!result.detected) return false
-  // Alta precisao: so pausar automaticamente em casos explicitos de opt-out.
-  // "will_contact_later", "bot_message" e "dissatisfaction" nao devem pausar sem revisao humana.
-  return result.category === "opt_out"
+  // Pausar apenas em sinais EXPLÍCITOS e inequívocos:
+  //   opt_out       — pedido explícito de remoção da lista
+  //   dissatisfaction — insatisfação grave/ameaça legal
+  //   bot_message   — número automatizado/voicemail (não tem lead humano)
+  // "will_contact_later" NÃO pausa — lead pode simplesmente estar ocupado.
+  return (
+    result.category === "opt_out" ||
+    result.category === "dissatisfaction" ||
+    result.category === "bot_message"
+  )
 }
 
 function semanticSimilarityScore(a: string, b: string): number {
@@ -1115,8 +1126,11 @@ export class NativeAgentOrchestratorService {
 
     // -----------------------------------------------------------------------
     // Auto-pause: detect negative intent BEFORE any AI processing
+    // Only runs when autoPauseOnHumanIntervention is explicitly enabled
     // -----------------------------------------------------------------------
-    const negativeIntent = detectNegativeLeadIntent(content)
+    const negativeIntent = config.autoPauseOnHumanIntervention
+      ? detectNegativeLeadIntent(content)
+      : { detected: false }
     if (negativeIntent.detected && shouldAutoPauseFromNegativeIntent(negativeIntent)) {
       const label = negativeIntentLabel(negativeIntent.category)
       console.log(
