@@ -2179,6 +2179,10 @@ export class NativeAgentOrchestratorService {
     const maxDays = Math.max(0, Number(config.calendarMaxAdvanceDays || 0))
     const maxWeeks = Math.max(0, Number(config.calendarMaxAdvanceWeeks || 0))
     const maxWindowDays = Math.max(maxDays, maxWeeks * 7)
+    // Compute concrete date_to for the search window so the AI doesn't have to calculate it
+    const searchWindowDays = maxWindowDays > 0 ? maxWindowDays : 21
+    const searchWindowEndParts = addMinutesToParts(nowLocalParts, searchWindowDays * 24 * 60)
+    const searchWindowEndIso = formatDateFromParts(searchWindowEndParts)
     const returnWindowRule =
       maxWindowDays > 0
         ? `- Nao agende alem de ${maxWindowDays} dias no futuro.`
@@ -2379,8 +2383,8 @@ export class NativeAgentOrchestratorService {
       "- [PROIBIDO] NUNCA pergunte 'prefere manha ou tarde?' sem antes consultar os slots — voce nao sabe se ha disponibilidade em nenhum turno.",
       "- Se o lead perguntar 'tem horario?', 'quando voce tem?', 'qual o proximo horario?', 'tem amanha?' — chame get_available_slots IMEDIATAMENTE antes de responder.",
       maxWindowDays > 0
-        ? `- Ao chamar get_available_slots, use date_from = hoje (${todayIso}) e date_to = ${todayIso} + ${maxWindowDays} dias (janela maxima configurada para esta unidade e ${maxWindowDays} dias no futuro). NUNCA busque alem dessa janela — slots fora dela nao existem por configuracao.`
-        : `- Ao chamar get_available_slots, use date_from = hoje (${todayIso}) e date_to = ate 21 dias no futuro como busca inicial.`,
+        ? `- JANELA DE AGENDAMENTO DESTA UNIDADE: ${maxWindowDays} dias no futuro (configurado pelo admin). Ao chamar get_available_slots use SEMPRE date_from=${todayIso} e date_to=${searchWindowEndIso}. NUNCA ultrapasse ${searchWindowEndIso} — slots alem dessa data nao existem por configuracao.`
+        : `- Ao chamar get_available_slots, use date_from=${todayIso} e date_to=${searchWindowEndIso} como busca inicial (sem limite configurado, usando janela padrao de ${searchWindowDays} dias).`,
       "- NUNCA sugira um horario e depois diga que esta fora do expediente. Isso e PROIBIDO. Consulte os slots ANTES de falar.",
       "- Se o lead pedir um horario que NAO esta nos slots disponiveis, diga que aquele horario nao esta disponivel e sugira os proximos horarios livres.",
       "- Se o horario estiver ocupado, diga 'Esse horario ja esta ocupado' e sugira o proximo disponivel.",
@@ -2391,8 +2395,8 @@ export class NativeAgentOrchestratorService {
       "- Quando fizer sentido retomar depois, acione create_followup ou create_reminder.",
       "- Se precisar transferir para humano, acione handoff_human.",
       maxWindowDays > 0
-        ? `- [SEM RETRY ALEM DA JANELA CONFIGURADA] A janela maxima desta unidade e ${maxWindowDays} dias. Se get_available_slots retornar total=0 com essa janela completa, NAO ha slots disponiveis no periodo configurado — informe o lead e oferea contato direto. NAO tente datas alem de ${maxWindowDays} dias.`
-        : "- [RETRY OBRIGATORIO QUANDO total=0] Se get_available_slots retornar total=0 (sem slots) na busca inicial de 21 dias: chame NOVAMENTE com date_to = 45 dias no futuro. Se ainda total=0, chame mais uma vez com date_to = 60 dias. Somente apos 3 tentativas (21, 45, 60 dias) sem resultado diga ao lead que nao ha horarios disponiveis no momento e oferea contato direto.",
+        ? `- [JANELA FIXA — SEM RETRY ALEM DE ${searchWindowEndIso}] Esta unidade aceita agendamentos somente ate ${searchWindowEndIso} (${maxWindowDays} dias). Se get_available_slots retornar total=0 com date_to=${searchWindowEndIso}, nao ha disponibilidade no periodo — informe o lead e oferea contato direto. NAO expanda a busca.`
+        : `- [RETRY QUANDO total=0] Se get_available_slots retornar total=0 na busca inicial (ate ${searchWindowEndIso}): chame novamente com date_to=${formatDateFromParts(addMinutesToParts(nowLocalParts, 45 * 24 * 60))}. Se ainda total=0, tente date_to=${formatDateFromParts(addMinutesToParts(nowLocalParts, 60 * 24 * 60))}. Somente apos 3 tentativas sem resultado informe ao lead.`,
       "- [PROIBIDO AFIRMAR DIA SEM VERIFICAR] O response de get_available_slots inclui 'business_days_configured' com os dias da semana que a unidade REALMENTE atende e 'business_hours_per_day' com os horarios por dia. NUNCA diga 'nao atendemos aos sabados', 'nao temos domingo' ou qualquer afirmacao sobre dias especificos sem verificar 'business_days_configured'. Se sabado (6) ou domingo (7) estiver em 'business_days_configured', a unidade ATENDE nesses dias.",
       "- [USO DE business_days_configured] Quando apresentar opcoes ao lead, use apenas os dias que estao em 'business_days_configured'. Se o lead pedir um dia que NAO esta na lista, informe que nao ha atendimento naquele dia da semana e sugira os dias configurados.",
       "- [PRECISAO DE RANGE] Se o lead pedir um periodo especifico ('semana que vem', 'mes que vem', 'proximo mes'), ajuste date_from e date_to exatamente para cobrir esse periodo ao chamar get_available_slots.",
