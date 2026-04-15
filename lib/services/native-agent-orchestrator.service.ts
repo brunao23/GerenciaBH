@@ -568,31 +568,42 @@ function shiftDate(year: number, month: number, day: number, deltaDays: number):
   return `${y}-${String(mo).padStart(2, "0")}-${String(da).padStart(2, "0")}`
 }
 
-function getBrazilianNationalHolidays(year: number): Set<string> {
-  const h = new Set<string>()
+// Retorna Map<iso, nome> para o ano informado
+function getBrazilianNationalHolidaysMap(year: number): Map<string, string> {
+  const h = new Map<string, string>()
   const pad = (n: number) => String(n).padStart(2, "0")
   const iso = (m: number, d: number) => `${year}-${pad(m)}-${pad(d)}`
 
   // Feriados fixos nacionais
-  h.add(iso(1, 1))   // Ano Novo
-  h.add(iso(4, 21))  // Tiradentes
-  h.add(iso(5, 1))   // Dia do Trabalho
-  h.add(iso(9, 7))   // Independência
-  h.add(iso(10, 12)) // Nossa Senhora Aparecida
-  h.add(iso(11, 2))  // Finados
-  h.add(iso(11, 15)) // Proclamação da República
-  h.add(iso(11, 20)) // Consciência Negra (Lei federal desde 2023)
-  h.add(iso(12, 25)) // Natal
+  h.set(iso(1, 1),   "Ano Novo")
+  h.set(iso(4, 21),  "Tiradentes")
+  h.set(iso(5, 1),   "Dia do Trabalho")
+  h.set(iso(9, 7),   "Independencia do Brasil")
+  h.set(iso(10, 12), "Nossa Senhora Aparecida")
+  h.set(iso(11, 2),  "Finados")
+  h.set(iso(11, 15), "Proclamacao da Republica")
+  h.set(iso(11, 20), "Consciencia Negra")
+  h.set(iso(12, 25), "Natal")
 
   // Feriados móveis baseados na Páscoa
   const easter = getEasterDate(year)
-  h.add(shiftDate(year, easter.month, easter.day, -48)) // Carnaval (segunda)
-  h.add(shiftDate(year, easter.month, easter.day, -47)) // Carnaval (terça)
-  h.add(shiftDate(year, easter.month, easter.day, -2))  // Sexta-feira Santa
-  h.add(shiftDate(year, easter.month, easter.day, 0))   // Páscoa (domingo)
-  h.add(shiftDate(year, easter.month, easter.day, 60))  // Corpus Christi
+  h.set(shiftDate(year, easter.month, easter.day, -48), "Carnaval")
+  h.set(shiftDate(year, easter.month, easter.day, -47), "Carnaval")
+  h.set(shiftDate(year, easter.month, easter.day, -2),  "Sexta-feira Santa")
+  h.set(shiftDate(year, easter.month, easter.day, 0),   "Pascoa")
+  h.set(shiftDate(year, easter.month, easter.day, 60),  "Corpus Christi")
 
   return h
+}
+
+function getBrazilianNationalHolidays(year: number): Set<string> {
+  return new Set(getBrazilianNationalHolidaysMap(year).keys())
+}
+
+function getHolidayName(dateIso: string): string | null {
+  const year = Number(String(dateIso || "").slice(0, 4))
+  if (!year) return null
+  return getBrazilianNationalHolidaysMap(year).get(dateIso) || null
 }
 
 function getSlotDateContext(dateIso: string, nowParts: LocalDateTimeParts): {
@@ -2278,6 +2289,7 @@ export class NativeAgentOrchestratorService {
       "- REGRA DE DATA RELATIVA: use sempre o campo relative_label do slot como referencia. Exemplos de uso correto: 'hoje as 14h', 'amanha as 10h', 'depois de amanha as 9h', 'quinta-feira as 15h' (esta semana), 'proxima terca-feira (22/04) as 14h' (semana seguinte), 'quarta-feira (29/04) as 10h' (duas semanas ou mais). NUNCA use apenas 'dia 22' sem o dia da semana.",
       "- REGRA DE CONSISTENCIA: NUNCA escreva duas opcoes equivalentes para o mesmo dia no mesmo turno (ex.: 'amanha 20h' e 'quarta-feira 20h' quando representam o mesmo dia).",
       "- REGRA DE NATURALIDADE NA DATA: NUNCA diga 'o dia 21 que e uma terca-feira' nem 'para o dia 21, que e terca-feira'. A ordem correta e sempre o dia da semana primeiro: 'terca-feira, dia 21' ou 'terca (dia 21)' ou apenas 'terca-feira as 14h'. Use o campo relative_label do slot (amanha, depois de amanha, quarta-feira, etc.) como referencia principal — evite mencionar o numero do dia isolado como se fosse o protagonista.",
+      "- REGRA DE FERIADO: o resultado de get_available_slots inclui o campo holidays_in_range com os feriados nacionais que caem no periodo consultado. Se o lead pedir um dia que e feriado, explique de forma natural e amigavel: 'Olha, esse dia e feriado nacional — {nome do feriado}. Por isso nao temos atendimento. Que tal {proximo slot disponivel}?' Nunca diga apenas 'nao temos disponibilidade' quando a razao for feriado — sempre nomeie o feriado.",
       "",
       `CONTEXTO DA SESSAO ATUAL (nao misture com outras sessoes):`,
       `- Data/hora atual ISO: ${now}`,
@@ -2498,6 +2510,23 @@ export class NativeAgentOrchestratorService {
       })
       const slotNowParts = getNowPartsForTimezone(params.config.timezone || "America/Sao_Paulo")
 
+      // Calcula feriados que caem no range solicitado (para o agente explicar ao lead)
+      const holidaysInRange: Array<{ date: string; date_br: string; name: string }> = []
+      if (params.config.calendarHolidaysEnabled !== false && action.date_from) {
+        const rangeStart = action.date_from
+        const rangeEnd = action.date_to || rangeStart
+        const startYear = Number(String(rangeStart).slice(0, 4))
+        const endYear = Number(String(rangeEnd).slice(0, 4))
+        for (let yr = startYear; yr <= endYear; yr++) {
+          for (const [iso, name] of getBrazilianNationalHolidaysMap(yr)) {
+            if (iso >= rangeStart && iso <= rangeEnd) {
+              holidaysInRange.push({ date: iso, date_br: formatDateIsoToBr(iso), name })
+            }
+          }
+        }
+        holidaysInRange.sort((a, b) => a.date.localeCompare(b.date))
+      }
+
       return {
         ok: result.ok,
         action,
@@ -2513,6 +2542,7 @@ export class NativeAgentOrchestratorService {
               ...getSlotDateContext(slot.date, slotNowParts),
             }))
             : [],
+          holidays_in_range: holidaysInRange,
           error: result.error,
         },
       }
