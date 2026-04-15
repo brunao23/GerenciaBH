@@ -3173,9 +3173,11 @@ export class NativeAgentOrchestratorService {
               const blocked = blockedRanges.some((range) => startMinutes < range.end && slotEndMinutes > range.start)
               if (blocked) continue
 
-              // Check Google Calendar events
-              const gcalConflict = gcalRangesForDay.some((range) => startMinutes < range.end && slotEndMinutes > range.start)
-              if (gcalConflict) continue
+              // Check Google Calendar events (respects allowOverlap — same logic as internal appointments)
+              if (!allowOverlap) {
+                const gcalConflict = gcalRangesForDay.some((range) => startMinutes < range.end && slotEndMinutes > range.start)
+                if (gcalConflict) continue
+              }
 
               const diffMinutes = Math.floor((toComparableMs(slotParts) - toComparableMs(nowParts)) / 60000)
               if (diffMinutes < minLeadMinutes) continue
