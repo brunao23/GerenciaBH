@@ -41,6 +41,10 @@ CREATE INDEX IF NOT EXISTS idx_semantic_cache_embedding
   USING hnsw (embedding vector_cosine_ops)
   WITH (m = 16, ef_construction = 64);
 
+-- ─── Backfill: add updated_at if missing from pre-existing table ──
+
+ALTER TABLE public.semantic_cache ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW();
+
 -- ─── Updated_at trigger ───────────────────────────────────────────
 
 CREATE OR REPLACE FUNCTION public.semantic_cache_set_updated_at()
