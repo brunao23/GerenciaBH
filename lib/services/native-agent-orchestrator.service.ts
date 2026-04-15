@@ -415,6 +415,42 @@ function parseDateTimeParts(date: string, time: string): LocalDateTimeParts | nu
   return { year, month, day, hour, minute, second: 0 }
 }
 
+function getTimezoneOffsetString(timezone: string): string {
+  const tz = timezone || "America/Sao_Paulo"
+  try {
+    const now = new Date()
+    const utcMs = now.getTime()
+    const localParts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    }).formatToParts(now)
+    const readPart = (type: string) =>
+      Number(localParts.find((p) => p.type === type)?.value ?? 0)
+    const localMs = Date.UTC(
+      readPart("year"),
+      readPart("month") - 1,
+      readPart("day"),
+      readPart("hour"),
+      readPart("minute"),
+      readPart("second"),
+    )
+    const offsetMinutes = Math.round((localMs - utcMs) / 60000)
+    const sign = offsetMinutes >= 0 ? "+" : "-"
+    const absMinutes = Math.abs(offsetMinutes)
+    const hh = String(Math.floor(absMinutes / 60)).padStart(2, "0")
+    const mm = String(absMinutes % 60).padStart(2, "0")
+    return `${sign}${hh}:${mm}`
+  } catch {
+    return "-03:00"
+  }
+}
+
 function formatIsoFromParts(parts: LocalDateTimeParts, timezone: string): string {
   const d = `${String(parts.year).padStart(4, "0")}-${String(parts.month).padStart(2, "0")}-${String(
     parts.day,
@@ -422,12 +458,8 @@ function formatIsoFromParts(parts: LocalDateTimeParts, timezone: string): string
   const t = `${String(parts.hour).padStart(2, "0")}:${String(parts.minute).padStart(2, "0")}:${String(
     parts.second,
   ).padStart(2, "0")}`
-
-  // Keep fixed offset for Sao Paulo (UTC-03) as primary default.
-  if (timezone === "America/Sao_Paulo") {
-    return `${d}T${t}-03:00`
-  }
-  return `${d}T${t}`
+  const offset = getTimezoneOffsetString(timezone || "America/Sao_Paulo")
+  return `${d}T${t}${offset}`
 }
 
 function formatDateFromParts(parts: LocalDateTimeParts): string {
