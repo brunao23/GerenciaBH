@@ -498,7 +498,39 @@ export async function processPauseDeleteQueue(
         direction.includes("received")
 
       const humanOutbound = fromMe === true && fromApi !== true
-      const shouldPause = humanOutbound || directionIsReceived || (!directionIsSent && !directionIsReceived)
+      const pauseActionRaw = pickValue(row, [
+        "pause",
+        "pausar",
+        "should_pause",
+        "pause_lead",
+        "action",
+        "event",
+        "type",
+        "status",
+        "event_type",
+        "action_type",
+      ])
+
+      const explicitPauseFlag = (() => {
+        if (typeof pauseActionRaw === "string") {
+          const lower = pauseActionRaw.toLowerCase()
+          if (
+            lower.includes("pause") ||
+            lower.includes("pausar") ||
+            lower.includes("paused") ||
+            lower.includes("manual_pause")
+          ) {
+            return true
+          }
+        }
+        return parseBool(pauseActionRaw) === true
+      })()
+
+      // Regras de pausa:
+      // 1) Humano da equipe respondeu no WhatsApp (fromMe=true e fromApi!=true) -> pausar IA.
+      // 2) Evento explicitamente marcado como pause -> pausar IA.
+      // Nunca pausar apenas por mensagem recebida do lead.
+      const shouldPause = humanOutbound || explicitPauseFlag
 
       if (shouldPause && phone) {
         await pauseLead(supabase, tenant, phone)

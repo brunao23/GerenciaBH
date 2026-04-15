@@ -1845,12 +1845,11 @@ export async function POST(req: NextRequest) {
     if (latestTurn) {
       const latestId = String(latestTurn.messageId || "").trim()
       const currentId = String(persisted.messageId || "").trim()
-      const latestTs = normalizeTimestamp(latestTurn.createdAt)
-      const currentTs = normalizeTimestamp(persisted.createdAt)
-
       const newerById = Boolean(currentId && latestId && latestId !== currentId)
-      const newerByTime = !currentId && latestTs > currentTs
-      if (newerById || newerByTime) {
+
+      // Evita falso skip quando payloads chegam sem messageId.
+      // Nesse caso, seguimos com o evento atual para nao exigir "mais uma mensagem" do lead.
+      if (newerById) {
         return NextResponse.json({
           received: true,
           ignored: true,
