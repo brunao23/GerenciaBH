@@ -534,6 +534,13 @@ function formatDateIsoToBr(dateIso: string): string {
   return `${String(parsed.day).padStart(2, "0")}/${String(parsed.month).padStart(2, "0")}/${String(parsed.year).padStart(4, "0")}`
 }
 
+function getPeriodoDoDia(parts: LocalDateTimeParts): "bom dia" | "boa tarde" | "boa noite" {
+  const h = parts.hour
+  if (h >= 0 && h < 12) return "bom dia"
+  if (h >= 12 && h < 18) return "boa tarde"
+  return "boa noite"
+}
+
 function getSlotDateContext(dateIso: string, nowParts: LocalDateTimeParts): {
   weekday: number
   weekday_name_pt: string
@@ -2022,6 +2029,7 @@ export class NativeAgentOrchestratorService {
     const tomorrowLocalParts = addMinutesToParts(nowLocalParts, 24 * 60)
     const dayAfterTomorrowLocalParts = addMinutesToParts(nowLocalParts, 48 * 60)
     const nowLocalIso = formatIsoFromParts(nowLocalParts, timezone)
+    const periodoDoDia = getPeriodoDoDia(nowLocalParts)
     const todayIso = formatDateFromParts(nowLocalParts)
     const tomorrowIso = formatDateFromParts(tomorrowLocalParts)
     const dayAfterTomorrowIso = formatDateFromParts(dayAfterTomorrowLocalParts)
@@ -2212,6 +2220,7 @@ export class NativeAgentOrchestratorService {
       `CONTEXTO DA SESSAO ATUAL (nao misture com outras sessoes):`,
       `- Data/hora atual ISO: ${now}`,
       `- Data/hora local da unidade (${timezone}): ${nowLocalIso}`,
+      `- Periodo do dia (para saudacao): ${periodoDoDia} (bom dia: 00h-11h59 / boa tarde: 12h-17h59 / boa noite: 18h-23h59)`,
       `- Hoje (local): ${todayIso} = ${todayBr} = ${todayWeekdayPt}`,
       `- Amanha (local): ${tomorrowIso} = ${tomorrowBr} = ${tomorrowWeekdayPt}`,
       `- Depois de amanha (local): ${dayAfterTomorrowIso} = ${dayAfterTomorrowBr} = ${dayAfterTomorrowWeekdayPt}`,
@@ -2395,6 +2404,7 @@ export class NativeAgentOrchestratorService {
           now_iso: new Date().toISOString(),
           timezone,
           now_local_iso: formatIsoFromParts(nowParts, timezone),
+          periodo_do_dia: getPeriodoDoDia(nowParts),
           today_iso: todayIsoTool,
           today_br: formatDateIsoToBr(todayIsoTool),
           today_weekday_pt: WEEKDAY_NAME_PT[localDayOfWeek(nowParts)] || "",
