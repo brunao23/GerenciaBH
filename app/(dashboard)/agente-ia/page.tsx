@@ -131,7 +131,7 @@ const defaultConfig: TenantNativeAgentConfig = {
   notifyOnScheduleSuccess: true,
   notifyOnScheduleError: true,
   notifyOnHumanHandoff: true,
-  collectEmailForScheduling: false,
+  collectEmailForScheduling: true,
   generateMeetForOnlineAppointments: false,
   audioRepliesEnabled: false,
   audioProvider: "elevenlabs",

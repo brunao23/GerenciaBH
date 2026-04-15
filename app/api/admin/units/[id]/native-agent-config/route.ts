@@ -470,7 +470,7 @@ export async function PATCH(req: NextRequest, context: { params: RouteParams }) 
         notifyOnScheduleSuccess: true,
         notifyOnScheduleError: true,
         notifyOnHumanHandoff: true,
-        collectEmailForScheduling: false,
+        collectEmailForScheduling: true,
         generateMeetForOnlineAppointments: false,
         audioRepliesEnabled: false,
         audioProvider: "elevenlabs" as const,

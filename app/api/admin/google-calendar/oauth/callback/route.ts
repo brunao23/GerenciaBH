@@ -172,7 +172,7 @@ export async function GET(req: NextRequest) {
         notifyOnScheduleSuccess: true,
         notifyOnScheduleError: true,
         notifyOnHumanHandoff: true,
-        collectEmailForScheduling: false,
+        collectEmailForScheduling: true,
         generateMeetForOnlineAppointments: false,
         webhookEnabled: true,
         webhookExtraUrls: [],

@@ -1,20 +1,45 @@
 {
+  "model": "claude-sonnet-4-6",
+  "alwaysThinkingEnabled": true,
+  "effortLevel": "high",
+  "fastMode": true,
+  "autoCompactWindow": 100000,
+  "includeGitInstructions": false,
+  "promptSuggestionEnabled": false,
+  "outputStyle": "concise",
+  "language": "pt-br",
+  "skillListingMaxDescChars": 256,
+  "skillListingBudgetFraction": 0.003,
+  "skillOverrides": {
+    "fullstack": "on",
+    "megaskill": "on",
+    "cybersecurity": "name-only",
+    "simplify": "on",
+    "update-config": "name-only",
+    "init": "off",
+    "insights": "off",
+    "team-onboarding": "off",
+    "statusline": "off",
+    "review": "off",
+    "loop": "off",
+    "schedule": "off",
+    "claude-api": "off",
+    "keybindings-help": "off",
+    "security-review": "off"
+  },
   "permissions": {
+    "defaultMode": "bypassPermissions",
     "allow": [
-      "Bash(xargs grep:*)",
-      "Bash(npx tsc:*)",
-      "Bash(npx vercel:*)",
-      "Bash(npx next:*)",
-      "Bash(curl:*)",
+      "Bash(*)",
+      "Read(*)",
+      "Write(*)",
+      "Edit(*)",
+      "Glob(*)",
+      "Grep(*)",
       "WebSearch",
-      "WebFetch(domain:developers.kommo.com)",
-      "Bash(grep -E \"\\(lib|app\\)/.*\\\\.\\(ts|tsx\\)$\")",
-      "Bash(grep -r \"use client\" /c/Users/WINDOWS/Downloads/GerenciaBH/app/\\\\\\(dashboard\\\\\\)/*/page.tsx)",
-      "Bash(find /c/Users/WINDOWS/Downloads/GerenciaBH -name \"*.sql\" -exec grep -l \"lembretes\" {} \\\\;)",
-      "Bash(ls /c/Users/WINDOWS/Downloads/GerenciaBH/components/ui/*.tsx)",
-      "Bash(xargs -I {} basename {})",
-      "Bash(find /c/Users/WINDOWS/Downloads/GerenciaBH -type f -name \"*.sql\" -exec grep -l \"google_event_id\\\\|google_event_link\\\\|google_meet_link\" {} \\\\;)",
-      "Bash(grep -E \"\\\\.\\(tsx?|css\\)$\")"
+      "WebFetch(*)",
+      "Agent(*)",
+      "Skill(*)"
     ]
   }
 }
