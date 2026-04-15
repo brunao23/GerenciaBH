@@ -2080,7 +2080,12 @@ export class NativeAgentOrchestratorService {
         : "- Mantenha continuidade precisa com o ponto exato onde a conversa parou."
       : "- Primeira resposta pode seguir fluxo livre."
     const emailSchedulingRule = config.collectEmailForScheduling
-      ? "- Antes de acionar schedule_appointment, colete email valido do lead e envie em customer_email."
+      ? [
+          "- REGRA CRITICA DE AGENDAMENTO: voce NUNCA deve chamar schedule_appointment ou edit_appointment sem ter o email do lead preenchido em customer_email.",
+          "- Se o lead confirmou data e hora mas ainda nao informou o email, pergunte ANTES de agendar: 'Para finalizar o agendamento, preciso do seu email. Qual seria?'",
+          "- So acione schedule_appointment ou edit_appointment depois de ter o email valido do lead. Sem email = sem agendamento.",
+          "- Se a tool retornar erro 'email_required_for_scheduling', significa que o email nao foi enviado — peca o email ao lead antes de tentar novamente.",
+        ].join("\n")
       : "- Email do lead no agendamento e opcional."
     const onlineMeetRule = config.generateMeetForOnlineAppointments
       ? "- Para agendamento online, envie appointment_mode='online' e customer_email para gerar Google Meet."
