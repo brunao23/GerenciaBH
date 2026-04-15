@@ -3613,8 +3613,12 @@ export class NativeAgentOrchestratorService {
       }
     }
 
-    // --- Check Google Calendar for conflicts ---
-    if (params.config.calendarCheckGoogleEvents !== false && params.config.googleCalendarEnabled) {
+    // --- Check Google Calendar for conflicts (respects allowOverlappingAppointments) ---
+    if (
+      params.config.calendarCheckGoogleEvents !== false &&
+      params.config.googleCalendarEnabled &&
+      !params.config.allowOverlappingAppointments
+    ) {
       try {
         const gcalService = new GoogleCalendarService({
           calendarId: params.config.googleCalendarId || "primary",
