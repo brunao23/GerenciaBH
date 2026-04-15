@@ -629,8 +629,11 @@ function getSlotDateContext(dateIso: string, nowParts: LocalDateTimeParts): {
     relativeLabel = "depois de amanha"
   } else if (daysFromToday >= 3 && daysFromToday <= 6) {
     relativeLabel = weekdayName
-  } else if (daysFromToday >= 7) {
-    // Evita ambiguidade (ex.: "amanha" e "quarta-feira" para semanas diferentes).
+  } else if (daysFromToday >= 7 && daysFromToday <= 13) {
+    // Semana seguinte: deixa claro que é "próxima" para o lead não confundir com esta semana
+    relativeLabel = `proxima ${weekdayName} (${dateBr})`
+  } else if (daysFromToday >= 14) {
+    // Duas semanas ou mais: data explícita resolve qualquer ambiguidade
     relativeLabel = `${weekdayName} (${dateBr})`
   }
 
@@ -2272,7 +2275,7 @@ export class NativeAgentOrchestratorService {
       "- NUNCA pergunte se o lead quer agendar em um horario fora do expediente configurado. Respeite rigorosamente os horarios acima.",
       "- Quando fizer sentido retomar depois, acione create_followup ou create_reminder.",
       "- Se precisar transferir para humano, acione handoff_human.",
-      "- REGRA DE DATA RELATIVA: nunca use rotulos ambiguos. Se houver slot para semana seguinte, escreva com data explicita (ex.: 'quarta-feira (22/04)').",
+      "- REGRA DE DATA RELATIVA: use sempre o campo relative_label do slot como referencia. Exemplos de uso correto: 'hoje as 14h', 'amanha as 10h', 'depois de amanha as 9h', 'quinta-feira as 15h' (esta semana), 'proxima terca-feira (22/04) as 14h' (semana seguinte), 'quarta-feira (29/04) as 10h' (duas semanas ou mais). NUNCA use apenas 'dia 22' sem o dia da semana.",
       "- REGRA DE CONSISTENCIA: NUNCA escreva duas opcoes equivalentes para o mesmo dia no mesmo turno (ex.: 'amanha 20h' e 'quarta-feira 20h' quando representam o mesmo dia).",
       "- REGRA DE NATURALIDADE NA DATA: NUNCA diga 'o dia 21 que e uma terca-feira' nem 'para o dia 21, que e terca-feira'. A ordem correta e sempre o dia da semana primeiro: 'terca-feira, dia 21' ou 'terca (dia 21)' ou apenas 'terca-feira as 14h'. Use o campo relative_label do slot (amanha, depois de amanha, quarta-feira, etc.) como referencia principal — evite mencionar o numero do dia isolado como se fosse o protagonista.",
       "",
