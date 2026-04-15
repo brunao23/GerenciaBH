@@ -18,6 +18,7 @@ import {
     Megaphone,
     Bot,
     RefreshCw,
+    MapPin,
 } from "lucide-react"
 import { toast } from "sonner"
 import {
@@ -102,6 +103,10 @@ interface AdminNativeAgentConfig {
     calendarBusinessStart: string
     calendarBusinessEnd: string
     calendarBusinessDays: number[]
+    unitLatitude: number | undefined
+    unitLongitude: number | undefined
+    unitName: string
+    unitAddress: string
 }
 
 interface NativeAgentDebugItem {
@@ -165,6 +170,10 @@ const defaultNativeAgentConfig: AdminNativeAgentConfig = {
     calendarBusinessStart: "08:00",
     calendarBusinessEnd: "20:00",
     calendarBusinessDays: [1, 2, 3, 4, 5, 6],
+    unitLatitude: undefined,
+    unitLongitude: undefined,
+    unitName: "",
+    unitAddress: "",
 }
 
 export default function AdminUnitsPage() {
@@ -485,6 +494,10 @@ export default function AdminUnitsPage() {
             calendarBusinessStart: String(source.calendarBusinessStart || "08:00"),
             calendarBusinessEnd: String(source.calendarBusinessEnd || "20:00"),
             calendarBusinessDays: businessDays.length ? businessDays : [1, 2, 3, 4, 5, 6],
+            unitLatitude: Number.isFinite(Number(source.unitLatitude)) && source.unitLatitude !== "" && source.unitLatitude !== null && source.unitLatitude !== undefined ? Number(source.unitLatitude) : undefined,
+            unitLongitude: Number.isFinite(Number(source.unitLongitude)) && source.unitLongitude !== "" && source.unitLongitude !== null && source.unitLongitude !== undefined ? Number(source.unitLongitude) : undefined,
+            unitName: String(source.unitName || ""),
+            unitAddress: String(source.unitAddress || ""),
         }
     }
 
@@ -604,6 +617,10 @@ export default function AdminUnitsPage() {
                 calendarBusinessStart: toOptionalText(nativeAgentConfig.calendarBusinessStart) || "08:00",
                 calendarBusinessEnd: toOptionalText(nativeAgentConfig.calendarBusinessEnd) || "20:00",
                 calendarBusinessDays: nativeAgentConfig.calendarBusinessDays,
+                unitLatitude: Number.isFinite(Number(nativeAgentConfig.unitLatitude)) ? Number(nativeAgentConfig.unitLatitude) : undefined,
+                unitLongitude: Number.isFinite(Number(nativeAgentConfig.unitLongitude)) ? Number(nativeAgentConfig.unitLongitude) : undefined,
+                unitName: toOptionalText(nativeAgentConfig.unitName),
+                unitAddress: toOptionalText(nativeAgentConfig.unitAddress),
             }
 
             const unitRef = String(nativeAgentUnit.prefix || nativeAgentUnit.id || "").trim()
@@ -2450,6 +2467,68 @@ export default function AdminUnitsPage() {
                                             placeholder="1,2,3,4,5,6"
                                             className="bg-secondary border-border text-white"
                                         />
+                                    </div>
+                                </div>
+
+                                <div className="space-y-3 rounded-md border border-border p-3">
+                                    <div className="flex items-center gap-2 text-sm font-medium">
+                                        <MapPin className="h-4 w-4 text-primary" />
+                                        Localização da unidade
+                                    </div>
+                                    <p className="text-xs text-gray-400">
+                                        Quando preenchida, o agente envia um pin de localização via WhatsApp ao invés de texto. Deixe latitude/longitude em branco para desativar.
+                                    </p>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div className="space-y-1">
+                                            <Label className="text-xs">Nome exibido no pin</Label>
+                                            <Input
+                                                value={nativeAgentConfig.unitName}
+                                                onChange={(e) => setNativeAgentConfig((prev) => ({ ...prev, unitName: e.target.value }))}
+                                                placeholder="Ex: Clínica Exemplo"
+                                                className="bg-secondary border-border text-white h-8 text-sm"
+                                                disabled={loadingNativeAgent}
+                                            />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <Label className="text-xs">Endereço formatado</Label>
+                                            <Input
+                                                value={nativeAgentConfig.unitAddress}
+                                                onChange={(e) => setNativeAgentConfig((prev) => ({ ...prev, unitAddress: e.target.value }))}
+                                                placeholder="Ex: Rua das Flores, 123 – Centro, BH"
+                                                className="bg-secondary border-border text-white h-8 text-sm"
+                                                disabled={loadingNativeAgent}
+                                            />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <Label className="text-xs">Latitude</Label>
+                                            <Input
+                                                type="number"
+                                                step="any"
+                                                value={nativeAgentConfig.unitLatitude ?? ""}
+                                                onChange={(e) => {
+                                                    const val = e.target.value === "" ? undefined : Number(e.target.value)
+                                                    setNativeAgentConfig((prev) => ({ ...prev, unitLatitude: val }))
+                                                }}
+                                                placeholder="-19.9277"
+                                                className="bg-secondary border-border text-white h-8 text-sm"
+                                                disabled={loadingNativeAgent}
+                                            />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <Label className="text-xs">Longitude</Label>
+                                            <Input
+                                                type="number"
+                                                step="any"
+                                                value={nativeAgentConfig.unitLongitude ?? ""}
+                                                onChange={(e) => {
+                                                    const val = e.target.value === "" ? undefined : Number(e.target.value)
+                                                    setNativeAgentConfig((prev) => ({ ...prev, unitLongitude: val }))
+                                                }}
+                                                placeholder="-43.9444"
+                                                className="bg-secondary border-border text-white h-8 text-sm"
+                                                disabled={loadingNativeAgent}
+                                            />
+                                        </div>
                                     </div>
                                 </div>
 

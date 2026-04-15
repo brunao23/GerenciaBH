@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { CalendarDays, Save } from "lucide-react"
+import { CalendarDays, MapPin, Save } from "lucide-react"
 import { toast } from "sonner"
 
 type ConversationTone = "consultivo" | "acolhedor" | "direto" | "formal"
@@ -93,6 +93,10 @@ type TenantNativeAgentConfig = {
   calendarLunchBreakEnd: string
   calendarCheckGoogleEvents: boolean
   calendarHolidaysEnabled: boolean
+  unitLatitude: number | undefined
+  unitLongitude: number | undefined
+  unitName: string
+  unitAddress: string
 }
 
 const defaultConfig: TenantNativeAgentConfig = {
@@ -177,6 +181,10 @@ const defaultConfig: TenantNativeAgentConfig = {
   calendarLunchBreakEnd: "13:00",
   calendarCheckGoogleEvents: true,
   calendarHolidaysEnabled: true,
+  unitLatitude: undefined,
+  unitLongitude: undefined,
+  unitName: "",
+  unitAddress: "",
 }
 
 function normalizeConfig(raw: any): TenantNativeAgentConfig {
@@ -358,6 +366,10 @@ function normalizeConfig(raw: any): TenantNativeAgentConfig {
     calendarLunchBreakEnd: String(source.calendarLunchBreakEnd || "13:00"),
     calendarCheckGoogleEvents: source.calendarCheckGoogleEvents !== false,
     calendarHolidaysEnabled: source.calendarHolidaysEnabled !== false,
+    unitLatitude: Number.isFinite(Number(source.unitLatitude)) && source.unitLatitude !== "" && source.unitLatitude !== null && source.unitLatitude !== undefined ? Number(source.unitLatitude) : undefined,
+    unitLongitude: Number.isFinite(Number(source.unitLongitude)) && source.unitLongitude !== "" && source.unitLongitude !== null && source.unitLongitude !== undefined ? Number(source.unitLongitude) : undefined,
+    unitName: String(source.unitName || ""),
+    unitAddress: String(source.unitAddress || ""),
   }
 }
 
@@ -656,6 +668,10 @@ export default function AgenteIAPage() {
         calendarLunchBreakEnd: toOptionalText(config.calendarLunchBreakEnd) || "13:00",
         calendarCheckGoogleEvents: config.calendarCheckGoogleEvents,
         calendarHolidaysEnabled: config.calendarHolidaysEnabled,
+        unitLatitude: Number.isFinite(Number(config.unitLatitude)) ? Number(config.unitLatitude) : undefined,
+        unitLongitude: Number.isFinite(Number(config.unitLongitude)) ? Number(config.unitLongitude) : undefined,
+        unitName: toOptionalText(config.unitName),
+        unitAddress: toOptionalText(config.unitAddress),
       }
 
       const res = await fetch("/api/tenant/native-agent-config", {
@@ -1493,6 +1509,77 @@ export default function AgenteIAPage() {
               disabled={loading}
             />
           </div>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-card border-border text-foreground">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <MapPin className="h-4 w-4 text-primary" />
+            Localização da unidade
+          </CardTitle>
+          <CardDescription className="text-gray-400">
+            Quando configurada, o agente envia um pin de localização real via WhatsApp ao invés de um link de texto.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Nome exibido no pin</Label>
+              <Input
+                value={config.unitName}
+                onChange={(e) => setConfig((prev) => ({ ...prev, unitName: e.target.value }))}
+                placeholder="Ex: Clínica Exemplo"
+                className="bg-secondary border-border text-foreground"
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Endereço formatado</Label>
+              <Input
+                value={config.unitAddress}
+                onChange={(e) => setConfig((prev) => ({ ...prev, unitAddress: e.target.value }))}
+                placeholder="Ex: Rua das Flores, 123 – Centro, BH"
+                className="bg-secondary border-border text-foreground"
+                disabled={loading}
+              />
+            </div>
+          </div>
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Latitude</Label>
+              <Input
+                type="number"
+                step="any"
+                value={config.unitLatitude ?? ""}
+                onChange={(e) => {
+                  const val = e.target.value === "" ? undefined : Number(e.target.value)
+                  setConfig((prev) => ({ ...prev, unitLatitude: val }))
+                }}
+                placeholder="-19.9277"
+                className="bg-secondary border-border text-foreground"
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Longitude</Label>
+              <Input
+                type="number"
+                step="any"
+                value={config.unitLongitude ?? ""}
+                onChange={(e) => {
+                  const val = e.target.value === "" ? undefined : Number(e.target.value)
+                  setConfig((prev) => ({ ...prev, unitLongitude: val }))
+                }}
+                placeholder="-43.9444"
+                className="bg-secondary border-border text-foreground"
+                disabled={loading}
+              />
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Deixe latitude e longitude em branco para desativar o envio de pin. Quando preenchidas, o agente usa a tool <strong>send_location</strong> ao invés de enviar link de texto.
+          </p>
         </CardContent>
       </Card>
 
