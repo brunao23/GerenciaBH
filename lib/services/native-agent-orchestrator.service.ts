@@ -1369,6 +1369,7 @@ export class NativeAgentOrchestratorService {
           phone,
           sessionId,
           contactName: input.contactName,
+          incomingMessageId: input.messageId,
           config,
           chat,
           executions: decision.executions,
@@ -1658,6 +1659,7 @@ export class NativeAgentOrchestratorService {
     phone: string
     sessionId: string
     contactName?: string
+    incomingMessageId?: string
     config: NativeAgentConfig
     chat: TenantChatHistoryService
     executions: GeminiToolExecution[]
@@ -1697,6 +1699,20 @@ export class NativeAgentOrchestratorService {
         const when = day && time ? `${day} às ${time}` : day || time || "horário não informado"
 
         if (execution.ok) {
+          // Reação na mensagem do lead que originou o agendamento
+          if (params.incomingMessageId) {
+            const reactions = ["👍", "❤️"]
+            const reaction = reactions[Math.floor(Math.random() * reactions.length)]
+            this.messaging
+              .sendReaction({
+                tenant: params.tenant,
+                phone: params.phone,
+                messageId: params.incomingMessageId,
+                reaction,
+              })
+              .catch(() => {})
+          }
+
           await createNotification({
             type: isEdit ? "agendamento_confirmed" : "agendamento_created",
             title: isEdit ? "Agendamento remarcado" : "Novo agendamento",

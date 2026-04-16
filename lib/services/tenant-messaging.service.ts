@@ -63,6 +63,15 @@ export interface SendTenantLocationInput {
 
 export type SendTenantLocationResult = SendTenantTextResult
 
+export interface SendTenantReactionInput {
+  tenant: string
+  phone: string
+  messageId: string
+  reaction: string
+}
+
+export type SendTenantReactionResult = { success: boolean; error?: string }
+
 export class TenantMessagingService {
   private normalizeRecipient(input: string): string {
     const raw = String(input || "").trim()
@@ -201,6 +210,42 @@ export class TenantMessagingService {
         provider,
         error: error?.message || "Failed to send message",
       }
+    }
+  }
+
+  async sendReaction(input: SendTenantReactionInput): Promise<SendTenantReactionResult> {
+    const tenant = normalizeTenant(input.tenant)
+    if (!tenant) return { success: false, error: "Invalid tenant" }
+
+    const phone = this.normalizeRecipient(input.phone)
+    const messageId = String(input.messageId || "").trim()
+    if (!phone || !messageId) return { success: false, error: "phone e messageId sao obrigatorios" }
+
+    const config = await getMessagingConfigForTenant(tenant)
+    if (!config || config.isActive === false || config.provider !== "zapi") {
+      // Silently skip para provedores que nao suportam reacao
+      return { success: false, error: "Reacao suportada apenas no provedor Z-API" }
+    }
+
+    try {
+      const hasFullUrl = Boolean(config.sendTextUrl)
+      const hasParts = Boolean(config.apiUrl && config.instanceId && config.token)
+      if (!config.clientToken || (!hasFullUrl && !hasParts)) {
+        return { success: false, error: "Invalid Z-API config" }
+      }
+
+      const zapi = new ZApiService({
+        instanceId: config.instanceId || "ZAPI",
+        token: config.token || "",
+        clientToken: config.clientToken,
+        apiUrl: config.sendTextUrl || config.apiUrl,
+      })
+
+      const result = await zapi.sendReaction({ phone, messageId, reaction: input.reaction })
+      return { success: result.success === true, error: result.error }
+    } catch (error: any) {
+      console.warn("[TenantMessaging] sendReaction failed:", error)
+      return { success: false, error: error?.message || "Erro ao enviar reacao" }
     }
   }
 

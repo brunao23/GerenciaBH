@@ -33,6 +33,12 @@ export interface SendLocationParams {
   address?: string
 }
 
+export interface SendReactionParams {
+  phone: string
+  messageId: string
+  reaction: string
+}
+
 export interface ZApiResponse {
   success?: boolean
   id?: string
@@ -46,6 +52,7 @@ export class ZApiService {
   private senderUrl: string
   private senderAudioUrl: string
   private senderLocationUrl: string
+  private senderReactionUrl: string
   private statusUrl: string
   private qrCodeBytesUrl: string
   private qrCodeImageUrl: string
@@ -60,6 +67,7 @@ export class ZApiService {
       const baseUrl = config.apiUrl.replace(/\/send-text.*/i, "")
       this.senderAudioUrl = `${baseUrl}/send-audio`
       this.senderLocationUrl = `${baseUrl}/send-location`
+      this.senderReactionUrl = `${baseUrl}/send-reaction`
       this.statusUrl = `${baseUrl}/status`
       this.qrCodeBytesUrl = `${baseUrl}/qr-code`
       this.qrCodeImageUrl = `${baseUrl}/qr-code/image`
@@ -73,6 +81,7 @@ export class ZApiService {
     this.senderUrl = `${root}/send-text`
     this.senderAudioUrl = `${root}/send-audio`
     this.senderLocationUrl = `${root}/send-location`
+    this.senderReactionUrl = `${root}/send-reaction`
     this.statusUrl = `${root}/status`
     this.qrCodeBytesUrl = `${root}/qr-code`
     this.qrCodeImageUrl = `${root}/qr-code/image`
@@ -425,6 +434,41 @@ export class ZApiService {
         success: false,
         error: error?.message || "Erro desconhecido",
       }
+    }
+  }
+
+  /**
+   * POST /send-reaction
+   * Docs: https://developer.z-api.io/en/message/send-reaction
+   */
+  async sendReaction(params: SendReactionParams): Promise<ZApiResponse> {
+    try {
+      const cleanPhone = ZApiService.formatPhoneForSending(params.phone)
+      if (!cleanPhone) return { success: false, error: "Telefone invalido para reacao" }
+      const messageId = String(params.messageId || "").trim()
+      if (!messageId) return { success: false, error: "messageId obrigatorio para reacao" }
+
+      const payload = {
+        phone: cleanPhone,
+        messageId,
+        reaction: String(params.reaction || ""),
+      }
+
+      const response = await fetch(this.senderReactionUrl, {
+        method: "POST",
+        headers: this.buildHeaders(),
+        body: JSON.stringify(payload),
+      })
+      const data = await this.parseResponse(response)
+
+      if (!response.ok) {
+        return { success: false, error: data?.message || `Erro HTTP ${response.status}`, data }
+      }
+
+      return { success: true, data }
+    } catch (error: any) {
+      console.error("[Z-API] Erro ao enviar reacao:", error)
+      return { success: false, error: error?.message || "Erro desconhecido" }
     }
   }
 
