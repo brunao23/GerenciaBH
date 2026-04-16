@@ -668,8 +668,8 @@ export default function AgenteIAPage() {
         calendarLunchBreakEnd: toOptionalText(config.calendarLunchBreakEnd) || "13:00",
         calendarCheckGoogleEvents: config.calendarCheckGoogleEvents,
         calendarHolidaysEnabled: config.calendarHolidaysEnabled,
-        unitLatitude: Number.isFinite(Number(config.unitLatitude)) ? Number(config.unitLatitude) : undefined,
-        unitLongitude: Number.isFinite(Number(config.unitLongitude)) ? Number(config.unitLongitude) : undefined,
+        unitLatitude: Number.isFinite(Number(config.unitLatitude)) ? Number(config.unitLatitude) : null,
+        unitLongitude: Number.isFinite(Number(config.unitLongitude)) ? Number(config.unitLongitude) : null,
         unitName: toOptionalText(config.unitName),
         unitAddress: toOptionalText(config.unitAddress),
       }

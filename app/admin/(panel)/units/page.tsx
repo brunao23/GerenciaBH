@@ -617,8 +617,8 @@ export default function AdminUnitsPage() {
                 calendarBusinessStart: toOptionalText(nativeAgentConfig.calendarBusinessStart) || "08:00",
                 calendarBusinessEnd: toOptionalText(nativeAgentConfig.calendarBusinessEnd) || "20:00",
                 calendarBusinessDays: nativeAgentConfig.calendarBusinessDays,
-                unitLatitude: Number.isFinite(Number(nativeAgentConfig.unitLatitude)) ? Number(nativeAgentConfig.unitLatitude) : undefined,
-                unitLongitude: Number.isFinite(Number(nativeAgentConfig.unitLongitude)) ? Number(nativeAgentConfig.unitLongitude) : undefined,
+                unitLatitude: Number.isFinite(Number(nativeAgentConfig.unitLatitude)) ? Number(nativeAgentConfig.unitLatitude) : null,
+                unitLongitude: Number.isFinite(Number(nativeAgentConfig.unitLongitude)) ? Number(nativeAgentConfig.unitLongitude) : null,
                 unitName: toOptionalText(nativeAgentConfig.unitName),
                 unitAddress: toOptionalText(nativeAgentConfig.unitAddress),
             }

@@ -860,6 +860,14 @@ export async function PATCH(req: NextRequest, context: { params: RouteParams }) 
         1,
         8760,
       ),
+      unitLatitude: body?.unitLatitude !== undefined
+        ? (body.unitLatitude !== null && Number.isFinite(Number(body.unitLatitude)) ? Number(body.unitLatitude) : undefined)
+        : current.unitLatitude,
+      unitLongitude: body?.unitLongitude !== undefined
+        ? (body.unitLongitude !== null && Number.isFinite(Number(body.unitLongitude)) ? Number(body.unitLongitude) : undefined)
+        : current.unitLongitude,
+      unitName: body?.unitName !== undefined ? toOptionalText(body.unitName) : current.unitName,
+      unitAddress: body?.unitAddress !== undefined ? toOptionalText(body.unitAddress) : current.unitAddress,
     }
 
     if (body?.followupPlan !== undefined && Array.isArray(nextConfig.followupPlan)) {
