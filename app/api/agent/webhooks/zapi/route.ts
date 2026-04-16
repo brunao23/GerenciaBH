@@ -52,6 +52,7 @@ type ZapiMessageEvent = {
   isStatusReply?: boolean
   isReaction?: boolean
   reactionValue?: string
+  isGif?: boolean
   replyToMessageId?: string
   replyPreview?: string
   hasAudio?: boolean
@@ -167,6 +168,25 @@ function extractReactionValue(payload: any): string {
     dataReactionMsg?.text,
     dataReactionMsg?.emoji,
   )
+}
+
+function extractIsGif(payload: any): boolean {
+  const msg = asObject(payload?.message)
+  const data = asObject(payload?.data)
+  const dataMsg = asObject(data?.message)
+
+  if (readBoolean(msg?.gifPlayback) || readBoolean(msg?.animated)) return true
+  if (readBoolean(dataMsg?.gifPlayback) || readBoolean(dataMsg?.animated)) return true
+
+  const videoMsg = asObject(msg?.videoMessage || dataMsg?.videoMessage)
+  if (readBoolean(videoMsg?.gifPlayback) || readBoolean(videoMsg?.animated)) return true
+
+  const typeStr = readString(payload?.type, data?.type, msg?.type, dataMsg?.type).toLowerCase()
+  if (typeStr === "gif" || typeStr === "gifmessage" || typeStr === "gif_message") return true
+
+  if (msg?.gifMessage || dataMsg?.gifMessage || payload?.gifMessage || data?.gifMessage) return true
+
+  return false
 }
 
 function extractText(payload: any): string {
@@ -598,6 +618,7 @@ function parseZapiEvent(raw: any): ZapiMessageEvent {
   const isStatusReply = readBoolean(event.isStatusReply)
   const reactionValue = extractReactionValue(event)
   const isReaction = Boolean(reactionValue)
+  const isGif = extractIsGif(event)
   const replyContext = extractReplyContext(event)
   const audioPayload = extractAudioPayload(event)
 
@@ -627,6 +648,7 @@ function parseZapiEvent(raw: any): ZapiMessageEvent {
     isStatusReply,
     isReaction,
     reactionValue: reactionValue || null,
+    isGif,
     hasAudio: audioPayload.hasAudio,
     audioMimeType: audioPayload.mimeType || null,
     audioUrl: audioPayload.url || null,
@@ -667,6 +689,7 @@ function parseZapiEvent(raw: any): ZapiMessageEvent {
     isStatusReply,
     isReaction,
     reactionValue: reactionValue || undefined,
+    isGif,
     hasAudio: audioPayload.hasAudio,
     audioMimeType: audioPayload.mimeType,
     audioUrl: audioPayload.url,
@@ -1487,7 +1510,7 @@ function canTriggerNativeAgent(event: ZapiMessageEvent, sessionId: string): bool
   return Boolean(
     event.callbackType === "received" &&
       !event.fromMe &&
-      (event.text || event.isReaction || event.hasAudio) &&
+      (event.text || event.isReaction || event.hasAudio || event.isGif) &&
       sessionId,
   )
 }
@@ -1642,6 +1665,11 @@ export async function POST(req: NextRequest) {
         tenant,
         resolvedBy: routing.resolvedBy,
       })
+    }
+
+    if (event.callbackType === "received" && !event.text && event.isGif) {
+      event.text = "[GIF]"
+      event.metadata.isGifWithoutCaption = true
     }
 
     if (event.callbackType === "received" && !event.text && event.hasAudio) {
@@ -1891,6 +1919,9 @@ export async function POST(req: NextRequest) {
       forceUserTurnForDecision: false,
       fromMeTrigger: shouldTriggerFromExternalStarter,
       fromMeTriggerContent: shouldTriggerFromExternalStarter ? fromMeTriggerContent : undefined,
+      isReaction: event.isReaction,
+      reactionValue: event.reactionValue,
+      isGif: event.isGif,
       raw: event.raw,
     })
 

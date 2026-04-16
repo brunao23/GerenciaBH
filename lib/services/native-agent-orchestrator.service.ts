@@ -97,6 +97,9 @@ export interface HandleInboundMessageInput {
   forceUserTurnForDecision?: boolean
   fromMeTrigger?: boolean
   fromMeTriggerContent?: string
+  isReaction?: boolean
+  reactionValue?: string
+  isGif?: boolean
   raw?: any
 }
 
@@ -1128,6 +1131,26 @@ export class NativeAgentOrchestratorService {
       .catch(() => {})
 
     // -----------------------------------------------------------------------
+    // Feature 1: Lead enviou reação de emoji à mensagem do agente
+    // → Reconhecer silenciosamente com reação de volta; NÃO responder com texto
+    // -----------------------------------------------------------------------
+    if (input.isReaction && input.reactionValue && !input.fromMeTrigger) {
+      if (input.messageId) {
+        const ackEmojis = ["😊", "👍", "🙏"]
+        const ackEmoji = ackEmojis[Math.floor(Math.random() * ackEmojis.length)]
+        this.messaging
+          .sendReaction({ tenant, phone, messageId: input.messageId, reaction: ackEmoji })
+          .catch(() => {})
+      }
+      return {
+        processed: true,
+        replied: false,
+        actions: [{ type: "none" as const, ok: true, details: { isReaction: true, reactionValue: input.reactionValue } }],
+        reason: "lead_reaction_acknowledged",
+      }
+    }
+
+    // -----------------------------------------------------------------------
     // Auto-pause: detect negative intent BEFORE any AI processing
     // Only runs when autoPauseOnHumanIntervention is explicitly enabled
     // -----------------------------------------------------------------------
@@ -1259,6 +1282,27 @@ export class NativeAgentOrchestratorService {
     const assistantMessagesCount = conversationRows.filter((turn) => turn.role === "assistant").length
     const userMessagesCount = conversationRows.filter((turn) => turn.role === "user").length
 
+    // Feature 2: Lead enviou GIF → reagir com emoji e enriquecer contexto no conversation
+    if (input.isGif && !isFromMeTrigger) {
+      if (input.messageId) {
+        const gifEmojis = ["😄", "😂", "❤️", "🤣", "😆"]
+        const gifEmoji = gifEmojis[Math.floor(Math.random() * gifEmojis.length)]
+        this.messaging
+          .sendReaction({ tenant, phone, messageId: input.messageId, reaction: gifEmoji })
+          .catch(() => {})
+      }
+      // Substituir "[GIF]" no histórico em memória por contexto mais descritivo
+      for (let i = conversation.length - 1; i >= 0; i--) {
+        if (conversation[i].role === "user" && conversation[i].content === "[GIF]") {
+          conversation[i] = {
+            role: "user",
+            content: "[O lead enviou um GIF. Responda de forma leve e natural ao clima da conversa, sem mencionar explicitamente o GIF a menos que seja relevante.]",
+          }
+          break
+        }
+      }
+    }
+
     if (input.forceUserTurnForDecision === true && !isFromMeTrigger) {
       conversation.push({
         role: "user",
@@ -1350,6 +1394,7 @@ export class NativeAgentOrchestratorService {
               contactName: input.contactName,
               config,
               chat,
+              incomingMessageId: input.messageId,
             }),
         })
       } catch (toolError) {
@@ -2607,6 +2652,21 @@ export class NativeAgentOrchestratorService {
             },
           ]
         : []),
+      {
+        name: "send_reaction",
+        description:
+          "Envia uma reacao emoji a ultima mensagem do lead para tornar a conversa mais humanizada. Use com moderacao, apenas quando genuinamente relevante pelo contexto da conversa — por exemplo, celebrar uma boa noticia, reagir a um humor do lead, ou reforcar empatia. Nao use em sequencias consecutivas — no maximo uma reacao por turno.",
+        parameters: {
+          type: "object",
+          properties: {
+            emoji: {
+              type: "string",
+              description: "Emoji de reacao a enviar. Exemplos: 👍 ❤️ 😊 🎉 😄 🙏 😂",
+            },
+          },
+          required: ["emoji"],
+        },
+      },
     ]
   }
 
@@ -2618,6 +2678,7 @@ export class NativeAgentOrchestratorService {
     contactName?: string
     config: NativeAgentConfig
     chat: TenantChatHistoryService
+    incomingMessageId?: string
   }): Promise<GeminiToolHandlerResult> {
     const name = String(params.toolCall.name || "").trim().toLowerCase()
     const args = params.toolCall.args || {}
@@ -2978,6 +3039,35 @@ export class NativeAgentOrchestratorService {
           sent: locationSent.success,
           provider: locationSent.provider,
           error: locationSent.success ? undefined : locationSent.error,
+        },
+      }
+    }
+
+    if (name === "send_reaction") {
+      const emoji = String(args.emoji || "").trim()
+      if (!emoji || !params.incomingMessageId) {
+        return {
+          ok: false,
+          action: { type: "none" },
+          error: "missing_emoji_or_message_id",
+          response: { ok: false, error: "missing_emoji_or_message_id" },
+        }
+      }
+      const result = await this.messaging.sendReaction({
+        tenant: params.tenant,
+        phone: params.phone,
+        messageId: params.incomingMessageId,
+        reaction: emoji,
+      })
+      return {
+        ok: result.success === true,
+        action: { type: "none" },
+        error: result.success === true ? undefined : result.error,
+        response: {
+          ok: result.success === true,
+          sent: result.success === true,
+          emoji,
+          error: result.success === true ? undefined : result.error,
         },
       }
     }
