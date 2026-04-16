@@ -277,6 +277,43 @@ function shouldAutoPauseFromNegativeIntent(result: NegativeIntentResult): boolea
   )
 }
 
+/**
+ * Detecta se a mensagem do lead indica intenção de agendar ou escolha de horário.
+ * Retorna true quando há sinal claro o suficiente para reagir com emoji.
+ */
+function detectsSchedulingIntent(rawMessage: string): boolean {
+  const text = normalizeComparableMessage(rawMessage)
+  if (!text || text.length < 4) return false
+
+  // Sinais fortes: verbo + intenção de agendar
+  const strongPatterns = [
+    /\b(quero|vou|gostaria\s+de|preciso)\s+(agendar|marcar|reservar|confirmar)\b/,
+    /\b(agendar|marcar|reservar)\s+(para|pra|no|na|amanha|hoje|semana)\b/,
+    /\bpode\s+(agendar|marcar|ser)\b/,
+    /\bpode\s+ser\b/,
+    /\b(prefiro|escolho|quero)\s+(essa|este?|aquele?|o\s+dia|a\s+data|amanha|segunda|terca|quarta|quinta|sexta|sabado)\b/,
+    /\b(fico\s+com|vou\s+de|fico\s+para?|fica\s+bom|fica\s+otimo|fica\s+perfeito)\b/,
+    /\bconfirm(o|ado|ar)\b/,
+    /\bfecha(r?|do)\s+(para?|pra|o\s+dia)?\b/,
+    /\bfaz\s+o\s+agendamento\b/,
+    /\bpod[ei]\s+me\s+(agendar|marcar)\b/,
+    /\bquero\s+(o\s+)?(horario|hora|vaga|dia)\b/,
+  ]
+
+  for (const p of strongPatterns) {
+    if (p.test(text)) return true
+  }
+
+  // Sinal médio: mensagem CURTA (≤ 60 chars) que contém hora/data + confirmação
+  if (text.length <= 60) {
+    const hasTime = /\b(\d{1,2})[h:]\d{0,2}|\bas\s+\d{1,2}\b|\b\d{1,2}\s*(h|hs|hora)\b/.test(text)
+    const hasDay = /\b(amanha|hoje|segunda|terca|quarta|quinta|sexta|sabado|domingo|dia\s+\d{1,2})\b/.test(text)
+    if (hasTime || hasDay) return true
+  }
+
+  return false
+}
+
 function semanticSimilarityScore(a: string, b: string): number {
   const left = normalizeComparableMessage(a)
   const right = normalizeComparableMessage(b)
@@ -1200,6 +1237,15 @@ export class NativeAgentOrchestratorService {
       }
     }
 
+    // Reação emoji quando lead demonstra intenção de agendar (antes do Gemini processar)
+    if (input.messageId && !input.fromMeTrigger && detectsSchedulingIntent(content)) {
+      const reactions = ["👍", "❤️"]
+      const reaction = reactions[Math.floor(Math.random() * reactions.length)]
+      this.messaging
+        .sendReaction({ tenant, phone, messageId: input.messageId, reaction })
+        .catch(() => {})
+    }
+
     const conversationRows = await chat.loadConversation(sessionId, 30)
     const conversation: GeminiConversationMessage[] = conversationRows.map((turn) => ({
       role: turn.role,
@@ -1699,20 +1745,6 @@ export class NativeAgentOrchestratorService {
         const when = day && time ? `${day} às ${time}` : day || time || "horário não informado"
 
         if (execution.ok) {
-          // Reação na mensagem do lead que originou o agendamento
-          if (params.incomingMessageId) {
-            const reactions = ["👍", "❤️"]
-            const reaction = reactions[Math.floor(Math.random() * reactions.length)]
-            this.messaging
-              .sendReaction({
-                tenant: params.tenant,
-                phone: params.phone,
-                messageId: params.incomingMessageId,
-                reaction,
-              })
-              .catch(() => {})
-          }
-
           await createNotification({
             type: isEdit ? "agendamento_confirmed" : "agendamento_created",
             title: isEdit ? "Agendamento remarcado" : "Novo agendamento",
