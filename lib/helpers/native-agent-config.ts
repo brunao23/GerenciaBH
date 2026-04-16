@@ -1081,6 +1081,12 @@ export async function updateNativeAgentConfigForTenant(
       semanticCacheEnabled: config.semanticCacheEnabled,
       semanticCacheSimilarityThreshold: config.semanticCacheSimilarityThreshold,
       semanticCacheTtlHours: config.semanticCacheTtlHours,
+
+      // Location
+      unitLatitude: config.unitLatitude,
+      unitLongitude: config.unitLongitude,
+      unitName: config.unitName,
+      unitAddress: config.unitAddress,
     },
   }
 
