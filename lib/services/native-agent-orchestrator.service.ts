@@ -830,38 +830,7 @@ function resolveFollowupIntervalsFromConfig(config: NativeAgentConfig): number[]
  *  - Variação suave (±15%) para não ter padrão mecânico
  *  - Nunca quebra no meio de uma frase
  */
-function splitLongMessageIntoBlocks(message: string, maxChars: number): string[] {
-  const text = String(message || "").replace(/\r/g, "").trim()
-  if (!text) return []
-
-  const base = clampBlockChars(maxChars) // default 400
-
-  // Textos que cabem em ~1,2x o limite: bloco único sempre
-  if (text.length <= Math.floor(base * 1.2)) return [text]
-
-  // ── Variação leve: ±15% a cada turno ───────────────────────────────
-  const factor = 0.85 + Math.random() * 0.3 // 0.85 – 1.15
-  const limit = Math.max(120, Math.min(Math.floor(base * factor), 700))
-
-  // ── Tentativa 1: parágrafos naturais (\n\n) ─────────────────────────
-  const paragraphs = text
-    .split(/\n{2,}/g)
-    .map((p) => p.trim())
-    .filter(Boolean)
-
-  if (paragraphs.length >= 2) {
-    const allFit = paragraphs.every((p) => p.length <= limit * 1.4)
-    if (allFit && paragraphs.length <= 3) {
-      // 2 parágrafos pequenos: chance de mandar junto
-      if (paragraphs.length === 2 && text.length <= limit * 1.6 && Math.random() < 0.35) {
-        return [text]
-      }
-      return enforceBlocMax(paragraphs, base)
-    }
-    // Parágrafos grandes: processa cada um separadamente depois
-  }
-
-  // ── Tentativa 2: quebra por sentença (. ! ?) ─────────────────────────
+function splitBySentences(text: string, limit: number): string[] {
   const sentences = text
     .replace(/\n+/g, " ")
     .replace(/\s+/g, " ")
@@ -890,26 +859,72 @@ function splitLongMessageIntoBlocks(message: string, maxChars: number): string[]
   }
   if (current.trim()) blocks.push(current.trim())
 
-  // ── Compactação: elimina blocos duplicados e minúsculos ───────────────
+  // Merge de cauda curta (< 60 chars) com o bloco anterior
   const compacted: string[] = []
   for (const block of blocks) {
     const clean = block.trim()
     if (!clean) continue
     if (compacted.length > 0) {
       const prev = compacted[compacted.length - 1]
-      // Remove quasi-duplicatas
       if (semanticSimilarityScore(prev, clean) >= 0.9) continue
-      // Merge de cauda muito curta (< 60 chars): preferir junto
       if (clean.length < 60) {
-        const merged = `${prev} ${clean}`
-        compacted[compacted.length - 1] = merged
+        compacted[compacted.length - 1] = `${prev} ${clean}`
         continue
       }
     }
     compacted.push(clean)
   }
 
-  return enforceBlocMax(compacted.length ? compacted : [text], base)
+  return compacted.length ? compacted : [text]
+}
+
+function splitLongMessageIntoBlocks(message: string, maxChars: number): string[] {
+  const text = String(message || "").replace(/\r/g, "").trim()
+  if (!text) return []
+
+  const base = clampBlockChars(maxChars) // default 400
+
+  // Variação leve: ±15% a cada turno
+  const factor = 0.85 + Math.random() * 0.3 // 0.85 – 1.15
+  const limit = Math.max(120, Math.min(Math.floor(base * factor), 700))
+
+  // ── Prioridade 1: parágrafos naturais (\n\n) ───────────────────────────
+  // SEMPRE divide quando há 2+ parágrafos, independente do tamanho total.
+  // É isso que gera o visual humanizado (cada ideia = mensagem separada).
+  const paragraphs = text
+    .split(/\n{2,}/g)
+    .map((p) => p.trim())
+    .filter(Boolean)
+
+  if (paragraphs.length >= 2) {
+    // Merge parágrafo muito curto (< 25 chars) com o próximo
+    const consolidated: string[] = []
+    for (const p of paragraphs) {
+      if (consolidated.length > 0 && consolidated[consolidated.length - 1].length < 25) {
+        consolidated[consolidated.length - 1] += "\n\n" + p
+      } else {
+        consolidated.push(p)
+      }
+    }
+
+    // Parágrafos que excedem o limite são quebrados por sentença
+    const final: string[] = []
+    for (const p of consolidated) {
+      if (p.length <= limit * 1.4) {
+        final.push(p)
+      } else {
+        final.push(...splitBySentences(p, limit))
+      }
+    }
+
+    return enforceBlocMax(final.filter(Boolean), base)
+  }
+
+  // ── Texto sem parágrafos dentro do limite: bloco único ─────────────────
+  if (text.length <= Math.floor(base * 1.2)) return [text]
+
+  // ── Fallback: quebra por sentença (. ! ?) ──────────────────────────────
+  return enforceBlocMax(splitBySentences(text, limit), base)
 }
 
 /** Garante no máximo 3 blocos por turno, consolidando os excedentes. */
