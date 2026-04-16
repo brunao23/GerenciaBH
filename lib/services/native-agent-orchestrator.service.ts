@@ -1745,7 +1745,7 @@ export class NativeAgentOrchestratorService {
         })
     }
 
-    const responseText = sanitizeAssistantReplyText(String(decision.reply || ""))
+    const responseText = applyAssistantOutputPolicy(String(decision.reply || ""), { allowEmojis: config.moderateEmojiEnabled === true })
     if (!responseText) {
       return {
         processed: true,
