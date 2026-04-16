@@ -1,141 +1,160 @@
 import { NextResponse } from "next/server"
-import { createClient } from "@supabase/supabase-js"
+import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
+import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
 
-// Cliente Supabase com Service Role para acesso administrativo
-function createServiceRoleClient() {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+export const dynamic = "force-dynamic"
+export const maxDuration = 300
 
-    return createClient(supabaseUrl, supabaseServiceKey, {
-        auth: {
-            persistSession: false,
-            autoRefreshToken: false,
-            detectSessionInUrl: false
-        }
-    })
+function chunkArray<T>(items: T[], size: number): T[][] {
+  if (size <= 0) return [items]
+  const chunks: T[][] = []
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size))
+  }
+  return chunks
 }
 
-export const dynamic = 'force-dynamic'
-export const maxDuration = 300 // 5 minutos de timeout
+async function resolveTenantSessionSet(params: {
+  supabase: ReturnType<typeof createBiaSupabaseServerClient>
+  chatTable: string
+  sessionIds: string[]
+}): Promise<Set<string>> {
+  const allowed = new Set<string>()
+  const candidateIds = Array.from(new Set(params.sessionIds.map((value) => String(value || "").trim()).filter(Boolean)))
+
+  if (!candidateIds.length) return allowed
+
+  for (const part of chunkArray(candidateIds, 500)) {
+    const { data, error } = await params.supabase
+      .from(params.chatTable)
+      .select("session_id")
+      .in("session_id", part)
+
+    if (error) throw error
+
+    for (const row of data || []) {
+      const sid = String((row as any)?.session_id || "").trim()
+      if (sid) allowed.add(sid)
+    }
+  }
+
+  return allowed
+}
 
 /**
- * Rota de Auditoria Profunda de Status
- * Analisa o CONTEXTO das conversas dos leads ativos em Follow-up
- * para identificar se já foram agendados ou perdidos, baseado em palavras-chave.
+ * Auditoria contextual de follow-up ativa apenas no escopo do tenant autenticado.
  */
-export async function GET(req: Request) {
-    try {
-        const { searchParams } = new URL(req.url)
+export async function GET() {
+  try {
+    const { tenant, tables } = await getTenantFromRequest()
+    const supabase = createBiaSupabaseServerClient()
 
-        // ✅ OBTER TENANT DO HEADER OU URL
-        let tenant = req.headers.get('x-tenant-prefix')
-        if (!tenant) tenant = searchParams.get('tenant')
+    const log: string[] = []
+    let fixedCount = 0
 
-        if (!tenant) {
-            tenant = 'vox_bh'
-        }
+    const { data: activeSchedules, error } = await supabase
+      .from("followup_schedule")
+      .select("id, session_id, phone_number, conversation_context")
+      .eq("is_active", true)
+      .limit(500)
 
-        const supabase = createServiceRoleClient()
-        const crmLeadStatusTable = `${tenant}_crm_lead_status`
-        const log = []
-        let fixedCount = 0
+    if (error) throw error
 
-        // 1. Buscar todos os follow-ups ATIVOS (novamente)
-        const { data: activeSchedules, error } = await supabase
-            .from("followup_schedule")
-            .select("id, session_id, phone_number, conversation_context")
-            .eq("is_active", true)
-            .limit(500) // Limite de segurança
+    const allRows = activeSchedules || []
+    const allSessionIds = allRows
+      .map((row: any) => String(row?.session_id || "").trim())
+      .filter(Boolean)
 
-        if (error) throw error
+    const tenantSessionSet = await resolveTenantSessionSet({
+      supabase,
+      chatTable: tables.chatHistories,
+      sessionIds: allSessionIds,
+    })
 
-        log.push(`Auditoria iniciada para ${activeSchedules?.length || 0} leads ativos.`)
+    const scopedRows = allRows.filter((row: any) => tenantSessionSet.has(String(row?.session_id || "").trim()))
 
-        if (!activeSchedules || activeSchedules.length === 0) {
-            return NextResponse.json({ success: true, fixed: 0, log })
-        }
+    log.push(`Tenant ${tenant}: auditoria iniciada em ${scopedRows.length} leads ativos.`)
 
-        // Regras de detecção baseadas em conteúdo (Regex)
-        // Se encontrar isso nas últimas mensagens, considera como Finalizado
-        const SUCCESS_REGEX = /(agendad|marcad|confirmad|fechad|contrat|pix enviado|comprovante|obrigado.*pela.*atenção|te aguardo|endereço anotado)/i
-        const LOST_REGEX = /(não.*interess|desist|cancel|não.*quero|não.*vou|já fiz|outro lugar|pare de mandar|remover|excluir)/i
-
-        // 2. Processar cada lead
-        for (const schedule of activeSchedules) {
-            let shouldDeactivate = false
-            let newStatus = ""
-            let reason = ""
-
-            // Tenta pegar o contexto salvo no schedule, se não tiver, busca mensagens
-            let contextText = ""
-
-            if (schedule.conversation_context) {
-                try {
-                    const messages = JSON.parse(schedule.conversation_context)
-                    // Junta todas as mensagens em um texto único para buscar
-                    contextText = messages.map((m: any) => m.content).join(" || ")
-                } catch (e) {
-                    // Ignore parsing error
-                }
-            }
-
-            // Se o contexto salvo for curto ou vazio, buscaria do banco (mas é pesado para 200 leads num loop síncrono)
-            // Vamos confiar no contexto salvo primeiro, é mais rápido. 
-            // Na maioria dos casos o scanner salvou as últimas 10 msgs contextuais.
-
-            if (contextText) {
-                if (SUCCESS_REGEX.test(contextText)) {
-                    shouldDeactivate = true
-                    newStatus = 'agendado'
-                    reason = "Detectado palavras-chave de sucesso na conversa"
-                } else if (LOST_REGEX.test(contextText)) {
-                    shouldDeactivate = true
-                    newStatus = 'perdido'
-                    reason = "Detectado palavras-chave de perda na conversa"
-                }
-            }
-
-            if (shouldDeactivate) {
-                // 1. Desativa do Follow-up
-                await supabase
-                    .from("followup_schedule")
-                    .update({
-                        is_active: false,
-                        lead_status: `audit_${newStatus}`,
-                        updated_at: new Date().toISOString()
-                    })
-                    .eq("id", schedule.id)
-
-                // 2. Tenta atualizar/corrigir tabela de status do CRM se não existir ou estiver errada
-                // Isso ajuda a mover o card na tela
-                await supabase
-                    .from(crmLeadStatusTable)
-                    .upsert({
-                        lead_id: schedule.session_id,
-                        status: newStatus, // 'agendado' ou 'perdido'
-                        auto_classified: true,
-                        updated_at: new Date().toISOString()
-                    }, { onConflict: 'lead_id' })
-
-                log.push(`[AUDITORIA] ${schedule.session_id}: Removido -> ${reason} (${newStatus})`)
-                fixedCount++
-            }
-        }
-
-        log.push(`Auditoria finalizada. Total de leads removidos: ${fixedCount}`)
-
-        return NextResponse.json({
-            success: true,
-            fixed: fixedCount,
-            total_checked: activeSchedules.length,
-            log
-        })
-
-    } catch (error: any) {
-        console.error("[Audit Status] Erro:", error)
-        return NextResponse.json(
-            { error: error?.message || "Erro na auditoria" },
-            { status: 500 }
-        )
+    if (!scopedRows.length) {
+      return NextResponse.json({ success: true, tenant, fixed: 0, total_checked: 0, log })
     }
+
+    const SUCCESS_REGEX = /(agendad|marcad|confirmad|fechad|contrat|pix enviado|comprovante|obrigado.*pela.*atencao|te aguardo|endereco anotado)/i
+    const LOST_REGEX = /(nao.*interess|desist|cancel|nao.*quero|nao.*vou|ja fiz|outro lugar|pare de mandar|remover|excluir)/i
+
+    for (const schedule of scopedRows) {
+      let shouldDeactivate = false
+      let newStatus = ""
+      let reason = ""
+
+      let contextText = ""
+      if (schedule.conversation_context) {
+        try {
+          const messages = JSON.parse(schedule.conversation_context)
+          if (Array.isArray(messages)) {
+            contextText = messages
+              .map((message: any) => String(message?.content || "").trim())
+              .filter(Boolean)
+              .join(" || ")
+          }
+        } catch {
+          // ignore parse error
+        }
+      }
+
+      if (contextText) {
+        if (SUCCESS_REGEX.test(contextText)) {
+          shouldDeactivate = true
+          newStatus = "agendado"
+          reason = "palavras-chave de sucesso detectadas"
+        } else if (LOST_REGEX.test(contextText)) {
+          shouldDeactivate = true
+          newStatus = "perdido"
+          reason = "palavras-chave de perda detectadas"
+        }
+      }
+
+      if (!shouldDeactivate) continue
+
+      await supabase
+        .from("followup_schedule")
+        .update({
+          is_active: false,
+          lead_status: `audit_${newStatus}`,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", schedule.id)
+
+      await supabase
+        .from(tables.crmLeadStatus)
+        .upsert(
+          {
+            lead_id: schedule.session_id,
+            status: newStatus,
+            auto_classified: true,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "lead_id" },
+        )
+
+      log.push(`[AUDITORIA] ${schedule.session_id}: removido (${newStatus}) - ${reason}`)
+      fixedCount += 1
+    }
+
+    log.push(`Tenant ${tenant}: auditoria finalizada. Removidos ${fixedCount}.`)
+
+    return NextResponse.json({
+      success: true,
+      tenant,
+      fixed: fixedCount,
+      total_checked: scopedRows.length,
+      log,
+    })
+  } catch (error: any) {
+    console.error("[followup-intelligent/audit-statuses] erro:", error)
+    return NextResponse.json(
+      { success: false, error: error?.message || "Erro na auditoria" },
+      { status: 500 },
+    )
+  }
 }

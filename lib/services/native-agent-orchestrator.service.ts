@@ -1,4 +1,4 @@
-import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
+﻿import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { SemanticCacheService, type CacheHitResult } from "@/lib/services/semantic-cache.service"
 import { getTablesForTenant } from "@/lib/helpers/tenant"
 import { getTableColumns } from "@/lib/helpers/supabase-table-columns"
@@ -62,6 +62,16 @@ type AvailableSlotsResult = {
   searched_date_to?: string
   business_days_configured?: Array<{ number: number; name: string }>
   business_hours_per_day?: Record<string, { start: string; end: string }>
+  days_with_free_slots?: Array<{
+    date: string
+    date_br: string
+    weekday_number: number
+    weekday_name_pt: string
+    first_time: string
+    slots_count: number
+    is_weekend: boolean
+  }>
+  holidays_in_range?: Array<{ date: string; date_br: string; name: string }>
 }
 
 type EditAppointmentResult = {
@@ -101,6 +111,8 @@ export interface HandleInboundMessageInput {
   reactionValue?: string
   isGif?: boolean
   raw?: any
+  bufferAnchorCreatedAt?: string
+  bufferAnchorMessageId?: string
 }
 
 export interface HandleInboundMessageResult {
@@ -317,6 +329,138 @@ function detectsSchedulingIntent(rawMessage: string): boolean {
   return false
 }
 
+function seededUnitInterval(seedRaw: string): number {
+  const seed = String(seedRaw || "reply-default")
+  let hash = 2166136261
+  for (let i = 0; i < seed.length; i += 1) {
+    hash ^= seed.charCodeAt(i)
+    hash = Math.imul(hash, 16777619)
+  }
+  return ((hash >>> 0) % 10_000) / 10_000
+}
+
+function clamp01(value: number): number {
+  if (!Number.isFinite(value)) return 0
+  if (value <= 0) return 0
+  if (value >= 1) return 1
+  return value
+}
+
+function looksLikeShortLeadFragment(text: string): boolean {
+  const normalized = normalizeComparableMessage(text)
+  if (!normalized) return true
+
+  if (normalized.length <= 4) return true
+  const words = normalized.split(" ").filter(Boolean)
+  if (words.length <= 2) {
+    const shortFragments = new Set([
+      "ok",
+      "blz",
+      "sim",
+      "nao",
+      "não",
+      "pode",
+      "pode ser",
+      "fechado",
+      "amanha",
+      "amanhã",
+      "as 14",
+      "as 15",
+      "as 16",
+      "as 17",
+      "as 18",
+      "as 19",
+      "as 20",
+      "vejo",
+      "depois",
+      "vou pensar",
+    ])
+    if (shortFragments.has(normalized)) return true
+  }
+
+  return /\b(as|a)\s+\d{1,2}(h|hs)?\b/.test(normalized)
+}
+
+function sanitizeLeadContextForFollowup(value: string): string {
+  const text = String(value || "").trim()
+  if (!text) return ""
+
+  const normalized = normalizeComparableMessage(text)
+  if (!normalized) return ""
+
+  if (
+    normalized.includes("gatilho_externo_fromme") ||
+    normalized.includes("gatilho_externo_welcome_unidade") ||
+    normalized.includes("mensagem automatica interna")
+  ) {
+    return ""
+  }
+
+  if (/^\[(gatilho_|internal_|system_)/i.test(text)) {
+    return ""
+  }
+
+  return text
+}
+
+function decideContextualReplyUsage(input: {
+  enabled: boolean
+  replyToMessageId?: string
+  messageId?: string
+  leadMessage: string
+  replyPreview?: string
+  fromMeTrigger: boolean
+  isReaction: boolean
+  isStatusReply: boolean
+  waitingMessage: boolean
+}): { useReply: boolean; chance: number; roll: number; reason: string } {
+  const replyToMessageId = String(input.replyToMessageId || "").trim()
+  if (!input.enabled || !replyToMessageId) {
+    return { useReply: false, chance: 0, roll: 0, reason: "reply_disabled_or_missing_id" }
+  }
+
+  if (input.fromMeTrigger || input.isReaction || input.isStatusReply) {
+    return { useReply: false, chance: 0, roll: 0, reason: "non_conversational_event" }
+  }
+
+  const leadMessage = String(input.leadMessage || "").trim()
+  const normalizedLead = normalizeComparableMessage(leadMessage)
+  if (!normalizedLead) {
+    return { useReply: false, chance: 0, roll: 0, reason: "empty_lead_message" }
+  }
+
+  const words = normalizedLead.split(" ").filter(Boolean)
+  const hasQuestion = /[?？]/.test(leadMessage)
+  const multiBufferedInput = leadMessage.includes("\n")
+  const shortFragment = looksLikeShortLeadFragment(normalizedLead)
+  const likelyChoiceAnswer = /\b(manha|manhã|tarde|noite|presencial|online|sexta|sabado|sábado|segunda|terca|terça|quarta|quinta)\b/.test(
+    normalizedLead,
+  )
+  const previewSimilarity = semanticSimilarityScore(String(input.replyPreview || ""), normalizedLead)
+
+  let chance = 0.24
+  if (multiBufferedInput) chance += 0.26
+  if (shortFragment) chance += 0.24
+  if (likelyChoiceAnswer) chance += 0.14
+  if (hasQuestion) chance += 0.1
+  if (previewSimilarity >= 0.82) chance += 0.12
+  if (input.waitingMessage) chance += 0.06
+  if (words.length >= 18 || normalizedLead.length >= 120) chance -= 0.2
+  if (words.length >= 28 || normalizedLead.length >= 190) chance -= 0.14
+
+  const boundedChance = 0.12 + clamp01(chance) * 0.76
+  const roll = seededUnitInterval(
+    `${replyToMessageId}|${input.messageId || ""}|${normalizedLead}|${normalizedLead.length}`,
+  )
+  const useReply = roll <= boundedChance
+  return {
+    useReply,
+    chance: boundedChance,
+    roll,
+    reason: useReply ? "contextual_reply_selected" : "contextual_reply_skipped",
+  }
+}
+
 function semanticSimilarityScore(a: string, b: string): number {
   const left = normalizeComparableMessage(a)
   const right = normalizeComparableMessage(b)
@@ -362,6 +506,59 @@ function sanitizeAssistantReplyText(value: string): string {
   }
 
   return dedupedParagraphs.join("\n\n").trim()
+}
+
+function stripMarkdownFormatting(text: string): string {
+  return String(text || "")
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/gi, "$1 ($2)")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^\s*>\s?/gm, "")
+    .replace(/^\s*(?:[-*•]+|\d+[.)])\s+/gm, "")
+    .replace(/[*_~]+/g, "")
+}
+
+function stripHyphensAndDashes(text: string): string {
+  return String(text || "")
+    .replace(/[‐‑‒–—―-]+/g, " ")
+    .replace(/\s{2,}/g, " ")
+}
+
+function stripEmojis(text: string): string {
+  return String(text || "")
+    .replace(/[\p{Extended_Pictographic}\p{Emoji_Presentation}]/gu, "")
+    .replace(/\s{2,}/g, " ")
+}
+
+function applyAssistantOutputPolicy(
+  value: string,
+  options: { allowEmojis: boolean },
+): string {
+  const text = String(value || "").trim()
+  if (!text) return ""
+
+  let normalized = stripMarkdownFormatting(text)
+  normalized = stripHyphensAndDashes(normalized)
+  if (!options.allowEmojis) {
+    normalized = stripEmojis(normalized)
+  }
+
+  const paragraphs = normalized
+    .split(/\n{2,}/g)
+    .map((part) => part.replace(/\n+/g, " ").replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+
+  const deduped: string[] = []
+  const seen = new Set<string>()
+  for (const paragraph of paragraphs) {
+    const key = normalizeComparableMessage(paragraph)
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    deduped.push(paragraph)
+  }
+
+  return deduped.join("\n\n").trim()
 }
 
 function normalizeDelaySeconds(value: number | undefined, fallback = 0): number {
@@ -564,6 +761,35 @@ function getNowPartsForTimezone(timezone: string): LocalDateTimeParts {
   }
 }
 
+function getDatePartsForTimezone(date: Date, timezone: string): LocalDateTimeParts | null {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null
+  try {
+    const formatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone: timezone || "America/Sao_Paulo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    })
+    const parts = formatter.formatToParts(date)
+    const read = (type: string): number =>
+      Number(parts.find((p) => p.type === type)?.value || 0)
+    return {
+      year: read("year"),
+      month: read("month"),
+      day: read("day"),
+      hour: read("hour"),
+      minute: read("minute"),
+      second: read("second"),
+    }
+  } catch {
+    return null
+  }
+}
+
 function toComparableMs(parts: LocalDateTimeParts): number {
   return Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second)
 }
@@ -659,6 +885,32 @@ function getHolidayName(dateIso: string): string | null {
   const year = Number(String(dateIso || "").slice(0, 4))
   if (!year) return null
   return getBrazilianNationalHolidaysMap(year).get(dateIso) || null
+}
+
+function isIsoDate(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || "").trim())
+}
+
+function getBrazilianNationalHolidaysInRange(
+  dateFrom: string,
+  dateTo: string,
+): Array<{ date: string; date_br: string; name: string }> {
+  if (!isIsoDate(dateFrom) || !isIsoDate(dateTo) || dateFrom > dateTo) return []
+  const startYear = Number(String(dateFrom).slice(0, 4))
+  const endYear = Number(String(dateTo).slice(0, 4))
+  if (!Number.isInteger(startYear) || !Number.isInteger(endYear) || startYear > endYear) return []
+
+  const holidays: Array<{ date: string; date_br: string; name: string }> = []
+  for (let year = startYear; year <= endYear; year++) {
+    for (const [iso, name] of getBrazilianNationalHolidaysMap(year)) {
+      if (iso >= dateFrom && iso <= dateTo) {
+        holidays.push({ date: iso, date_br: formatDateIsoToBr(iso), name })
+      }
+    }
+  }
+
+  holidays.sort((a, b) => a.date.localeCompare(b.date))
+  return holidays
 }
 
 function getSlotDateContext(dateIso: string, nowParts: LocalDateTimeParts): {
@@ -1035,6 +1287,20 @@ const SCHEDULE_GUARDRAIL_ERRORS = new Set([
   "email_required_for_scheduling",
   "email_required_for_online_meet",
 ])
+const SCHEDULE_NON_ERROR_CONFLICT_ERRORS = new Set([
+  "google_calendar_conflict",
+  "time_slot_unavailable",
+  "max_appointments_per_day_reached",
+  "outside_business_hours",
+  "lunch_break_conflict",
+  "appointment_in_past",
+  "min_lead_time_not_met",
+  "appointment_beyond_max_return_window",
+  "feriado_ou_data_bloqueada",
+  "blocked_time_range",
+  "business_day_not_allowed",
+  "invalid_date_or_time",
+])
 
 function normalizeEmailCandidate(value: any): string {
   const email = String(value || "").trim().toLowerCase()
@@ -1085,6 +1351,9 @@ export class NativeAgentOrchestratorService {
     }
 
     const chat = new TenantChatHistoryService(tenant)
+    const bufferAnchorCreatedAt = String(input.bufferAnchorCreatedAt || "").trim()
+    const bufferAnchorMessageId = String(input.bufferAnchorMessageId || "").trim()
+    let localPersistedCreatedAt = ""
 
     if (!input.messageAlreadyPersisted) {
       if (input.messageId) {
@@ -1099,12 +1368,14 @@ export class NativeAgentOrchestratorService {
         }
       }
 
+      localPersistedCreatedAt = new Date().toISOString()
       await chat.persistMessage({
         sessionId,
         role: "user",
         type: "human",
         content,
         messageId: input.messageId,
+        createdAt: localPersistedCreatedAt,
         source: input.source || "zapi",
         raw: input.raw,
         additional: {
@@ -1122,6 +1393,10 @@ export class NativeAgentOrchestratorService {
       })
     }
 
+    const freshnessAnchorCreatedAt =
+      bufferAnchorCreatedAt || localPersistedCreatedAt || new Date().toISOString()
+    const freshnessAnchorMessageId = bufferAnchorMessageId || String(input.messageId || "").trim()
+
     await this.taskQueue
       .cancelPendingFollowups({
         tenant,
@@ -1135,7 +1410,7 @@ export class NativeAgentOrchestratorService {
     // → Reconhecer silenciosamente com reação de volta; NÃO responder com texto
     // -----------------------------------------------------------------------
     if (input.isReaction && input.reactionValue && !input.fromMeTrigger) {
-      if (input.messageId) {
+      if (config.reactionsEnabled && input.messageId) {
         const ackEmojis = ["😊", "👍", "🙏"]
         const ackEmoji = ackEmojis[Math.floor(Math.random() * ackEmojis.length)]
         this.messaging
@@ -1261,7 +1536,7 @@ export class NativeAgentOrchestratorService {
     }
 
     // Reação emoji quando lead demonstra intenção de agendar (antes do Gemini processar)
-    if (input.messageId && !input.fromMeTrigger && detectsSchedulingIntent(content)) {
+    if (config.reactionsEnabled && input.messageId && !input.fromMeTrigger && detectsSchedulingIntent(content)) {
       const reactions = ["👍", "❤️"]
       const reaction = reactions[Math.floor(Math.random() * reactions.length)]
       this.messaging
@@ -1284,7 +1559,7 @@ export class NativeAgentOrchestratorService {
 
     // Feature 2: Lead enviou GIF → reagir com emoji e enriquecer contexto no conversation
     if (input.isGif && !isFromMeTrigger) {
-      if (input.messageId) {
+      if (config.reactionsEnabled && input.messageId) {
         const gifEmojis = ["😄", "😂", "❤️", "🤣", "😆"]
         const gifEmoji = gifEmojis[Math.floor(Math.random() * gifEmojis.length)]
         this.messaging
@@ -1480,6 +1755,20 @@ export class NativeAgentOrchestratorService {
       }
     }
 
+    const supersededBeforeSend = await chat.hasNewerUserMessage({
+      sessionId,
+      sinceCreatedAt: freshnessAnchorCreatedAt,
+      excludeMessageId: freshnessAnchorMessageId || undefined,
+    })
+    if (supersededBeforeSend) {
+      return {
+        processed: true,
+        replied: false,
+        actions: actionResults,
+        reason: "superseded_by_newer_user_message",
+      }
+    }
+
     const lastAssistantTurn = [...conversationRows]
       .reverse()
       .find((turn) => turn.role === "assistant" && String(turn.content || "").trim())
@@ -1491,7 +1780,29 @@ export class NativeAgentOrchestratorService {
         normalizeComparableMessage(responseText)
       const similarity = semanticSimilarityScore(lastAssistantTurn.content, responseText)
       const isNearDuplicateReply = similarity >= 0.86
-      if (isRecent && (isSameReply || isNearDuplicateReply)) {
+      const latestLeadText = String(effectiveLeadMessage || content || "").trim()
+      const latestLeadNormalized = normalizeComparableMessage(latestLeadText)
+      const previousLeadTurn = [...conversationRows]
+        .reverse()
+        .find(
+          (turn) =>
+            turn.role === "user" &&
+            normalizeComparableMessage(turn.content) !== latestLeadNormalized,
+        )
+      const previousLeadSimilarity = previousLeadTurn
+        ? semanticSimilarityScore(previousLeadTurn.content, latestLeadText)
+        : 0
+      const hasSubstantiveNewLeadInput =
+        !looksLikeShortLeadFragment(latestLeadText) &&
+        (latestLeadText.length >= 18 || latestLeadText.split(/\s+/).filter(Boolean).length >= 4) &&
+        (!previousLeadTurn || previousLeadSimilarity < 0.82)
+
+      if (
+        isRecent &&
+        (isSameReply || isNearDuplicateReply) &&
+        !hasSubstantiveNewLeadInput &&
+        !isFromMeTrigger
+      ) {
         return {
           processed: true,
           replied: false,
@@ -1523,6 +1834,9 @@ export class NativeAgentOrchestratorService {
       }
 
       if (config.followupEnabled) {
+        const followupLeadContext = sanitizeLeadContextForFollowup(
+          effectiveLeadMessage || (isFromMeTrigger ? "" : content),
+        )
         const followupIntervals = resolveFollowupIntervalsFromConfig(config)
         if (followupIntervals.length > 0) {
           await this.taskQueue
@@ -1531,7 +1845,7 @@ export class NativeAgentOrchestratorService {
               sessionId,
               phone,
               leadName: firstName(input.contactName) || input.contactName || undefined,
-              lastUserMessage: effectiveLeadMessage || content,
+              lastUserMessage: followupLeadContext,
               lastAgentMessage: responseText,
               intervalsMinutes: followupIntervals,
             })
@@ -1572,13 +1886,38 @@ export class NativeAgentOrchestratorService {
     const blocks = config.splitLongMessagesEnabled
       ? splitLongMessageIntoBlocks(responseText, config.messageBlockMaxChars)
       : [responseText]
+    const contextualReplyDecision = decideContextualReplyUsage({
+      enabled: config.replyEnabled !== false,
+      replyToMessageId: input.replyToMessageId,
+      messageId: input.messageId,
+      leadMessage: effectiveLeadMessage || content,
+      replyPreview: input.replyPreview,
+      fromMeTrigger: isFromMeTrigger,
+      isReaction: input.isReaction === true,
+      isStatusReply: input.isStatusReply === true,
+      waitingMessage: input.waitingMessage === true,
+    })
+    const replyToMessageId = contextualReplyDecision.useReply
+      ? String(input.replyToMessageId || "").trim() || undefined
+      : undefined
 
     let sentBlocks = 0
     let skippedBlocks = 0
     let sendFailure: SendTenantTextResult | null = null
     const sentThisTurn = new Set<string>()
+    let supersededByNewerUser = false
 
     for (const block of blocks) {
+      const superseded = await chat.hasNewerUserMessage({
+        sessionId,
+        sinceCreatedAt: freshnessAnchorCreatedAt,
+        excludeMessageId: freshnessAnchorMessageId || undefined,
+      })
+      if (superseded) {
+        supersededByNewerUser = true
+        break
+      }
+
       const normalizedBlock = normalizeComparableMessage(block)
       if (!normalizedBlock) {
         skippedBlocks += 1
@@ -1607,6 +1946,16 @@ export class NativeAgentOrchestratorService {
         await new Promise((resolve) => setTimeout(resolve, delayMs))
       }
 
+      const supersededAfterDelay = await chat.hasNewerUserMessage({
+        sessionId,
+        sinceCreatedAt: freshnessAnchorCreatedAt,
+        excludeMessageId: freshnessAnchorMessageId || undefined,
+      })
+      if (supersededAfterDelay) {
+        supersededByNewerUser = true
+        break
+      }
+
       const send = await this.messaging.sendText({
         tenant,
         phone,
@@ -1615,6 +1964,7 @@ export class NativeAgentOrchestratorService {
         source: "native-agent",
         zapiDelayMessageSeconds: config.zapiDelayMessageSeconds,
         zapiDelayTypingSeconds: computeTypingSeconds(block, config.zapiDelayTypingSeconds),
+        replyToMessageId: sentBlocks === 0 ? replyToMessageId : undefined,
       })
 
       if (!send.success) {
@@ -1623,6 +1973,15 @@ export class NativeAgentOrchestratorService {
       }
       sentThisTurn.add(normalizedBlock)
       sentBlocks += 1
+    }
+
+    if (supersededByNewerUser && sentBlocks === 0) {
+      return {
+        processed: true,
+        replied: false,
+        actions: actionResults,
+        reason: "superseded_by_newer_user_message",
+      }
     }
 
     if (sentBlocks === 0 && skippedBlocks > 0) {
@@ -1684,6 +2043,9 @@ export class NativeAgentOrchestratorService {
     }
 
     if (config.followupEnabled) {
+      const followupLeadContext = sanitizeLeadContextForFollowup(
+        effectiveLeadMessage || (isFromMeTrigger ? "" : content),
+      )
       const followupIntervals = resolveFollowupIntervalsFromConfig(config)
       if (followupIntervals.length > 0) {
         await this.taskQueue
@@ -1692,7 +2054,7 @@ export class NativeAgentOrchestratorService {
             sessionId,
             phone,
             leadName: firstName(input.contactName) || input.contactName || undefined,
-            lastUserMessage: effectiveLeadMessage || content,
+            lastUserMessage: followupLeadContext,
             lastAgentMessage: responseText,
             intervalsMinutes: followupIntervals,
           })
@@ -1720,7 +2082,7 @@ export class NativeAgentOrchestratorService {
       .trim()
       .toLowerCase()
 
-    return SCHEDULE_GUARDRAIL_ERRORS.has(errorCode)
+    return SCHEDULE_GUARDRAIL_ERRORS.has(errorCode) || SCHEDULE_NON_ERROR_CONFLICT_ERRORS.has(errorCode)
   }
 
   private async resolveLeadEmailFromContext(params: {
@@ -2269,7 +2631,7 @@ export class NativeAgentOrchestratorService {
       ? "- Agendamento no mesmo horario esta permitido."
       : "- Nao agende dois leads no mesmo horario."
     const holidaysRule = config.calendarHolidaysEnabled !== false
-      ? "- FERIADOS NACIONAIS BRASILEIROS estao automaticamente bloqueados (Ano Novo, Carnaval, Semana Santa, Tiradentes, Dia do Trabalho, Corpus Christi, Independencia, N.Sra.Aparecida, Finados, Proclamacao da Republica, Consciencia Negra, Natal). NUNCA ofereça horario em feriado."
+      ? "- Feriados nacionais brasileiros ficam bloqueados automaticamente. A confirmacao de feriado deve ser feita SOMENTE pelo retorno de get_available_slots (campo holidays_in_range)."
       : ""
     const blockedDatesRule =
       Array.isArray(config.calendarBlockedDates) && config.calendarBlockedDates.length > 0
@@ -2454,6 +2816,7 @@ export class NativeAgentOrchestratorService {
       "- [PROIBIDO] NUNCA use seu conhecimento de treinamento para responder sobre disponibilidade. Datas do seu treinamento estao ERRADAS. Use SOMENTE o retorno de get_available_slots.",
       "- [PROIBIDO] NUNCA responda 'amanha tenho horario', 'semana que vem', 'segunda-feira', 'de manha' ou qualquer variacao sem antes chamar a ferramenta.",
       "- [PROIBIDO] NUNCA pergunte 'prefere manha ou tarde?' sem antes consultar os slots — voce nao sabe se ha disponibilidade em nenhum turno.",
+      "- [PROIBIDO] NUNCA diga 'nao tenho acesso a agenda', 'nao consigo ver agenda' ou 'so tenho acesso a X periodo'. Voce DEVE consultar get_available_slots e responder com base no retorno real.",
       "- Se o lead perguntar 'tem horario?', 'quando voce tem?', 'qual o proximo horario?', 'tem amanha?' — chame get_available_slots IMEDIATAMENTE antes de responder.",
       maxWindowDays > 0
         ? `- JANELA DE AGENDAMENTO DESTA UNIDADE: ${maxWindowDays} dias no futuro (configurado pelo admin). Ao chamar get_available_slots use SEMPRE date_from=${todayIso} e date_to=${searchWindowEndIso}. NUNCA ultrapasse ${searchWindowEndIso} — slots alem dessa data nao existem por configuracao.`
@@ -2465,23 +2828,26 @@ export class NativeAgentOrchestratorService {
       "- Se o lead pedir remarcacao, acione edit_appointment para atualizar o horario.",
       "- Se a tool de agendamento retornar erro, explique o motivo ao lead e proponha proximo horario valido.",
       "- NUNCA pergunte se o lead quer agendar em um horario fora do expediente configurado. Respeite rigorosamente os horarios acima.",
+      "- LEI DO MESMO HORARIO: quando 'allowOverlappingAppointments' estiver desativado, horario ocupado e BLOQUEADO. Se houver conflito ('time_slot_unavailable' ou 'google_calendar_conflict'), nunca insistir no mesmo horario; oferecer proximos horarios livres.",
       "- Quando fizer sentido retomar depois, acione create_followup ou create_reminder.",
       "- Se precisar transferir para humano, acione handoff_human.",
       config.unitLatitude !== undefined && config.unitLongitude !== undefined
         ? "- Se o lead perguntar onde fica a unidade, como chegar, o endereco ou a localizacao: acione send_location IMEDIATAMENTE (sem pedir confirmacao). Se a tool nao retornar ok=true, envie o link do Google Maps com o endereco textual. NUNCA envie o link de texto diretamente sem antes tentar send_location."
         : null,
       maxWindowDays > 0
-        ? `- [JANELA FIXA — SEM RETRY ALEM DE ${searchWindowEndIso}] Esta unidade aceita agendamentos somente ate ${searchWindowEndIso} (${maxWindowDays} dias). Se get_available_slots retornar total=0 com date_to=${searchWindowEndIso}, nao ha disponibilidade no periodo — informe o lead e oferea contato direto. NAO expanda a busca.`
+        ? `- [JANELA FIXA — SEM RETRY ALEM DE ${searchWindowEndIso}] Esta unidade aceita agendamentos somente ate ${searchWindowEndIso} (${maxWindowDays} dias). Se get_available_slots retornar total=0 com date_to=${searchWindowEndIso}, informe que nao ha horarios LIVRES nesse intervalo e peca outro dia/periodo dentro da janela. NAO invente disponibilidade e NAO diga que nao tem acesso a agenda.`
         : `- [RETRY QUANDO total=0] Se get_available_slots retornar total=0 na busca inicial (ate ${searchWindowEndIso}): chame novamente com date_to=${formatDateFromParts(addMinutesToParts(nowLocalParts, 45 * 24 * 60))}. Se ainda total=0, tente date_to=${formatDateFromParts(addMinutesToParts(nowLocalParts, 60 * 24 * 60))}. Somente apos 3 tentativas sem resultado informe ao lead.`,
-      "- [PROIBIDO AFIRMAR DIA SEM VERIFICAR] O response de get_available_slots inclui 'business_days_configured' com os dias da semana que a unidade REALMENTE atende e 'business_hours_per_day' com os horarios por dia. NUNCA diga 'nao atendemos aos sabados', 'nao temos domingo' ou qualquer afirmacao sobre dias especificos sem verificar 'business_days_configured'. Se sabado (6) ou domingo (7) estiver em 'business_days_configured', a unidade ATENDE nesses dias.",
-      "- [REGRA CRITICA — SABADO E FIM DE SEMANA] Se o lead mencionar 'sabado', 'sabados', 'fim de semana', 'final de semana' ou qualquer variacao: (1) chame get_available_slots IMEDIATAMENTE — NUNCA responda antes; (2) verifique se sabado (numero 6) esta em 'business_days_configured' no retorno da ferramenta; (3) se sabado ESTIVER em 'business_days_configured', a unidade ATENDE aos sabados — busque e oferea os slots de sabado disponiveis; (4) se nao houver slots de sabado na janela atual (ex.: todos ocupados por compromissos), diga EXATAMENTE 'Nos proximos [N] dias nao encontrei horarios livres no sabado — todos ja estao ocupados. Posso verificar outro dia ou outro periodo?' — NUNCA diga 'nao atendemos aos sabados' ou 'nao temos sabado' quando sabado estiver em business_days_configured; (5) PROIBIDO assumir que sabado e fechado sem chamar a ferramenta e verificar business_days_configured.",
+      "- [PROIBIDO AFIRMAR DIA SEM VERIFICAR] O retorno de get_available_slots inclui 'business_days_configured' (dias que a unidade atende), 'business_hours_per_day' (horario por dia) e 'days_with_free_slots' (dias com vagas). Use esses campos como fonte unica da verdade.",
+      "- [REGRA CRITICA — FIM DE SEMANA E TARDE] Se o lead mencionar sabado/domingo/fim de semana: (1) chame get_available_slots antes de responder; (2) se 6 e/ou 7 estiver em business_days_configured, a unidade atende nesses dias; (3) se business_hours_per_day mostrar horario de tarde para sabado/domingo, ofereca tarde normalmente; (4) nunca diga que final de semana e fechado sem verificar os campos da ferramenta.",
       "- [USO DE business_days_configured] Quando apresentar opcoes ao lead, use apenas os dias que estao em 'business_days_configured'. Se o lead pedir um dia que NAO esta na lista, informe que nao ha atendimento naquele dia da semana e sugira os dias configurados.",
+      "- [USO DE days_with_free_slots] Sempre priorize dias com vagas reais (days_with_free_slots). NUNCA ofereca data/horario ocupado.",
       "- [PRECISAO DE RANGE] Se o lead pedir um periodo especifico ('semana que vem', 'mes que vem', 'proximo mes'), ajuste date_from e date_to exatamente para cobrir esse periodo ao chamar get_available_slots.",
       "- REGRA DE DATA RELATIVA: use sempre o campo relative_label do slot como referencia. Exemplos de uso correto: 'hoje as 14h', 'amanha as 10h', 'depois de amanha as 9h', 'quinta-feira as 15h' (esta semana), 'proxima terca-feira (22/04) as 14h' (semana seguinte), 'quarta-feira (29/04) as 10h' (duas semanas ou mais). NUNCA use apenas 'dia 22' sem o dia da semana.",
       "- REGRA DE CONSISTENCIA: NUNCA escreva duas opcoes equivalentes para o mesmo dia no mesmo turno (ex.: 'amanha 20h' e 'quarta-feira 20h' quando representam o mesmo dia).",
       "- REGRA DE NATURALIDADE NA DATA: NUNCA diga 'o dia 21 que e uma terca-feira' nem 'para o dia 21, que e terca-feira'. A ordem correta e sempre o dia da semana primeiro: 'terca-feira, dia 21' ou 'terca (dia 21)' ou apenas 'terca-feira as 14h'. Use o campo relative_label do slot (amanha, depois de amanha, quarta-feira, etc.) como referencia principal — evite mencionar o numero do dia isolado como se fosse o protagonista.",
       "- REGRA DE FLEXIBILIDADE DE HORARIO: Ao apresentar opcoes de horario, sempre encerre com uma abertura para o lead sugerir alternativa. Exemplos naturais: 'Tenho sexta-feira as 09h30 ou as 14h30 — qual fica melhor? Ou se preferir outro horario, me fala que verifico.' / 'Tenho disponivel terca as 10h ou quinta as 15h. Algum desses te atende? Caso tenha uma preferencia diferente, pode sugerir.' O tom deve ser consultivo, nunca robotico. A sugestao alternativa vem sempre no FINAL da mensagem, de forma leve e natural.",
-      "- REGRA DE FERIADO: o resultado de get_available_slots inclui o campo holidays_in_range com os feriados nacionais que caem no periodo consultado. Se o lead pedir um dia que e feriado, explique de forma natural e amigavel: 'Olha, esse dia e feriado nacional — {nome do feriado}. Por isso nao temos atendimento. Que tal {proximo slot disponivel}?' Nunca diga apenas 'nao temos disponibilidade' quando a razao for feriado — sempre nomeie o feriado.",
+      "- REGRA DE FERIADO COMPROVADO: so chame uma data de feriado se ela existir em holidays_in_range retornado por get_available_slots. Se a data nao estiver nesse campo, nao trate como feriado.",
+      "- REGRA DE FERIADO: quando a data estiver em holidays_in_range, informe o nome exato do feriado e em seguida ofereca os proximos slots livres.",
       "",
       `CONTEXTO DA SESSAO ATUAL (nao misture com outras sessoes):`,
       `- Data/hora atual ISO: ${now}`,
@@ -2731,22 +3097,7 @@ export class NativeAgentOrchestratorService {
       })
       const slotNowParts = getNowPartsForTimezone(params.config.timezone || "America/Sao_Paulo")
 
-      // Calcula feriados que caem no range solicitado (para o agente explicar ao lead)
-      const holidaysInRange: Array<{ date: string; date_br: string; name: string }> = []
-      if (params.config.calendarHolidaysEnabled !== false && action.date_from) {
-        const rangeStart = action.date_from
-        const rangeEnd = action.date_to || rangeStart
-        const startYear = Number(String(rangeStart).slice(0, 4))
-        const endYear = Number(String(rangeEnd).slice(0, 4))
-        for (let yr = startYear; yr <= endYear; yr++) {
-          for (const [iso, name] of getBrazilianNationalHolidaysMap(yr)) {
-            if (iso >= rangeStart && iso <= rangeEnd) {
-              holidaysInRange.push({ date: iso, date_br: formatDateIsoToBr(iso), name })
-            }
-          }
-        }
-        holidaysInRange.sort((a, b) => a.date.localeCompare(b.date))
-      }
+      const holidaysInRange = Array.isArray(result.holidays_in_range) ? result.holidays_in_range : []
 
       return {
         ok: result.ok,
@@ -2768,6 +3119,7 @@ export class NativeAgentOrchestratorService {
           searched_date_to: result.searched_date_to,
           business_days_configured: result.business_days_configured,
           business_hours_per_day: result.business_hours_per_day,
+          days_with_free_slots: result.days_with_free_slots,
           error: result.error,
         },
       }
@@ -2812,6 +3164,44 @@ export class NativeAgentOrchestratorService {
       })
 
       const scheduleOk = result.ok
+      const scheduleError = String(result.error || "").trim().toLowerCase()
+
+      let recoverySlots: Array<{ date: string; time: string }> = []
+      let recoveryDateFrom: string | undefined
+      let recoveryDateTo: string | undefined
+
+      if (!scheduleOk && SCHEDULE_NON_ERROR_CONFLICT_ERRORS.has(scheduleError)) {
+        const timezone = params.config.timezone || "America/Sao_Paulo"
+        const nowParts = getNowPartsForTimezone(timezone)
+        const dateFrom = /^\d{4}-\d{2}-\d{2}$/.test(String(action.date || ""))
+          ? String(action.date)
+          : formatDateFromParts(nowParts)
+        const windowDaysConfigured = Math.max(
+          0,
+          Number(params.config.calendarMaxAdvanceDays || 0),
+          Number(params.config.calendarMaxAdvanceWeeks || 0) * 7,
+        )
+        const windowDays = windowDaysConfigured > 0 ? windowDaysConfigured : 21
+        const baseParts = parseDateTimeParts(dateFrom, "12:00") || nowParts
+        const dateTo = formatDateFromParts(addMinutesToParts(baseParts, windowDays * 24 * 60))
+
+        const recovery = await this.getAvailableSlots({
+          tenant: params.tenant,
+          config: params.config,
+          action: {
+            type: "get_available_slots",
+            date_from: dateFrom,
+            date_to: dateTo,
+            max_slots: 8,
+          },
+        })
+
+        if (recovery.ok && Array.isArray(recovery.slots)) {
+          recoverySlots = recovery.slots
+          recoveryDateFrom = recovery.searched_date_from
+          recoveryDateTo = recovery.searched_date_to
+        }
+      }
 
       return {
         ok: scheduleOk,
@@ -2826,6 +3216,10 @@ export class NativeAgentOrchestratorService {
           meetLink: result.meetLink,
           appointmentMode: result.appointmentMode,
           error: result.error,
+          availabilityConflict: !scheduleOk && SCHEDULE_NON_ERROR_CONFLICT_ERRORS.has(scheduleError),
+          alternativeSlots: recoverySlots,
+          alternativeSlotsDateFrom: recoveryDateFrom,
+          alternativeSlotsDateTo: recoveryDateTo,
         },
       }
     }
@@ -2870,6 +3264,44 @@ export class NativeAgentOrchestratorService {
         action,
       })
 
+      const editError = String(result.error || "").trim().toLowerCase()
+      let recoverySlots: Array<{ date: string; time: string }> = []
+      let recoveryDateFrom: string | undefined
+      let recoveryDateTo: string | undefined
+
+      if (!result.ok && SCHEDULE_NON_ERROR_CONFLICT_ERRORS.has(editError)) {
+        const timezone = params.config.timezone || "America/Sao_Paulo"
+        const nowParts = getNowPartsForTimezone(timezone)
+        const dateFrom = /^\d{4}-\d{2}-\d{2}$/.test(String(action.date || ""))
+          ? String(action.date)
+          : formatDateFromParts(nowParts)
+        const windowDaysConfigured = Math.max(
+          0,
+          Number(params.config.calendarMaxAdvanceDays || 0),
+          Number(params.config.calendarMaxAdvanceWeeks || 0) * 7,
+        )
+        const windowDays = windowDaysConfigured > 0 ? windowDaysConfigured : 21
+        const baseParts = parseDateTimeParts(dateFrom, "12:00") || nowParts
+        const dateTo = formatDateFromParts(addMinutesToParts(baseParts, windowDays * 24 * 60))
+
+        const recovery = await this.getAvailableSlots({
+          tenant: params.tenant,
+          config: params.config,
+          action: {
+            type: "get_available_slots",
+            date_from: dateFrom,
+            date_to: dateTo,
+            max_slots: 8,
+          },
+        })
+
+        if (recovery.ok && Array.isArray(recovery.slots)) {
+          recoverySlots = recovery.slots
+          recoveryDateFrom = recovery.searched_date_from
+          recoveryDateTo = recovery.searched_date_to
+        }
+      }
+
       return {
         ok: result.ok,
         action,
@@ -2883,6 +3315,10 @@ export class NativeAgentOrchestratorService {
           meetLink: result.meetLink,
           appointmentMode: result.appointmentMode,
           error: result.error,
+          availabilityConflict: !result.ok && SCHEDULE_NON_ERROR_CONFLICT_ERRORS.has(editError),
+          alternativeSlots: recoverySlots,
+          alternativeSlotsDateFrom: recoveryDateFrom,
+          alternativeSlotsDateTo: recoveryDateTo,
         },
       }
     }
@@ -3044,6 +3480,14 @@ export class NativeAgentOrchestratorService {
     }
 
     if (name === "send_reaction") {
+      if (!params.config.reactionsEnabled) {
+        return {
+          ok: false,
+          action: { type: "none" },
+          error: "reactions_disabled",
+          response: { ok: false, error: "reactions_disabled" },
+        }
+      }
       const emoji = String(args.emoji || "").trim()
       if (!emoji || !params.incomingMessageId) {
         return {
@@ -3215,20 +3659,58 @@ export class NativeAgentOrchestratorService {
       const startDateIso = formatDateFromParts(requestedStart)
       const endReference = requestedEnd || addMinutesToParts(requestedStart, 24 * 60 * 7)
       const endDateIso = formatDateFromParts(endReference)
+      const holidaysInRange =
+        params.config.calendarHolidaysEnabled !== false
+          ? getBrazilianNationalHolidaysInRange(startDateIso, endDateIso)
+          : []
 
       const appointmentsByDate = new Map<
         string,
         { count: number; times: Set<string>; ranges: Array<{ start: number; end: number }> }
       >()
       if (mappedColumns.dateColumn && mappedColumns.timeColumn) {
-        let listQuery: any = this.supabase
-          .from(tables.agendamentos)
-          .select("*")
-          .limit(5000)
+        const dateCandidates = new Set<string>()
+        const cursorForCandidates = new Date(
+          Date.UTC(requestedStart.year, requestedStart.month - 1, requestedStart.day, 12, 0, 0),
+        )
+        const endForCandidates = new Date(
+          Date.UTC(endReference.year, endReference.month - 1, endReference.day, 12, 0, 0),
+        )
+        while (cursorForCandidates.getTime() <= endForCandidates.getTime()) {
+          const dayPartsForCandidates: LocalDateTimeParts = {
+            year: cursorForCandidates.getUTCFullYear(),
+            month: cursorForCandidates.getUTCMonth() + 1,
+            day: cursorForCandidates.getUTCDate(),
+            hour: 0,
+            minute: 0,
+            second: 0,
+          }
+          const iso = formatDateFromParts(dayPartsForCandidates)
+          dateCandidates.add(iso)
+          dateCandidates.add(toBrDateFromIso(iso))
+          cursorForCandidates.setUTCDate(cursorForCandidates.getUTCDate() + 1)
+        }
 
-        const listResult = await listQuery
-        if (!listResult.error && Array.isArray(listResult.data)) {
-          for (const row of listResult.data) {
+        const candidateValues = Array.from(dateCandidates)
+        const pageSize = 1000
+        let offset = 0
+
+        while (true) {
+          let listQuery: any = this.supabase
+            .from(tables.agendamentos)
+            .select("*")
+
+          if (candidateValues.length > 0) {
+            listQuery = listQuery.in(mappedColumns.dateColumn, candidateValues)
+          }
+
+          const pageResult = await listQuery.range(offset, offset + pageSize - 1)
+          if (pageResult.error) break
+
+          const rows = Array.isArray(pageResult.data) ? pageResult.data : []
+          if (!rows.length) break
+
+          for (const row of rows) {
             const statusValue = mappedColumns.statusColumn ? row?.[mappedColumns.statusColumn] : row?.status
             if (isCancelledAppointmentStatus(statusValue)) continue
 
@@ -3262,6 +3744,9 @@ export class NativeAgentOrchestratorService {
             bucket.ranges.push({ start: rowStart, end: rowStart + rowDuration + bufferMinutes })
             appointmentsByDate.set(dayValue, bucket)
           }
+
+          if (rows.length < pageSize) break
+          offset += pageSize
         }
       }
 
@@ -3283,14 +3768,48 @@ export class NativeAgentOrchestratorService {
           const timeMax = `${endDateIso}T23:59:59-03:00`
           const gcalEvents = await calendar.listEvents({ timeMin, timeMax, timezone, maxResults: 250 })
           for (const ev of gcalEvents) {
-            const evStart = new Date(ev.start)
-            const evEnd = new Date(ev.end)
-            if (Number.isNaN(evStart.getTime()) || Number.isNaN(evEnd.getTime())) continue
-            const evDateIso = `${evStart.getFullYear()}-${String(evStart.getMonth() + 1).padStart(2, "0")}-${String(evStart.getDate()).padStart(2, "0")}`
-            const evStartMin = evStart.getHours() * 60 + evStart.getMinutes()
-            const evEndMin = evEnd.getHours() * 60 + evEnd.getMinutes()
+            const evStartRaw = String(ev.start || "").trim()
+            const evEndRaw = String(ev.end || "").trim()
+
+            // All-day events in Google Calendar come as YYYY-MM-DD (end is exclusive).
+            if (isIsoDate(evStartRaw)) {
+              const startAllDay = parseDateTimeParts(evStartRaw, "00:00")
+              if (!startAllDay) continue
+              const endAllDayParsed = isIsoDate(evEndRaw)
+                ? parseDateTimeParts(evEndRaw, "00:00")
+                : null
+              const endAllDay = endAllDayParsed || addMinutesToParts(startAllDay, 24 * 60)
+
+              let cursor = { ...startAllDay }
+              while (toComparableMs(cursor) < toComparableMs(endAllDay)) {
+                const dayIso = formatDateFromParts(cursor)
+                const bucket = googleEventRanges.get(dayIso) || []
+                bucket.push({ start: 0, end: 24 * 60 })
+                googleEventRanges.set(dayIso, bucket)
+                cursor = addMinutesToParts(cursor, 24 * 60)
+              }
+              continue
+            }
+
+            const evStart = new Date(evStartRaw)
+            const evEnd = new Date(evEndRaw)
+            const evStartParts = getDatePartsForTimezone(evStart, timezone)
+            const evEndParts = getDatePartsForTimezone(evEnd, timezone)
+            if (!evStartParts || !evEndParts) continue
+
+            const evDateIso = formatDateFromParts(evStartParts)
+            const evEndDateIso = formatDateFromParts(evEndParts)
+            const evStartMin = evStartParts.hour * 60 + evStartParts.minute
+            const evEndMinRaw = evEndParts.hour * 60 + evEndParts.minute
+
             const bucket = googleEventRanges.get(evDateIso) || []
-            bucket.push({ start: evStartMin, end: evEndMin > evStartMin ? evEndMin : 24 * 60 })
+            const endsOnSameDay = evDateIso === evEndDateIso
+            bucket.push({
+              start: evStartMin,
+              end: endsOnSameDay
+                ? (evEndMinRaw > evStartMin ? evEndMinRaw : evStartMin + 1)
+                : 24 * 60,
+            })
             googleEventRanges.set(evDateIso, bucket)
           }
         } catch (gcalErr: any) {
@@ -3370,6 +3889,9 @@ export class NativeAgentOrchestratorService {
               if (!allowOverlap && appointmentStats?.ranges?.some((range: { start: number; end: number }) => startMinutes < range.end && slotEndWithBuffer > range.start)) {
                 continue
               }
+              if (!allowOverlap && appointmentStats?.times?.has(slotTime)) {
+                continue
+              }
 
               slots.push({ date: dayIso, time: slotTime })
               if (slots.length >= maxSlots) break
@@ -3388,6 +3910,10 @@ export class NativeAgentOrchestratorService {
         seenSlots.add(key)
         dedupedSlots.push(slot)
       }
+      dedupedSlots.sort((a, b) => {
+        const byDate = a.date.localeCompare(b.date)
+        return byDate !== 0 ? byDate : a.time.localeCompare(b.time)
+      })
 
       const weekdayNamesPt: Record<number, string> = {
         1: "segunda-feira", 2: "terca-feira", 3: "quarta-feira",
@@ -3411,6 +3937,42 @@ export class NativeAgentOrchestratorService {
         businessHoursPerDay[weekdayNamesPt[number] || dk] = { start: bStart, end: bEnd }
       }
 
+      const daySummaryMap = new Map<
+        string,
+        {
+          date: string
+          date_br: string
+          weekday_number: number
+          weekday_name_pt: string
+          first_time: string
+          slots_count: number
+          is_weekend: boolean
+        }
+      >()
+      for (const slot of dedupedSlots) {
+        const slotParts = parseDateTimeParts(slot.date, "00:00")
+        const weekdayNumber = slotParts ? localDayOfWeek(slotParts) : 0
+        const weekdayName = weekdayNamesPt[weekdayNumber] || "dia"
+        const existing = daySummaryMap.get(slot.date)
+        if (!existing) {
+          daySummaryMap.set(slot.date, {
+            date: slot.date,
+            date_br: formatDateIsoToBr(slot.date),
+            weekday_number: weekdayNumber,
+            weekday_name_pt: weekdayName,
+            first_time: slot.time,
+            slots_count: 1,
+            is_weekend: weekdayNumber === 6 || weekdayNumber === 7,
+          })
+          continue
+        }
+        existing.slots_count += 1
+        if (slot.time < existing.first_time) {
+          existing.first_time = slot.time
+        }
+      }
+      const daysWithFreeSlots = Array.from(daySummaryMap.values()).sort((a, b) => a.date.localeCompare(b.date))
+
       return {
         ok: true,
         slots: dedupedSlots,
@@ -3419,6 +3981,8 @@ export class NativeAgentOrchestratorService {
         searched_date_to: formatDateFromParts(endReference),
         business_days_configured: businessDaysConfigured,
         business_hours_per_day: businessHoursPerDay,
+        days_with_free_slots: daysWithFreeSlots,
+        holidays_in_range: holidaysInRange,
       }
     } catch (error: any) {
       return { ok: false, error: error?.message || "get_available_slots_failed" }
@@ -3641,6 +4205,8 @@ export class NativeAgentOrchestratorService {
         tenant: params.tenant,
         phone: params.phone,
         sessionId: params.sessionId,
+        contactName: params.contactName,
+        config: params.config,
       })
       .catch(() => {})
 
@@ -4027,6 +4593,8 @@ export class NativeAgentOrchestratorService {
         tenant: params.tenant,
         phone: params.phone,
         sessionId: params.sessionId,
+        contactName: params.contactName,
+        config: params.config,
       })
       .catch((error) => {
         console.warn("[native-agent] post-schedule side effects failed:", error)
@@ -4332,12 +4900,27 @@ export class NativeAgentOrchestratorService {
     }
   }
 
+  private buildPostScheduleMessageTemplate(config: NativeAgentConfig, contactName?: string): string {
+    const fallbackMessage =
+      "Perfeito, seu agendamento esta confirmado. Se precisar de algo antes, estou por aqui."
+    const rawTemplate = String(config.postScheduleTextTemplate || "").trim() || fallbackMessage
+    const leadFirstName = firstName(contactName || "") || ""
+    return rawTemplate
+      .replace(/\{\{\s*first_name\s*\}\}/gi, leadFirstName)
+      .replace(/\{\{\s*lead_name\s*\}\}/gi, leadFirstName)
+      .replace(/\[nome\]/gi, leadFirstName)
+      .replace(/\s+/g, " ")
+      .trim()
+  }
+
   private async onAppointmentScheduled(params: {
     tenant: string
     phone: string
     sessionId: string
+    contactName?: string
+    config: NativeAgentConfig
   }): Promise<void> {
-    await Promise.all([
+    const tasks: Array<Promise<unknown>> = [
       this.pauseLeadAfterScheduling(params.tenant, params.phone),
       this.markLeadAsAgendado(params.tenant, params.sessionId),
       this.taskQueue.cancelPendingFollowups({
@@ -4345,6 +4928,48 @@ export class NativeAgentOrchestratorService {
         sessionId: params.sessionId,
         phone: params.phone,
       }),
-    ])
+    ]
+
+    if (params.config.postScheduleAutomationEnabled) {
+      const delayMinutes = Math.max(
+        0,
+        Math.min(1440, Math.floor(Number(params.config.postScheduleDelayMinutes || 0))),
+      )
+      const mode = String(params.config.postScheduleMessageMode || "text").toLowerCase()
+      const mediaUrl = String(params.config.postScheduleMediaUrl || "").trim()
+      const caption =
+        String(params.config.postScheduleCaption || "").trim() ||
+        this.buildPostScheduleMessageTemplate(params.config, params.contactName)
+      const fileName = String(params.config.postScheduleDocumentFileName || "").trim()
+
+      tasks.push(
+        this.taskQueue
+          .enqueueReminder({
+            tenant: params.tenant,
+            sessionId: params.sessionId,
+            phone: params.phone,
+            message: this.buildPostScheduleMessageTemplate(params.config, params.contactName),
+            runAt: addMinutesIso(delayMinutes),
+            metadata: {
+              source: "native_agent_post_schedule",
+              message_mode:
+                mode === "image" || mode === "video" || mode === "document" ? mode : "text",
+              media_url: mediaUrl || undefined,
+              caption: caption || undefined,
+              file_name: fileName || undefined,
+              minutes_from_now: delayMinutes,
+            },
+          })
+          .then((queued) => {
+            if (!queued.ok) {
+              console.warn("[native-agent] failed to enqueue post-schedule message:", queued.error)
+            }
+          }),
+      )
+    }
+
+    await Promise.all(tasks)
   }
 }
+
+

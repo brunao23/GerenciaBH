@@ -33,6 +33,15 @@ export interface EnqueueFollowupSequenceInput {
 
 const DEFAULT_FOLLOWUP_INTERVALS_MINUTES = [15, 60, 360, 1440, 2880, 4320, 7200]
 const FOLLOWUP_CONFIG_CACHE_TTL_MS = 5_000
+type TaskMessageMode = "text" | "image" | "video" | "document"
+
+function toTaskMessageMode(value: any, fallback: TaskMessageMode): TaskMessageMode {
+  const mode = String(value || "").trim().toLowerCase()
+  if (mode === "text" || mode === "image" || mode === "video" || mode === "document") {
+    return mode
+  }
+  return fallback
+}
 
 function isMissingTableError(error: any): boolean {
   const message = String(error?.message || "").toLowerCase()
@@ -328,6 +337,16 @@ export class AgentTaskQueueService {
       businessHours?: TenantBusinessHours
       geminiApiKey?: string
       geminiModel?: string
+      zapiDelayMessageSeconds: number
+      zapiDelayTypingSeconds: number
+      followupMessageMode: TaskMessageMode
+      followupMediaUrl?: string
+      followupCaption?: string
+      followupDocumentFileName?: string
+      reminderMessageMode: TaskMessageMode
+      reminderMediaUrl?: string
+      reminderCaption?: string
+      reminderDocumentFileName?: string
     }
   >()
 
@@ -337,6 +356,16 @@ export class AgentTaskQueueService {
     businessHours?: TenantBusinessHours
     geminiApiKey?: string
     geminiModel?: string
+    zapiDelayMessageSeconds: number
+    zapiDelayTypingSeconds: number
+    followupMessageMode: TaskMessageMode
+    followupMediaUrl?: string
+    followupCaption?: string
+    followupDocumentFileName?: string
+    reminderMessageMode: TaskMessageMode
+    reminderMediaUrl?: string
+    reminderCaption?: string
+    reminderDocumentFileName?: string
   }> {
     const now = Date.now()
     const cached = this.followupConfigCache.get(tenant)
@@ -347,6 +376,16 @@ export class AgentTaskQueueService {
         businessHours: cached.businessHours,
         geminiApiKey: cached.geminiApiKey,
         geminiModel: cached.geminiModel,
+        zapiDelayMessageSeconds: cached.zapiDelayMessageSeconds,
+        zapiDelayTypingSeconds: cached.zapiDelayTypingSeconds,
+        followupMessageMode: cached.followupMessageMode,
+        followupMediaUrl: cached.followupMediaUrl,
+        followupCaption: cached.followupCaption,
+        followupDocumentFileName: cached.followupDocumentFileName,
+        reminderMessageMode: cached.reminderMessageMode,
+        reminderMediaUrl: cached.reminderMediaUrl,
+        reminderCaption: cached.reminderCaption,
+        reminderDocumentFileName: cached.reminderDocumentFileName,
       }
     }
 
@@ -362,6 +401,22 @@ export class AgentTaskQueueService {
       businessHours,
       geminiApiKey: config?.geminiApiKey,
       geminiModel: config?.geminiModel,
+      zapiDelayMessageSeconds:
+        Number.isFinite(Number(config?.zapiDelayMessageSeconds)) && Number(config?.zapiDelayMessageSeconds) >= 1
+          ? Math.floor(Number(config?.zapiDelayMessageSeconds))
+          : 1,
+      zapiDelayTypingSeconds:
+        Number.isFinite(Number(config?.zapiDelayTypingSeconds)) && Number(config?.zapiDelayTypingSeconds) >= 0
+          ? Math.floor(Number(config?.zapiDelayTypingSeconds))
+          : 0,
+      followupMessageMode: toTaskMessageMode(config?.followupMessageMode, "text"),
+      followupMediaUrl: String(config?.followupMediaUrl || "").trim() || undefined,
+      followupCaption: String(config?.followupCaption || "").trim() || undefined,
+      followupDocumentFileName: String(config?.followupDocumentFileName || "").trim() || undefined,
+      reminderMessageMode: toTaskMessageMode(config?.reminderMessageMode, "text"),
+      reminderMediaUrl: String(config?.reminderMediaUrl || "").trim() || undefined,
+      reminderCaption: String(config?.reminderCaption || "").trim() || undefined,
+      reminderDocumentFileName: String(config?.reminderDocumentFileName || "").trim() || undefined,
     }
 
     this.followupConfigCache.set(tenant, { ...runtime, loadedAt: now })
@@ -894,6 +949,96 @@ export class AgentTaskQueueService {
     }
   }
 
+  private async dispatchTaskMessage(input: {
+    tenant: string
+    phone: string
+    sessionId: string
+    message: string
+    taskType: string
+    payload: Record<string, any>
+    runtimeConfig: Awaited<ReturnType<AgentTaskQueueService["loadFollowupRuntimeConfig"]>>
+  }): Promise<{ success: boolean; error?: string }> {
+    const source = input.taskType === "followup" ? "native-agent-followup" : "native-agent-reminder"
+    const fromConfigMode =
+      input.taskType === "followup"
+        ? input.runtimeConfig.followupMessageMode
+        : input.runtimeConfig.reminderMessageMode
+    const mode = toTaskMessageMode(input.payload?.message_mode, fromConfigMode)
+
+    const fromConfigMediaUrl =
+      input.taskType === "followup"
+        ? input.runtimeConfig.followupMediaUrl
+        : input.runtimeConfig.reminderMediaUrl
+    const mediaUrl = String(input.payload?.media_url || fromConfigMediaUrl || "").trim()
+    const fromConfigCaption =
+      input.taskType === "followup"
+        ? input.runtimeConfig.followupCaption
+        : input.runtimeConfig.reminderCaption
+    const caption = String(input.payload?.caption || fromConfigCaption || input.message || "").trim()
+    const fromConfigFileName =
+      input.taskType === "followup"
+        ? input.runtimeConfig.followupDocumentFileName
+        : input.runtimeConfig.reminderDocumentFileName
+    const fileName = String(input.payload?.file_name || fromConfigFileName || "").trim()
+
+    if (mode === "text" || !mediaUrl) {
+      const sentText = await this.messaging.sendText({
+        tenant: input.tenant,
+        phone: input.phone,
+        message: input.message,
+        sessionId: input.sessionId,
+        source,
+        zapiDelayMessageSeconds: input.runtimeConfig.zapiDelayMessageSeconds,
+        zapiDelayTypingSeconds: input.runtimeConfig.zapiDelayTypingSeconds,
+      })
+      return { success: sentText.success, error: sentText.error }
+    }
+
+    if (mode === "image") {
+      const sentImage = await this.messaging.sendImage({
+        tenant: input.tenant,
+        phone: input.phone,
+        mediaUrl,
+        caption,
+        sessionId: input.sessionId,
+        source,
+        zapiDelayMessageSeconds: input.runtimeConfig.zapiDelayMessageSeconds,
+        zapiDelayTypingSeconds: input.runtimeConfig.zapiDelayTypingSeconds,
+        historyContent: caption || "[imagem]",
+      })
+      return { success: sentImage.success, error: sentImage.error }
+    }
+
+    if (mode === "video") {
+      const sentVideo = await this.messaging.sendVideo({
+        tenant: input.tenant,
+        phone: input.phone,
+        mediaUrl,
+        caption,
+        sessionId: input.sessionId,
+        source,
+        zapiDelayMessageSeconds: input.runtimeConfig.zapiDelayMessageSeconds,
+        zapiDelayTypingSeconds: input.runtimeConfig.zapiDelayTypingSeconds,
+        historyContent: caption || "[video]",
+      })
+      return { success: sentVideo.success, error: sentVideo.error }
+    }
+
+    const sentDocument = await this.messaging.sendDocument({
+      tenant: input.tenant,
+      phone: input.phone,
+      mediaUrl,
+      caption,
+      fileName,
+      sessionId: input.sessionId,
+      source,
+      zapiDelayMessageSeconds: input.runtimeConfig.zapiDelayMessageSeconds,
+      zapiDelayTypingSeconds: input.runtimeConfig.zapiDelayTypingSeconds,
+      historyContent: caption || `[documento] ${fileName || mediaUrl}`,
+    })
+    return { success: sentDocument.success, error: sentDocument.error }
+  }
+
   async processDueTasks(limit = 30): Promise<{
     processed: number
     sent: number
@@ -934,14 +1079,15 @@ export class AgentTaskQueueService {
       const sessionId = normalizeSessionId(String(task.session_id || phone))
       const taskType = String(task.task_type || "reminder").trim().toLowerCase()
       let message = String(payload?.message || "").trim()
+      let runtimeConfig: Awaited<ReturnType<AgentTaskQueueService["loadFollowupRuntimeConfig"]>> | null = null
 
       if (taskType === "followup" && tenant && phone && sessionId) {
+        runtimeConfig = await this.loadFollowupRuntimeConfig(tenant)
         if (processedFollowupSessionIds.has(sessionId)) {
           const deferredMinutes = clampMinutes(Number(payload?.followup_minutes || 15))
-          const runtimeConfig = await this.loadFollowupRuntimeConfig(tenant)
           const deferredRunAt = toIsoFromNowRespectingBusinessHours(
             deferredMinutes,
-            runtimeConfig.businessHours,
+            runtimeConfig?.businessHours,
           )
           result.skipped += 1
           await this.supabase
@@ -955,9 +1101,8 @@ export class AgentTaskQueueService {
           continue
         }
 
-        const runtimeConfig = await this.loadFollowupRuntimeConfig(tenant)
-        if (!isWithinBusinessHours(runtimeConfig.businessHours)) {
-          const deferredRunAt = adjustToBusinessHours(new Date(), runtimeConfig.businessHours).toISOString()
+        if (!isWithinBusinessHours(runtimeConfig?.businessHours)) {
+          const deferredRunAt = adjustToBusinessHours(new Date(), runtimeConfig?.businessHours).toISOString()
           result.skipped += 1
           await this.supabase
             .from(this.table)
@@ -992,6 +1137,10 @@ export class AgentTaskQueueService {
           })
           .eq("id", task.id)
         continue
+      }
+
+      if (!runtimeConfig) {
+        runtimeConfig = await this.loadFollowupRuntimeConfig(tenant)
       }
 
       if (taskType === "followup") {
@@ -1054,12 +1203,14 @@ export class AgentTaskQueueService {
         }
       }
 
-      const send = await this.messaging.sendText({
+      const send = await this.dispatchTaskMessage({
         tenant,
         phone,
-        message,
         sessionId,
-        source: taskType === "followup" ? "native-agent-followup" : "native-agent-reminder",
+        message,
+        taskType,
+        payload,
+        runtimeConfig,
       })
 
       if (send.success) {

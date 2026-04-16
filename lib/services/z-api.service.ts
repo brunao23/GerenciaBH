@@ -15,6 +15,7 @@ export interface SendMessageParams {
   message: string
   delayMessage?: number
   delayTyping?: number
+  replyToMessageId?: string
 }
 
 export interface SendAudioParams {
@@ -23,6 +24,18 @@ export interface SendAudioParams {
   delayMessage?: number
   delayTyping?: number
   waveform?: boolean
+}
+
+export interface SendMediaParams {
+  phone: string
+  mediaUrl: string
+  caption?: string
+  delayMessage?: number
+  delayTyping?: number
+}
+
+export interface SendDocumentParams extends SendMediaParams {
+  fileName?: string
 }
 
 export interface SendLocationParams {
@@ -51,7 +64,10 @@ export class ZApiService {
   private config: ZApiConfig
   private senderUrl: string
   private senderAudioUrl: string
+  private senderImageUrl: string
+  private senderVideoUrl: string
   private senderLocationUrl: string
+  private senderDocumentUrl: string
   private senderReactionUrl: string
   private statusUrl: string
   private qrCodeBytesUrl: string
@@ -66,7 +82,10 @@ export class ZApiService {
       this.senderUrl = config.apiUrl
       const baseUrl = config.apiUrl.replace(/\/send-text.*/i, "")
       this.senderAudioUrl = `${baseUrl}/send-audio`
+      this.senderImageUrl = `${baseUrl}/send-image`
+      this.senderVideoUrl = `${baseUrl}/send-video`
       this.senderLocationUrl = `${baseUrl}/send-location`
+      this.senderDocumentUrl = `${baseUrl}/send-document`
       this.senderReactionUrl = `${baseUrl}/send-reaction`
       this.statusUrl = `${baseUrl}/status`
       this.qrCodeBytesUrl = `${baseUrl}/qr-code`
@@ -80,7 +99,10 @@ export class ZApiService {
     const root = `${baseUrl}/instances/${this.config.instanceId}/token/${this.config.token}`
     this.senderUrl = `${root}/send-text`
     this.senderAudioUrl = `${root}/send-audio`
+    this.senderImageUrl = `${root}/send-image`
+    this.senderVideoUrl = `${root}/send-video`
     this.senderLocationUrl = `${root}/send-location`
+    this.senderDocumentUrl = `${root}/send-document`
     this.senderReactionUrl = `${root}/send-reaction`
     this.statusUrl = `${root}/status`
     this.qrCodeBytesUrl = `${root}/qr-code`
@@ -244,11 +266,15 @@ export class ZApiService {
       let lastData: any = null
 
       for (const target of uniqueTargets) {
-        const payload = {
+        const payload: Record<string, any> = {
           phone: target,
           message: params.message,
           delayMessage,
           delayTyping,
+        }
+        const replyToMessageId = String(params.replyToMessageId || "").trim()
+        if (replyToMessageId) {
+          payload.messageId = replyToMessageId
         }
 
         const response = await fetch(url, {
@@ -382,6 +408,53 @@ export class ZApiService {
         error: error?.message || "Erro desconhecido",
       }
     }
+  }
+
+  async sendImageMessage(params: SendMediaParams): Promise<ZApiResponse> {
+    return this.sendMediaMessage({
+      endpoint: this.senderImageUrl,
+      phone: params.phone,
+      mediaUrl: params.mediaUrl,
+      mediaField: "image",
+      caption: params.caption,
+      delayMessage: params.delayMessage,
+      delayTyping: params.delayTyping,
+      errorContext: "imagem",
+    })
+  }
+
+  async sendVideoMessage(params: SendMediaParams): Promise<ZApiResponse> {
+    return this.sendMediaMessage({
+      endpoint: this.senderVideoUrl,
+      phone: params.phone,
+      mediaUrl: params.mediaUrl,
+      mediaField: "video",
+      caption: params.caption,
+      delayMessage: params.delayMessage,
+      delayTyping: params.delayTyping,
+      errorContext: "video",
+    })
+  }
+
+  async sendDocumentMessage(params: SendDocumentParams): Promise<ZApiResponse> {
+    const fileName = String(params.fileName || "").trim()
+    const extension = this.resolveDocumentExtension(params.mediaUrl, fileName)
+
+    const baseEndpoint = extension
+      ? `${this.senderDocumentUrl}/${encodeURIComponent(extension)}`
+      : this.senderDocumentUrl
+
+    return this.sendMediaMessage({
+      endpoint: baseEndpoint,
+      phone: params.phone,
+      mediaUrl: params.mediaUrl,
+      mediaField: "document",
+      caption: params.caption,
+      delayMessage: params.delayMessage,
+      delayTyping: params.delayTyping,
+      errorContext: "documento",
+      extraPayload: fileName ? { fileName } : undefined,
+    })
   }
 
   async sendLocationMessage(params: SendLocationParams): Promise<ZApiResponse> {
@@ -578,5 +651,91 @@ export class ZApiService {
     }
 
     return Array.from(new Set(targets.filter(Boolean)))
+  }
+
+  private resolveDocumentExtension(mediaUrl: string, fileName?: string): string {
+    const source = String(fileName || mediaUrl || "").trim().toLowerCase()
+    const extensionMatch = source.match(/\.([a-z0-9]{2,6})(?:$|\?|#)/i)
+    const extension = extensionMatch?.[1] ? extensionMatch[1].toLowerCase() : ""
+    if (!extension) return "pdf"
+    return extension
+  }
+
+  private async sendMediaMessage(params: {
+    endpoint: string
+    phone: string
+    mediaUrl: string
+    mediaField: "image" | "video" | "document"
+    caption?: string
+    delayMessage?: number
+    delayTyping?: number
+    errorContext: string
+    extraPayload?: Record<string, any>
+  }): Promise<ZApiResponse> {
+    try {
+      const uniqueTargets = this.buildTargets(params.phone)
+      if (!uniqueTargets.length) {
+        return { success: false, error: `Destino invalido para envio de ${params.errorContext}` }
+      }
+
+      const mediaUrl = String(params.mediaUrl || "").trim()
+      if (!mediaUrl) {
+        return { success: false, error: `${params.errorContext} obrigatorio para envio` }
+      }
+
+      const delayMessage = Number.isFinite(Number(params.delayMessage))
+        ? Math.max(1, Math.min(15, Math.floor(Number(params.delayMessage))))
+        : 1
+      const delayTyping = Number.isFinite(Number(params.delayTyping))
+        ? Math.max(0, Math.min(15, Math.floor(Number(params.delayTyping))))
+        : 0
+      const caption = String(params.caption || "").trim()
+
+      let lastError: string | undefined
+      let lastData: any = null
+
+      for (const target of uniqueTargets) {
+        const payload: Record<string, any> = {
+          phone: target,
+          [params.mediaField]: mediaUrl,
+          delayMessage,
+          delayTyping,
+          ...(params.extraPayload || {}),
+        }
+        if (caption) payload.caption = caption
+
+        const response = await fetch(params.endpoint, {
+          method: "POST",
+          headers: this.buildHeaders(),
+          body: JSON.stringify(payload),
+        })
+
+        const data = await this.parseResponse(response)
+        if (response.ok) {
+          return {
+            success: true,
+            id: data?.id || data?.messageId,
+            messageId: data?.messageId || data?.id,
+            data,
+          }
+        }
+
+        lastError =
+          data?.message || (typeof data === "string" ? data : undefined) || `Erro HTTP ${response.status}`
+        lastData = data
+      }
+
+      return {
+        success: false,
+        error: lastError || `Falha ao enviar ${params.errorContext} na Z-API`,
+        data: lastData,
+      }
+    } catch (error: any) {
+      console.error(`[Z-API] Erro na requisicao de ${params.errorContext}:`, error)
+      return {
+        success: false,
+        error: error?.message || "Erro desconhecido",
+      }
+    }
   }
 }

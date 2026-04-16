@@ -1398,6 +1398,52 @@ function selectLatestUserTurn(turns: BufferedUserTurn[]): BufferedUserTurn | nul
   return ordered[ordered.length - 1] || null
 }
 
+function isLikelyContinuationFragment(text: string): boolean {
+  const normalized = normalizeComparableText(text)
+  if (!normalized) return true
+
+  const words = normalized.split(" ").filter(Boolean)
+  if (words.length === 0) return true
+
+  if (normalized.length <= 3) return true
+
+  const shortStandalone = new Set([
+    "ok",
+    "blz",
+    "sim",
+    "nao",
+    "não",
+    "vejo",
+    "depois",
+    "talvez",
+    "pode",
+    "pode ser",
+    "acho",
+  ])
+  if (words.length <= 2 && shortStandalone.has(normalized)) return true
+
+  const continuationStarts = ["e ", "ou ", "mas ", "ai ", "aí ", "depois ", "entao ", "então "]
+  if (normalized.length <= 24 && continuationStarts.some((prefix) => normalized.startsWith(prefix))) {
+    return true
+  }
+
+  return false
+}
+
+function selectReplyAnchorTurn(turns: BufferedUserTurn[]): BufferedUserTurn | null {
+  if (!Array.isArray(turns) || turns.length === 0) return null
+  const ordered = [...turns].sort(
+    (a, b) => normalizeTimestamp(a.createdAt) - normalizeTimestamp(b.createdAt),
+  )
+  const withMessageId = ordered.filter((turn) => Boolean(readString(turn?.messageId)))
+  if (withMessageId.length === 0) return ordered[0] || null
+
+  const substantive = withMessageId.filter((turn) => !isLikelyContinuationFragment(turn.content))
+  if (substantive.length > 0) return substantive[0]
+
+  return withMessageId[0]
+}
+
 function normalizeComparableText(value: string): string {
   return String(value || "")
     .normalize("NFD")
@@ -1869,15 +1915,20 @@ export async function POST(req: NextRequest) {
       limit: 40,
     })
     const latestTurn = selectLatestUserTurn(bufferedTurns)
+    const replyAnchorTurn = selectReplyAnchorTurn(bufferedTurns) || latestTurn
 
     if (latestTurn) {
       const latestId = String(latestTurn.messageId || "").trim()
       const currentId = String(persisted.messageId || "").trim()
       const newerById = Boolean(currentId && latestId && latestId !== currentId)
+      const latestCreatedAtMs = normalizeTimestamp(latestTurn.createdAt)
+      const currentCreatedAtMs = normalizeTimestamp(persisted.createdAt || new Date().toISOString())
+      const newerByTimestamp =
+        Number.isFinite(latestCreatedAtMs) &&
+        Number.isFinite(currentCreatedAtMs) &&
+        latestCreatedAtMs > currentCreatedAtMs + 250
 
-      // Evita falso skip quando payloads chegam sem messageId.
-      // Nesse caso, seguimos com o evento atual para nao exigir "mais uma mensagem" do lead.
-      if (newerById) {
+      if (newerById || newerByTimestamp) {
         return NextResponse.json({
           received: true,
           ignored: true,
@@ -1913,8 +1964,15 @@ export async function POST(req: NextRequest) {
       senderName: event.senderName,
       waitingMessage: event.waitingMessage,
       isStatusReply: event.isStatusReply,
-      replyToMessageId: latestTurn?.replyToMessageId || event.replyToMessageId,
-      replyPreview: latestTurn?.replyPreview || event.replyPreview,
+      replyToMessageId:
+        replyAnchorTurn?.messageId ||
+        replyAnchorTurn?.replyToMessageId ||
+        event.replyToMessageId ||
+        persisted.messageId,
+      replyPreview: replyAnchorTurn?.replyPreview || event.replyPreview,
+      bufferAnchorCreatedAt: latestTurn?.createdAt || persisted.createdAt || new Date().toISOString(),
+      bufferAnchorMessageId:
+        latestTurn?.messageId || persisted.messageId || event.messageId || undefined,
       messageAlreadyPersisted: true,
       forceUserTurnForDecision: false,
       fromMeTrigger: shouldTriggerFromExternalStarter,
@@ -1947,4 +2005,3 @@ export async function POST(req: NextRequest) {
     )
   }
 }
-

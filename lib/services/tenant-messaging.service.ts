@@ -24,6 +24,7 @@ export interface SendTenantTextInput {
   zapiDelayMessageSeconds?: number
   zapiDelayTypingSeconds?: number
   persistInHistory?: boolean
+  replyToMessageId?: string
 }
 
 export interface SendTenantTextResult {
@@ -62,6 +63,22 @@ export interface SendTenantLocationInput {
 }
 
 export type SendTenantLocationResult = SendTenantTextResult
+
+export interface SendTenantMediaInput {
+  tenant: string
+  phone: string
+  mediaUrl: string
+  caption?: string
+  fileName?: string
+  sessionId?: string
+  source?: string
+  zapiDelayMessageSeconds?: number
+  zapiDelayTypingSeconds?: number
+  persistInHistory?: boolean
+  historyContent?: string
+}
+
+export type SendTenantMediaResult = SendTenantTextResult
 
 export interface SendTenantReactionInput {
   tenant: string
@@ -149,6 +166,7 @@ export class TenantMessagingService {
           message,
           delayMessage: input.zapiDelayMessageSeconds,
           delayTyping: input.zapiDelayTypingSeconds,
+          replyToMessageId: input.replyToMessageId,
         })
         if (!sent.success) {
           return { success: false, error: sent.error || "Failed to send Z-API message", provider }
@@ -196,6 +214,9 @@ export class TenantMessagingService {
           message,
           messageId,
           source: input.source || "native-agent",
+          additional: {
+            reply_to_message_id: input.replyToMessageId || null,
+          },
         })
       }
 
@@ -465,6 +486,27 @@ export class TenantMessagingService {
     }
   }
 
+  async sendImage(input: SendTenantMediaInput): Promise<SendTenantMediaResult> {
+    return this.sendMediaViaZapi({
+      ...input,
+      mediaType: "image",
+    })
+  }
+
+  async sendVideo(input: SendTenantMediaInput): Promise<SendTenantMediaResult> {
+    return this.sendMediaViaZapi({
+      ...input,
+      mediaType: "video",
+    })
+  }
+
+  async sendDocument(input: SendTenantMediaInput): Promise<SendTenantMediaResult> {
+    return this.sendMediaViaZapi({
+      ...input,
+      mediaType: "document",
+    })
+  }
+
   private normalizeAudioPayloadForZapi(audio: string): string {
     const value = String(audio || "").trim()
     if (!value) return ""
@@ -581,6 +623,122 @@ export class TenantMessagingService {
       })
     } catch (error) {
       console.warn("[TenantMessaging] Failed to persist outgoing message:", error)
+    }
+  }
+
+  private async sendMediaViaZapi(
+    input: SendTenantMediaInput & { mediaType: "image" | "video" | "document" },
+  ): Promise<SendTenantMediaResult> {
+    const tenant = normalizeTenant(input.tenant)
+    if (!tenant) return { success: false, error: "Invalid tenant" }
+
+    const phone = this.normalizeRecipient(input.phone)
+    const mediaUrl = String(input.mediaUrl || "").trim()
+    if (!phone || !mediaUrl) {
+      return { success: false, error: "phone and mediaUrl are required" }
+    }
+
+    const config = await getMessagingConfigForTenant(tenant)
+    if (!config || config.isActive === false) {
+      return { success: false, error: "WhatsApp config missing or disabled" }
+    }
+
+    const validationError = validateMessagingConfig(config)
+    if (validationError) {
+      return { success: false, error: validationError }
+    }
+
+    if (config.provider !== "zapi") {
+      return {
+        success: false,
+        provider: config.provider,
+        error: `${input.mediaType} send not supported for provider ${String(config.provider)}`,
+      }
+    }
+
+    try {
+      const hasFullUrl = Boolean(config.sendTextUrl)
+      const hasParts = Boolean(config.apiUrl && config.instanceId && config.token)
+      if (!config.clientToken || (!hasFullUrl && !hasParts)) {
+        return { success: false, error: "Invalid Z-API config", provider: config.provider }
+      }
+
+      const zapi = new ZApiService({
+        instanceId: config.instanceId || "ZAPI",
+        token: config.token || "",
+        clientToken: config.clientToken,
+        apiUrl: config.sendTextUrl || config.apiUrl,
+      })
+
+      const caption = String(input.caption || "").trim()
+      const fileName = String(input.fileName || "").trim()
+
+      const sent =
+        input.mediaType === "image"
+          ? await zapi.sendImageMessage({
+              phone,
+              mediaUrl,
+              caption,
+              delayMessage: input.zapiDelayMessageSeconds,
+              delayTyping: input.zapiDelayTypingSeconds,
+            })
+          : input.mediaType === "video"
+            ? await zapi.sendVideoMessage({
+                phone,
+                mediaUrl,
+                caption,
+                delayMessage: input.zapiDelayMessageSeconds,
+                delayTyping: input.zapiDelayTypingSeconds,
+              })
+            : await zapi.sendDocumentMessage({
+                phone,
+                mediaUrl,
+                caption,
+                fileName,
+                delayMessage: input.zapiDelayMessageSeconds,
+                delayTyping: input.zapiDelayTypingSeconds,
+              })
+
+      if (!sent.success) {
+        return {
+          success: false,
+          provider: config.provider,
+          error: sent.error || `Failed to send Z-API ${input.mediaType}`,
+        }
+      }
+
+      const messageId = String(sent.messageId || sent.id || "")
+
+      if (input.persistInHistory !== false) {
+        const historyContent =
+          String(input.historyContent || "").trim() ||
+          (caption || `[${input.mediaType}] ${mediaUrl}`)
+        await this.persistOutgoingMessage({
+          tenant,
+          sessionId: input.sessionId || phone,
+          message: historyContent,
+          messageId,
+          source: input.source || "native-agent",
+          additional: {
+            media_type: input.mediaType,
+            media_url: mediaUrl,
+            caption: caption || null,
+            file_name: fileName || null,
+          },
+        })
+      }
+
+      return {
+        success: true,
+        messageId: messageId || undefined,
+        provider: config.provider,
+      }
+    } catch (error: any) {
+      return {
+        success: false,
+        provider: config.provider,
+        error: error?.message || `Failed to send ${input.mediaType}`,
+      }
     }
   }
 }

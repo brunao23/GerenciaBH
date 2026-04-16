@@ -1,122 +1,148 @@
 import { NextResponse } from "next/server"
-import { createClient } from "@supabase/supabase-js"
+import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
+import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
 
-// Cliente Supabase com Service Role para acesso administrativo
-function createServiceRoleClient() {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+export const dynamic = "force-dynamic"
 
-    return createClient(supabaseUrl, supabaseServiceKey, {
-        auth: {
-            persistSession: false,
-            autoRefreshToken: false,
-            detectSessionInUrl: false
-        }
-    })
+function chunkArray<T>(items: T[], size: number): T[][] {
+  if (size <= 0) return [items]
+  const chunks: T[][] = []
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size))
+  }
+  return chunks
 }
 
-export const dynamic = 'force-dynamic'
+async function resolveTenantSessionSet(params: {
+  supabase: ReturnType<typeof createBiaSupabaseServerClient>
+  chatTable: string
+  sessionIds: string[]
+}): Promise<Set<string>> {
+  const allowed = new Set<string>()
+  const candidateIds = Array.from(new Set(params.sessionIds.map((value) => String(value || "").trim()).filter(Boolean)))
+
+  if (!candidateIds.length) return allowed
+
+  for (const part of chunkArray(candidateIds, 500)) {
+    const { data, error } = await params.supabase
+      .from(params.chatTable)
+      .select("session_id")
+      .in("session_id", part)
+
+    if (error) throw error
+
+    for (const row of data || []) {
+      const sid = String((row as any)?.session_id || "").trim()
+      if (sid) allowed.add(sid)
+    }
+  }
+
+  return allowed
+}
 
 /**
- * Rota de RESET TOTAL DO FOLLOW-UP
- * - Desativa todos os agendamentos na tabela followup_schedule
- * - Remove o status 'em_follow_up' da tabela de status do CRM (dinâmica)
- * - Verifica se o lead tem status salvo anterior e restaura, senão define como 'atendimento'
+ * Reset total de follow-up no escopo do tenant autenticado.
  */
-export async function GET(req: Request) {
-    try {
-        const { searchParams } = new URL(req.url)
+export async function GET() {
+  try {
+    const { tenant, tables } = await getTenantFromRequest()
+    const supabase = createBiaSupabaseServerClient()
 
-        // ✅ OBTER TENANT DO HEADER OU URL
-        let tenant = req.headers.get('x-tenant-prefix')
-        if (!tenant) tenant = searchParams.get('tenant')
+    const log: string[] = []
 
-        if (!tenant) {
-            tenant = 'vox_bh'
-        }
+    const { data: activeSchedules, error: activeError } = await supabase
+      .from("followup_schedule")
+      .select("id, session_id")
+      .eq("is_active", true)
 
-        const supabase = createServiceRoleClient()
-        const crmLeadStatusTable = `${tenant}_crm_lead_status`
-        const log = []
+    if (activeError) throw activeError
 
-        // 1. Desativar TODOS na tabela de agendamento
-        const { data: updatedSchedules, error: scheduleError } = await supabase
-            .from("followup_schedule")
-            .update({
-                is_active: false,
-                lead_status: 'reset_manual',
-                updated_at: new Date().toISOString()
-            })
-            .eq("is_active", true)
-            .select("session_id")
+    const allRows = activeSchedules || []
+    const allSessionIds = allRows
+      .map((row: any) => String(row?.session_id || "").trim())
+      .filter(Boolean)
 
-        if (scheduleError) throw scheduleError
+    const tenantSessionSet = await resolveTenantSessionSet({
+      supabase,
+      chatTable: tables.chatHistories,
+      sessionIds: allSessionIds,
+    })
 
-        const count = updatedSchedules?.length || 0
-        log.push(`DESATIVADOS ${count} agendamentos na tabela followup_schedule.`)
+    const scopedRows = allRows.filter((row: any) => tenantSessionSet.has(String(row?.session_id || "").trim()))
+    const idsToReset = scopedRows.map((row: any) => row.id)
 
-        if (count === 0) {
-            return NextResponse.json({ success: true, message: "Nenhum agendamento ativo encontrado.", log })
-        }
-
-        // 2. Limpar status 'em_follow_up' na tabela do CRM
-        // Para cada lead desativado, precisamos garantir que ele saia da coluna "Em Follow-up"
-        let statusFixed = 0
-
-        // Batch processing (simples)
-        const sessionIds = updatedSchedules.map(s => s.session_id)
-
-        // Buscar status atuais desses leads
-        const { data: currentStatuses } = await supabase
-            .from(crmLeadStatusTable)
-            .select("lead_id, status")
-            .in("lead_id", sessionIds)
-
-        const statusMap = new Map()
-        currentStatuses?.forEach(s => statusMap.set(s.lead_id, s.status))
-
-        for (const sessionId of sessionIds) {
-            // Se não tiver status ou se o status NO BANCO for 'em_follow_up', forçamos 'atendimento'
-            // Se o status for outro (ex: 'agendado'), mantemos.
-
-            // No caso do Kanban, se não existir registro na tabela dinâmica (ex: vox_bh_crm_lead_status), 
-            // ele calcula dinamicamente. Mas se existir e for 'em_follow_up', ele prende na coluna.
-            // A estratégia mais segura é DELETAR o registro de status se for 'em_follow_up', 
-            // deixando o Kanban recalcular (o que vai jogar para Atendimento ou Sem Resposta/Entrada).
-
-            // Mas se quisermos forçar para uma coluna segura, usamos 'atendimento'.
-
-            const currentStatus = statusMap.get(sessionId)
-
-            // Se explicitamente marcado como em_follow_up, mudamos para atendimento
-            if (currentStatus === 'em_follow_up' || !currentStatus) {
-                await supabase
-                    .from(crmLeadStatusTable)
-                    .upsert({
-                        lead_id: sessionId,
-                        status: 'atendimento', // Força para coluna neutra
-                        manual_override: true, // Garante que fique lá
-                        manual_override_at: new Date().toISOString(),
-                        updated_at: new Date().toISOString()
-                    }, { onConflict: 'lead_id' })
-                statusFixed++
-            }
-        }
-
-        log.push(`ATUALIZADOS ${statusFixed} status no CRM para 'atendimento'.`)
-
-        return NextResponse.json({
-            success: true,
-            reset_count: count,
-            status_fixed: statusFixed,
-            log
-        })
-
-    } catch (error: any) {
-        console.error("[Hard Reset] Erro:", error)
-        return NextResponse.json(
-            { error: error?.message || "Erro no reset" },
-            { status: 500 }
-        )
+    if (!idsToReset.length) {
+      return NextResponse.json({ success: true, tenant, reset_count: 0, status_fixed: 0, log: ["Nenhum agendamento ativo deste tenant."] })
     }
+
+    let resetCount = 0
+    for (const idsChunk of chunkArray(idsToReset, 500)) {
+      const { data: updatedSchedules, error: updateError } = await supabase
+        .from("followup_schedule")
+        .update({
+          is_active: false,
+          lead_status: "reset_manual",
+          updated_at: new Date().toISOString(),
+        })
+        .in("id", idsChunk)
+        .select("id")
+
+      if (updateError) throw updateError
+      resetCount += (updatedSchedules || []).length
+    }
+
+    log.push(`Tenant ${tenant}: ${resetCount} agendamentos de follow-up desativados.`)
+
+    const sessionIds = scopedRows
+      .map((row: any) => String(row?.session_id || "").trim())
+      .filter(Boolean)
+
+    let statusFixed = 0
+    for (const sessionIdChunk of chunkArray(sessionIds, 500)) {
+      const { data: currentStatuses, error: currentStatusesError } = await supabase
+        .from(tables.crmLeadStatus)
+        .select("lead_id, status")
+        .in("lead_id", sessionIdChunk)
+
+      if (currentStatusesError) throw currentStatusesError
+
+      const updates = (currentStatuses || [])
+        .filter((row: any) => {
+          const status = String(row?.status || "").trim().toLowerCase()
+          return status === "em_follow_up" || status.length === 0
+        })
+        .map((row: any) => ({
+          lead_id: row.lead_id,
+          status: "atendimento",
+          manual_override: true,
+          manual_override_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }))
+
+      if (updates.length) {
+        const { error: upsertError } = await supabase
+          .from(tables.crmLeadStatus)
+          .upsert(updates, { onConflict: "lead_id" })
+
+        if (upsertError) throw upsertError
+        statusFixed += updates.length
+      }
+    }
+
+    log.push(`Tenant ${tenant}: ${statusFixed} status no CRM ajustados para 'atendimento'.`)
+
+    return NextResponse.json({
+      success: true,
+      tenant,
+      reset_count: resetCount,
+      status_fixed: statusFixed,
+      log,
+    })
+  } catch (error: any) {
+    console.error("[followup-intelligent/hard-reset] erro:", error)
+    return NextResponse.json(
+      { success: false, error: error?.message || "Erro no reset" },
+      { status: 500 },
+    )
+  }
 }

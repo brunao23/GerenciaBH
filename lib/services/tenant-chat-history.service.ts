@@ -207,6 +207,55 @@ export class TenantChatHistoryService {
     return false
   }
 
+  async hasNewerUserMessage(params: {
+    sessionId: string
+    sinceCreatedAt?: string
+    excludeMessageId?: string
+  }): Promise<boolean> {
+    const sessionId = normalizeSessionId(params.sessionId)
+    if (!sessionId) return false
+
+    const sinceMs = new Date(params.sinceCreatedAt || 0).getTime()
+    const hasSince = Number.isFinite(sinceMs) && sinceMs > 0
+    const sinceIso = hasSince ? new Date(Math.max(0, sinceMs - 1000)).toISOString() : undefined
+    const excludeMessageId = String(params.excludeMessageId || "").trim()
+
+    const table = await this.getChatTableName()
+    let query = this.supabase
+      .from(table)
+      .select("created_at, message")
+      .eq("session_id", sessionId)
+      .order("created_at", { ascending: false })
+      .limit(80)
+
+    if (sinceIso) {
+      query = query.gte("created_at", sinceIso)
+    }
+
+    const { data, error } = await query
+    if (error || !Array.isArray(data)) return false
+
+    for (const row of data) {
+      const message = row?.message || {}
+      const role = normalizeRole(message?.role, message?.type, message?.fromMe)
+      if (role !== "user") continue
+
+      const messageId = String(message?.messageId || "").trim()
+      if (excludeMessageId && messageId && messageId === excludeMessageId) {
+        continue
+      }
+
+      const createdAt = new Date(row?.created_at || message?.created_at || 0).getTime()
+      if (hasSince && Number.isFinite(createdAt) && createdAt <= sinceMs + 250) {
+        continue
+      }
+
+      return true
+    }
+
+    return false
+  }
+
   async loadConversation(sessionId: string, limit = 25): Promise<ConversationTurn[]> {
     const normalizedSession = normalizeSessionId(sessionId)
     if (!normalizedSession) return []

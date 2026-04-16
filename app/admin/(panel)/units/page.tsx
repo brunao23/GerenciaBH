@@ -56,6 +56,8 @@ interface Workflow {
 interface AdminNativeAgentConfig {
     enabled: boolean
     autoReplyEnabled: boolean
+    replyEnabled: boolean
+    reactionsEnabled: boolean
     geminiApiKey: string
     geminiModel: string
     promptBase: string
@@ -123,6 +125,8 @@ interface NativeAgentDebugItem {
 const defaultNativeAgentConfig: AdminNativeAgentConfig = {
     enabled: false,
     autoReplyEnabled: true,
+    replyEnabled: true,
+    reactionsEnabled: true,
     geminiApiKey: "",
     geminiModel: "gemini-2.5-flash",
     promptBase: "",
@@ -420,6 +424,8 @@ export default function AdminUnitsPage() {
         return {
             enabled: source.enabled === true,
             autoReplyEnabled: source.autoReplyEnabled !== false,
+            replyEnabled: source.replyEnabled !== false,
+            reactionsEnabled: source.reactionsEnabled !== false,
             geminiApiKey: String(source.geminiApiKey || ""),
             geminiModel: String(source.geminiModel || "gemini-2.5-flash"),
             promptBase: String(source.promptBase || ""),
@@ -568,6 +574,8 @@ export default function AdminUnitsPage() {
             const payload = {
                 enabled: nativeAgentConfig.enabled,
                 autoReplyEnabled: nativeAgentConfig.autoReplyEnabled,
+                replyEnabled: nativeAgentConfig.replyEnabled,
+                reactionsEnabled: nativeAgentConfig.reactionsEnabled,
                 geminiApiKey: toOptionalText(nativeAgentConfig.geminiApiKey),
                 geminiModel: toOptionalText(nativeAgentConfig.geminiModel) || "gemini-2.5-flash",
                 promptBase: toOptionalText(nativeAgentConfig.promptBase),
@@ -1706,6 +1714,49 @@ export default function AdminUnitsPage() {
                                             <SelectContent className="bg-secondary border-border text-white">
                                                 <SelectItem value="on">Ativada</SelectItem>
                                                 <SelectItem value="off">Desativada</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                </div>
+
+                                <div className="grid gap-3 md:grid-cols-2">
+                                    <div className="space-y-2">
+                                        <Label>Responder como reply</Label>
+                                        <Select
+                                            value={nativeAgentConfig.replyEnabled ? "on" : "off"}
+                                            onValueChange={(v) =>
+                                                setNativeAgentConfig((prev) => ({
+                                                    ...prev,
+                                                    replyEnabled: v === "on",
+                                                }))
+                                            }
+                                        >
+                                            <SelectTrigger className="bg-secondary border-border">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent className="bg-secondary border-border text-white">
+                                                <SelectItem value="on">Ativado</SelectItem>
+                                                <SelectItem value="off">Desativado</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Reagir com emoji</Label>
+                                        <Select
+                                            value={nativeAgentConfig.reactionsEnabled ? "on" : "off"}
+                                            onValueChange={(v) =>
+                                                setNativeAgentConfig((prev) => ({
+                                                    ...prev,
+                                                    reactionsEnabled: v === "on",
+                                                }))
+                                            }
+                                        >
+                                            <SelectTrigger className="bg-secondary border-border">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent className="bg-secondary border-border text-white">
+                                                <SelectItem value="on">Ativado</SelectItem>
+                                                <SelectItem value="off">Desativado</SelectItem>
                                             </SelectContent>
                                         </Select>
                                     </div>

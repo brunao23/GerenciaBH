@@ -60,6 +60,17 @@ function toAudioProvider(
   return fallback
 }
 
+function toMessageMode(
+  value: any,
+  fallback: "text" | "image" | "video" | "document",
+): "text" | "image" | "video" | "document" {
+  const text = String(value ?? "").trim().toLowerCase()
+  if (text === "text" || text === "image" || text === "video" || text === "document") {
+    return text
+  }
+  return fallback
+}
+
 function toUrlList(value: any, fallback: string[]): string[] {
   if (value === undefined || value === null) return fallback
   if (Array.isArray(value)) {
@@ -344,6 +355,8 @@ export async function POST(req: Request) {
     const current = (await getNativeAgentConfigForTenant(tenant)) || {
       enabled: false,
       autoReplyEnabled: true,
+      replyEnabled: true,
+      reactionsEnabled: true,
       geminiModel: "gemini-2.5-flash",
       timezone: "America/Sao_Paulo",
       useFirstNamePersonalization: true,
@@ -377,6 +390,13 @@ export async function POST(req: Request) {
       notifyOnHumanHandoff: true,
       collectEmailForScheduling: true,
       generateMeetForOnlineAppointments: false,
+      postScheduleAutomationEnabled: false,
+      postScheduleDelayMinutes: 2,
+      postScheduleMessageMode: "text" as const,
+      postScheduleTextTemplate:
+        "Perfeito, seu agendamento esta confirmado. Se precisar de algo antes, estou por aqui.",
+      followupMessageMode: "text" as const,
+      reminderMessageMode: "text" as const,
       audioRepliesEnabled: false,
       audioProvider: "elevenlabs" as const,
       audioModelId: "eleven_multilingual_v2",
@@ -443,6 +463,8 @@ export async function POST(req: Request) {
     const nextConfig: NativeAgentConfig = {
       enabled: toBool(body?.enabled, current.enabled),
       autoReplyEnabled: toBool(body?.autoReplyEnabled, current.autoReplyEnabled),
+      replyEnabled: toBool(body?.replyEnabled, current.replyEnabled),
+      reactionsEnabled: toBool(body?.reactionsEnabled, current.reactionsEnabled),
       geminiApiKey: mergeSecret(current.geminiApiKey, body?.geminiApiKey),
       geminiModel: toOptionalText(body?.geminiModel) || current.geminiModel || "gemini-2.5-flash",
       promptBase: body?.promptBase !== undefined ? toOptionalText(body.promptBase) : current.promptBase,
@@ -554,6 +576,68 @@ export async function POST(req: Request) {
         body?.generateMeetForOnlineAppointments,
         current.generateMeetForOnlineAppointments,
       ),
+      postScheduleAutomationEnabled: toBool(
+        body?.postScheduleAutomationEnabled,
+        current.postScheduleAutomationEnabled === true,
+      ),
+      postScheduleDelayMinutes: toNumber(
+        body?.postScheduleDelayMinutes,
+        current.postScheduleDelayMinutes || 2,
+        0,
+        1440,
+      ),
+      postScheduleMessageMode: toMessageMode(
+        body?.postScheduleMessageMode,
+        current.postScheduleMessageMode || "text",
+      ),
+      postScheduleTextTemplate:
+        body?.postScheduleTextTemplate !== undefined
+          ? toOptionalText(body.postScheduleTextTemplate)
+          : current.postScheduleTextTemplate,
+      postScheduleMediaUrl:
+        body?.postScheduleMediaUrl !== undefined
+          ? toOptionalText(body.postScheduleMediaUrl)
+          : current.postScheduleMediaUrl,
+      postScheduleCaption:
+        body?.postScheduleCaption !== undefined
+          ? toOptionalText(body.postScheduleCaption)
+          : current.postScheduleCaption,
+      postScheduleDocumentFileName:
+        body?.postScheduleDocumentFileName !== undefined
+          ? toOptionalText(body.postScheduleDocumentFileName)
+          : current.postScheduleDocumentFileName,
+      followupMessageMode: toMessageMode(
+        body?.followupMessageMode,
+        current.followupMessageMode || "text",
+      ),
+      followupMediaUrl:
+        body?.followupMediaUrl !== undefined
+          ? toOptionalText(body.followupMediaUrl)
+          : current.followupMediaUrl,
+      followupCaption:
+        body?.followupCaption !== undefined
+          ? toOptionalText(body.followupCaption)
+          : current.followupCaption,
+      followupDocumentFileName:
+        body?.followupDocumentFileName !== undefined
+          ? toOptionalText(body.followupDocumentFileName)
+          : current.followupDocumentFileName,
+      reminderMessageMode: toMessageMode(
+        body?.reminderMessageMode,
+        current.reminderMessageMode || "text",
+      ),
+      reminderMediaUrl:
+        body?.reminderMediaUrl !== undefined
+          ? toOptionalText(body.reminderMediaUrl)
+          : current.reminderMediaUrl,
+      reminderCaption:
+        body?.reminderCaption !== undefined
+          ? toOptionalText(body.reminderCaption)
+          : current.reminderCaption,
+      reminderDocumentFileName:
+        body?.reminderDocumentFileName !== undefined
+          ? toOptionalText(body.reminderDocumentFileName)
+          : current.reminderDocumentFileName,
       audioRepliesEnabled: toBool(body?.audioRepliesEnabled, current.audioRepliesEnabled === true),
       audioProvider: toAudioProvider(body?.audioProvider, current.audioProvider || "elevenlabs"),
       audioApiKey: mergeSecret(current.audioApiKey, body?.audioApiKey),

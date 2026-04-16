@@ -1639,7 +1639,7 @@ export async function GET(req: Request) {
         })
 
       // Deduplicacao conservadora: provider_message_id ou repeticao textual em janela curta
-      const deduplicatedMessages = []
+      const deduplicatedMessages: typeof messages = []
       const seenProviderIds = new Set<string>()
       const normalizeForDedupe = (value: string) =>
         String(value || "").toLowerCase().replace(/\s+/g, " ").trim()
@@ -1657,7 +1657,7 @@ export async function GET(req: Request) {
         const currentTs = new Date(currentMsg.created_at || "").getTime()
         const currentSenderType = String((currentMsg as any).senderType || "").toLowerCase()
 
-        const duplicateByTextWindow = deduplicatedMessages.some((existingMsg: any) => {
+        const duplicateByTextWindow = deduplicatedMessages.some((existingMsg) => {
           if (existingMsg.role !== currentMsg.role) return false
           if (String(existingMsg.senderType || "").toLowerCase() !== currentSenderType) return false
           if (normalizeForDedupe(existingMsg.content) !== currentContent) return false

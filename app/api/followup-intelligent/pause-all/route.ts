@@ -1,36 +1,37 @@
 import { NextResponse } from "next/server"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
+import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
+import {
+  getNativeAgentConfigForTenant,
+  updateNativeAgentConfigForTenant,
+} from "@/lib/helpers/native-agent-config"
 
 export const dynamic = "force-dynamic"
 
-async function getLatestConfig(supabase: any) {
-  const { data, error } = await supabase
-    .from("evolution_api_config")
-    .select("id, is_active, updated_at")
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle()
-
-  if (error && error.code !== "PGRST116") {
-    throw error
+function chunkArray<T>(items: T[], size: number): T[][] {
+  if (size <= 0) return [items]
+  const chunks: T[][] = []
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size))
   }
-  return data || null
+  return chunks
 }
 
 export async function GET() {
   try {
-    const supabase = createBiaSupabaseServerClient()
-    const latest = await getLatestConfig(supabase)
-    const paused = latest ? !latest.is_active : true
+    const { tenant, tables } = await getTenantFromRequest()
+    const config = await getNativeAgentConfigForTenant(tenant)
 
     return NextResponse.json({
       success: true,
-      paused,
-      configId: latest?.id || null,
+      tenant,
+      paused: config?.followupEnabled === false,
+      followupEnabled: config?.followupEnabled !== false,
+      chatTable: tables.chatHistories,
     })
   } catch (error: any) {
     return NextResponse.json(
-      { error: error?.message || "Erro ao buscar status de pausa" },
+      { success: false, error: error?.message || "Erro ao buscar status de pausa" },
       { status: 500 },
     )
   }
@@ -41,47 +42,92 @@ export async function POST(req: Request) {
     const body = await req.json()
     const paused = body?.paused === true
 
-    const supabase = createBiaSupabaseServerClient()
-    const latest = await getLatestConfig(supabase)
+    const { tenant, tables } = await getTenantFromRequest()
+    const current = await getNativeAgentConfigForTenant(tenant)
 
-    if (!latest) {
+    if (!current) {
       return NextResponse.json(
-        { error: "Configuraçao de follow-up nao encontrada" },
+        { success: false, error: "Configuracao nativa do tenant nao encontrada" },
         { status: 404 },
       )
     }
 
-    await supabase
-      .from("evolution_api_config")
-      .update({ is_active: !paused, updated_at: new Date().toISOString() })
-      .eq("id", latest.id)
+    await updateNativeAgentConfigForTenant(tenant, {
+      ...current,
+      followupEnabled: !paused,
+    })
 
     let totalUpdated = 0
     if (paused) {
-      const { data, error } = await supabase
+      const supabase = createBiaSupabaseServerClient()
+      const { data: activeRows, error: activeError } = await supabase
         .from("followup_schedule")
-        .update({
-          is_active: false,
-          lead_status: "paused_global",
-          updated_at: new Date().toISOString(),
-        })
+        .select("id, session_id")
         .eq("is_active", true)
-        .select("id")
+        .limit(2000)
 
-      if (error && error.code !== "PGRST116") {
-        throw error
+      if (activeError) {
+        throw activeError
       }
-      totalUpdated = data?.length || 0
+
+      const sessionIds = Array.from(
+        new Set((activeRows || []).map((row: any) => String(row?.session_id || "").trim()).filter(Boolean)),
+      )
+
+      if (sessionIds.length > 0) {
+        const tenantSessionSet = new Set<string>()
+        for (const part of chunkArray(sessionIds, 500)) {
+          const { data: tenantSessions, error: tenantSessionsError } = await supabase
+            .from(tables.chatHistories)
+            .select("session_id")
+            .in("session_id", part)
+
+          if (tenantSessionsError) {
+            throw tenantSessionsError
+          }
+
+          for (const row of tenantSessions || []) {
+            const sid = String((row as any)?.session_id || "").trim()
+            if (sid) tenantSessionSet.add(sid)
+          }
+        }
+
+        const idsToPause = (activeRows || [])
+          .filter((row: any) => tenantSessionSet.has(String(row?.session_id || "").trim()))
+          .map((row: any) => row.id)
+
+        if (idsToPause.length > 0) {
+          for (const idsChunk of chunkArray(idsToPause, 500)) {
+            const { data: updated, error: updateError } = await supabase
+              .from("followup_schedule")
+              .update({
+                is_active: false,
+                lead_status: "paused_global_tenant",
+                updated_at: new Date().toISOString(),
+              })
+              .in("id", idsChunk)
+              .select("id")
+
+            if (updateError) {
+              throw updateError
+            }
+
+            totalUpdated += (updated || []).length
+          }
+        }
+      }
     }
 
     return NextResponse.json({
       success: true,
+      tenant,
       paused,
+      followupEnabled: !paused,
       updatedSchedules: totalUpdated,
     })
   } catch (error: any) {
     return NextResponse.json(
-      { error: error?.message || "Erro ao atualizar pausa global" },
+      { success: false, error: error?.message || "Erro ao atualizar pausa global" },
       { status: 500 },
     )
   }

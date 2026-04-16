@@ -8,6 +8,8 @@ import { ZApiService } from './z-api.service'
 import { resolveChatHistoriesTable } from '@/lib/helpers/resolve-chat-table'
 import { isWithinBusinessHours, getNextFollowUpTime, adjustToBusinessHours, getBusinessHoursDebugInfo, parseTenantBusinessHours, type TenantBusinessHours } from '@/lib/helpers/business-hours'
 import { getNativeAgentConfigForTenant } from '@/lib/helpers/native-agent-config'
+import { getMessagingConfigForTenant } from '@/lib/helpers/messaging-config'
+import { createZApiServiceFromMessagingConfig } from '@/lib/helpers/zapi-messaging'
 import OpenAI from 'openai'
 
 function toDate(value: any): Date | null {
@@ -239,40 +241,62 @@ export class FollowUpAutomationService {
     private async initZAPI(): Promise<boolean> {
         if (this.zApi) return true
 
-        const { data: config } = await this.supabase
-            .from('evolution_api_config')
-            .select('*')
-            .eq('is_active', true)
-            .order('updated_at', { ascending: false })
-            .limit(1)
-            .maybeSingle()
+        const messagingConfig = await getMessagingConfigForTenant(this.tenant).catch(() => null)
+        const resolved = createZApiServiceFromMessagingConfig(messagingConfig || undefined)
+        if (!resolved.service) {
+            console.warn(`[FollowUp] [${this.tenant}] Z-API nao configurada no tenant: ${resolved.error || 'service_unavailable'}`)
+            return false
+        }
 
-        if (!config) return false
+        this.zApi = resolved.service
 
-        const instanceNameRaw = String(config.instance_name || "")
-        const parsedDelay = Number.parseInt(instanceNameRaw, 10)
-        const instanceNameIsDelay = instanceNameRaw && String(parsedDelay) === instanceNameRaw.trim()
-
-        const delayCandidate = Number.isFinite(Number(config.delay_message))
-            ? Number(config.delay_message)
-            : (instanceNameIsDelay ? parsedDelay : undefined)
-
-        this.defaultDelay = delayCandidate && delayCandidate > 0 ? delayCandidate : 5
-
-        const instanceId = config.instance_id || (!instanceNameIsDelay ? config.instance_name : "")
-        const token = config.token
-        const clientToken = config.client_token || config.token
-
-        if (!instanceId || !token || !clientToken) return false
-
-        this.zApi = new ZApiService({
-            instanceId,
-            token,
-            clientToken,
-            apiUrl: config.api_url
-        })
+        const nativeConfig = await getNativeAgentConfigForTenant(this.tenant).catch(() => null)
+        const delayCandidate = Number(nativeConfig?.zapiDelayMessageSeconds)
+        this.defaultDelay = Number.isFinite(delayCandidate)
+            ? Math.max(1, Math.min(15, Math.floor(delayCandidate)))
+            : 5
 
         return true
+    }
+
+    /**
+     * Filtra registros globais de followup_schedule para garantir escopo do tenant.
+     */
+    private async filterSchedulesByTenantSession<T extends { session_id?: string }>(rows: T[]): Promise<T[]> {
+        if (!rows?.length) return []
+
+        const chatTable = await resolveChatHistoriesTable(this.supabase as any, this.tenant)
+        const sessionIds = Array.from(
+            new Set(
+                rows
+                    .map((row) => String(row?.session_id || '').trim())
+                    .filter(Boolean),
+            ),
+        )
+
+        if (!sessionIds.length) return []
+
+        const allowedSessionIds = new Set<string>()
+        const chunkSize = 500
+        for (let i = 0; i < sessionIds.length; i += chunkSize) {
+            const chunk = sessionIds.slice(i, i + chunkSize)
+            const { data, error } = await this.supabase
+                .from(chatTable)
+                .select('session_id')
+                .in('session_id', chunk)
+
+            if (error) {
+                console.warn(`[FollowUp] [${this.tenant}] Falha ao filtrar sessoes por tenant:`, error)
+                continue
+            }
+
+            for (const row of data || []) {
+                const sid = String((row as any)?.session_id || '').trim()
+                if (sid) allowedSessionIds.add(sid)
+            }
+        }
+
+        return rows.filter((row) => allowedSessionIds.has(String(row?.session_id || '').trim()))
     }
 
     /**
@@ -657,19 +681,21 @@ Retorne JSON:
             const raw = response.choices[0].message.content || '{}'
             const analysis: AIAnalysisResult = JSON.parse(raw)
 
-            // ValidaÃ§Ã£o anti-repetiÃ§Ã£o final
-            if (analysis.contextualMessage && previousFollowUps.length > 0) {
-                if (this.isTooSimilar(analysis.contextualMessage, previousFollowUps)) {
-                    console.warn('[FollowUp] âš ï¸ IA gerou mensagem similar a anterior. Regenerando...')
-                    analysis.contextualMessage = undefined // ForÃ§a regeneraÃ§Ã£o via fallback
+            // Validacao anti-repeticao final
+            const contextualMessage = String(analysis.contextualMessage || '')
+            if (contextualMessage && previousFollowUps.length > 0) {
+                if (this.isTooSimilar(contextualMessage, previousFollowUps)) {
+                    console.warn('[FollowUp] IA gerou mensagem similar a anterior. Regenerando...')
+                    analysis.contextualMessage = undefined
                 }
             }
 
-            // ValidaÃ§Ã£o: a mensagem nÃ£o deve conter trechos de msgs anteriores da IA
-            if (analysis.contextualMessage && aiMessages.length > 0) {
-                const lastAiMsg = aiMessages[aiMessages.length - 1]
-                if (lastAiMsg && analysis.contextualMessage.includes(lastAiMsg.substring(0, 40))) {
-                    console.warn('[FollowUp] âš ï¸ IA copiou trecho da Ãºltima msg. Removendo.')
+            // Validacao: nao deve conter trechos da ultima mensagem da IA
+            const contextualAfterDedupe = String(analysis.contextualMessage || '')
+            if (contextualAfterDedupe && aiMessages.length > 0) {
+                const lastAiMsg = String(aiMessages[aiMessages.length - 1] || '')
+                if (lastAiMsg && contextualAfterDedupe.includes(lastAiMsg.substring(0, 40))) {
+                    console.warn('[FollowUp] IA copiou trecho da ultima msg. Removendo.')
                     analysis.contextualMessage = undefined
                 }
             }
@@ -715,15 +741,16 @@ Retorne JSON:
                     .lte('next_followup_at', new Date().toISOString())
                     .eq('is_active', true)
 
-                if (overdue && overdue.length > 0) {
+                const overdueScoped = await this.filterSchedulesByTenantSession(overdue || [])
+                if (overdueScoped.length > 0) {
                     const nextBusinessTime = adjustToBusinessHours(new Date(), tenantBH).toISOString()
-                    for (const item of overdue) {
+                    for (const item of overdueScoped) {
                         await this.supabase
                             .from('followup_schedule')
                             .update({ next_followup_at: nextBusinessTime, updated_at: new Date().toISOString() })
                             .eq('id', item.id)
                     }
-                    console.log(`[FollowUp] ${overdue.length} follow-ups reagendados para ${nextBusinessTime}`)
+                    console.log(`[FollowUp] [${this.tenant}] ${overdueScoped.length} follow-ups reagendados para ${nextBusinessTime}`)
                 }
                 return
             }
@@ -744,7 +771,13 @@ Retorne JSON:
                 return
             }
 
-            console.log(`[FollowUp] Encontrados ${pending.length} follow-ups vencidos`)
+            const pendingScoped = await this.filterSchedulesByTenantSession(pending || [])
+            if (!pendingScoped.length) {
+                console.log(`[FollowUp] [${this.tenant}] Nenhum follow-up vencido pertencente ao tenant`)
+                return
+            }
+
+            console.log(`[FollowUp] [${this.tenant}] Encontrados ${pendingScoped.length} follow-ups vencidos do tenant`)
 
             // Inicializa Z-API
             const canSend = await this.initZAPI()
@@ -753,7 +786,7 @@ Retorne JSON:
                 return
             }
 
-            for (const schedule of pending) {
+            for (const schedule of pendingScoped) {
                 await this.processSingleFollowUp(schedule)
                 await new Promise(resolve => setTimeout(resolve, 2000))
             }

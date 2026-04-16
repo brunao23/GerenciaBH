@@ -18,10 +18,13 @@ import { toast } from "sonner"
 
 type ConversationTone = "consultivo" | "acolhedor" | "direto" | "formal"
 type AudioProvider = "elevenlabs" | "custom_http"
+type MessageMode = "text" | "image" | "video" | "document"
 
 type TenantNativeAgentConfig = {
   enabled: boolean
   autoReplyEnabled: boolean
+  replyEnabled: boolean
+  reactionsEnabled: boolean
   promptBase: string
   useFirstNamePersonalization: boolean
   autoLearningEnabled: boolean
@@ -58,6 +61,21 @@ type TenantNativeAgentConfig = {
   notifyOnHumanHandoff: boolean
   collectEmailForScheduling: boolean
   generateMeetForOnlineAppointments: boolean
+  postScheduleAutomationEnabled: boolean
+  postScheduleDelayMinutes: number
+  postScheduleMessageMode: MessageMode
+  postScheduleTextTemplate: string
+  postScheduleMediaUrl: string
+  postScheduleCaption: string
+  postScheduleDocumentFileName: string
+  followupMessageMode: MessageMode
+  followupMediaUrl: string
+  followupCaption: string
+  followupDocumentFileName: string
+  reminderMessageMode: MessageMode
+  reminderMediaUrl: string
+  reminderCaption: string
+  reminderDocumentFileName: string
   audioRepliesEnabled: boolean
   audioProvider: AudioProvider
   audioApiKey: string
@@ -102,6 +120,8 @@ type TenantNativeAgentConfig = {
 const defaultConfig: TenantNativeAgentConfig = {
   enabled: false,
   autoReplyEnabled: true,
+  replyEnabled: true,
+  reactionsEnabled: true,
   promptBase: "",
   useFirstNamePersonalization: true,
   autoLearningEnabled: true,
@@ -138,6 +158,22 @@ const defaultConfig: TenantNativeAgentConfig = {
   notifyOnHumanHandoff: true,
   collectEmailForScheduling: true,
   generateMeetForOnlineAppointments: false,
+  postScheduleAutomationEnabled: false,
+  postScheduleDelayMinutes: 2,
+  postScheduleMessageMode: "text",
+  postScheduleTextTemplate:
+    "Perfeito, seu agendamento esta confirmado. Se precisar de algo antes, estou por aqui.",
+  postScheduleMediaUrl: "",
+  postScheduleCaption: "",
+  postScheduleDocumentFileName: "",
+  followupMessageMode: "text",
+  followupMediaUrl: "",
+  followupCaption: "",
+  followupDocumentFileName: "",
+  reminderMessageMode: "text",
+  reminderMediaUrl: "",
+  reminderCaption: "",
+  reminderDocumentFileName: "",
   audioRepliesEnabled: false,
   audioProvider: "elevenlabs",
   audioApiKey: "",
@@ -195,6 +231,13 @@ function normalizeConfig(raw: any): TenantNativeAgentConfig {
   const audioProviderRaw = String(source.audioProvider || "elevenlabs").toLowerCase()
   const normalizedAudioProvider: AudioProvider =
     audioProviderRaw === "custom_http" ? "custom_http" : "elevenlabs"
+  const normalizeMessageMode = (value: any, fallback: MessageMode): MessageMode => {
+    const mode = String(value || "").trim().toLowerCase()
+    if (mode === "text" || mode === "image" || mode === "video" || mode === "document") {
+      return mode
+    }
+    return fallback
+  }
 
   const businessDays = Array.isArray(source.calendarBusinessDays)
     ? source.calendarBusinessDays
@@ -221,6 +264,8 @@ function normalizeConfig(raw: any): TenantNativeAgentConfig {
   return {
     enabled: source.enabled === true,
     autoReplyEnabled: source.autoReplyEnabled !== false,
+    replyEnabled: source.replyEnabled !== false,
+    reactionsEnabled: source.reactionsEnabled !== false,
     promptBase: String(source.promptBase || ""),
     useFirstNamePersonalization: source.useFirstNamePersonalization !== false,
     autoLearningEnabled: source.autoLearningEnabled !== false,
@@ -284,6 +329,26 @@ function normalizeConfig(raw: any): TenantNativeAgentConfig {
     notifyOnHumanHandoff: source.notifyOnHumanHandoff !== false,
     collectEmailForScheduling: source.collectEmailForScheduling === true,
     generateMeetForOnlineAppointments: source.generateMeetForOnlineAppointments === true,
+    postScheduleAutomationEnabled: source.postScheduleAutomationEnabled === true,
+    postScheduleDelayMinutes: Number.isFinite(Number(source.postScheduleDelayMinutes))
+      ? Number(source.postScheduleDelayMinutes)
+      : 2,
+    postScheduleMessageMode: normalizeMessageMode(source.postScheduleMessageMode, "text"),
+    postScheduleTextTemplate: String(
+      source.postScheduleTextTemplate ||
+      "Perfeito, seu agendamento esta confirmado. Se precisar de algo antes, estou por aqui.",
+    ),
+    postScheduleMediaUrl: String(source.postScheduleMediaUrl || ""),
+    postScheduleCaption: String(source.postScheduleCaption || ""),
+    postScheduleDocumentFileName: String(source.postScheduleDocumentFileName || ""),
+    followupMessageMode: normalizeMessageMode(source.followupMessageMode, "text"),
+    followupMediaUrl: String(source.followupMediaUrl || ""),
+    followupCaption: String(source.followupCaption || ""),
+    followupDocumentFileName: String(source.followupDocumentFileName || ""),
+    reminderMessageMode: normalizeMessageMode(source.reminderMessageMode, "text"),
+    reminderMediaUrl: String(source.reminderMediaUrl || ""),
+    reminderCaption: String(source.reminderCaption || ""),
+    reminderDocumentFileName: String(source.reminderDocumentFileName || ""),
     audioRepliesEnabled: source.audioRepliesEnabled === true,
     audioProvider: normalizedAudioProvider,
     audioApiKey: String(source.audioApiKey || ""),
@@ -592,6 +657,8 @@ export default function AgenteIAPage() {
       const payload = {
         enabled: config.enabled,
         autoReplyEnabled: config.autoReplyEnabled,
+        replyEnabled: config.replyEnabled,
+        reactionsEnabled: config.reactionsEnabled,
         promptBase: toOptionalText(config.promptBase),
         useFirstNamePersonalization: config.useFirstNamePersonalization,
         autoLearningEnabled: config.autoLearningEnabled,
@@ -631,6 +698,21 @@ export default function AgenteIAPage() {
         notifyOnHumanHandoff: config.notifyOnHumanHandoff,
         collectEmailForScheduling: config.collectEmailForScheduling,
         generateMeetForOnlineAppointments: config.generateMeetForOnlineAppointments,
+        postScheduleAutomationEnabled: config.postScheduleAutomationEnabled,
+        postScheduleDelayMinutes: Math.max(0, Math.min(1440, Number(config.postScheduleDelayMinutes || 0))),
+        postScheduleMessageMode: config.postScheduleMessageMode,
+        postScheduleTextTemplate: toOptionalText(config.postScheduleTextTemplate),
+        postScheduleMediaUrl: toOptionalText(config.postScheduleMediaUrl),
+        postScheduleCaption: toOptionalText(config.postScheduleCaption),
+        postScheduleDocumentFileName: toOptionalText(config.postScheduleDocumentFileName),
+        followupMessageMode: config.followupMessageMode,
+        followupMediaUrl: toOptionalText(config.followupMediaUrl),
+        followupCaption: toOptionalText(config.followupCaption),
+        followupDocumentFileName: toOptionalText(config.followupDocumentFileName),
+        reminderMessageMode: config.reminderMessageMode,
+        reminderMediaUrl: toOptionalText(config.reminderMediaUrl),
+        reminderCaption: toOptionalText(config.reminderCaption),
+        reminderDocumentFileName: toOptionalText(config.reminderDocumentFileName),
         audioRepliesEnabled: config.audioRepliesEnabled,
         audioProvider: config.audioProvider,
         audioApiKey: toOptionalText(config.audioApiKey),
@@ -775,6 +857,41 @@ export default function AgenteIAPage() {
                   <SelectItem value="acolhedor">Acolhedor</SelectItem>
                   <SelectItem value="direto">Direto</SelectItem>
                   <SelectItem value="formal">Formal</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Responder como reply</Label>
+              <Select
+                value={config.replyEnabled ? "on" : "off"}
+                onValueChange={(v) => setConfig((prev) => ({ ...prev, replyEnabled: v === "on" }))}
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-secondary border-border">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-secondary border-border text-foreground">
+                  <SelectItem value="on">Ativado</SelectItem>
+                  <SelectItem value="off">Desativado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Reagir com emoji</Label>
+              <Select
+                value={config.reactionsEnabled ? "on" : "off"}
+                onValueChange={(v) => setConfig((prev) => ({ ...prev, reactionsEnabled: v === "on" }))}
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-secondary border-border">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-secondary border-border text-foreground">
+                  <SelectItem value="on">Ativado</SelectItem>
+                  <SelectItem value="off">Desativado</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -1378,6 +1495,244 @@ export default function AgenteIAPage() {
                 placeholder="0,1,2,3,4,5,6"
                 disabled={loading}
               />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-card border-border text-foreground">
+        <CardHeader>
+          <CardTitle>Modo de envio Z-API</CardTitle>
+          <CardDescription className="text-gray-400">
+            Configure o formato de envio apos agendamento, follow-up e lembretes.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="space-y-4">
+            <h3 className="text-sm font-medium">Pos-agendamento</h3>
+            <div className="grid md:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label>Automacao pos-agendamento</Label>
+                <Select
+                  value={config.postScheduleAutomationEnabled ? "on" : "off"}
+                  onValueChange={(v) =>
+                    setConfig((prev) => ({ ...prev, postScheduleAutomationEnabled: v === "on" }))
+                  }
+                  disabled={loading}
+                >
+                  <SelectTrigger className="bg-secondary border-border">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-secondary border-border text-foreground">
+                    <SelectItem value="on">Ativado</SelectItem>
+                    <SelectItem value="off">Desativado</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Modo de envio</Label>
+                <Select
+                  value={config.postScheduleMessageMode}
+                  onValueChange={(v) =>
+                    setConfig((prev) => ({ ...prev, postScheduleMessageMode: v as MessageMode }))
+                  }
+                  disabled={loading}
+                >
+                  <SelectTrigger className="bg-secondary border-border">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-secondary border-border text-foreground">
+                    <SelectItem value="text">Texto</SelectItem>
+                    <SelectItem value="image">Imagem</SelectItem>
+                    <SelectItem value="video">Video</SelectItem>
+                    <SelectItem value="document">Documento</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Delay apos agendar (min)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={1440}
+                  value={config.postScheduleDelayMinutes}
+                  onChange={(e) =>
+                    setConfig((prev) => ({ ...prev, postScheduleDelayMinutes: Number(e.target.value || 0) }))
+                  }
+                  className="bg-secondary border-border text-foreground"
+                  disabled={loading}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Texto do pos-agendamento</Label>
+              <Textarea
+                value={config.postScheduleTextTemplate}
+                onChange={(e) => setConfig((prev) => ({ ...prev, postScheduleTextTemplate: e.target.value }))}
+                className="bg-secondary border-border text-foreground min-h-[100px]"
+                placeholder="Mensagem de confirmacao ou proximo passo."
+                disabled={loading}
+              />
+            </div>
+
+            {config.postScheduleMessageMode !== "text" && (
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>URL da midia (obrigatorio)</Label>
+                  <Input
+                    value={config.postScheduleMediaUrl}
+                    onChange={(e) => setConfig((prev) => ({ ...prev, postScheduleMediaUrl: e.target.value }))}
+                    className="bg-secondary border-border text-foreground"
+                    placeholder="https://..."
+                    disabled={loading}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Legenda (opcional)</Label>
+                  <Input
+                    value={config.postScheduleCaption}
+                    onChange={(e) => setConfig((prev) => ({ ...prev, postScheduleCaption: e.target.value }))}
+                    className="bg-secondary border-border text-foreground"
+                    placeholder="Legenda enviada com a midia"
+                    disabled={loading}
+                  />
+                </div>
+                {config.postScheduleMessageMode === "document" && (
+                  <div className="space-y-2 md:col-span-2">
+                    <Label>Nome do arquivo (opcional)</Label>
+                    <Input
+                      value={config.postScheduleDocumentFileName}
+                      onChange={(e) =>
+                        setConfig((prev) => ({ ...prev, postScheduleDocumentFileName: e.target.value }))
+                      }
+                      className="bg-secondary border-border text-foreground"
+                      placeholder="ex: comprovante.pdf"
+                      disabled={loading}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-6">
+            <div className="space-y-3">
+              <h3 className="text-sm font-medium">Follow-up</h3>
+              <div className="space-y-2">
+                <Label>Modo de envio</Label>
+                <Select
+                  value={config.followupMessageMode}
+                  onValueChange={(v) => setConfig((prev) => ({ ...prev, followupMessageMode: v as MessageMode }))}
+                  disabled={loading}
+                >
+                  <SelectTrigger className="bg-secondary border-border">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-secondary border-border text-foreground">
+                    <SelectItem value="text">Texto</SelectItem>
+                    <SelectItem value="image">Imagem</SelectItem>
+                    <SelectItem value="video">Video</SelectItem>
+                    <SelectItem value="document">Documento</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {config.followupMessageMode !== "text" && (
+                <>
+                  <div className="space-y-2">
+                    <Label>URL da midia</Label>
+                    <Input
+                      value={config.followupMediaUrl}
+                      onChange={(e) => setConfig((prev) => ({ ...prev, followupMediaUrl: e.target.value }))}
+                      className="bg-secondary border-border text-foreground"
+                      placeholder="https://..."
+                      disabled={loading}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Legenda (opcional)</Label>
+                    <Input
+                      value={config.followupCaption}
+                      onChange={(e) => setConfig((prev) => ({ ...prev, followupCaption: e.target.value }))}
+                      className="bg-secondary border-border text-foreground"
+                      disabled={loading}
+                    />
+                  </div>
+                  {config.followupMessageMode === "document" && (
+                    <div className="space-y-2">
+                      <Label>Nome do arquivo (opcional)</Label>
+                      <Input
+                        value={config.followupDocumentFileName}
+                        onChange={(e) =>
+                          setConfig((prev) => ({ ...prev, followupDocumentFileName: e.target.value }))
+                        }
+                        className="bg-secondary border-border text-foreground"
+                        placeholder="ex: material.pdf"
+                        disabled={loading}
+                      />
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            <div className="space-y-3">
+              <h3 className="text-sm font-medium">Lembretes</h3>
+              <div className="space-y-2">
+                <Label>Modo de envio</Label>
+                <Select
+                  value={config.reminderMessageMode}
+                  onValueChange={(v) => setConfig((prev) => ({ ...prev, reminderMessageMode: v as MessageMode }))}
+                  disabled={loading}
+                >
+                  <SelectTrigger className="bg-secondary border-border">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-secondary border-border text-foreground">
+                    <SelectItem value="text">Texto</SelectItem>
+                    <SelectItem value="image">Imagem</SelectItem>
+                    <SelectItem value="video">Video</SelectItem>
+                    <SelectItem value="document">Documento</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {config.reminderMessageMode !== "text" && (
+                <>
+                  <div className="space-y-2">
+                    <Label>URL da midia</Label>
+                    <Input
+                      value={config.reminderMediaUrl}
+                      onChange={(e) => setConfig((prev) => ({ ...prev, reminderMediaUrl: e.target.value }))}
+                      className="bg-secondary border-border text-foreground"
+                      placeholder="https://..."
+                      disabled={loading}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Legenda (opcional)</Label>
+                    <Input
+                      value={config.reminderCaption}
+                      onChange={(e) => setConfig((prev) => ({ ...prev, reminderCaption: e.target.value }))}
+                      className="bg-secondary border-border text-foreground"
+                      disabled={loading}
+                    />
+                  </div>
+                  {config.reminderMessageMode === "document" && (
+                    <div className="space-y-2">
+                      <Label>Nome do arquivo (opcional)</Label>
+                      <Input
+                        value={config.reminderDocumentFileName}
+                        onChange={(e) =>
+                          setConfig((prev) => ({ ...prev, reminderDocumentFileName: e.target.value }))
+                        }
+                        className="bg-secondary border-border text-foreground"
+                        placeholder="ex: contrato.pdf"
+                        disabled={loading}
+                      />
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </CardContent>

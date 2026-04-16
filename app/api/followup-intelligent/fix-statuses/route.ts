@@ -1,126 +1,161 @@
 import { NextResponse } from "next/server"
-import { createClient } from "@supabase/supabase-js"
+import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
+import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
 
-// Cliente Supabase com Service Role para acesso administrativo
-function createServiceRoleClient() {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+export const dynamic = "force-dynamic"
 
-    return createClient(supabaseUrl, supabaseServiceKey, {
-        auth: {
-            persistSession: false,
-            autoRefreshToken: false,
-            detectSessionInUrl: false
-        }
-    })
+function chunkArray<T>(items: T[], size: number): T[][] {
+  if (size <= 0) return [items]
+  const chunks: T[][] = []
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size))
+  }
+  return chunks
 }
 
-export const dynamic = 'force-dynamic'
+async function resolveTenantSessionSet(params: {
+  supabase: ReturnType<typeof createBiaSupabaseServerClient>
+  chatTable: string
+  sessionIds: string[]
+}): Promise<Set<string>> {
+  const allowed = new Set<string>()
+  const candidateIds = Array.from(new Set(params.sessionIds.map((value) => String(value || "").trim()).filter(Boolean)))
+
+  if (!candidateIds.length) return allowed
+
+  for (const part of chunkArray(candidateIds, 500)) {
+    const { data, error } = await params.supabase
+      .from(params.chatTable)
+      .select("session_id")
+      .in("session_id", part)
+
+    if (error) throw error
+
+    for (const row of data || []) {
+      const sid = String((row as any)?.session_id || "").trim()
+      if (sid) allowed.add(sid)
+    }
+  }
+
+  return allowed
+}
 
 /**
- * Rota de Correção de Status
- * Desativa follow-ups que foram ativados indevidamente para leads
- * que já estão Agendados, Perdidos, Ganhos ou Pausados.
+ * Corrige status de follow-up no escopo do tenant autenticado.
  */
-export async function GET(req: Request) {
-    try {
-        const { searchParams } = new URL(req.url)
+export async function GET() {
+  try {
+    const { tenant, tables } = await getTenantFromRequest()
+    const supabase = createBiaSupabaseServerClient()
 
-        // ✅ OBTER TENANT DO HEADER OU URL
-        let tenant = req.headers.get('x-tenant-prefix')
-        if (!tenant) tenant = searchParams.get('tenant')
+    const log: string[] = []
+    let fixedCount = 0
 
-        if (!tenant) {
-            tenant = 'vox_bh'
-        }
+    const { data: activeSchedules, error } = await supabase
+      .from("followup_schedule")
+      .select("id, session_id, phone_number, lead_status")
+      .eq("is_active", true)
 
-        const supabase = createServiceRoleClient()
-        const pausarTable = `${tenant}_pausar`
-        const crmLeadStatusTable = `${tenant}_crm_lead_status`
-        const log = []
-        let fixedCount = 0
+    if (error) throw error
 
-        // 1. Buscar todos os follow-ups ATIVOS
-        const { data: activeSchedules, error } = await supabase
-            .from("followup_schedule")
-            .select("id, session_id, phone_number, lead_status")
-            .eq("is_active", true)
+    const allRows = activeSchedules || []
+    const allSessionIds = allRows
+      .map((row: any) => String(row?.session_id || "").trim())
+      .filter(Boolean)
 
-        if (error) throw error
+    const tenantSessionSet = await resolveTenantSessionSet({
+      supabase,
+      chatTable: tables.chatHistories,
+      sessionIds: allSessionIds,
+    })
 
-        log.push(`Encontrados ${activeSchedules?.length || 0} follow-ups ativos. Iniciando verificação...`)
+    const scopedRows = allRows.filter((row: any) => tenantSessionSet.has(String(row?.session_id || "").trim()))
 
-        if (!activeSchedules || activeSchedules.length === 0) {
-            return NextResponse.json({ success: true, fixed: 0, log })
-        }
+    log.push(`Tenant ${tenant}: ${scopedRows.length} follow-ups ativos para verificar.`)
 
-        // 2. Buscar Blacklist (Pausados)
-        const { data: pausedPhones } = await supabase
-            .from(pausarTable)
-            .select("numero")
-            .eq("pausar", true)
-
-        const pausedSet = new Set(pausedPhones?.map(p => p.numero) || [])
-
-        // 3. Buscar Status do CRM
-        // Nota: Como podem ser muitos, idealmente fariamos batch, mas por simplicidade vamos buscar todos que tem status terminal
-        const { data: terminalLeads } = await supabase
-            .from(crmLeadStatusTable)
-            .select("lead_id, status")
-            .in("status", ["agendado", "perdido", "ganhos"])
-
-        const terminalMap = new Map()
-        terminalLeads?.forEach(l => terminalMap.set(l.lead_id, l.status))
-
-        // 4. Processar correções
-        for (const schedule of activeSchedules) {
-            let shouldDeactivate = false
-            let reason = ""
-
-            // Normalizar telefone
-            const phone = schedule.phone_number?.replace(/\D/g, '') || ""
-            const sessionId = schedule.session_id
-
-            // Check Pausa
-            if (pausedSet.has(phone)) {
-                shouldDeactivate = true
-                reason = "Lead está pausado manualmente"
-            }
-            // Check Status CRM
-            else if (terminalMap.has(sessionId)) {
-                shouldDeactivate = true
-                reason = `Status no CRM é ${terminalMap.get(sessionId)}`
-            }
-
-            if (shouldDeactivate) {
-                await supabase
-                    .from("followup_schedule")
-                    .update({
-                        is_active: false,
-                        lead_status: reason.includes("pausado") ? 'paused_manual' : `status_${terminalMap.get(sessionId)}`,
-                        updated_at: new Date().toISOString()
-                    })
-                    .eq("id", schedule.id)
-
-                log.push(`[CORRIGIDO] ${sessionId}: Desativado -> ${reason}`)
-                fixedCount++
-            }
-        }
-
-        log.push(`Correção finalizada. Total corrigidos: ${fixedCount}`)
-
-        return NextResponse.json({
-            success: true,
-            fixed: fixedCount,
-            total_checked: activeSchedules.length,
-            log
-        })
-
-    } catch (error: any) {
-        console.error("[Fix Status] Erro:", error)
-        return NextResponse.json(
-            { error: error?.message || "Erro ao corrigir status" },
-            { status: 500 }
-        )
+    if (!scopedRows.length) {
+      return NextResponse.json({ success: true, tenant, fixed: 0, total_checked: 0, log })
     }
+
+    const { data: pausedPhones, error: pausedError } = await supabase
+      .from(tables.pausar)
+      .select("numero")
+      .eq("pausar", true)
+
+    if (pausedError) throw pausedError
+
+    const pausedSet = new Set(
+      (pausedPhones || [])
+        .map((row: any) => String(row?.numero || "").replace(/\D/g, ""))
+        .filter(Boolean),
+    )
+
+    const scopedSessionIds = scopedRows
+      .map((row: any) => String(row?.session_id || "").trim())
+      .filter(Boolean)
+
+    const { data: terminalLeads, error: terminalError } = await supabase
+      .from(tables.crmLeadStatus)
+      .select("lead_id, status")
+      .in("lead_id", scopedSessionIds)
+      .in("status", ["agendado", "perdido", "ganhos"])
+
+    if (terminalError) throw terminalError
+
+    const terminalMap = new Map<string, string>()
+    for (const row of terminalLeads || []) {
+      const leadId = String((row as any)?.lead_id || "").trim()
+      const status = String((row as any)?.status || "").trim()
+      if (leadId && status) terminalMap.set(leadId, status)
+    }
+
+    for (const schedule of scopedRows) {
+      const normalizedPhone = String(schedule?.phone_number || "").replace(/\D/g, "")
+      const sessionId = String(schedule?.session_id || "").trim()
+
+      let shouldDeactivate = false
+      let reason = ""
+      let targetStatus = ""
+
+      if (pausedSet.has(normalizedPhone)) {
+        shouldDeactivate = true
+        targetStatus = "paused_manual"
+        reason = "lead pausado manualmente"
+      } else if (terminalMap.has(sessionId)) {
+        shouldDeactivate = true
+        targetStatus = `status_${terminalMap.get(sessionId)}`
+        reason = `status terminal no CRM: ${terminalMap.get(sessionId)}`
+      }
+
+      if (!shouldDeactivate) continue
+
+      await supabase
+        .from("followup_schedule")
+        .update({
+          is_active: false,
+          lead_status: targetStatus,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", schedule.id)
+
+      log.push(`[FIX] ${sessionId}: desativado - ${reason}`)
+      fixedCount += 1
+    }
+
+    log.push(`Tenant ${tenant}: correcao finalizada. Corrigidos ${fixedCount}.`)
+
+    return NextResponse.json({
+      success: true,
+      tenant,
+      fixed: fixedCount,
+      total_checked: scopedRows.length,
+      log,
+    })
+  } catch (error: any) {
+    console.error("[followup-intelligent/fix-statuses] erro:", error)
+    return NextResponse.json(
+      { success: false, error: error?.message || "Erro ao corrigir status" },
+      { status: 500 },
+    )
+  }
 }

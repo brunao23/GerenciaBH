@@ -1,45 +1,29 @@
 import { NextResponse } from "next/server"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
-import { resolveChatHistoriesTable } from "@/lib/helpers/resolve-chat-table"
+import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
+import { getTablesForTenant } from "@/lib/helpers/tenant"
 
 function toDate(value: any): Date | null {
   if (!value) return null
   if (value instanceof Date) return value
   if (typeof value === "string") {
     const d = new Date(value)
-    return isNaN(d.getTime()) ? null : d
+    return Number.isNaN(d.getTime()) ? null : d
   }
   if (typeof value === "number") {
     const ts = value < 1e12 ? value * 1000 : value
     const d = new Date(ts)
-    return isNaN(d.getTime()) ? null : d
+    return Number.isNaN(d.getTime()) ? null : d
   }
   return null
 }
 
-/**
- * API para listar leads que estão em follow-up ativo
- */
-export async function GET(req: Request) {
+export async function GET() {
   try {
-    const { searchParams } = new URL(req.url)
-
-    // ✅ OBTER TENANT DO HEADER OU URL
-    let tenant = req.headers.get('x-tenant-prefix')
-    if (!tenant) tenant = searchParams.get('tenant')
-
-    if (!tenant) {
-      tenant = 'vox_bh'
-    }
-
+    const { tenant, tables } = await getTenantFromRequest()
     const supabase = createBiaSupabaseServerClient()
-    const chatHistoriesTable = await resolveChatHistoriesTable(supabase as any, tenant)
+    const chatHistoriesTable = tables.chatHistories || getTablesForTenant(tenant).chatHistories
 
-    // TODO: Verificar se followup_schedule deve ser por tenant (${tenant}_followup_schedule)
-    // Por enquanto mantendo fixo como estava no original, assumindo que pode ser global ou experimental
-    const followupScheduleTable = "followup_schedule"
-
-    // Buscar follow-ups ativos
     const { data: activeFollowups, error } = await supabase
       .from("followup_schedule")
       .select("*")
@@ -47,15 +31,42 @@ export async function GET(req: Request) {
       .not("next_followup_at", "is", null)
       .order("next_followup_at", { ascending: true })
 
-    if (error) {
-      console.error("[Follow-up Active] Erro ao buscar:", error)
-      throw error
+    if (error) throw error
+    if (!activeFollowups || activeFollowups.length === 0) {
+      return NextResponse.json({ success: true, active: [], count: 0, tenant })
     }
 
-    // Enriquecer com informações das conversas
+    const sessionIds = Array.from(
+      new Set(
+        activeFollowups
+          .map((row: any) => String(row?.session_id || "").trim())
+          .filter(Boolean),
+      ),
+    )
+
+    if (!sessionIds.length) {
+      return NextResponse.json({ success: true, active: [], count: 0, tenant })
+    }
+
+    const { data: tenantSessions, error: tenantSessionsError } = await supabase
+      .from(chatHistoriesTable)
+      .select("session_id")
+      .in("session_id", sessionIds)
+
+    if (tenantSessionsError) {
+      throw tenantSessionsError
+    }
+
+    const tenantSessionSet = new Set(
+      (tenantSessions || []).map((row: any) => String(row?.session_id || "").trim()).filter(Boolean),
+    )
+
+    const tenantScopedFollowups = activeFollowups.filter((row: any) =>
+      tenantSessionSet.has(String(row?.session_id || "").trim()),
+    )
+
     const enriched = await Promise.all(
-      (activeFollowups || []).map(async (followup) => {
-        // Buscar última mensagem da conversa
+      tenantScopedFollowups.map(async (followup: any) => {
         const { data: lastMessage } = await supabase
           .from(chatHistoriesTable)
           .select("message, created_at, id")
@@ -71,32 +82,30 @@ export async function GET(req: Request) {
           toDate(lastMessage?.message?.messageTimestamp) ||
           toDate(lastMessage?.message?.key?.timestamp)
 
-        const lastInteractionAt = lastMessageTs?.toISOString() || followup.last_interaction_at || null
-
         return {
           ...followup,
           last_message: lastMessage?.message?.content || lastMessage?.message?.text || null,
           last_message_at: lastMessageTs?.toISOString() || null,
-          last_interaction_at: lastInteractionAt
+          last_interaction_at: lastMessageTs?.toISOString() || followup.last_interaction_at || null,
         }
-      })
+      }),
     )
 
     return NextResponse.json({
       success: true,
+      tenant,
       active: enriched,
-      count: enriched.length
+      count: enriched.length,
     })
   } catch (error: any) {
-    console.error("[Follow-up Active] Erro:", error)
+    console.error("[followup-intelligent/active] erro:", error)
     return NextResponse.json(
       {
         success: false,
         error: error?.message || "Erro ao buscar follow-ups ativos",
-        active: []
+        active: [],
       },
-      { status: 500 }
+      { status: 500 },
     )
   }
 }
-

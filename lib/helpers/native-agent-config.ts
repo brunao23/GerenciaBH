@@ -5,6 +5,8 @@ import { getTenantCandidates, resolveTenantRegistryPrefix } from "./tenant-resol
 export interface NativeAgentConfig {
   enabled: boolean
   autoReplyEnabled: boolean
+  replyEnabled: boolean
+  reactionsEnabled: boolean
   geminiApiKey?: string
   geminiModel?: string
   promptBase?: string
@@ -40,6 +42,21 @@ export interface NativeAgentConfig {
   notifyOnHumanHandoff: boolean
   collectEmailForScheduling: boolean
   generateMeetForOnlineAppointments: boolean
+  postScheduleAutomationEnabled: boolean
+  postScheduleDelayMinutes: number
+  postScheduleMessageMode: NativeAgentMessageMode
+  postScheduleTextTemplate?: string
+  postScheduleMediaUrl?: string
+  postScheduleCaption?: string
+  postScheduleDocumentFileName?: string
+  followupMessageMode: NativeAgentMessageMode
+  followupMediaUrl?: string
+  followupCaption?: string
+  followupDocumentFileName?: string
+  reminderMessageMode: NativeAgentMessageMode
+  reminderMediaUrl?: string
+  reminderCaption?: string
+  reminderDocumentFileName?: string
   audioRepliesEnabled?: boolean
   audioProvider?: "elevenlabs" | "custom_http"
   audioApiKey?: string
@@ -122,6 +139,8 @@ export interface NativeAgentConfig {
   unitAddress?: string // endereço formatado exibido no pin de localização
 }
 
+export type NativeAgentMessageMode = "text" | "image" | "video" | "document"
+
 const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 const DEFAULT_TIMEZONE = "America/Sao_Paulo"
 const DEFAULT_USE_FIRST_NAME = true
@@ -152,6 +171,15 @@ const DEFAULT_NOTIFY_ON_SCHEDULE_ERROR = true
 const DEFAULT_NOTIFY_ON_HUMAN_HANDOFF = true
 const DEFAULT_COLLECT_EMAIL_FOR_SCHEDULING = true
 const DEFAULT_GENERATE_MEET_FOR_ONLINE = false
+const DEFAULT_POST_SCHEDULE_AUTOMATION_ENABLED = false
+const DEFAULT_POST_SCHEDULE_DELAY_MINUTES = 2
+const DEFAULT_POST_SCHEDULE_MESSAGE_MODE: NativeAgentMessageMode = "text"
+const DEFAULT_POST_SCHEDULE_TEXT_TEMPLATE =
+  "Perfeito, seu agendamento esta confirmado. Se precisar de algo antes, estou por aqui."
+const DEFAULT_FOLLOWUP_MESSAGE_MODE: NativeAgentMessageMode = "text"
+const DEFAULT_REMINDER_MESSAGE_MODE: NativeAgentMessageMode = "text"
+const DEFAULT_REPLY_ENABLED = true
+const DEFAULT_REACTIONS_ENABLED = true
 const DEFAULT_AUDIO_REPLIES_ENABLED = false
 const DEFAULT_AUDIO_PROVIDER: NonNullable<NativeAgentConfig["audioProvider"]> = "elevenlabs"
 const DEFAULT_AUDIO_MODEL_ID = "eleven_multilingual_v2"
@@ -222,6 +250,14 @@ function readTone(
 ): NativeAgentConfig["conversationTone"] {
   const value = String(input ?? "").trim().toLowerCase()
   if (value === "consultivo" || value === "acolhedor" || value === "direto" || value === "formal") {
+    return value
+  }
+  return fallback
+}
+
+function readMessageMode(input: any, fallback: NativeAgentMessageMode): NativeAgentMessageMode {
+  const value = String(input ?? "").trim().toLowerCase()
+  if (value === "text" || value === "image" || value === "video" || value === "document") {
     return value
   }
   return fallback
@@ -514,6 +550,8 @@ function normalizeConfig(input: any): NativeAgentConfig {
   const base: NativeAgentConfig = {
     enabled: readBoolean(raw.enabled, false),
     autoReplyEnabled: readBoolean(raw.autoReplyEnabled, true),
+    replyEnabled: readBoolean(raw.replyEnabled, DEFAULT_REPLY_ENABLED),
+    reactionsEnabled: readBoolean(raw.reactionsEnabled, DEFAULT_REACTIONS_ENABLED),
     geminiApiKey: readString(raw.geminiApiKey),
     geminiModel: readString(raw.geminiModel) || DEFAULT_GEMINI_MODEL,
     promptBase: readString(raw.promptBase),
@@ -618,6 +656,33 @@ function normalizeConfig(input: any): NativeAgentConfig {
       raw.generateMeetForOnlineAppointments,
       DEFAULT_GENERATE_MEET_FOR_ONLINE,
     ),
+    postScheduleAutomationEnabled: readBoolean(
+      raw.postScheduleAutomationEnabled,
+      DEFAULT_POST_SCHEDULE_AUTOMATION_ENABLED,
+    ),
+    postScheduleDelayMinutes: readNumber(
+      raw.postScheduleDelayMinutes,
+      DEFAULT_POST_SCHEDULE_DELAY_MINUTES,
+      0,
+      1440,
+    ),
+    postScheduleMessageMode: readMessageMode(
+      raw.postScheduleMessageMode,
+      DEFAULT_POST_SCHEDULE_MESSAGE_MODE,
+    ),
+    postScheduleTextTemplate:
+      readString(raw.postScheduleTextTemplate) || DEFAULT_POST_SCHEDULE_TEXT_TEMPLATE,
+    postScheduleMediaUrl: readString(raw.postScheduleMediaUrl),
+    postScheduleCaption: readString(raw.postScheduleCaption),
+    postScheduleDocumentFileName: readString(raw.postScheduleDocumentFileName),
+    followupMessageMode: readMessageMode(raw.followupMessageMode, DEFAULT_FOLLOWUP_MESSAGE_MODE),
+    followupMediaUrl: readString(raw.followupMediaUrl),
+    followupCaption: readString(raw.followupCaption),
+    followupDocumentFileName: readString(raw.followupDocumentFileName),
+    reminderMessageMode: readMessageMode(raw.reminderMessageMode, DEFAULT_REMINDER_MESSAGE_MODE),
+    reminderMediaUrl: readString(raw.reminderMediaUrl),
+    reminderCaption: readString(raw.reminderCaption),
+    reminderDocumentFileName: readString(raw.reminderDocumentFileName),
     audioRepliesEnabled: readBoolean(raw.audioRepliesEnabled, DEFAULT_AUDIO_REPLIES_ENABLED),
     audioProvider: String(raw.audioProvider || DEFAULT_AUDIO_PROVIDER).toLowerCase() === "custom_http"
       ? "custom_http"
@@ -735,6 +800,12 @@ function normalizeConfig(input: any): NativeAgentConfig {
   return mergeWithEnv(base)
 }
 
+export function createDefaultNativeAgentConfig(
+  overrides: Partial<NativeAgentConfig> = {},
+): NativeAgentConfig {
+  return normalizeConfig(overrides)
+}
+
 function safeMetadata(input: any): Record<string, any> {
   if (input && typeof input === "object" && !Array.isArray(input)) return input
   return {}
@@ -848,6 +919,20 @@ export function validateNativeAgentConfig(config: NativeAgentConfig): string | n
     if (!config.toolNotificationTargets || config.toolNotificationTargets.length === 0) {
       return "toolNotificationTargets is required when toolNotificationsEnabled is true"
     }
+  }
+
+  if (config.postScheduleAutomationEnabled && config.postScheduleMessageMode !== "text") {
+    if (!config.postScheduleMediaUrl) {
+      return "postScheduleMediaUrl is required when postScheduleMessageMode is media"
+    }
+  }
+
+  if (config.followupMessageMode !== "text" && !config.followupMediaUrl) {
+    return "followupMediaUrl is required when followupMessageMode is media"
+  }
+
+  if (config.reminderMessageMode !== "text" && !config.reminderMediaUrl) {
+    return "reminderMediaUrl is required when reminderMessageMode is media"
   }
 
   if (config.audioRepliesEnabled) {
@@ -986,6 +1071,8 @@ export async function updateNativeAgentConfigForTenant(
     nativeAgent: {
       enabled: config.enabled,
       autoReplyEnabled: config.autoReplyEnabled,
+      replyEnabled: config.replyEnabled,
+      reactionsEnabled: config.reactionsEnabled,
       geminiApiKey: config.geminiApiKey,
       geminiModel: config.geminiModel || DEFAULT_GEMINI_MODEL,
       promptBase: config.promptBase,
@@ -1021,6 +1108,21 @@ export async function updateNativeAgentConfigForTenant(
       notifyOnHumanHandoff: config.notifyOnHumanHandoff,
       collectEmailForScheduling: config.collectEmailForScheduling,
       generateMeetForOnlineAppointments: config.generateMeetForOnlineAppointments,
+      postScheduleAutomationEnabled: config.postScheduleAutomationEnabled,
+      postScheduleDelayMinutes: config.postScheduleDelayMinutes,
+      postScheduleMessageMode: config.postScheduleMessageMode,
+      postScheduleTextTemplate: config.postScheduleTextTemplate,
+      postScheduleMediaUrl: config.postScheduleMediaUrl,
+      postScheduleCaption: config.postScheduleCaption,
+      postScheduleDocumentFileName: config.postScheduleDocumentFileName,
+      followupMessageMode: config.followupMessageMode,
+      followupMediaUrl: config.followupMediaUrl,
+      followupCaption: config.followupCaption,
+      followupDocumentFileName: config.followupDocumentFileName,
+      reminderMessageMode: config.reminderMessageMode,
+      reminderMediaUrl: config.reminderMediaUrl,
+      reminderCaption: config.reminderCaption,
+      reminderDocumentFileName: config.reminderDocumentFileName,
       audioRepliesEnabled: config.audioRepliesEnabled,
       audioProvider: config.audioProvider,
       audioApiKey: config.audioApiKey,
