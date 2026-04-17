@@ -55,6 +55,8 @@ type ChatSession = {
   messages_count?: number
   last_message_preview?: string
   isSummary?: boolean
+  isGroup?: boolean
+  profile_pic?: string
   unread?: number
   error?: boolean
   success?: boolean
@@ -615,6 +617,14 @@ export default function ConversasPage() {
   const sessionsRef = useRef<ChatSession[]>([])
   const fetchControllerRef = useRef<AbortController | null>(null)
   const detailRequestsRef = useRef<Set<string>>(new Set())
+
+  // Sync tab from URL param
+  useEffect(() => {
+    const tabParam = params.get("tab")
+    if (tabParam === "contatos" || tabParam === "grupos" || tabParam === "leads") {
+      setActiveTab(tabParam)
+    }
+  }, [params])
 
   const current = useMemo(() => {
     const result = sessions.find((s) => s.session_id === active)

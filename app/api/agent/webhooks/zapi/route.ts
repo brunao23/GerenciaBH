@@ -1274,6 +1274,8 @@ async function persistZapiEvent(params: {
     additional: {
       fromMe: Boolean(event.fromMe),
       from_api: Boolean(event.fromApi),
+      is_group: Boolean(event.isGroup),
+      chat_id: String(event.raw?.data?.chatId || event.raw?.chatId || "").trim() || null,
       contact_name: event.contactName || null,
       sender_name: event.senderName || null,
       chat_name: event.chatName || null,

@@ -774,28 +774,42 @@ export async function GET(req: Request) {
       }
     }
 
-    // --- Group filtering: remove group chats except notification groups ---
-    const notificationGroupKeywords = ["notifica", "alerta", "aviso", "report", "relatorio"]
-    let groupsRemoved = 0
-    for (const sessionId of bySession.keys()) {
+    // --- Group detection: flag group chats based on session_id AND message content ---
+    for (const [sessionId, session] of bySession.entries()) {
       const lower = sessionId.toLowerCase()
-      const isGroup = lower.includes("@g.us") || lower.startsWith("group_")
-      if (isGroup) {
-        const session = bySession.get(sessionId)!
-        const firstContent = String(session.messages?.[0]?.content || "").toLowerCase()
-        const isNotificationGroup = notificationGroupKeywords.some(kw => lower.includes(kw) || firstContent.includes(kw))
-        if (!isNotificationGroup) {
-          // Instead of deleting the session, we just flag it as a group chat so frontend will tab it.
-          // Optional: Only preserve if it matches the authorized groups list for reports?
-          // Since the prompt asks to allow "grpos dos clientes" we keep them all but correctly tagged.
-          session.isGroup = true
-        } else {
-          session.isGroup = true
+      // Check session_id pattern
+      let detectedGroup = lower.includes("@g.us") || lower.startsWith("group_")
+      
+      // If not detected by session_id, check inside message data from rows
+      if (!detectedGroup) {
+        const sessionRows = rows.filter(r => r.session_id === sessionId)
+        for (const row of sessionRows) {
+          const msg = row.message ?? {}
+          const chatId = String(
+            msg.chatId || msg.chat_id || 
+            msg.raw?.chatId || msg.raw?.data?.chatId ||
+            msg.additional?.chatId || ""
+          )
+          if (chatId.includes("@g.us")) {
+            detectedGroup = true
+            break
+          }
+          if (msg.isGroup === true || msg.additional?.is_group === true) {
+            detectedGroup = true
+            break
+          }
+          // Check if the session_id looks like a group JID (long number@g.us pattern stored differently)
+          const rawChatId = String(msg.raw?.data?.chat?.id || msg.raw?.chat?.id || "")
+          if (rawChatId.includes("@g.us")) {
+            detectedGroup = true
+            break
+          }
         }
       }
-    }
-    if (groupsRemoved > 0) {
-      console.log(`[ChatsSummary] Removed ${groupsRemoved} group sessions`)
+      
+      if (detectedGroup) {
+        session.isGroup = true
+      }
     }
 
     // --- Resolve contact names with priority: user pushName > any pushName > text patterns ---
