@@ -30,7 +30,16 @@ export async function GET() {
             return NextResponse.json({ error: 'Erro ao buscar unidades' }, { status: 500 })
         }
 
-        return NextResponse.json({ units })
+        const formattedUnits = units?.map(u => ({
+            id: u.id,
+            name: u.unit_name,
+            prefix: u.unit_prefix,
+            is_active: u.is_active,
+            created_at: u.created_at,
+            metadata: u.metadata
+        })) || []
+
+        return NextResponse.json({ units: formattedUnits })
     } catch (error) {
         console.error('[Admin Units] Erro:', error)
         return NextResponse.json({ error: 'Erro ao buscar unidades' }, { status: 500 })

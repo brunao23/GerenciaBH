@@ -337,8 +337,8 @@ export default function AdminUnitsPage() {
     const fetchWorkflows = async () => {
         setLoadingWorkflows(true)
         try {
-            const res = await fetch('/api/admin/workflows')
-            const data = await res.json()
+            const res = await fetch('/api/admin/n8n/workflows')
+            const data = await res.json().catch(() => ({}))
             setWorkflows(Array.isArray(data.workflows) ? data.workflows : [])
         } catch { } finally {
             setLoadingWorkflows(false)
@@ -668,10 +668,12 @@ export default function AdminUnitsPage() {
         }
     }
 
-    const filteredUnits = units.filter(u =>
-        u.name.toLowerCase().includes(sidebarSearch.toLowerCase()) ||
-        u.prefix.toLowerCase().includes(sidebarSearch.toLowerCase())
-    )
+    const filteredUnits = units.filter(u => {
+        const name = String(u.name || '').toLowerCase()
+        const prefix = String(u.prefix || '').toLowerCase()
+        const search = sidebarSearch.toLowerCase()
+        return name.includes(search) || prefix.includes(search)
+    })
     const activeUnits = units.filter(u => u.is_active).length
     const inactiveUnits = units.filter(u => !u.is_active).length
     const isLogsView = currentView?.panel === 'logs'
