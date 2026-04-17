@@ -14,6 +14,7 @@ import { NativeAgentOrchestratorService } from "@/lib/services/native-agent-orch
 import { NativeAgentLearningService } from "@/lib/services/native-agent-learning.service"
 import { AgentTaskQueueService } from "@/lib/services/agent-task-queue.service"
 import { GeminiService } from "@/lib/services/gemini.service"
+import { TenantMessagingService } from "@/lib/services/tenant-messaging.service"
 
 export const runtime = "nodejs"
 
@@ -192,6 +193,8 @@ function extractIsGif(payload: any): boolean {
 function extractText(payload: any): string {
   const msg = asObject(payload?.message)
   const textObj = asObject(payload?.text)
+  const data = asObject(payload?.data)
+  const dataMsg = asObject(data?.message)
   const candidates = [
     payload?.text?.message,
     payload?.text,
@@ -205,14 +208,35 @@ function extractText(payload: any): string {
     msg?.extendedTextMessage?.text,
     msg?.imageMessage?.caption,
     msg?.videoMessage?.caption,
+    payload?.buttonsResponseMessage?.selectedDisplayText,
+    payload?.buttonsResponseMessage?.selectedButtonId,
+    payload?.listResponseMessage?.title,
+    payload?.listResponseMessage?.description,
+    payload?.listResponseMessage?.singleSelectReply?.selectedRowId,
+    payload?.templateButtonReplyMessage?.selectedDisplayText,
+    payload?.templateButtonReplyMessage?.selectedId,
     textObj?.message,
     payload?.data?.text?.message,
     payload?.data?.text,
     payload?.data?.body,
     payload?.data?.message?.text,
     payload?.data?.message?.body,
+    payload?.data?.message?.conversation,
+    payload?.data?.message?.content,
+    payload?.data?.message?.extendedTextMessage?.text,
+    payload?.data?.message?.imageMessage?.caption,
+    payload?.data?.message?.videoMessage?.caption,
+    dataMsg?.buttonsResponseMessage?.selectedDisplayText,
+    dataMsg?.buttonsResponseMessage?.selectedButtonId,
+    dataMsg?.listResponseMessage?.title,
+    dataMsg?.listResponseMessage?.description,
+    dataMsg?.listResponseMessage?.singleSelectReply?.selectedRowId,
+    dataMsg?.templateButtonReplyMessage?.selectedDisplayText,
+    dataMsg?.templateButtonReplyMessage?.selectedId,
     payload?.buttonText?.displayText,
     payload?.selectedButtonId,
+    payload?.data?.buttonText?.displayText,
+    payload?.data?.selectedButtonId,
   ]
 
   for (const candidate of candidates) {
@@ -221,10 +245,9 @@ function extractText(payload: any): string {
     }
   }
 
-  const reactionValue = extractReactionValue(payload)
-  if (reactionValue) {
-    return `[Reacao] ${reactionValue}`
-  }
+  // Reactions are NOT text messages — they are handled separately
+  // via the isReaction/reactionValue fields on the parsed event.
+  // Returning text here caused the AI to respond to emoji reactions.
 
   return ""
 }
@@ -592,7 +615,20 @@ function parseCallbackType(type: string): ZapiCallbackType {
 function parseZapiEvent(raw: any): ZapiMessageEvent {
   const body = asObject(raw)
   const data = asObject(body.data)
-  const event = Object.keys(data).length ? data : body
+  const hasNestedData = Object.keys(data).length > 0
+  const event = hasNestedData
+    ? {
+      ...body,
+      ...data,
+      data,
+      message: data.message ?? body.message,
+      text: data.text ?? body.text,
+      audio: data.audio ?? body.audio,
+      reaction: data.reaction ?? body.reaction,
+      quotedMsg: data.quotedMsg ?? body.quotedMsg,
+      quotedMessage: data.quotedMessage ?? body.quotedMessage,
+    }
+    : body
   const callbackType = parseCallbackType(readString(event.type, body.type))
   const phone = extractPhone(event)
   const chatLid =
@@ -1005,6 +1041,10 @@ async function resolveConversationRouting(params: {
 
 function buildContent(event: ZapiMessageEvent): string {
   if (event.text) return event.text
+  // Reactions without text are stored as system log entries
+  if (event.isReaction && event.reactionValue) {
+    return `[Reacao] ${event.reactionValue}`
+  }
   if (event.hasAudio) return "[Audio recebido]"
 
   if (event.callbackType === "delivery") {
@@ -1032,16 +1072,21 @@ function buildContent(event: ZapiMessageEvent): string {
 }
 
 function buildType(event: ZapiMessageEvent): string {
-  if (event.callbackType === "received" && (event.text || event.isReaction || event.hasAudio)) {
+  if (event.callbackType === "received" && (event.text || event.hasAudio)) {
     return event.fromMe ? "assistant" : "human"
+  }
+  // Reactions without text are logged as status events, not conversation turns
+  if (event.callbackType === "received" && event.isReaction && !event.text) {
+    return "status"
   }
   return "status"
 }
 
 function buildRole(event: ZapiMessageEvent): "user" | "assistant" | "system" {
-  if (event.callbackType === "received" && (event.text || event.isReaction || event.hasAudio)) {
+  if (event.callbackType === "received" && (event.text || event.hasAudio)) {
     return event.fromMe ? "assistant" : "user"
   }
+  // Reactions without text go as system messages — not user conversation
   return "system"
 }
 
@@ -1250,22 +1295,26 @@ async function persistZapiEvent(params: {
   const resolvedPhone = normalizePhoneNumber(params.phone || event.phone || "")
   const eventContent = buildContent(event)
   const eventRole = buildRole(event)
-  const hasRecentDuplicate = await chat.hasRecentEquivalentMessage({
-    sessionId: resolvedSessionId,
-    content: eventContent,
-    role: eventRole,
-    fromMe: Boolean(event.fromMe),
-    withinSeconds: event.fromMe ? 120 : 45,
-    ignoreMessageId: messageId,
-  })
-  if (hasRecentDuplicate) {
-    return { persisted: false, duplicate: true, messageId, createdAt }
+  const eventType = buildType(event)
+  const shouldCheckContentDuplicate = event.fromMe === true
+  if (shouldCheckContentDuplicate) {
+    const hasRecentDuplicate = await chat.hasRecentEquivalentMessage({
+      sessionId: resolvedSessionId,
+      content: eventContent,
+      role: eventRole,
+      fromMe: true,
+      withinSeconds: 120,
+      ignoreMessageId: messageId,
+    })
+    if (hasRecentDuplicate) {
+      return { persisted: false, duplicate: true, messageId, createdAt }
+    }
   }
 
   await chat.persistMessage({
     sessionId: resolvedSessionId,
     role: eventRole,
-    type: buildType(event),
+    type: eventType,
     content: eventContent,
     messageId,
     createdAt,
@@ -1491,14 +1540,13 @@ function isIgnorableUnitWelcomeMessage(text: string): boolean {
   return hasAutoGreeting
 }
 
-function canTriggerFromExternalStarter(event: ZapiMessageEvent, sessionId: string): boolean {
+function canTriggerFromExternalStarter(event: ZapiMessageEvent): boolean {
   if (
     event.callbackType !== "received" ||
     event.fromMe !== true ||
     event.fromApi === true ||
     event.isGroup ||
-    !event.text ||
-    !sessionId
+    !event.text
   ) {
     return false
   }
@@ -1514,14 +1562,15 @@ function canTriggerFromExternalStarter(event: ZapiMessageEvent, sessionId: strin
     normalized.includes("gatilho_externo_welcome_unidade")
   if (looksLikeInternalAck) return false
 
+  const looksLikeStarterGreeting = isIgnorableUnitWelcomeMessage(raw)
+  if (looksLikeStarterGreeting) return true
+
   const looksLikeHumanOperatorMessage =
-    /\b(meu nome e|sou a |sou o |falo da |consultora|consultor|atendente|equipe|time)\b/.test(normalized) ||
+    /\b(meu nome e|sou a|sou o|falo da|consultora|consultor|atendente|equipe|time)\b/.test(normalized) ||
     /\b(gostaria de saber|vamos agendar|posso te ajudar|você demonstrou interesse|voce demonstrou interesse)\b/.test(
       normalized,
     )
   if (looksLikeHumanOperatorMessage) return false
-
-  const looksLikeStarterGreeting = isIgnorableUnitWelcomeMessage(raw)
 
   // Regra: fromMe so dispara IA quando for mensagem inicial/saudacao de entrada.
   return looksLikeStarterGreeting
@@ -1561,6 +1610,43 @@ function canTriggerNativeAgent(event: ZapiMessageEvent, sessionId: string): bool
       (event.text || event.isReaction || event.hasAudio || event.isGif) &&
       sessionId,
   )
+}
+
+function resolveReplyTarget(params: {
+  event: ZapiMessageEvent
+  routing: ConversationRouting
+  canonicalPhone: string
+  canonicalSessionId: string
+}): string {
+  const directPhone = normalizeLikelyWhatsappPhone(params.canonicalPhone)
+  if (directPhone) return directPhone
+
+  const raw = asObject(params.event.raw)
+  const rawData = asObject(raw.data)
+  const candidates = [
+    params.event.chatLid,
+    params.routing.sessionId,
+    params.canonicalSessionId,
+    params.event.sessionId,
+    rawData.chatLid,
+    rawData.chatId,
+    raw.chatLid,
+    raw.chatId,
+  ]
+
+  for (const candidate of candidates) {
+    const value = String(candidate || "").trim()
+    if (!value) continue
+
+    if (/@lid$/i.test(value) || /@g\.us$/i.test(value) || /-group$/i.test(value)) {
+      return value
+    }
+
+    const normalizedPhone = normalizeLikelyWhatsappPhone(value)
+    if (normalizedPhone) return normalizedPhone
+  }
+
+  return ""
 }
 
 export async function GET() {
@@ -1643,33 +1729,15 @@ export async function POST(req: NextRequest) {
     const canonicalSessionId = normalizeSessionId(
       canonicalPhone || routing.sessionId || resolveSessionForPersistence(event),
     )
+    const shouldTriggerFromExternalStarter = canTriggerFromExternalStarter(event)
 
     if (event.isGroup) {
-      const dbSupabase = createBiaSupabaseServerClient()
-      const { data: dbTenant } = await dbSupabase
-        .from("units_registry")
-        .select("metadata")
-        .eq("unit_prefix", tenant)
-        .single()
-      
-      const allowedGroups = Array.isArray(dbTenant?.metadata?.weeklyReport?.groups) 
-        ? dbTenant.metadata.weeklyReport.groups.map(String) 
-        : []
-        
-      const rawData = typeof event.raw === "object" && event.raw ? event.raw : {}
-      const nestedData = typeof rawData.data === "object" && rawData.data ? rawData.data : {}
-      const rawChatId = String(nestedData.chatId || rawData.chatId || routing.sessionId || "").replace("@g.us", "")
-      
-      const isAllowed = allowedGroups.some((g: string) => rawChatId.includes(g) || g.includes(rawChatId))
-      
-      if (!isAllowed) {
-        return NextResponse.json({
-          received: true,
-          ignored: true,
-          reason: "unauthorized_group",
-          tenant
-        })
-      }
+      return NextResponse.json({
+        received: true,
+        ignored: true,
+        reason: "group_message_ignored_global",
+        tenant,
+      })
     }
 
     const allowedInstance = String(config.webhookAllowedInstanceId || "").trim()
@@ -1732,7 +1800,8 @@ export async function POST(req: NextRequest) {
       event.callbackType === "received" &&
       event.fromMe === true &&
       event.fromApi !== true &&
-      !canonicalPhone
+      !canonicalPhone &&
+      !shouldTriggerFromExternalStarter
     ) {
       return NextResponse.json({
         received: true,
@@ -1824,27 +1893,6 @@ export async function POST(req: NextRequest) {
         .catch(() => {})
     }
 
-    if (event.isGroup && config.blockGroupMessages !== false) {
-      const persisted = await persistZapiEvent({
-        tenant,
-        event,
-        sessionId: canonicalSessionId,
-        phone: canonicalPhone,
-      })
-      return NextResponse.json({
-        received: true,
-        ignored: true,
-        reason: "group_message_blocked",
-        tenant,
-        persisted,
-      })
-    }
-
-    const shouldTriggerFromExternalStarter = canTriggerFromExternalStarter(
-      event,
-      canonicalSessionId,
-    )
-
     const shouldTriggerAgent =
       canTriggerNativeAgent(event, canonicalSessionId) ||
       shouldTriggerFromExternalStarter
@@ -1899,7 +1947,12 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    const replyPhone = canonicalPhone
+    const replyPhone = resolveReplyTarget({
+      event,
+      routing,
+      canonicalPhone,
+      canonicalSessionId,
+    })
     if (!replyPhone) {
       return NextResponse.json({
         received: true,
@@ -1910,17 +1963,19 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    if (!isPhoneAllowedInTestMode(config, replyPhone)) {
-      return NextResponse.json({
-        received: true,
-        ignored: true,
-        reason: "test_mode_number_not_allowed",
-        tenant,
-        persisted,
-      })
+    if (config?.testModeEnabled === true && canonicalPhone) {
+      if (!isPhoneAllowedInTestMode(config, canonicalPhone)) {
+        return NextResponse.json({
+          received: true,
+          ignored: true,
+          reason: "test_mode_number_not_allowed",
+          tenant,
+          persisted,
+        })
+      }
     }
 
-    const paused = await isAiPausedForPhone(tenant, replyPhone)
+    const paused = canonicalPhone ? await isAiPausedForPhone(tenant, canonicalPhone) : false
     if (paused) {
       return NextResponse.json({
         received: true,
@@ -1980,38 +2035,66 @@ export async function POST(req: NextRequest) {
     )
 
     const orchestrator = new NativeAgentOrchestratorService()
-    const result = await orchestrator.handleInboundMessage({
-      tenant,
-      message: mergedInboundMessage,
-      phone: replyPhone,
-      sessionId: sessionForInbound,
-      messageId: persisted.messageId || event.messageId,
-      source: "zapi",
-      contactName: event.contactName,
-      chatLid: event.chatLid,
-      status: event.status,
-      moment: event.moment,
-      senderName: event.senderName,
-      waitingMessage: event.waitingMessage,
-      isStatusReply: event.isStatusReply,
-      replyToMessageId:
-        replyAnchorTurn?.messageId ||
-        replyAnchorTurn?.replyToMessageId ||
-        event.replyToMessageId ||
-        persisted.messageId,
-      replyPreview: replyAnchorTurn?.replyPreview || event.replyPreview,
-      bufferAnchorCreatedAt: latestTurn?.createdAt || persisted.createdAt || new Date().toISOString(),
-      bufferAnchorMessageId:
-        latestTurn?.messageId || persisted.messageId || event.messageId || undefined,
-      messageAlreadyPersisted: true,
-      forceUserTurnForDecision: false,
-      fromMeTrigger: shouldTriggerFromExternalStarter,
-      fromMeTriggerContent: shouldTriggerFromExternalStarter ? fromMeTriggerContent : undefined,
-      isReaction: event.isReaction,
-      reactionValue: event.reactionValue,
-      isGif: event.isGif,
-      raw: event.raw,
-    })
+    let result: any = null
+    try {
+      result = await orchestrator.handleInboundMessage({
+        tenant,
+        message: mergedInboundMessage,
+        phone: replyPhone,
+        sessionId: sessionForInbound,
+        messageId: persisted.messageId || event.messageId,
+        source: "zapi",
+        contactName: event.contactName,
+        chatLid: event.chatLid,
+        status: event.status,
+        moment: event.moment,
+        senderName: event.senderName,
+        waitingMessage: event.waitingMessage,
+        isStatusReply: event.isStatusReply,
+        replyToMessageId:
+          replyAnchorTurn?.messageId ||
+          replyAnchorTurn?.replyToMessageId ||
+          event.replyToMessageId ||
+          persisted.messageId,
+        replyPreview: replyAnchorTurn?.replyPreview || event.replyPreview,
+        bufferAnchorCreatedAt: latestTurn?.createdAt || persisted.createdAt || new Date().toISOString(),
+        bufferAnchorMessageId:
+          latestTurn?.messageId || persisted.messageId || event.messageId || undefined,
+        messageAlreadyPersisted: true,
+        forceUserTurnForDecision: false,
+        fromMeTrigger: shouldTriggerFromExternalStarter,
+        fromMeTriggerContent: shouldTriggerFromExternalStarter ? fromMeTriggerContent : undefined,
+        isReaction: event.isReaction,
+        reactionValue: event.reactionValue,
+        isGif: event.isGif,
+        raw: event.raw,
+      })
+    } catch (orchestratorError: any) {
+      const fallbackMessage =
+        "Recebi sua mensagem. Estou validando as informacoes e ja continuo seu atendimento."
+      const messaging = new TenantMessagingService()
+      const sent = await messaging.sendText({
+        tenant,
+        phone: replyPhone,
+        sessionId: sessionForInbound,
+        message: fallbackMessage,
+        source: "native-agent-webhook-fallback",
+        replyToMessageId:
+          replyAnchorTurn?.messageId ||
+          replyAnchorTurn?.replyToMessageId ||
+          event.replyToMessageId ||
+          persisted.messageId,
+      })
+
+      result = {
+        processed: false,
+        replied: sent.success,
+        reason: "native_agent_orchestrator_error_fallback",
+        fallback: sent.success ? "sent" : "failed",
+        error: String(orchestratorError?.message || "native_agent_orchestrator_error"),
+        sendError: sent.success ? undefined : sent.error || "fallback_send_failed",
+      }
+    }
 
     return NextResponse.json({
       received: true,

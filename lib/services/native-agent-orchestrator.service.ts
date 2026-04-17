@@ -1,4 +1,4 @@
-﻿import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
+import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { SemanticCacheService, type CacheHitResult } from "@/lib/services/semantic-cache.service"
 import { getTablesForTenant } from "@/lib/helpers/tenant"
 import { getTableColumns } from "@/lib/helpers/supabase-table-columns"
@@ -20,6 +20,8 @@ import {
   type GeminiToolExecution,
   type GeminiToolHandlerResult,
 } from "@/lib/services/gemini.service"
+import { LLMService } from "./llm.interface"
+import { LLMFactory } from "./llm-factory"
 import { GoogleCalendarService } from "@/lib/services/google-calendar.service"
 import {
   TenantMessagingService,
@@ -162,6 +164,28 @@ function normalizeComparableMessage(value: string): string {
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim()
+}
+
+function normalizeRecipientForMessaging(input: {
+  phone?: string
+  chatLid?: string
+  sessionId?: string
+}): string {
+  const candidates = [
+    String(input.phone || "").trim(),
+    String(input.chatLid || "").trim(),
+    String(input.sessionId || "").trim(),
+  ].filter(Boolean)
+
+  for (const candidate of candidates) {
+    if (/@lid$/i.test(candidate) || /@g\.us$/i.test(candidate) || /-group$/i.test(candidate)) {
+      return candidate
+    }
+    const normalized = normalizePhoneNumber(candidate)
+    if (normalized) return normalized
+  }
+
+  return ""
 }
 
 // ---------------------------------------------------------------------------
@@ -508,6 +532,30 @@ function sanitizeAssistantReplyText(value: string): string {
   return dedupedParagraphs.join("\n\n").trim()
 }
 
+function countMojibakeArtifacts(value: string): number {
+  const text = String(value || "")
+  if (!text) return 0
+  const matches = text.match(/\u00C3.|\u00C2|\u00E2[\u0080-\u00BF]|\u00F0[\u009F\u00A0-\u00BF]|\u00EF\u00B8|\uFFFD/g)
+  return matches ? matches.length : 0
+}
+
+function tryRepairMojibake(value: string): string {
+  const text = String(value || "")
+  if (!text) return ""
+  const hasArtifacts = /\u00C3|\u00C2|\u00E2[\u0080-\u00BF]|\u00F0[\u009F\u00A0-\u00BF]|\u00EF\u00B8|\uFFFD/.test(text)
+  if (!hasArtifacts) return text
+
+  try {
+    const repaired = Buffer.from(text, "latin1").toString("utf8")
+    if (!repaired) return text
+    const before = countMojibakeArtifacts(text)
+    const after = countMojibakeArtifacts(repaired)
+    return after < before ? repaired : text
+  } catch {
+    return text
+  }
+}
+
 function stripMarkdownFormatting(text: string): string {
   return String(text || "")
     .replace(/```[\s\S]*?```/g, " ")
@@ -515,13 +563,13 @@ function stripMarkdownFormatting(text: string): string {
     .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/gi, "$1 ($2)")
     .replace(/^#{1,6}\s+/gm, "")
     .replace(/^\s*>\s?/gm, "")
-    .replace(/^\s*(?:[-*•]+|\d+[.)])\s+/gm, "")
+    .replace(/^\s*(?:[-*\u2022]+|\d+[.)])\s+/gm, "")
     .replace(/[*_~]+/g, "")
 }
 
 function stripHyphensAndDashes(text: string): string {
   return String(text || "")
-    .replace(/[‐‑‒–—―-]+/g, " ")
+    .replace(/[\u2010-\u2015-]+/g, " ")
     .replace(/\s{2,}/g, " ")
 }
 
@@ -538,11 +586,16 @@ function applyAssistantOutputPolicy(
   const text = String(value || "").trim()
   if (!text) return ""
 
-  let normalized = stripMarkdownFormatting(text)
+  let normalized = tryRepairMojibake(text)
+  normalized = stripMarkdownFormatting(normalized)
   normalized = stripHyphensAndDashes(normalized)
   if (!options.allowEmojis) {
     normalized = stripEmojis(normalized)
   }
+  normalized = normalized
+    .replace(/\r/g, "")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
+    .trim()
 
   const paragraphs = normalized
     .split(/\n{2,}/g)
@@ -1329,9 +1382,42 @@ export class NativeAgentOrchestratorService {
     const tenant = normalizeTenant(input.tenant)
     const content = String(input.message || "").trim()
     const phone = normalizePhoneNumber(input.phone)
-    const sessionId = normalizeSessionId(input.sessionId || phone)
+    const recipient = normalizeRecipientForMessaging({
+      phone: input.phone,
+      chatLid: input.chatLid,
+      sessionId: input.sessionId,
+    })
+    const sessionId = normalizeSessionId(input.sessionId || phone || recipient)
 
-    if (!tenant || !content || !phone || !sessionId) {
+    // -----------------------------------------------------------------------
+    // Feature 1: Lead enviou reação de emoji à mensagem do agente
+    // → Reconhecer silenciosamente com reação de volta; NÃO responder com texto
+    // DEVE RODAR ANTES da validação de content, pois reações chegam sem texto.
+    // -----------------------------------------------------------------------
+    if (input.isReaction && input.reactionValue && !input.fromMeTrigger && tenant && recipient && sessionId) {
+      const config = await getNativeAgentConfigForTenant(tenant)
+      if (config?.reactionsEnabled && input.messageId) {
+        const ackEmojis = ["😊", "👍", "🙏"]
+        const ackEmoji = ackEmojis[Math.floor(Math.random() * ackEmojis.length)]
+        this.messaging
+          .sendReaction({ tenant, phone: recipient, messageId: input.messageId, reaction: ackEmoji })
+          .catch(() => {})
+      }
+      // Cancel pending followups on reaction to keep conversation fresh
+      if (phone) {
+        await this.taskQueue
+          .cancelPendingFollowups({ tenant, sessionId, phone })
+          .catch(() => {})
+      }
+      return {
+        processed: true,
+        replied: false,
+        actions: [{ type: "none" as const, ok: true, details: { isReaction: true, reactionValue: input.reactionValue } }],
+        reason: "lead_reaction_acknowledged",
+      }
+    }
+
+    if (!tenant || !content || !recipient || !sessionId) {
       return {
         processed: false,
         replied: false,
@@ -1401,29 +1487,9 @@ export class NativeAgentOrchestratorService {
       .cancelPendingFollowups({
         tenant,
         sessionId,
-        phone,
+        phone: phone || undefined,
       })
       .catch(() => {})
-
-    // -----------------------------------------------------------------------
-    // Feature 1: Lead enviou reação de emoji à mensagem do agente
-    // → Reconhecer silenciosamente com reação de volta; NÃO responder com texto
-    // -----------------------------------------------------------------------
-    if (input.isReaction && input.reactionValue && !input.fromMeTrigger) {
-      if (config.reactionsEnabled && input.messageId) {
-        const ackEmojis = ["😊", "👍", "🙏"]
-        const ackEmoji = ackEmojis[Math.floor(Math.random() * ackEmojis.length)]
-        this.messaging
-          .sendReaction({ tenant, phone, messageId: input.messageId, reaction: ackEmoji })
-          .catch(() => {})
-      }
-      return {
-        processed: true,
-        replied: false,
-        actions: [{ type: "none" as const, ok: true, details: { isReaction: true, reactionValue: input.reactionValue } }],
-        reason: "lead_reaction_acknowledged",
-      }
-    }
 
     // -----------------------------------------------------------------------
     // Auto-pause: detect negative intent BEFORE any AI processing
@@ -1540,7 +1606,7 @@ export class NativeAgentOrchestratorService {
       const reactions = ["👍", "❤️"]
       const reaction = reactions[Math.floor(Math.random() * reactions.length)]
       this.messaging
-        .sendReaction({ tenant, phone, messageId: input.messageId, reaction })
+        .sendReaction({ tenant, phone: recipient, messageId: input.messageId, reaction })
         .catch(() => {})
     }
 
@@ -1563,7 +1629,7 @@ export class NativeAgentOrchestratorService {
         const gifEmojis = ["😄", "😂", "❤️", "🤣", "😆"]
         const gifEmoji = gifEmojis[Math.floor(Math.random() * gifEmojis.length)]
         this.messaging
-          .sendReaction({ tenant, phone, messageId: input.messageId, reaction: gifEmoji })
+          .sendReaction({ tenant, phone: recipient, messageId: input.messageId, reaction: gifEmoji })
           .catch(() => {})
       }
       // Substituir "[GIF]" no histórico em memória por contexto mais descritivo
@@ -1585,7 +1651,7 @@ export class NativeAgentOrchestratorService {
       })
     }
 
-    const gemini = new GeminiService(config.geminiApiKey, config.geminiModel)
+    const llm: LLMService = LLMFactory.getService(config)
     const learningPrompt = config.autoLearningEnabled
       ? await this.learning.buildLearningPrompt(tenant).catch(() => "")
       : ""
@@ -1645,7 +1711,7 @@ export class NativeAgentOrchestratorService {
 
     let decision
     if (cacheHit) {
-      // Serve from cache — zero Gemini tokens
+      // Serve from cache — zero tokens
       decision = {
         reply: cacheHit.responseText,
         actions: [{ type: "none" }] as AgentActionPlan[],
@@ -1654,9 +1720,9 @@ export class NativeAgentOrchestratorService {
         executions: [] as GeminiToolExecution[],
       }
     } else {
-      // Normal Gemini flow
+      // Normal AI flow
       try {
-        decision = await gemini.decideNextTurnWithTools({
+        decision = await llm.decideNextTurnWithTools({
           systemPrompt: basePrompt,
           conversation,
           functionDeclarations: this.buildFunctionDeclarations(config),
@@ -1674,14 +1740,39 @@ export class NativeAgentOrchestratorService {
         })
       } catch (toolError) {
         console.error("[native-agent] tool-calling fallback to legacy JSON:", toolError)
-        const legacyDecision = await gemini.decideNextTurn({
-          systemPrompt: basePrompt,
-          conversation,
-        })
-        decision = {
-          ...legacyDecision,
-          toolCalls: [],
-          executions: [],
+        try {
+          const legacyDecision = await llm.decideNextTurn({
+            systemPrompt: basePrompt,
+            conversation,
+          })
+          decision = {
+            ...legacyDecision,
+            toolCalls: [],
+            executions: [],
+          }
+        } catch (legacyError) {
+          console.error("[native-agent] legacy fallback also failed:", legacyError)
+          decision = {
+            reply:
+              "Perfeito. Recebi sua mensagem e já estou organizando as próximas informações para você.",
+            actions: [{ type: "none" }],
+            handoff: false,
+            toolCalls: [],
+            executions: [],
+          }
+          await this
+            .persistDebugStatus({
+              chat,
+              sessionId,
+              content: "native_agent_llm_fallback_used",
+              details: {
+                debug_event: "native_agent_llm_fallback_used",
+                debug_severity: "warning",
+                tool_error: String((toolError as any)?.message || toolError || ""),
+                legacy_error: String((legacyError as any)?.message || legacyError || ""),
+              },
+            })
+            .catch(() => {})
         }
       }
 
@@ -1745,7 +1836,7 @@ export class NativeAgentOrchestratorService {
         })
     }
 
-    const responseText = applyAssistantOutputPolicy(String(decision.reply || ""), { allowEmojis: config.moderateEmojiEnabled === true })
+    const responseText = applyAssistantOutputPolicy(String(decision.reply || ""), { allowEmojis: config.moderateEmojiEnabled !== false })
     if (!responseText) {
       return {
         processed: true,
@@ -1814,7 +1905,7 @@ export class NativeAgentOrchestratorService {
 
     const audioAttempt = await this.trySendAudioReply({
       tenant,
-      phone,
+      phone: recipient,
       sessionId,
       responseText,
       config,
@@ -1958,7 +2049,7 @@ export class NativeAgentOrchestratorService {
 
       const send = await this.messaging.sendText({
         tenant,
-        phone,
+        phone: recipient,
         message: block,
         sessionId,
         source: "native-agent",

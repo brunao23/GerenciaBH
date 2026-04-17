@@ -89,6 +89,40 @@ export interface SendTenantReactionInput {
 
 export type SendTenantReactionResult = { success: boolean; error?: string }
 
+function countMojibakeArtifacts(value: string): number {
+  const text = String(value || "")
+  if (!text) return 0
+  const matches = text.match(/Ã.|Â|â[\u0080-\u00BF]|ð[\u009F\u00A0-\u00BF]|ï¸|\uFFFD/g)
+  return matches ? matches.length : 0
+}
+
+function tryRepairMojibake(value: string): string {
+  const text = String(value || "")
+  if (!text) return ""
+  const hasArtifacts = /Ã|Â|â[\u0080-\u00BF]|ð[\u009F\u00A0-\u00BF]|ï¸|\uFFFD/.test(text)
+  if (!hasArtifacts) return text
+
+  try {
+    const repaired = Buffer.from(text, "latin1").toString("utf8")
+    if (!repaired) return text
+    const before = countMojibakeArtifacts(text)
+    const after = countMojibakeArtifacts(repaired)
+    if (after < before) return repaired
+    return text
+  } catch {
+    return text
+  }
+}
+
+function sanitizeOutgoingMessageText(value: string): string {
+  const repaired = tryRepairMojibake(value)
+  return String(repaired || "")
+    .replace(/\r/g, "")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+}
+
 export class TenantMessagingService {
   private normalizeRecipient(input: string): string {
     const raw = String(input || "").trim()
@@ -114,7 +148,7 @@ export class TenantMessagingService {
     if (!tenant) return { success: false, error: "Invalid tenant" }
 
     const phone = this.normalizeRecipient(input.phone)
-    const message = String(input.message || "").trim()
+    const message = sanitizeOutgoingMessageText(String(input.message || ""))
     if (!phone || !message) {
       return { success: false, error: "phone and message are required" }
     }

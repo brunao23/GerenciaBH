@@ -251,9 +251,41 @@ function actionFromToolCall(toolCall: GeminiToolCall): AgentActionPlan {
   return { type: "none" }
 }
 
+function normalizeModelCode(value: string): string {
+  const text = String(value || "").trim().toLowerCase()
+  if (!text) return ""
+  return text.replace(/^models\//, "")
+}
+
+function buildUniqueModelList(values: string[]): string[] {
+  const result: string[] = []
+  const seen = new Set<string>()
+  for (const value of values) {
+    const normalized = normalizeModelCode(value)
+    if (!normalized || seen.has(normalized)) continue
+    seen.add(normalized)
+    result.push(normalized)
+  }
+  return result
+}
+
 export class GeminiService {
   private readonly apiKey: string
   private readonly model: string
+  private static readonly FALLBACK_MODEL = "gemini-2.5-flash"
+  private static readonly MODELS_LIST_CACHE_MS = 10 * 60 * 1000
+  private static readonly modelsCache = new Map<string, { expiresAt: number; models: Set<string> }>()
+  private static readonly MODEL_ALIASES: Record<string, string[]> = {
+    "gemini-3.1-pro-preview": ["gemini-3-pro-preview", "gemini-2.5-pro"],
+    "gemini-3.1-pro": ["gemini-3-pro-preview", "gemini-2.5-pro"],
+    "gemini-3.1-flash-preview": ["gemini-3-flash-preview", "gemini-2.5-flash"],
+    "gemini-3.1-flash": ["gemini-3-flash-preview", "gemini-2.5-flash"],
+    "gemini-3.1-flash-lite": [
+      "gemini-3-flash-preview",
+      "gemini-2.5-flash-lite",
+      "gemini-2.5-flash",
+    ],
+  }
 
   constructor(apiKey: string, model = "gemini-2.5-flash") {
     this.apiKey = String(apiKey || "").trim()
@@ -264,8 +296,103 @@ export class GeminiService {
     return `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(this.model)}:generateContent?key=${encodeURIComponent(this.apiKey)}`
   }
 
-  private async requestGenerateContent(payload: Record<string, any>): Promise<any> {
-    const response = await fetch(this.endpoint, {
+  private endpointForModel(model: string): string {
+    return `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(this.apiKey)}`
+  }
+
+  private shouldRetryWithFallbackModel(status: number, data: any, rawText: string, attemptedModel: string): boolean {
+    const errorMessage = String(data?.error?.message || rawText || "").toLowerCase()
+    if (!errorMessage) return false
+    if (normalizeModelCode(attemptedModel) === GeminiService.FALLBACK_MODEL) return false
+    if (status === 404) return true
+
+    return (
+      errorMessage.includes("model") &&
+      (
+        errorMessage.includes("not found") ||
+        errorMessage.includes("is not found") ||
+        errorMessage.includes("not supported") ||
+        errorMessage.includes("unknown model")
+      )
+    )
+  }
+
+  private buildModelCandidates(): string[] {
+    const configured = normalizeModelCode(this.model) || GeminiService.FALLBACK_MODEL
+    const aliases = GeminiService.MODEL_ALIASES[configured] || []
+
+    return buildUniqueModelList([
+      configured,
+      ...aliases,
+      GeminiService.FALLBACK_MODEL,
+      "gemini-2.5-flash-lite",
+    ])
+  }
+
+  private async listAvailableModels(): Promise<Set<string> | null> {
+    if (!this.apiKey) return null
+
+    const cacheKey = this.apiKey.slice(-12) || this.apiKey
+    const cached = GeminiService.modelsCache.get(cacheKey)
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.models
+    }
+
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(this.apiKey)}`,
+        {
+          method: "GET",
+          headers: { "Content-Type": "application/json" },
+        },
+      )
+      const rawText = await response.text()
+      if (!response.ok) return null
+
+      const parsed = rawText ? JSON.parse(rawText) : {}
+      const models = new Set<string>()
+      for (const item of Array.isArray(parsed?.models) ? parsed.models : []) {
+        const name = normalizeModelCode(String(item?.name || item?.model || ""))
+        if (!name) continue
+        const methods = Array.isArray(item?.supportedGenerationMethods)
+          ? item.supportedGenerationMethods.map((method: any) => String(method || "").toLowerCase())
+          : []
+        if (methods.length === 0 || methods.includes("generatecontent")) {
+          models.add(name)
+        }
+      }
+
+      GeminiService.modelsCache.set(cacheKey, {
+        models,
+        expiresAt: Date.now() + GeminiService.MODELS_LIST_CACHE_MS,
+      })
+
+      return models
+    } catch {
+      return null
+    }
+  }
+
+  private async resolveModelExecutionOrder(): Promise<string[]> {
+    const candidates = this.buildModelCandidates()
+    const available = await this.listAvailableModels()
+    if (!available || available.size === 0) {
+      return candidates
+    }
+
+    const availableCandidates = candidates.filter((candidate) => available.has(candidate))
+    if (availableCandidates.length > 0) {
+      return availableCandidates
+    }
+
+    return candidates
+  }
+
+  private async requestGenerateContentWithModel(
+    payload: Record<string, any>,
+    model: string,
+  ): Promise<{ ok: true; data: any } | { ok: false; status: number; data: any; rawText: string }> {
+    const response = await fetch(this.endpointForModel(model), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -282,10 +409,41 @@ export class GeminiService {
     }
 
     if (!response.ok) {
-      const err = data?.error?.message || rawText || `Gemini request failed (${response.status})`
-      throw new Error(err)
+      return {
+        ok: false,
+        status: response.status,
+        data,
+        rawText,
+      }
     }
-    return data || {}
+
+    return {
+      ok: true,
+      data: data || {},
+    }
+  }
+
+  private async requestGenerateContent(payload: Record<string, any>): Promise<any> {
+    const orderedModels = await this.resolveModelExecutionOrder()
+    let lastError = "Gemini request failed"
+
+    for (const model of orderedModels) {
+      const attempt = await this.requestGenerateContentWithModel(payload, model)
+      if (attempt.ok) {
+        return attempt.data
+      }
+
+      lastError =
+        attempt.data?.error?.message ||
+        attempt.rawText ||
+        `Gemini request failed (${attempt.status})`
+
+      if (!this.shouldRetryWithFallbackModel(attempt.status, attempt.data, attempt.rawText, model)) {
+        break
+      }
+    }
+
+    throw new Error(lastError)
   }
 
   async transcribeAudio(input: {
