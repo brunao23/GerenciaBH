@@ -40,7 +40,7 @@ const items = [
   { title: "Dashboard", url: "/dashboard", icon: BarChart3 },
   { title: "CRM", url: "/crm", icon: LayoutTemplate },
   { title: "Conversas", url: "/conversas", icon: MessageCircle },
-  { title: "Contatos", url: "/conversas?tab=contatos", icon: BookUser },
+  { title: "Contatos", url: "/contatos", icon: BookUser },
   { title: "Agendamentos", url: "/agendamentos", icon: Calendar },
   { title: "Lembretes", url: "/lembretes", icon: Bell },
   { title: "Follow-ups", url: "/followups", icon: Workflow },
