@@ -69,8 +69,17 @@ interface AdminNativeAgentConfig {
     autoReplyEnabled: boolean
     replyEnabled: boolean
     reactionsEnabled: boolean
+    aiProvider: "google" | "openai" | "anthropic" | "groq" | "openrouter"
     geminiApiKey: string
     geminiModel: string
+    openaiApiKey: string
+    openaiModel: string
+    anthropicApiKey: string
+    anthropicModel: string
+    groqApiKey: string
+    groqModel: string
+    openRouterApiKey: string
+    openRouterModel: string
     promptBase: string
     timezone: string
     useFirstNamePersonalization: boolean
@@ -153,8 +162,17 @@ const defaultNativeAgentConfig: AdminNativeAgentConfig = {
     autoReplyEnabled: true,
     replyEnabled: true,
     reactionsEnabled: true,
+    aiProvider: "google",
     geminiApiKey: "",
     geminiModel: "gemini-2.5-flash",
+    openaiApiKey: "",
+    openaiModel: "gpt-5.4",
+    anthropicApiKey: "",
+    anthropicModel: "claude-4.7",
+    groqApiKey: "",
+    groqModel: "llama3-70b-8192",
+    openRouterApiKey: "",
+    openRouterModel: "",
     promptBase: "",
     timezone: "America/Sao_Paulo",
     useFirstNamePersonalization: true,
@@ -571,6 +589,33 @@ export default function AdminUnitsPage() {
             toast.error(error?.message || "Erro ao carregar configuracao do agente")
         } finally {
             setLoadingNativeAgent(false)
+        }
+    }
+
+    const saveNativeAgent = async () => {
+        if (!nativeAgentUnit) return
+        setSavingNativeAgent(true)
+        const unitRef = String(nativeAgentUnit.prefix || nativeAgentUnit.id || "").trim()
+        try {
+            const body = {
+                ...nativeAgentConfig,
+                testAllowedNumbers: testAllowedNumbersInput.split('\n').filter(Boolean),
+                toolNotificationTargets: toolNotificationTargetsInput.split('\n').filter(Boolean)
+            }
+            const res = await fetch(`/api/admin/units/${encodeURIComponent(unitRef)}/native-agent-config`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            })
+            const data = await res.json()
+            if (!res.ok) throw new Error(data.error || "Erro ao salvar configuracao do agente")
+            toast.success("Configuração do Agente IA salva com sucesso")
+            setNativeAgentDialogOpen(false)
+            fetchUnits() // recarregar dados
+        } catch (error: any) {
+            toast.error(error?.message || "Erro ao salvar configuracao do agente")
+        } finally {
+            setSavingNativeAgent(false)
         }
     }
 
@@ -1185,19 +1230,98 @@ export default function AdminUnitsPage() {
                                 <input type="checkbox" id="agent-enabled" checked={nativeAgentConfig.enabled} onChange={e => setNativeAgentConfig(p => ({ ...p, enabled: e.target.checked }))} className="accent-purple-400 w-5 h-5" />
                                 <Label htmlFor="agent-enabled" className="text-white">Agente IA Habilitado</Label>
                             </div>
-                            <div className="space-y-2"><Label>Gemini API Key</Label>
-                                <Input type="password" value={nativeAgentConfig.geminiApiKey} onChange={e => setNativeAgentConfig(p => ({ ...p, geminiApiKey: e.target.value }))} placeholder="AIza..." className="bg-secondary border-border text-white text-base font-mono" />
-                            </div>
-                            <div className="space-y-2"><Label>Modelo Gemini</Label>
-                                <Select value={nativeAgentConfig.geminiModel} onValueChange={v => setNativeAgentConfig(p => ({ ...p, geminiModel: v }))}>
-                                    <SelectTrigger className="bg-secondary border-border"><SelectValue /></SelectTrigger>
-                                    <SelectContent className="bg-secondary border-border text-white">
-                                        <SelectItem value="gemini-2.5-flash">gemini-2.5-flash (recomendado)</SelectItem>
-                                        <SelectItem value="gemini-2.0-flash">gemini-2.0-flash</SelectItem>
-                                        <SelectItem value="gemini-1.5-pro">gemini-1.5-pro</SelectItem>
+
+                            <div className="space-y-2">
+                                <Label className="text-white">Provedor de LLM</Label>
+                                <Select value={nativeAgentConfig.aiProvider || "google"} onValueChange={v => setNativeAgentConfig(p => ({ ...p, aiProvider: v as any }))}>
+                                    <SelectTrigger className="bg-secondary text-white border-border"><SelectValue /></SelectTrigger>
+                                    <SelectContent className="bg-secondary text-white border-border">
+                                        <SelectItem value="google">Google Gemini</SelectItem>
+                                        <SelectItem value="openai">OpenAI</SelectItem>
+                                        <SelectItem value="anthropic">Anthropic (Claude)</SelectItem>
+                                        <SelectItem value="groq">Groq</SelectItem>
+                                        <SelectItem value="openrouter">OpenRouter</SelectItem>
                                     </SelectContent>
                                 </Select>
                             </div>
+
+                            {(!nativeAgentConfig.aiProvider || nativeAgentConfig.aiProvider === "google") && (
+                                <>
+                                    <div className="space-y-2"><Label className="text-white">Gemini API Key</Label>
+                                        <Input type="password" value={nativeAgentConfig.geminiApiKey || ""} onChange={e => setNativeAgentConfig(p => ({ ...p, geminiApiKey: e.target.value }))} placeholder="AIza..." className="bg-secondary border-border text-white text-base font-mono" />
+                                    </div>
+                                    <div className="space-y-2"><Label className="text-white">Modelo Gemini</Label>
+                                        <Select value={nativeAgentConfig.geminiModel || "gemini-2.5-flash"} onValueChange={v => setNativeAgentConfig(p => ({ ...p, geminiModel: v }))}>
+                                            <SelectTrigger className="bg-secondary text-white border-border"><SelectValue /></SelectTrigger>
+                                            <SelectContent className="bg-secondary text-white border-border">
+                                                <SelectItem value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Preview)</SelectItem>
+                                                <SelectItem value="gemini-3.1-flash-lite">Gemini 3.1 Flash-Lite</SelectItem>
+                                                <SelectItem value="gemini-2.5-flash">Gemini 2.5 Flash</SelectItem>
+                                                <SelectItem value="gemini-2.5-pro">Gemini 2.5 Pro</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                </>
+                            )}
+
+                            {nativeAgentConfig.aiProvider === "openai" && (
+                                <>
+                                    <div className="space-y-2"><Label className="text-white">OpenAI API Key</Label>
+                                        <Input type="password" value={nativeAgentConfig.openaiApiKey || ""} onChange={e => setNativeAgentConfig(p => ({ ...p, openaiApiKey: e.target.value }))} placeholder="sk-..." className="bg-secondary border-border text-white text-base font-mono" />
+                                    </div>
+                                    <div className="space-y-2"><Label className="text-white">Modelo OpenAI</Label>
+                                        <Select value={nativeAgentConfig.openaiModel || "gpt-5.4"} onValueChange={v => setNativeAgentConfig(p => ({ ...p, openaiModel: v }))}>
+                                            <SelectTrigger className="bg-secondary text-white border-border"><SelectValue /></SelectTrigger>
+                                            <SelectContent className="bg-secondary text-white border-border">
+                                                <SelectItem value="gpt-5.4">GPT-5.4</SelectItem>
+                                                <SelectItem value="gpt-5.4-mini">GPT-5.4 Mini</SelectItem>
+                                                <SelectItem value="o3-mini">o3 Mini</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                </>
+                            )}
+
+                            {nativeAgentConfig.aiProvider === "anthropic" && (
+                                <>
+                                    <div className="space-y-2"><Label className="text-white">Anthropic API Key</Label>
+                                        <Input type="password" value={nativeAgentConfig.anthropicApiKey || ""} onChange={e => setNativeAgentConfig(p => ({ ...p, anthropicApiKey: e.target.value }))} placeholder="sk-ant-..." className="bg-secondary border-border text-white text-base font-mono" />
+                                    </div>
+                                    <div className="space-y-2"><Label className="text-white">Modelo Claude</Label>
+                                        <Select value={nativeAgentConfig.anthropicModel || "claude-4.7"} onValueChange={v => setNativeAgentConfig(p => ({ ...p, anthropicModel: v }))}>
+                                            <SelectTrigger className="bg-secondary text-white border-border"><SelectValue /></SelectTrigger>
+                                            <SelectContent className="bg-secondary text-white border-border">
+                                                <SelectItem value="claude-4.7">Claude 4.7 Opus</SelectItem>
+                                                <SelectItem value="claude-4.6">Claude 4.6 Sonnet</SelectItem>
+                                                <SelectItem value="claude-4.5">Claude 4.5 Haiku</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                </>
+                            )}
+
+                            {nativeAgentConfig.aiProvider === "groq" && (
+                                <>
+                                    <div className="space-y-2"><Label className="text-white">Groq API Key</Label>
+                                        <Input type="password" value={nativeAgentConfig.groqApiKey || ""} onChange={e => setNativeAgentConfig(p => ({ ...p, groqApiKey: e.target.value }))} placeholder="gsk_..." className="bg-secondary border-border text-white text-base font-mono" />
+                                    </div>
+                                    <div className="space-y-2"><Label className="text-white">Modelo Groq (ID)</Label>
+                                        <Input type="text" value={nativeAgentConfig.groqModel || "llama3-70b-8192"} onChange={e => setNativeAgentConfig(p => ({ ...p, groqModel: e.target.value }))} placeholder="llama3-70b-8192" className="bg-secondary border-border text-white text-base font-mono" />
+                                    </div>
+                                </>
+                            )}
+
+                            {nativeAgentConfig.aiProvider === "openrouter" && (
+                                <>
+                                    <div className="space-y-2"><Label className="text-white">OpenRouter API Key</Label>
+                                        <Input type="password" value={nativeAgentConfig.openRouterApiKey || ""} onChange={e => setNativeAgentConfig(p => ({ ...p, openRouterApiKey: e.target.value }))} placeholder="sk-or-v1-..." className="bg-secondary border-border text-white text-base font-mono" />
+                                    </div>
+                                    <div className="space-y-2"><Label className="text-white">Modelo OpenRouter (ID)</Label>
+                                        <Input type="text" value={nativeAgentConfig.openRouterModel || ""} onChange={e => setNativeAgentConfig(p => ({ ...p, openRouterModel: e.target.value }))} placeholder="anthropic/claude-3-opus" className="bg-secondary border-border text-white text-base font-mono" />
+                                    </div>
+                                </>
+                            )}
+
                             <div className="space-y-2"><Label>Prompt Base</Label>
                                 <Textarea value={nativeAgentConfig.promptBase} onChange={e => setNativeAgentConfig(p => ({ ...p, promptBase: e.target.value }))} className="min-h-[120px] bg-secondary border-border text-white text-base" placeholder="Instruções base para o agente..." />
                             </div>
@@ -1209,7 +1333,7 @@ export default function AdminUnitsPage() {
                     )}
                     <DialogFooter>
                         <Button variant="ghost" onClick={() => setNativeAgentDialogOpen(false)}>Cancelar</Button>
-                        <Button className="bg-purple-500 text-white hover:bg-purple-600" disabled={savingNativeAgent || loadingNativeAgent}>
+                        <Button className="bg-purple-500 text-white hover:bg-purple-600" onClick={saveNativeAgent} disabled={savingNativeAgent || loadingNativeAgent}>
                             {savingNativeAgent ? 'Salvando...' : 'Salvar Configuracao'}
                         </Button>
                     </DialogFooter>

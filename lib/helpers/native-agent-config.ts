@@ -7,8 +7,17 @@ export interface NativeAgentConfig {
   autoReplyEnabled: boolean
   replyEnabled: boolean
   reactionsEnabled: boolean
+  aiProvider?: "google" | "openai" | "anthropic" | "groq" | "openrouter"
   geminiApiKey?: string
   geminiModel?: string
+  openaiApiKey?: string
+  openaiModel?: string
+  anthropicApiKey?: string
+  anthropicModel?: string
+  groqApiKey?: string
+  groqModel?: string
+  openRouterApiKey?: string
+  openRouterModel?: string
   promptBase?: string
   timezone?: string
   useFirstNamePersonalization: boolean
@@ -242,6 +251,14 @@ function readBoolean(input: any, fallback: boolean): boolean {
 function readString(input: any): string | undefined {
   const value = String(input ?? "").trim()
   return value ? value : undefined
+}
+
+function readProvider(input: any, fallback: NativeAgentConfig["aiProvider"]): NativeAgentConfig["aiProvider"] {
+  const value = String(input || "").toLowerCase().trim()
+  if (value === "google" || value === "openai" || value === "anthropic" || value === "groq" || value === "openrouter") {
+    return value as NativeAgentConfig["aiProvider"]
+  }
+  return fallback
 }
 
 function readTone(
@@ -552,8 +569,17 @@ function normalizeConfig(input: any): NativeAgentConfig {
     autoReplyEnabled: readBoolean(raw.autoReplyEnabled, true),
     replyEnabled: readBoolean(raw.replyEnabled, DEFAULT_REPLY_ENABLED),
     reactionsEnabled: readBoolean(raw.reactionsEnabled, DEFAULT_REACTIONS_ENABLED),
+    aiProvider: readProvider(raw.aiProvider, "google"),
     geminiApiKey: readString(raw.geminiApiKey),
     geminiModel: readString(raw.geminiModel) || DEFAULT_GEMINI_MODEL,
+    openaiApiKey: readString(raw.openaiApiKey),
+    openaiModel: readString(raw.openaiModel) || "gpt-5.4",
+    anthropicApiKey: readString(raw.anthropicApiKey),
+    anthropicModel: readString(raw.anthropicModel) || "claude-4.7",
+    groqApiKey: readString(raw.groqApiKey),
+    groqModel: readString(raw.groqModel) || "llama3-70b-8192",
+    openRouterApiKey: readString(raw.openRouterApiKey),
+    openRouterModel: readString(raw.openRouterModel),
     promptBase: readString(raw.promptBase),
     timezone: readString(raw.timezone) || DEFAULT_TIMEZONE,
     useFirstNamePersonalization: readBoolean(
@@ -1073,8 +1099,17 @@ export async function updateNativeAgentConfigForTenant(
       autoReplyEnabled: config.autoReplyEnabled,
       replyEnabled: config.replyEnabled,
       reactionsEnabled: config.reactionsEnabled,
+      aiProvider: config.aiProvider || "google",
       geminiApiKey: config.geminiApiKey,
       geminiModel: config.geminiModel || DEFAULT_GEMINI_MODEL,
+      openaiApiKey: config.openaiApiKey,
+      openaiModel: config.openaiModel,
+      anthropicApiKey: config.anthropicApiKey,
+      anthropicModel: config.anthropicModel,
+      groqApiKey: config.groqApiKey,
+      groqModel: config.groqModel,
+      openRouterApiKey: config.openRouterApiKey,
+      openRouterModel: config.openRouterModel,
       promptBase: config.promptBase,
       timezone: config.timezone || DEFAULT_TIMEZONE,
       useFirstNamePersonalization: config.useFirstNamePersonalization,
@@ -1207,6 +1242,10 @@ export function sanitizeNativeAgentConfigForResponse(config: NativeAgentConfig) 
   return {
     ...config,
     geminiApiKey: config.geminiApiKey ? "***" : undefined,
+    openaiApiKey: config.openaiApiKey ? "***" : undefined,
+    anthropicApiKey: config.anthropicApiKey ? "***" : undefined,
+    groqApiKey: config.groqApiKey ? "***" : undefined,
+    openRouterApiKey: config.openRouterApiKey ? "***" : undefined,
     webhookSecret: config.webhookSecret ? "***" : undefined,
     googleOAuthClientSecret: config.googleOAuthClientSecret ? "***" : undefined,
     googleOAuthRefreshToken: config.googleOAuthRefreshToken ? "***" : undefined,
