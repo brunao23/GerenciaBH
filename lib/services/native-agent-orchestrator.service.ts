@@ -226,15 +226,9 @@ function resolveQualificationState(
 
 function buildQualificationQuestion(
   qualification: QualificationState,
-  options?: { mentionValues?: boolean; mentionSchedule?: boolean },
+  _options?: { mentionValues?: boolean; mentionSchedule?: boolean },
 ): string {
-  const mentionValues = options?.mentionValues === true
-  const mentionSchedule = options?.mentionSchedule === true
-  const intro = mentionValues
-    ? "Ja te passo os valores certinhos."
-    : mentionSchedule
-      ? "Antes de abrir horarios, preciso te conhecer melhor."
-      : "Para te orientar com precisao, preciso entender melhor seu contexto."
+  const intro = "Para te orientar com precisao, preciso entender melhor seu contexto."
 
   if (!qualification.hasArea && !qualification.hasPain) {
     return `${intro} Me conta sua area de atuacao e qual desafio de comunicacao voce quer resolver?`
@@ -250,67 +244,11 @@ function buildQualificationQuestion(
 
 function enforceQualificationCommercialGuard(
   responseText: string,
-  qualification: QualificationState,
-  latestLeadMessage?: string,
+  _qualification: QualificationState,
+  _latestLeadMessage?: string,
 ): string {
-  if (qualification.qualified) return responseText
-  const text = String(responseText || "").trim()
-  if (!text) return text
-
-  const leadNormalized = normalizeComparableMessage(String(latestLeadMessage || ""))
-  const leadAskedPrice =
-    /\bquanto\b/.test(leadNormalized) ||
-    /\bpreco\b/.test(leadNormalized) ||
-    /\bprecos\b/.test(leadNormalized) ||
-    /\bvalor\b/.test(leadNormalized) ||
-    /\bvalores\b/.test(leadNormalized) ||
-    /\bmensalidade\b/.test(leadNormalized) ||
-    /\bmensalidades\b/.test(leadNormalized)
-  const leadAskedScheduling =
-    /\bagendar\b/.test(leadNormalized) ||
-    /\bagendamento\b/.test(leadNormalized) ||
-    /\bhorario\b/.test(leadNormalized) ||
-    /\bhorarios\b/.test(leadNormalized) ||
-    /\bagenda\b/.test(leadNormalized) ||
-    /\bdisponivel\b/.test(leadNormalized) ||
-    /\bdisponiveis\b/.test(leadNormalized) ||
-    /\bmanha\b/.test(leadNormalized) ||
-    /\btarde\b/.test(leadNormalized) ||
-    /\bnoite\b/.test(leadNormalized)
-
-  const normalized = normalizeComparableMessage(text)
-  const mentionsPrice =
-    /\br\$\s*\d/.test(normalized) ||
-    /\bpreco\b/.test(normalized) ||
-    /\bprecos\b/.test(normalized) ||
-    /\bvalor\b/.test(normalized) ||
-    /\bvalores\b/.test(normalized) ||
-    /\bmensalidade\b/.test(normalized) ||
-    /\bmensalidades\b/.test(normalized)
-  const mentionsScheduling =
-    /\bagendar\b/.test(normalized) ||
-    /\bagendamento\b/.test(normalized) ||
-    /\bhorario\b/.test(normalized) ||
-    /\bhorarios\b/.test(normalized) ||
-    /\bdisponivel\b/.test(normalized) ||
-    /\bdisponiveis\b/.test(normalized) ||
-    /\bagenda\b/.test(normalized) ||
-    /\bslots\b/.test(normalized) ||
-    /\bmanha\b/.test(normalized) ||
-    /\btarde\b/.test(normalized) ||
-    /\bnoite\b/.test(normalized)
-
-  if (mentionsPrice) {
-    return leadAskedPrice
-      ? buildQualificationQuestion(qualification, { mentionValues: true })
-      : buildQualificationQuestion(qualification)
-  }
-  if (mentionsScheduling) {
-    return leadAskedScheduling
-      ? buildQualificationQuestion(qualification, { mentionSchedule: true })
-      : buildQualificationQuestion(qualification)
-  }
-  return text
+  // Mantem a resposta original do modelo sem sobrescrita por script fixo.
+  return String(responseText || "").trim()
 }
 
 function normalizeRecipientForMessaging(input: {
