@@ -1982,6 +1982,32 @@ function isHumanCallInterventionEvent(event: ZapiMessageEvent): boolean {
   return event.callbackType === "call" || hasCallKeyword || hasCallId || hasCallFlag
 }
 
+function isLeadCallEvent(event: ZapiMessageEvent): boolean {
+  if (event.fromMe === true || event.fromApi === true || event.isGroup) return false
+
+  const raw = asObject(event.raw)
+  const data = asObject(raw.data)
+  const message = asObject(data.message || raw.message)
+
+  const notification = readString(raw.notification, data.notification)
+  if (/call_voice|call_audio/i.test(notification)) return true
+
+  const hasCallId = Boolean(readString(data.callId, raw.callId, message.callId))
+  if (hasCallId) return true
+
+  const unionText = normalizeComparableText(
+    readString(
+      event.type,
+      raw.type,
+      raw.notification,
+      raw.event,
+      data.type,
+      data.notification,
+    ),
+  )
+  return /\b(call_voice|call_audio|chamada|ligacao)\b/.test(unionText)
+}
+
 function isIgnorableUnitWelcomeMessage(text: string): boolean {
   const normalized = normalizeComparableText(text)
   if (!normalized) return false
@@ -2331,6 +2357,42 @@ export async function POST(req: NextRequest) {
         event.metadata.audioTranscriptionError = event.audioTranscriptionError
         event.text = "[Audio recebido sem transcricao]"
       }
+    }
+
+    if (isLeadCallEvent(event)) {
+      const persisted = await persistZapiEvent({ tenant, event, sessionId: canonicalSessionId, phone: canonicalPhone })
+      const phoneToPause = canonicalPhone
+      const leadName = event.senderName || phoneToPause || "Lead"
+      if (phoneToPause) {
+        await pauseAiForLead(tenant, phoneToPause, { minutes: 10, reason: "lead_call_received" })
+        await new AgentTaskQueueService()
+          .cancelPendingFollowups({ tenant, sessionId: canonicalSessionId, phone: phoneToPause })
+          .catch(() => { })
+      }
+      const groupTargets = normalizeNotificationGroupTargets(config.toolNotificationTargets)
+      if (groupTargets.length > 0) {
+        const notificationMsg = [
+          `📞 Ligação recebida de *${leadName}*`,
+          `Contato: wa.me/${phoneToPause}`,
+          `Automação pausada por 10 minutos — desbloqueio automático em seguida.`,
+        ].join("\n")
+        const messaging = new TenantMessagingService()
+        for (const target of groupTargets) {
+          await messaging
+            .sendText({ tenant, phone: target, sessionId: target, message: notificationMsg, source: "call-event-auto-pause", persistInHistory: false })
+            .catch(() => { })
+        }
+      }
+      return NextResponse.json({
+        received: true,
+        tenant,
+        callbackType: event.callbackType,
+        persisted,
+        ignored: true,
+        reason: "lead_call_received_paused_ai",
+        autoPaused: Boolean(phoneToPause),
+        pausedMinutes: 10,
+      })
     }
 
     const isCallIntervention = isHumanCallInterventionEvent(event)
