@@ -73,6 +73,21 @@ function resolveSeverity(message: Record<string, any>, contentStr: string): Syst
   return "info"
 }
 
+function formatEventName(contentStr: string, source: string, errorText: string): string {
+  if (errorText) return "EVENTO DE ERRO"
+  const txt = (contentStr + " " + source).toLowerCase()
+
+  if (txt.includes("agendamento") || txt.includes("schedule") || txt.includes("calendar")) return "EVENTO DE AGENDAMENTO"
+  if (txt.includes("webhook") && (txt.includes("anuncio") || txt.includes("meta") || txt.includes("google") || txt.includes("ad_") || txt.includes("payload"))) return "EVENTO DE PAYLOAD (LEAD DE ANÚNCIO)"
+  if (txt.includes("followup") || txt.includes("follow-up") || txt.includes("scanner")) return "EVENTO DE FOLLOW-UP"
+  if (txt.includes("group") || txt.includes("grupo")) return "EVENTO DE GRUPO"
+  if (txt.includes("relatorio") || txt.includes("weekly_report") || txt.includes("report")) return "EVENTO DE RELATÓRIO ENVIADO"
+  if (txt.includes("tool") || txt.includes("function") || txt.includes("agendamento")) return "EVENTO DE TOOLS"
+  if (txt.includes("error") || txt.includes("fail") || txt.includes("erro")) return "EVENTO DE ERRO"
+
+  return contentStr || "EVENTO DE SISTEMA"
+}
+
 function resolveStatusCode(message: Record<string, any>): number | undefined {
   const code = Number(message.status_code || message.statusCode || message.http_status)
   return Number.isFinite(code) && code > 0 ? code : undefined
@@ -249,7 +264,7 @@ export async function GET(req: NextRequest, context: { params: RouteParams }) {
         id: String(row?.id || ""),
         sessionId: String(row?.session_id || ""),
         createdAt: String(row?.created_at || message.created_at || new Date().toISOString()),
-        event: contentStr || "system_log",
+        event: formatEventName(contentStr, source, errorText),
         severity,
         content,
         source: source || "system",

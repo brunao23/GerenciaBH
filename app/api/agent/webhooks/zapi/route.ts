@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 import { timingSafeEqual } from "node:crypto"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { getTablesForTenant } from "@/lib/helpers/tenant"
@@ -1641,6 +1641,34 @@ export async function POST(req: NextRequest) {
     const canonicalSessionId = normalizeSessionId(
       canonicalPhone || routing.sessionId || resolveSessionForPersistence(event),
     )
+
+    if (event.isGroup) {
+      const dbSupabase = createBiaSupabaseServerClient()
+      const { data: dbTenant } = await dbSupabase
+        .from("units_registry")
+        .select("metadata")
+        .eq("unit_prefix", tenant)
+        .single()
+      
+      const allowedGroups = Array.isArray(dbTenant?.metadata?.weeklyReport?.groups) 
+        ? dbTenant.metadata.weeklyReport.groups.map(String) 
+        : []
+        
+      const rawData = typeof event.raw === "object" && event.raw ? event.raw : {}
+      const nestedData = typeof rawData.data === "object" && rawData.data ? rawData.data : {}
+      const rawChatId = String(nestedData.chatId || rawData.chatId || routing.sessionId || "").replace("@g.us", "")
+      
+      const isAllowed = allowedGroups.some((g: string) => rawChatId.includes(g) || g.includes(rawChatId))
+      
+      if (!isAllowed) {
+        return NextResponse.json({
+          received: true,
+          ignored: true,
+          reason: "unauthorized_group",
+          tenant
+        })
+      }
+    }
 
     const allowedInstance = String(config.webhookAllowedInstanceId || "").trim()
     if (allowedInstance) {

@@ -30,7 +30,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Search, MessageSquare, Phone, User, Clock, AlertCircle, CheckCircle2, PauseCircle, PlayCircle, Calendar, UserMinus, Loader2, Briefcase, Target, Clock3, Sparkles, Zap, Download, ListChecks, XCircle, Send, Trash2 } from "lucide-react"
+import { Search, MessageSquare, Phone, User, Clock, AlertCircle, CheckCircle2, PauseCircle, PlayCircle, Calendar, UserMinus, Loader2, Briefcase, Target, Clock3, Sparkles, Zap, Download, ListChecks, XCircle, Send, Trash2, Edit2 } from "lucide-react"
 import { useTenant } from "@/lib/contexts/TenantContext"
 import { toast } from "sonner"
 
@@ -557,6 +557,9 @@ export default function ConversasPage() {
   const [sessions, setSessions] = useState<ChatSession[]>([])
   const [query, setQuery] = useState("")
   const deferredQuery = useDeferredValue(query)
+  const [activeTab, setActiveTab] = useState<"leads" | "grupos" | "contatos">("leads")
+  const [editContactModalOpen, setEditContactModalOpen] = useState(false)
+  const [editContactName, setEditContactName] = useState("")
   const [active, setActive] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -1092,8 +1095,14 @@ export default function ConversasPage() {
   };
 
   const filtered = useMemo(() => {
-    return sessions.map((session) => ({ session, score: 0, matchedMessages: [] }))
-  }, [sessions])
+    return sessions
+      .filter((s) => {
+        if (activeTab === "grupos") return s.isGroup
+        if (activeTab === "leads") return !s.isGroup
+        return true
+      })
+      .map((session) => ({ session, score: 0, matchedMessages: [] }))
+  }, [sessions, activeTab])
 
   const isSearchPending = query !== deferredQuery || serverSearching
   const trimmedQuery = query.trim()
@@ -1766,6 +1775,16 @@ export default function ConversasPage() {
               </>
             )}
           </div>
+          
+          <div className="mt-3">
+            <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">
+              <TabsList className="w-full grid border-none bg-secondary-black rounded-lg" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
+                <TabsTrigger value="leads">Leads</TabsTrigger>
+                <TabsTrigger value="grupos">Grupos</TabsTrigger>
+                <TabsTrigger value="contatos">Novo Contato</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
 
           <div className="relative mt-3">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-text-gray" />
@@ -1816,23 +1835,76 @@ export default function ConversasPage() {
           )}
         </CardHeader>
         <CardContent className="p-0 flex-1 overflow-hidden">
-          <ScrollArea className="h-full genial-scrollbar">
-            {loading ? (
-              <div className="flex items-center justify-center h-32">
-                <Loader2 className="w-6 h-6 animate-spin text-accent-green" />
-              </div>
-            ) : error ? (
-              <div className="p-6 text-center text-red-400">
-                <AlertCircle className="w-10 h-10 mx-auto mb-3 opacity-80" />
-                <p className="font-medium">Erro ao carregar conversas</p>
-                <p className="text-sm text-red-300/80 mt-1">{error}</p>
-              </div>
-            ) : filtered.length === 0 ? (
-              <div className="p-6 text-center text-text-gray">
-                <MessageSquare className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                <p>{query ? "Nenhuma conversa encontrada" : "Nenhuma conversa disponível"}</p>
-              </div>
-            ) : (
+          {activeTab === "contatos" && (
+             <ScrollArea className="h-full genial-scrollbar p-4">
+                <div className="space-y-4">
+                   <h3 className="text-lg font-medium text-pure-white">Novo Contato</h3>
+                   <div className="space-y-2">
+                     <Label className="text-pure-white">Número do Contato (com DDI +55)</Label>
+                     <Input id="newContactPhone" placeholder="Ex: 5531999999999" className="bg-secondary-black border-border-gray text-white" />
+                   </div>
+                   <div className="space-y-2">
+                     <Label className="text-pure-white">Nome do Contato</Label>
+                     <Input id="newContactName" placeholder="Ex: Nome Completo" className="bg-secondary-black border-border-gray text-white" />
+                   </div>
+                   <Button
+                      onClick={async () => {
+                         const phoneInput = document.getElementById("newContactPhone") as HTMLInputElement
+                         const nameInput = document.getElementById("newContactName") as HTMLInputElement
+                         if (!phoneInput?.value || !nameInput?.value) {
+                            toast.error("Preencha número e nome")
+                            return
+                         }
+                         const digits = onlyDigits(phoneInput.value)
+                         if (!digits) return
+                         
+                         try {
+                           const res = await fetch("/api/conversas/contacts", {
+                              method: "POST",
+                              headers: {"Content-Type": "application/json"},
+                              body: JSON.stringify({
+                                 sessionId: digits + "@s.whatsapp.net",
+                                 name: nameInput.value
+                              })
+                           })
+                           if (res.ok) {
+                              toast.success("Contato cadastrado com sucesso!")
+                              phoneInput.value = ""
+                              nameInput.value = ""
+                              fetchData(query)
+                           } else {
+                              toast.error("Falha ao cadastrar contato.")
+                           }
+                         } catch (err) {
+                           toast.error("Erro interno ao cadastrar")
+                         }
+                      }}
+                      className="bg-accent-green hover:bg-emerald-500 text-black w-full"
+                   >
+                     Cadastrar e Salvar
+                   </Button>
+                </div>
+             </ScrollArea>
+          )}
+
+          {activeTab !== "contatos" && (
+            <ScrollArea className="h-full genial-scrollbar">
+              {loading ? (
+                <div className="flex items-center justify-center h-32">
+                  <Loader2 className="w-6 h-6 animate-spin text-accent-green" />
+                </div>
+              ) : error ? (
+                <div className="p-6 text-center text-red-400">
+                  <AlertCircle className="w-10 h-10 mx-auto mb-3 opacity-80" />
+                  <p className="font-medium">Erro ao carregar conversas</p>
+                  <p className="text-sm text-red-300/80 mt-1">{error}</p>
+                </div>
+              ) : filtered.length === 0 ? (
+                <div className="p-6 text-center text-text-gray">
+                  <MessageSquare className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                  <p>{query ? "Nenhuma conversa encontrada" : "Nenhuma conversa disponível"}</p>
+                </div>
+              ) : (
               <div className="divide-y divide-border-gray">
                 {filtered.map(({ session }) => (
                   <button
@@ -1852,10 +1924,14 @@ export default function ConversasPage() {
                           />
                         </div>
                       )}
-                      <Avatar className="w-10 h-10 shrink-0">
-                        <AvatarFallback className="bg-secondary-black text-accent-green font-semibold">
-                          {session.contact_name?.charAt(0).toUpperCase() || "L"}
-                        </AvatarFallback>
+                      <Avatar className="w-10 h-10 border border-border-gray/50 shrink-0">
+                        {session.profile_pic ? (
+                          <img src={session.profile_pic} alt="Foto" className="object-cover w-full h-full" />
+                        ) : (
+                          <AvatarFallback className="bg-secondary-black text-text-gray text-xs">
+                            {session.contact_name?.charAt(0).toUpperCase() || "L"}
+                          </AvatarFallback>
+                        )}
                       </Avatar>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between gap-2 mb-1">
@@ -1888,7 +1964,8 @@ export default function ConversasPage() {
                 ))}
               </div>
             )}
-          </ScrollArea>
+            </ScrollArea>
+          )}
         </CardContent>
       </Card>
 
@@ -1899,14 +1976,26 @@ export default function ConversasPage() {
             <CardHeader className="border-b border-border-gray pb-4 shrink-0">
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
-                  <Avatar className="w-12 h-12">
-                    <AvatarFallback className="bg-secondary-black text-accent-green font-bold text-lg">
-                      {current.contact_name?.charAt(0).toUpperCase() || "L"}
-                    </AvatarFallback>
+                  <Avatar className="w-12 h-12 shrink-0 border border-border-gray/50">
+                    {current.profile_pic ? (
+                       <img src={current.profile_pic} alt="Foto" className="object-cover w-full h-full rounded-full" />
+                    ) : (
+                       <AvatarFallback className="bg-secondary-black text-accent-green font-bold text-lg">
+                         {current.contact_name?.charAt(0).toUpperCase() || "L"}
+                       </AvatarFallback>
+                    )}
                   </Avatar>
                   <div>
-                    <h3 className="text-lg font-bold text-pure-white">{current.contact_name || "Lead"}</h3>
-                    <div className="flex items-center gap-2 text-sm text-text-gray">
+                    <h3 className="text-lg font-bold text-pure-white flex items-center gap-2">
+                       {current.contact_name || "Lead"}
+                       <Button size="icon" variant="ghost" className="h-6 w-6 hover:bg-white/10" onClick={() => {
+                          setEditContactName(current.contact_name || "")
+                          setEditContactModalOpen(true)
+                       }}>
+                          <Edit2 className="w-3 h-3 text-text-gray" />
+                       </Button>
+                    </h3>
+                    <div className="flex items-center gap-2 text-sm text-text-gray mt-1">
                       <Phone className="w-3 h-3" />
                       <span className="font-mono">{current.numero || "Sem número"}</span>
                       <span>•</span>
@@ -2498,6 +2587,62 @@ export default function ConversasPage() {
             >
               {bulkSending ? "Enviando..." : "Iniciar disparo"}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={detailLoadingSessionId !== null}>
+        <DialogContent className="sm:max-w-md bg-secondary-black border border-border-gray text-white flex flex-col items-center justify-center py-10">
+          <Loader2 className="h-10 w-10 text-accent-green animate-spin mb-4" />
+          <DialogTitle>Carregando histórico completo...</DialogTitle>
+          <DialogDescription className="text-text-gray">
+            Isso pode demorar alguns segundos dependendo do tamanho da conversa.
+          </DialogDescription>
+        </DialogContent>
+      </Dialog>
+      
+      <Dialog open={editContactModalOpen} onOpenChange={setEditContactModalOpen}>
+        <DialogContent className="sm:max-w-md bg-secondary-black border border-border-gray text-white">
+          <DialogHeader>
+            <DialogTitle>Editar Nome do Lead</DialogTitle>
+            <DialogDescription className="text-text-gray">
+              Isso atualizará o nome exibido nesta conversa.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+             <Input 
+                value={editContactName} 
+                onChange={e => setEditContactName(e.target.value)} 
+                placeholder="Novo nome" 
+                className="bg-primary-black border-border-gray text-white" 
+             />
+          </div>
+          <DialogFooter>
+             <Button variant="ghost" className="text-white hover:text-black" onClick={() => setEditContactModalOpen(false)}>Cancelar</Button>
+             <Button className="bg-accent-green text-black hover:bg-emerald-500" onClick={async () => {
+                if (!current) return
+                try {
+                  const res = await fetch("/api/conversas/contacts", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({
+                       sessionId: current.session_id,
+                       name: editContactName
+                    })
+                  })
+                  if (res.ok) {
+                     toast.success("Nome atualizado com sucesso!")
+                     setEditContactModalOpen(false)
+                     fetchData(query) // Atualiza a lista
+                  } else {
+                     toast.error("Erro ao atualizar nome")
+                  }
+                } catch (err) {
+                  toast.error("Erro interno ao atualizar")
+                }
+             }}>
+                Salvar Alterações
+             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -25,6 +25,8 @@ type SummarySession = {
   messages_count: number
   last_id: number
   isSummary: boolean
+  isGroup?: boolean
+  profile_pic?: string
   score?: number
   strong_match?: boolean
 }
@@ -406,6 +408,15 @@ function isUserMessage(msg: any): boolean {
 
 function extractContactNameFromMessages(rows: Row[], sessionId: string): string | null {
   const sessionRows = rows.filter(r => r.session_id === sessionId)
+  const sortedDesc = [...sessionRows].sort((a, b) => b.id - a.id)
+
+  // Priority 0: Manual override from "update_contact" system message
+  for (const row of sortedDesc) {
+    const msg = row.message ?? {}
+    if (msg.action === "update_contact" && msg.updated_name) {
+      return msg.updated_name
+    }
+  }
 
   // Priority 1: pushName from USER messages (most reliable — it's the lead's own name)
   for (const row of sessionRows) {
@@ -454,6 +465,27 @@ function extractContactNameFromMessages(rows: Row[], sessionId: string): string 
     }
   }
 
+  return null
+}
+
+function extractContactProfilePicFromMessages(rows: Row[], sessionId: string): string | null {
+  const sessionRows = rows.filter(r => r.session_id === sessionId)
+  const sortedDesc = [...sessionRows].sort((a, b) => b.id - a.id)
+
+  // Check manual override first
+  for (const row of sortedDesc) {
+    const msg = row.message ?? {}
+    if (msg.action === "update_contact" && msg.updated_profile_pic) {
+      return msg.updated_profile_pic
+    }
+  }
+
+  // Check any message for picUrl or profilePicUrl
+  for (const row of sortedDesc) {
+    const msg = row.message ?? {}
+    const pic = msg.profilePicUrl || msg.profile_pic_url || msg.picUrl || msg.zapi_meta?.profileUrl
+    if (pic) return pic
+  }
   return null
 }
 
@@ -753,8 +785,12 @@ export async function GET(req: Request) {
         const firstContent = String(session.messages?.[0]?.content || "").toLowerCase()
         const isNotificationGroup = notificationGroupKeywords.some(kw => lower.includes(kw) || firstContent.includes(kw))
         if (!isNotificationGroup) {
-          bySession.delete(sessionId)
-          groupsRemoved++
+          // Instead of deleting the session, we just flag it as a group chat so frontend will tab it.
+          // Optional: Only preserve if it matches the authorized groups list for reports?
+          // Since the prompt asks to allow "grpos dos clientes" we keep them all but correctly tagged.
+          session.isGroup = true
+        } else {
+          session.isGroup = true
         }
       }
     }
@@ -766,6 +802,11 @@ export async function GET(req: Request) {
     for (const [sessionId, session] of bySession.entries()) {
       const bestName = extractContactNameFromMessages(rows, sessionId)
       session.contact_name = bestName || (session.numero ? `Lead ${session.numero.slice(-4)}` : "Lead")
+      
+      const bestProfilePic = extractContactProfilePicFromMessages(rows, sessionId)
+      if (bestProfilePic) {
+        session.profile_pic = bestProfilePic
+      }
     }
 
     let payload = Array.from(bySession.values())
