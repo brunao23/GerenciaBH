@@ -1,5 +1,7 @@
 'use client'
 
+import { useRouter } from 'next/navigation'
+
 import { useState, useEffect, useRef } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -64,73 +66,6 @@ interface Workflow {
     active: boolean
 }
 
-interface AdminNativeAgentConfig {
-    enabled: boolean
-    autoReplyEnabled: boolean
-    replyEnabled: boolean
-    reactionsEnabled: boolean
-    aiProvider: "google" | "openai" | "anthropic" | "groq" | "openrouter"
-    geminiApiKey: string
-    geminiModel: string
-    openaiApiKey: string
-    openaiModel: string
-    anthropicApiKey: string
-    anthropicModel: string
-    groqApiKey: string
-    groqModel: string
-    openRouterApiKey: string
-    openRouterModel: string
-    promptBase: string
-    timezone: string
-    useFirstNamePersonalization: boolean
-    autoLearningEnabled: boolean
-    followupEnabled: boolean
-    remindersEnabled: boolean
-    schedulingEnabled: boolean
-    blockGroupMessages: boolean
-    autoPauseOnHumanIntervention: boolean
-    responseDelayMinSeconds: number
-    responseDelayMaxSeconds: number
-    inboundMessageBufferSeconds: number
-    zapiDelayMessageSeconds: number
-    zapiDelayTypingSeconds: number
-    splitLongMessagesEnabled: boolean
-    messageBlockMaxChars: number
-    testModeEnabled: boolean
-    testAllowedNumbers: string[]
-    toolNotificationsEnabled: boolean
-    toolNotificationTargets: string[]
-    notifyOnScheduleSuccess: boolean
-    notifyOnScheduleError: boolean
-    notifyOnHumanHandoff: boolean
-    webhookEnabled: boolean
-    webhookSecret: string
-    webhookAllowedInstanceId: string
-    webhookPrimaryUrl: string
-    webhookExtraUrls: string[]
-    googleCalendarEnabled: boolean
-    googleCalendarId: string
-    googleAuthMode: "service_account" | "oauth_user"
-    googleServiceAccountEmail: string
-    googleServiceAccountPrivateKey: string
-    googleDelegatedUser: string
-    googleOAuthClientId: string
-    googleOAuthClientSecret: string
-    googleOAuthRefreshToken: string
-    googleOAuthTokenScope: string
-    googleOAuthConnectedAt: string
-    calendarEventDurationMinutes: number
-    calendarMinLeadMinutes: number
-    calendarBufferMinutes: number
-    calendarBusinessStart: string
-    calendarBusinessEnd: string
-    calendarBusinessDays: number[]
-    unitLatitude: number | undefined
-    unitLongitude: number | undefined
-    unitName: string
-    unitAddress: string
-}
-
 interface NativeAgentDebugItem {
     id: string
     sessionId: string
@@ -157,74 +92,9 @@ interface SystemLogItem {
     details?: Record<string, any>
 }
 
-const defaultNativeAgentConfig: AdminNativeAgentConfig = {
-    enabled: false,
-    autoReplyEnabled: true,
-    replyEnabled: true,
-    reactionsEnabled: true,
-    aiProvider: "google",
-    geminiApiKey: "",
-    geminiModel: "gemini-2.5-flash",
-    openaiApiKey: "",
-    openaiModel: "gpt-5.4",
-    anthropicApiKey: "",
-    anthropicModel: "claude-4.7",
-    groqApiKey: "",
-    groqModel: "llama3-70b-8192",
-    openRouterApiKey: "",
-    openRouterModel: "",
-    promptBase: "",
-    timezone: "America/Sao_Paulo",
-    useFirstNamePersonalization: true,
-    autoLearningEnabled: true,
-    followupEnabled: true,
-    remindersEnabled: true,
-    schedulingEnabled: true,
-    blockGroupMessages: true,
-    autoPauseOnHumanIntervention: false,
-    responseDelayMinSeconds: 0,
-    responseDelayMaxSeconds: 0,
-    inboundMessageBufferSeconds: 10,
-    zapiDelayMessageSeconds: 1,
-    zapiDelayTypingSeconds: 0,
-    splitLongMessagesEnabled: true,
-    messageBlockMaxChars: 400,
-    testModeEnabled: false,
-    testAllowedNumbers: [],
-    toolNotificationsEnabled: false,
-    toolNotificationTargets: [],
-    notifyOnScheduleSuccess: true,
-    notifyOnScheduleError: true,
-    notifyOnHumanHandoff: true,
-    webhookEnabled: true,
-    webhookSecret: "",
-    webhookAllowedInstanceId: "",
-    webhookPrimaryUrl: "",
-    webhookExtraUrls: [],
-    googleCalendarEnabled: false,
-    googleCalendarId: "primary",
-    googleAuthMode: "oauth_user",
-    googleServiceAccountEmail: "",
-    googleServiceAccountPrivateKey: "",
-    googleDelegatedUser: "",
-    googleOAuthClientId: "",
-    googleOAuthClientSecret: "",
-    googleOAuthRefreshToken: "",
-    googleOAuthTokenScope: "",
-    googleOAuthConnectedAt: "",
-    calendarEventDurationMinutes: 50,
-    calendarMinLeadMinutes: 15,
-    calendarBufferMinutes: 0,
-    calendarBusinessStart: "08:00",
-    calendarBusinessEnd: "20:00",
-    calendarBusinessDays: [1, 2, 3, 4, 5, 6],
-    unitLatitude: undefined,
-    unitLongitude: undefined,
-    unitName: "",
-    unitAddress: "",
-}
 
 export default function AdminUnitsPage() {
+    const router = useRouter()
     const [units, setUnits] = useState<Unit[]>([])
     const [loading, setLoading] = useState(true)
     const [creating, setCreating] = useState(false)
@@ -279,18 +149,6 @@ export default function AdminUnitsPage() {
     const [broadcastTitle, setBroadcastTitle] = useState("")
     const [broadcastMessage, setBroadcastMessage] = useState("")
     const [sendingBroadcast, setSendingBroadcast] = useState(false)
-
-    // Native Agent Config State
-    const [nativeAgentDialogOpen, setNativeAgentDialogOpen] = useState(false)
-    const [nativeAgentUnit, setNativeAgentUnit] = useState<Unit | null>(null)
-    const [nativeAgentConfig, setNativeAgentConfig] = useState<AdminNativeAgentConfig>(defaultNativeAgentConfig)
-    const [testAllowedNumbersInput, setTestAllowedNumbersInput] = useState("")
-    const [toolNotificationTargetsInput, setToolNotificationTargetsInput] = useState("")
-    const [nativeAgentDebugItems, setNativeAgentDebugItems] = useState<NativeAgentDebugItem[]>([])
-    const [loadingNativeAgentDebug, setLoadingNativeAgentDebug] = useState(false)
-    const [loadingNativeAgent, setLoadingNativeAgent] = useState(false)
-    const [savingNativeAgent, setSavingNativeAgent] = useState(false)
-    const [connectingGoogle, setConnectingGoogle] = useState(false)
 
     // Kommo CRM
     const [kommoDialogOpen, setKommoDialogOpen] = useState(false)
@@ -506,117 +364,9 @@ export default function AdminUnitsPage() {
         }
     }
 
-    const normalizeNativeAgentConfig = (raw: any): AdminNativeAgentConfig => {
-        const source = raw && typeof raw === "object" ? raw : {}
-        const businessDays = Array.isArray(source.calendarBusinessDays)
-            ? source.calendarBusinessDays.map((v: any) => Number(v)).filter((v: number) => Number.isInteger(v) && v >= 1 && v <= 7)
-            : []
-        return {
-            enabled: source.enabled === true,
-            autoReplyEnabled: source.autoReplyEnabled !== false,
-            replyEnabled: source.replyEnabled !== false,
-            reactionsEnabled: source.reactionsEnabled !== false,
-            geminiApiKey: String(source.geminiApiKey || ""),
-            geminiModel: String(source.geminiModel || "gemini-2.5-flash"),
-            promptBase: String(source.promptBase || ""),
-            timezone: String(source.timezone || "America/Sao_Paulo"),
-            useFirstNamePersonalization: source.useFirstNamePersonalization !== false,
-            autoLearningEnabled: source.autoLearningEnabled !== false,
-            followupEnabled: source.followupEnabled !== false,
-            remindersEnabled: source.remindersEnabled !== false,
-            schedulingEnabled: source.schedulingEnabled !== false,
-            blockGroupMessages: source.blockGroupMessages !== false,
-            autoPauseOnHumanIntervention: source.autoPauseOnHumanIntervention === true,
-            responseDelayMinSeconds: Number.isFinite(Number(source.responseDelayMinSeconds)) ? Number(source.responseDelayMinSeconds) : 0,
-            responseDelayMaxSeconds: Number.isFinite(Number(source.responseDelayMaxSeconds)) ? Number(source.responseDelayMaxSeconds) : 0,
-            inboundMessageBufferSeconds: Number.isFinite(Number(source.inboundMessageBufferSeconds)) ? Number(source.inboundMessageBufferSeconds) : 8,
-            zapiDelayMessageSeconds: Number.isFinite(Number(source.zapiDelayMessageSeconds)) ? Number(source.zapiDelayMessageSeconds) : 2,
-            zapiDelayTypingSeconds: Number.isFinite(Number(source.zapiDelayTypingSeconds)) ? Number(source.zapiDelayTypingSeconds) : 3,
-            splitLongMessagesEnabled: source.splitLongMessagesEnabled !== false,
-            messageBlockMaxChars: Number.isFinite(Number(source.messageBlockMaxChars)) ? Number(source.messageBlockMaxChars) : 280,
-            testModeEnabled: source.testModeEnabled === true,
-            testAllowedNumbers: [],
-            toolNotificationsEnabled: source.toolNotificationsEnabled === true,
-            toolNotificationTargets: [],
-            notifyOnScheduleSuccess: source.notifyOnScheduleSuccess !== false,
-            notifyOnScheduleError: source.notifyOnScheduleError !== false,
-            notifyOnHumanHandoff: source.notifyOnHumanHandoff !== false,
-            webhookEnabled: source.webhookEnabled !== false,
-            webhookSecret: String(source.webhookSecret || ""),
-            webhookAllowedInstanceId: String(source.webhookAllowedInstanceId || ""),
-            webhookPrimaryUrl: String(source.webhookPrimaryUrl || ""),
-            webhookExtraUrls: [],
-            googleCalendarEnabled: source.googleCalendarEnabled === true,
-            googleCalendarId: String(source.googleCalendarId || "primary"),
-            googleAuthMode: "oauth_user",
-            googleServiceAccountEmail: String(source.googleServiceAccountEmail || ""),
-            googleServiceAccountPrivateKey: String(source.googleServiceAccountPrivateKey || ""),
-            googleDelegatedUser: String(source.googleDelegatedUser || ""),
-            googleOAuthClientId: String(source.googleOAuthClientId || ""),
-            googleOAuthClientSecret: String(source.googleOAuthClientSecret || ""),
-            googleOAuthRefreshToken: String(source.googleOAuthRefreshToken || ""),
-            googleOAuthTokenScope: String(source.googleOAuthTokenScope || ""),
-            googleOAuthConnectedAt: String(source.googleOAuthConnectedAt || ""),
-            calendarEventDurationMinutes: Number(source.calendarEventDurationMinutes) > 0 ? Number(source.calendarEventDurationMinutes) : 50,
-            calendarMinLeadMinutes: Number.isFinite(Number(source.calendarMinLeadMinutes)) ? Number(source.calendarMinLeadMinutes) : 15,
-            calendarBufferMinutes: Number.isFinite(Number(source.calendarBufferMinutes)) ? Number(source.calendarBufferMinutes) : 0,
-            calendarBusinessStart: String(source.calendarBusinessStart || "08:00"),
-            calendarBusinessEnd: String(source.calendarBusinessEnd || "20:00"),
-            calendarBusinessDays: businessDays.length ? businessDays : [1, 2, 3, 4, 5, 6],
-            unitLatitude: Number.isFinite(Number(source.unitLatitude)) && source.unitLatitude !== "" && source.unitLatitude !== null ? Number(source.unitLatitude) : undefined,
-            unitLongitude: Number.isFinite(Number(source.unitLongitude)) && source.unitLongitude !== "" && source.unitLongitude !== null ? Number(source.unitLongitude) : undefined,
-            unitName: String(source.unitName || ""),
-            unitAddress: String(source.unitAddress || ""),
-        }
-    }
-
-    const openNativeAgentDialog = async (unit: Unit) => {
-        setNativeAgentUnit(unit)
-        setNativeAgentDialogOpen(true)
-        setLoadingNativeAgent(true)
+    const openNativeAgentDialog = (unit: Unit) => {
         const unitRef = String(unit.prefix || unit.id || "").trim()
-        try {
-            const res = await fetch(`/api/admin/units/${encodeURIComponent(unitRef)}/native-agent-config`)
-            const data = await res.json().catch(() => ({}))
-            if (!res.ok) throw new Error(data.error || "Erro ao carregar configuracao do agente")
-            const normalized = normalizeNativeAgentConfig(data.config)
-            setNativeAgentConfig(normalized)
-            setTestAllowedNumbersInput((normalized.testAllowedNumbers || []).join("\n"))
-            setToolNotificationTargetsInput((normalized.toolNotificationTargets || []).join("\n"))
-        } catch (error: any) {
-            const fallback = unit.metadata?.nativeAgent || unit.metadata?.aiAgent || {}
-            setNativeAgentConfig(normalizeNativeAgentConfig(fallback))
-            toast.error(error?.message || "Erro ao carregar configuracao do agente")
-        } finally {
-            setLoadingNativeAgent(false)
-        }
-    }
-
-    const saveNativeAgent = async () => {
-        if (!nativeAgentUnit) return
-        setSavingNativeAgent(true)
-        const unitRef = String(nativeAgentUnit.prefix || nativeAgentUnit.id || "").trim()
-        try {
-            const body = {
-                ...nativeAgentConfig,
-                testAllowedNumbers: testAllowedNumbersInput.split('\n').filter(Boolean),
-                toolNotificationTargets: toolNotificationTargetsInput.split('\n').filter(Boolean)
-            }
-            const res = await fetch(`/api/admin/units/${encodeURIComponent(unitRef)}/native-agent-config`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body)
-            })
-            const data = await res.json()
-            if (!res.ok) throw new Error(data.error || "Erro ao salvar configuracao do agente")
-            toast.success("Configuração do Agente IA salva com sucesso")
-            setNativeAgentDialogOpen(false)
-            fetchUnits() // recarregar dados
-        } catch (error: any) {
-            toast.error(error?.message || "Erro ao salvar configuracao do agente")
-        } finally {
-            setSavingNativeAgent(false)
-        }
+        router.push(`/admin/units/${unitRef}/agente`)
     }
 
     const openKommoDialog = async (unit: Unit) => {
@@ -1215,130 +965,7 @@ export default function AdminUnitsPage() {
                 </DialogContent>
             </Dialog>
 
-            {/* Agente IA Config Dialog */}
-            <Dialog open={nativeAgentDialogOpen} onOpenChange={setNativeAgentDialogOpen}>
-                <DialogContent className="bg-card border-border text-white max-w-2xl max-h-[85vh] overflow-y-auto">
-                    <DialogHeader>
-                        <DialogTitle className="text-purple-400 flex items-center gap-2"><Bot className="w-5 h-5" /> Agente IA — {nativeAgentUnit?.name}</DialogTitle>
-                        <DialogDescription className="text-muted-foreground">Configure o agente de atendimento automático.</DialogDescription>
-                    </DialogHeader>
-                    {loadingNativeAgent ? (
-                        <div className="py-12 text-center text-muted-foreground animate-pulse">Carregando configurações...</div>
-                    ) : (
-                        <div className="space-y-4 py-2">
-                            <div className="flex items-center gap-3">
-                                <input type="checkbox" id="agent-enabled" checked={nativeAgentConfig.enabled} onChange={e => setNativeAgentConfig(p => ({ ...p, enabled: e.target.checked }))} className="accent-purple-400 w-5 h-5" />
-                                <Label htmlFor="agent-enabled" className="text-white">Agente IA Habilitado</Label>
-                            </div>
-
-                            <div className="space-y-2">
-                                <Label className="text-white">Provedor de LLM</Label>
-                                <Select value={nativeAgentConfig.aiProvider || "google"} onValueChange={v => setNativeAgentConfig(p => ({ ...p, aiProvider: v as any }))}>
-                                    <SelectTrigger className="bg-secondary text-white border-border"><SelectValue /></SelectTrigger>
-                                    <SelectContent className="bg-secondary text-white border-border">
-                                        <SelectItem value="google">Google Gemini</SelectItem>
-                                        <SelectItem value="openai">OpenAI</SelectItem>
-                                        <SelectItem value="anthropic">Anthropic (Claude)</SelectItem>
-                                        <SelectItem value="groq">Groq</SelectItem>
-                                        <SelectItem value="openrouter">OpenRouter</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
-
-                            {(!nativeAgentConfig.aiProvider || nativeAgentConfig.aiProvider === "google") && (
-                                <>
-                                    <div className="space-y-2"><Label className="text-white">Gemini API Key</Label>
-                                        <Input type="password" value={nativeAgentConfig.geminiApiKey || ""} onChange={e => setNativeAgentConfig(p => ({ ...p, geminiApiKey: e.target.value }))} placeholder="AIza..." className="bg-secondary border-border text-white text-base font-mono" />
-                                    </div>
-                                    <div className="space-y-2"><Label className="text-white">Modelo Gemini</Label>
-                                        <Select value={nativeAgentConfig.geminiModel || "gemini-2.5-flash"} onValueChange={v => setNativeAgentConfig(p => ({ ...p, geminiModel: v }))}>
-                                            <SelectTrigger className="bg-secondary text-white border-border"><SelectValue /></SelectTrigger>
-                                            <SelectContent className="bg-secondary text-white border-border">
-                                                <SelectItem value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Preview)</SelectItem>
-                                                <SelectItem value="gemini-3.1-flash-lite">Gemini 3.1 Flash-Lite</SelectItem>
-                                                <SelectItem value="gemini-2.5-flash">Gemini 2.5 Flash</SelectItem>
-                                                <SelectItem value="gemini-2.5-pro">Gemini 2.5 Pro</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                </>
-                            )}
-
-                            {nativeAgentConfig.aiProvider === "openai" && (
-                                <>
-                                    <div className="space-y-2"><Label className="text-white">OpenAI API Key</Label>
-                                        <Input type="password" value={nativeAgentConfig.openaiApiKey || ""} onChange={e => setNativeAgentConfig(p => ({ ...p, openaiApiKey: e.target.value }))} placeholder="sk-..." className="bg-secondary border-border text-white text-base font-mono" />
-                                    </div>
-                                    <div className="space-y-2"><Label className="text-white">Modelo OpenAI</Label>
-                                        <Select value={nativeAgentConfig.openaiModel || "gpt-5.4"} onValueChange={v => setNativeAgentConfig(p => ({ ...p, openaiModel: v }))}>
-                                            <SelectTrigger className="bg-secondary text-white border-border"><SelectValue /></SelectTrigger>
-                                            <SelectContent className="bg-secondary text-white border-border">
-                                                <SelectItem value="gpt-5.4">GPT-5.4</SelectItem>
-                                                <SelectItem value="gpt-5.4-mini">GPT-5.4 Mini</SelectItem>
-                                                <SelectItem value="o3-mini">o3 Mini</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                </>
-                            )}
-
-                            {nativeAgentConfig.aiProvider === "anthropic" && (
-                                <>
-                                    <div className="space-y-2"><Label className="text-white">Anthropic API Key</Label>
-                                        <Input type="password" value={nativeAgentConfig.anthropicApiKey || ""} onChange={e => setNativeAgentConfig(p => ({ ...p, anthropicApiKey: e.target.value }))} placeholder="sk-ant-..." className="bg-secondary border-border text-white text-base font-mono" />
-                                    </div>
-                                    <div className="space-y-2"><Label className="text-white">Modelo Claude</Label>
-                                        <Select value={nativeAgentConfig.anthropicModel || "claude-4.7"} onValueChange={v => setNativeAgentConfig(p => ({ ...p, anthropicModel: v }))}>
-                                            <SelectTrigger className="bg-secondary text-white border-border"><SelectValue /></SelectTrigger>
-                                            <SelectContent className="bg-secondary text-white border-border">
-                                                <SelectItem value="claude-4.7">Claude 4.7 Opus</SelectItem>
-                                                <SelectItem value="claude-4.6">Claude 4.6 Sonnet</SelectItem>
-                                                <SelectItem value="claude-4.5">Claude 4.5 Haiku</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                </>
-                            )}
-
-                            {nativeAgentConfig.aiProvider === "groq" && (
-                                <>
-                                    <div className="space-y-2"><Label className="text-white">Groq API Key</Label>
-                                        <Input type="password" value={nativeAgentConfig.groqApiKey || ""} onChange={e => setNativeAgentConfig(p => ({ ...p, groqApiKey: e.target.value }))} placeholder="gsk_..." className="bg-secondary border-border text-white text-base font-mono" />
-                                    </div>
-                                    <div className="space-y-2"><Label className="text-white">Modelo Groq (ID)</Label>
-                                        <Input type="text" value={nativeAgentConfig.groqModel || "llama3-70b-8192"} onChange={e => setNativeAgentConfig(p => ({ ...p, groqModel: e.target.value }))} placeholder="llama3-70b-8192" className="bg-secondary border-border text-white text-base font-mono" />
-                                    </div>
-                                </>
-                            )}
-
-                            {nativeAgentConfig.aiProvider === "openrouter" && (
-                                <>
-                                    <div className="space-y-2"><Label className="text-white">OpenRouter API Key</Label>
-                                        <Input type="password" value={nativeAgentConfig.openRouterApiKey || ""} onChange={e => setNativeAgentConfig(p => ({ ...p, openRouterApiKey: e.target.value }))} placeholder="sk-or-v1-..." className="bg-secondary border-border text-white text-base font-mono" />
-                                    </div>
-                                    <div className="space-y-2"><Label className="text-white">Modelo OpenRouter (ID)</Label>
-                                        <Input type="text" value={nativeAgentConfig.openRouterModel || ""} onChange={e => setNativeAgentConfig(p => ({ ...p, openRouterModel: e.target.value }))} placeholder="anthropic/claude-3-opus" className="bg-secondary border-border text-white text-base font-mono" />
-                                    </div>
-                                </>
-                            )}
-
-                            <div className="space-y-2"><Label>Prompt Base</Label>
-                                <Textarea value={nativeAgentConfig.promptBase} onChange={e => setNativeAgentConfig(p => ({ ...p, promptBase: e.target.value }))} className="min-h-[120px] bg-secondary border-border text-white text-base" placeholder="Instruções base para o agente..." />
-                            </div>
-                            <div className="flex items-center gap-3">
-                                <input type="checkbox" checked={nativeAgentConfig.reactionsEnabled} onChange={e => setNativeAgentConfig(p => ({ ...p, reactionsEnabled: e.target.checked }))} className="accent-purple-400 w-5 h-5" />
-                                <Label className="text-white text-base">Ativar reações com emojis</Label>
-                            </div>
-                        </div>
-                    )}
-                    <DialogFooter>
-                        <Button variant="ghost" onClick={() => setNativeAgentDialogOpen(false)}>Cancelar</Button>
-                        <Button className="bg-purple-500 text-white hover:bg-purple-600" onClick={saveNativeAgent} disabled={savingNativeAgent || loadingNativeAgent}>
-                            {savingNativeAgent ? 'Salvando...' : 'Salvar Configuracao'}
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
+            {/* Removed IA Agent Dialog in favor of an independent page */}
 
             {/* Excluir */}
             <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>

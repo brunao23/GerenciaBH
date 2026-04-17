@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Follow-up Automation Service
  * Gerencia o sistema de follow-up automatizado com anÃ¡lise contextual de IA
  */
@@ -737,7 +737,7 @@ Retorne JSON:
                 // Posterga todos os follow-ups vencidos para 07:00 do prÃ³ximo dia
                 const { data: overdue } = await this.supabase
                     .from('followup_schedule')
-                    .select('id, next_followup_at')
+                    .select('id, next_followup_at, session_id')
                     .lte('next_followup_at', new Date().toISOString())
                     .eq('is_active', true)
 
