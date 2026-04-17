@@ -162,6 +162,21 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Custom project tokens — enables bg-*, text-*, border-* utilities */
+  --color-accent-green: var(--accent-green);
+  --color-dark-green: var(--dark-green);
+  --color-accent-yellow: var(--accent-yellow);
+  --color-dark-yellow: var(--dark-yellow);
+  --color-accent-blue: var(--accent-blue);
+  --color-accent-red: var(--accent-red);
+  --color-pure-white: var(--pure-white);
+  --color-primary-black: var(--primary-black);
+  --color-secondary-black: var(--secondary-black);
+  --color-card-black: var(--card-black);
+  --color-border-gray: var(--border-gray);
+  --color-text-gray: var(--text-gray);
+  --color-hover-gray: var(--hover-gray);
 }
 
 /* ===== BASE LAYER ===== */
