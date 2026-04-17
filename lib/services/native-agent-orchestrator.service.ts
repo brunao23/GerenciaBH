@@ -251,10 +251,32 @@ function buildQualificationQuestion(
 function enforceQualificationCommercialGuard(
   responseText: string,
   qualification: QualificationState,
+  latestLeadMessage?: string,
 ): string {
   if (qualification.qualified) return responseText
   const text = String(responseText || "").trim()
   if (!text) return text
+
+  const leadNormalized = normalizeComparableMessage(String(latestLeadMessage || ""))
+  const leadAskedPrice =
+    /\bquanto\b/.test(leadNormalized) ||
+    /\bpreco\b/.test(leadNormalized) ||
+    /\bprecos\b/.test(leadNormalized) ||
+    /\bvalor\b/.test(leadNormalized) ||
+    /\bvalores\b/.test(leadNormalized) ||
+    /\bmensalidade\b/.test(leadNormalized) ||
+    /\bmensalidades\b/.test(leadNormalized)
+  const leadAskedScheduling =
+    /\bagendar\b/.test(leadNormalized) ||
+    /\bagendamento\b/.test(leadNormalized) ||
+    /\bhorario\b/.test(leadNormalized) ||
+    /\bhorarios\b/.test(leadNormalized) ||
+    /\bagenda\b/.test(leadNormalized) ||
+    /\bdisponivel\b/.test(leadNormalized) ||
+    /\bdisponiveis\b/.test(leadNormalized) ||
+    /\bmanha\b/.test(leadNormalized) ||
+    /\btarde\b/.test(leadNormalized) ||
+    /\bnoite\b/.test(leadNormalized)
 
   const normalized = normalizeComparableMessage(text)
   const mentionsPrice =
@@ -279,10 +301,14 @@ function enforceQualificationCommercialGuard(
     /\bnoite\b/.test(normalized)
 
   if (mentionsPrice) {
-    return buildQualificationQuestion(qualification, { mentionValues: true })
+    return leadAskedPrice
+      ? buildQualificationQuestion(qualification, { mentionValues: true })
+      : buildQualificationQuestion(qualification)
   }
   if (mentionsScheduling) {
-    return buildQualificationQuestion(qualification, { mentionSchedule: true })
+    return leadAskedScheduling
+      ? buildQualificationQuestion(qualification, { mentionSchedule: true })
+      : buildQualificationQuestion(qualification)
   }
   return text
 }
@@ -2156,7 +2182,11 @@ export class NativeAgentOrchestratorService {
       allowEmojis: config.moderateEmojiEnabled !== false,
     })
     responseText = applyTemporalPeriodGuard(responseText, config)
-    responseText = enforceQualificationCommercialGuard(responseText, qualificationState)
+    responseText = enforceQualificationCommercialGuard(
+      responseText,
+      qualificationState,
+      effectiveLeadMessage || content,
+    )
     if (!responseText) {
       return {
         processed: true,
@@ -3011,7 +3041,7 @@ export class NativeAgentOrchestratorService {
       : "- Use apenas o contexto imediato da ultima mensagem."
     const firstMessageRule = config.preciseFirstMessageEnabled
       ? Number(ctx.assistantMessagesCount || 0) === 0
-        ? "- Esta e a primeira resposta da IA: (1) saudacao pelo periodo do dia, (2) apresentacao curta e natural da unidade/servico, (3) pergunte de forma leve a area de atuacao do lead — ex.: 'Me conta qual e a sua area de atuacao para eu te orientar melhor.' NAO mencione horarios, agenda, valores ou disponibilidade nesta abertura. EXCECAO: se o lead ja chegou perguntando sobre horarios, agenda ou valores, use exatamente este script: 'Antes de abrir horarios, preciso te conhecer melhor. Me conta sua area de atuacao para eu te indicar o melhor caminho.'"
+        ? "- Esta e a primeira resposta da IA: (1) saudacao pelo periodo do dia, (2) apresentacao curta e natural da unidade/servico, (3) pergunte de forma leve a area de atuacao do lead — ex.: 'Me conta qual e a sua area de atuacao para eu te orientar melhor.' NAO mencione horarios, agenda, valores ou disponibilidade nesta abertura. Se o lead ja chegou perguntando valores ou horario, siga o prompt da unidade sem usar scripts fixos."
         : "- Mantenha continuidade precisa com o ponto exato onde a conversa parou."
       : "- Primeira resposta pode seguir fluxo livre."
     const qualification = ctx.qualificationState || {
@@ -5452,5 +5482,3 @@ export class NativeAgentOrchestratorService {
     await Promise.all(tasks)
   }
 }
-
-
