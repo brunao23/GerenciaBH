@@ -46,6 +46,7 @@ export interface NativeAgentConfig {
   testAllowedNumbers: string[]
   toolNotificationsEnabled: boolean
   toolNotificationTargets: string[]
+  conversationTaskNotificationTemplate?: string
   notifyOnScheduleSuccess: boolean
   notifyOnScheduleError: boolean
   notifyOnHumanHandoff: boolean
@@ -175,6 +176,16 @@ const DEFAULT_TEST_MODE_ENABLED = false
 const DEFAULT_TEST_ALLOWED_NUMBERS: string[] = []
 const DEFAULT_TOOL_NOTIFICATIONS_ENABLED = false
 const DEFAULT_TOOL_NOTIFICATION_TARGETS: string[] = []
+const DEFAULT_CONVERSATION_TASK_NOTIFICATION_TEMPLATE = [
+  "Tarefa de retorno criada automaticamente",
+  "Unidade: {{tenant}}",
+  "Origem: {{sender_type}}",
+  "Lead: {{lead_name}}",
+  "Contato: wa.me/{{phone}}",
+  "Prazo: {{run_at}}",
+  "Motivo: {{reason}}",
+  "Mensagem: {{message}}",
+].join("\n")
 const DEFAULT_NOTIFY_ON_SCHEDULE_SUCCESS = true
 const DEFAULT_NOTIFY_ON_SCHEDULE_ERROR = true
 const DEFAULT_NOTIFY_ON_HUMAN_HANDOFF = true
@@ -668,6 +679,9 @@ function normalizeConfig(input: any): NativeAgentConfig {
     toolNotificationTargets: readToolNotificationTargets(
       raw.toolNotificationTargets || DEFAULT_TOOL_NOTIFICATION_TARGETS,
     ),
+    conversationTaskNotificationTemplate:
+      readString(raw.conversationTaskNotificationTemplate) ||
+      DEFAULT_CONVERSATION_TASK_NOTIFICATION_TEMPLATE,
     notifyOnScheduleSuccess: readBoolean(
       raw.notifyOnScheduleSuccess,
       DEFAULT_NOTIFY_ON_SCHEDULE_SUCCESS,
@@ -947,6 +961,13 @@ export function validateNativeAgentConfig(config: NativeAgentConfig): string | n
     }
   }
 
+  if (
+    config.conversationTaskNotificationTemplate &&
+    config.conversationTaskNotificationTemplate.length > 2000
+  ) {
+    return "conversationTaskNotificationTemplate must be <= 2000 chars"
+  }
+
   if (config.postScheduleAutomationEnabled && config.postScheduleMessageMode !== "text") {
     if (!config.postScheduleMediaUrl) {
       return "postScheduleMediaUrl is required when postScheduleMessageMode is media"
@@ -1138,6 +1159,7 @@ export async function updateNativeAgentConfigForTenant(
       testAllowedNumbers: config.testAllowedNumbers,
       toolNotificationsEnabled: config.toolNotificationsEnabled,
       toolNotificationTargets: config.toolNotificationTargets,
+      conversationTaskNotificationTemplate: config.conversationTaskNotificationTemplate,
       notifyOnScheduleSuccess: config.notifyOnScheduleSuccess,
       notifyOnScheduleError: config.notifyOnScheduleError,
       notifyOnHumanHandoff: config.notifyOnHumanHandoff,

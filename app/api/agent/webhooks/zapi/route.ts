@@ -4,7 +4,11 @@ import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { getTablesForTenant } from "@/lib/helpers/tenant"
 import { normalizeTenant } from "@/lib/helpers/normalize-tenant"
 import { resolveTenantDataPrefix } from "@/lib/helpers/tenant-resolution"
-import { getNativeAgentConfigForTenant } from "@/lib/helpers/native-agent-config"
+import {
+  getNativeAgentConfigForTenant,
+  type NativeAgentConfig,
+} from "@/lib/helpers/native-agent-config"
+import { getMessagingConfigForTenant } from "@/lib/helpers/messaging-config"
 import {
   normalizePhoneNumber,
   normalizeSessionId,
@@ -23,6 +27,7 @@ type ZapiCallbackType =
   | "delivery"
   | "message_status"
   | "chat_presence"
+  | "call"
   | "connected"
   | "disconnected"
   | "unknown"
@@ -330,9 +335,9 @@ function extractAudioPayload(payload: any): ExtractedAudioPayload {
 
   const hasAudioByObject = Boolean(
     message?.audioMessage ||
-      dataMessage?.audioMessage ||
-      (asObject(event?.audio) && Object.keys(asObject(event?.audio)).length > 0) ||
-      (asObject(data?.audio) && Object.keys(asObject(data?.audio)).length > 0),
+    dataMessage?.audioMessage ||
+    (asObject(event?.audio) && Object.keys(asObject(event?.audio)).length > 0) ||
+    (asObject(data?.audio) && Object.keys(asObject(data?.audio)).length > 0),
   )
 
   const url = readString(
@@ -501,6 +506,372 @@ async function transcribeAudioForEvent(params: {
   return { error: lastError || "audio_transcription_failed" }
 }
 
+type ConversationTaskInsight = {
+  processed: boolean
+  senderType?: "lead" | "human" | "ia" | "system"
+  created: boolean
+  taskId?: string
+  reason?: string
+  notified?: number
+}
+
+type TaskIntentDecision = {
+  create_task: boolean
+  minutes_from_now: number
+  reason: string
+  task_message: string
+  notify_group: boolean
+  notification_message: string
+}
+
+function extractJsonObject(input: string): string | null {
+  const text = String(input || "").trim()
+  if (!text) return null
+  const start = text.indexOf("{")
+  const end = text.lastIndexOf("}")
+  if (start < 0 || end < start) return null
+  return text.slice(start, end + 1)
+}
+
+function parseTaskIntentDecision(rawText: string): TaskIntentDecision | null {
+  const json = extractJsonObject(rawText)
+  if (!json) return null
+  try {
+    const parsed = JSON.parse(json)
+    return {
+      create_task: Boolean(parsed?.create_task),
+      minutes_from_now: Number(parsed?.minutes_from_now || 0),
+      reason: String(parsed?.reason || "").trim(),
+      task_message: String(parsed?.task_message || "").trim(),
+      notify_group: Boolean(parsed?.notify_group),
+      notification_message: String(parsed?.notification_message || "").trim(),
+    }
+  } catch {
+    return null
+  }
+}
+
+function clampTaskDelayMinutes(value: any, fallback = 120): number {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return fallback
+  if (numeric < 5) return 5
+  if (numeric > 60 * 24 * 14) return 60 * 24 * 14
+  return Math.floor(numeric)
+}
+
+function normalizeNotificationGroupTargets(values: any): string[] {
+  if (!Array.isArray(values)) return []
+  return values
+    .map((value) => {
+      const text = String(value || "").trim()
+      if (!text) return ""
+      if (/@g\.us$/i.test(text)) return text
+      if (/-group$/i.test(text)) return text
+      const groupCandidate = text.replace(/[^0-9-]/g, "")
+      if (/^\d{8,}-\d{2,}$/.test(groupCandidate)) {
+        return `${groupCandidate}-group`
+      }
+      return ""
+    })
+    .filter(Boolean)
+    .slice(0, 50)
+}
+
+function extractLeadDisplayName(event: ZapiMessageEvent): string {
+  return readString(event.contactName, event.senderName, event.chatName) || "Lead"
+}
+
+function formatRunAtForNotification(runAtIso: string): string {
+  try {
+    return new Intl.DateTimeFormat("pt-BR", {
+      dateStyle: "short",
+      timeStyle: "short",
+      timeZone: "America/Sao_Paulo",
+    }).format(new Date(runAtIso))
+  } catch {
+    return runAtIso
+  }
+}
+
+function renderConversationTaskNotificationTemplate(
+  template: string | undefined,
+  context: {
+    tenant: string
+    senderType: "lead" | "human"
+    leadName: string
+    phone: string
+    runAtFormatted: string
+    reason: string
+    message: string
+  },
+): string {
+  const baseTemplate = String(template || "").trim()
+  if (!baseTemplate) return ""
+
+  const tokenMap: Record<string, string> = {
+    tenant: context.tenant,
+    sender_type: context.senderType === "human" ? "humano" : "lead",
+    lead_name: context.leadName,
+    phone: context.phone,
+    run_at: context.runAtFormatted,
+    reason: context.reason || "compromisso de retorno",
+    message: context.message,
+  }
+
+  let rendered = baseTemplate
+  for (const [key, value] of Object.entries(tokenMap)) {
+    rendered = rendered.replace(new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, "gi"), String(value || ""))
+  }
+
+  return String(rendered || "").trim().slice(0, 2000)
+}
+
+function resolveFallbackDelayMinutesFromText(text: string): number {
+  const normalized = normalizeComparableText(text)
+  if (!normalized) return 120
+
+  const explicitMinutes = normalized.match(/\b(\d{1,4})\s*(min|minuto|minutos)\b/)
+  if (explicitMinutes?.[1]) {
+    return clampTaskDelayMinutes(Number(explicitMinutes[1]), 120)
+  }
+
+  const explicitHours = normalized.match(/\b(\d{1,3})\s*(h|hora|horas)\b/)
+  if (explicitHours?.[1]) {
+    return clampTaskDelayMinutes(Number(explicitHours[1]) * 60, 120)
+  }
+
+  if (/\b(amanha|amanha cedo|amanha a tarde|amanha a noite)\b/.test(normalized)) return 24 * 60
+  if (/\b(semana que vem|proxima semana)\b/.test(normalized)) return 7 * 24 * 60
+  if (/\b(mais tarde|depois|retorno depois)\b/.test(normalized)) return 180
+  return 120
+}
+
+async function classifyTaskIntentWithGemini(params: {
+  config: NativeAgentConfig
+  senderType: "lead" | "human"
+  message: string
+  timezone: string
+}): Promise<TaskIntentDecision | null> {
+  const apiKey = String(params.config.geminiApiKey || "").trim()
+  if (!apiKey) return null
+  const model = String(params.config.geminiModel || "gemini-2.5-flash").trim() || "gemini-2.5-flash"
+
+  const classifierPrompt = [
+    "Voce classifica mensagens de conversa de WhatsApp para criar tarefas internas de retorno.",
+    "Crie tarefa SOMENTE quando houver pedido claro de lembrar/retornar depois, ou compromisso explicito de retorno/acao futura.",
+    "Nao crie tarefa para saudacao, descoberta comercial, perguntas normais, resposta casual, ou andamento comum sem compromisso futuro.",
+    "sender_type pode ser lead ou human.",
+    "Quando sender_type=lead: criar tarefa se o lead pedir retorno em outro horario/data, lembrar depois, ou solicitar contato futuro.",
+    "Quando sender_type=human: criar tarefa se o atendente prometer acao futura (retornar, ligar, enviar proposta, confirmar algo depois).",
+    "Retorne SOMENTE JSON valido, sem markdown, no formato:",
+    '{"create_task":false,"minutes_from_now":0,"reason":"","task_message":"","notify_group":false,"notification_message":""}',
+    `timezone=${params.timezone || "America/Sao_Paulo"}`,
+    `sender_type=${params.senderType}`,
+    `message=${params.message}`,
+  ].join("\n")
+
+  const payload = {
+    contents: [{ role: "user", parts: [{ text: classifierPrompt }] }],
+    generationConfig: {
+      temperature: 0.1,
+      topP: 0.9,
+      responseMimeType: "application/json",
+    },
+  }
+
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      },
+    )
+    const rawText = await response.text()
+    if (!response.ok) return null
+    const parsedBody = rawText ? JSON.parse(rawText) : {}
+    const outputText = String(
+      parsedBody?.candidates?.[0]?.content?.parts?.map((part: any) => String(part?.text || "")).join("\n") || "",
+    ).trim()
+    return parseTaskIntentDecision(outputText)
+  } catch {
+    return null
+  }
+}
+
+function heuristicTaskIntentDecision(params: {
+  senderType: "lead" | "human"
+  message: string
+}): TaskIntentDecision {
+  const normalized = normalizeComparableText(params.message)
+  const senderType = params.senderType
+  const asksFutureContact =
+    /\b(me lembra|me lembre|me chama depois|me chama amanha|me retorna|retorna depois|retorna amanha|entrar em contato depois|falar comigo depois)\b/.test(
+      normalized,
+    ) ||
+    /\b(posso te responder depois|te respondo depois|te chamo depois)\b/.test(normalized)
+  const humanPromise =
+    /\b(vou te retornar|te retorno|vou retornar|vou te chamar|vou te ligar|vou enviar|vou confirmar|depois te aviso|depois te retorno)\b/.test(
+      normalized,
+    ) ||
+    /\b(amanha te|semana que vem te)\b/.test(normalized)
+
+  const shouldCreate =
+    (senderType === "lead" && asksFutureContact) ||
+    (senderType === "human" && humanPromise)
+
+  const minutes = resolveFallbackDelayMinutesFromText(params.message)
+  return {
+    create_task: shouldCreate,
+    minutes_from_now: shouldCreate ? minutes : 0,
+    reason: shouldCreate ? "detected_future_contact_commitment" : "no_commitment_detected",
+    task_message: shouldCreate
+      ? senderType === "lead"
+        ? "Lead pediu retorno em outro momento. Retomar atendimento no prazo combinado."
+        : "Atendente assumiu compromisso de retorno com o lead. Validar e retomar no prazo combinado."
+      : "",
+    notify_group: shouldCreate,
+    notification_message: "",
+  }
+}
+
+async function processConversationTaskIntelligence(params: {
+  tenant: string
+  config: NativeAgentConfig
+  event: ZapiMessageEvent
+  sessionId: string
+  phone: string
+}): Promise<ConversationTaskInsight> {
+  const normalizedPhone = normalizeLikelyWhatsappPhone(params.phone)
+  if (!normalizedPhone) {
+    return { processed: false, created: false, reason: "missing_phone_for_task_listener" }
+  }
+
+  const senderType = resolveSenderTypeForEvent(params.event)
+  if (params.event.callbackType !== "received") {
+    return { processed: false, senderType, created: false, reason: "callback_not_received" }
+  }
+  if (senderType !== "lead" && senderType !== "human") {
+    return { processed: false, senderType, created: false, reason: "sender_not_eligible" }
+  }
+
+  const message = String(params.event.text || "").trim()
+  if (!message) {
+    return { processed: false, senderType, created: false, reason: "empty_message" }
+  }
+  if (senderType === "human" && isIgnorableUnitWelcomeMessage(message)) {
+    return { processed: true, senderType, created: false, reason: "unit_welcome_message_ignored" }
+  }
+
+  const llmDecision = await classifyTaskIntentWithGemini({
+    config: params.config,
+    senderType,
+    message,
+    timezone: params.config.timezone || "America/Sao_Paulo",
+  })
+  const decision = llmDecision || heuristicTaskIntentDecision({ senderType, message })
+  if (!decision.create_task) {
+    return { processed: true, senderType, created: false, reason: decision.reason || "no_task_needed" }
+  }
+
+  const delayMinutes = clampTaskDelayMinutes(
+    decision.minutes_from_now || resolveFallbackDelayMinutesFromText(message),
+    120,
+  )
+  const runAtIso = new Date(Date.now() + delayMinutes * 60 * 1000).toISOString()
+  const leadName = extractLeadDisplayName(params.event)
+  const queueMessage = String(decision.task_message || "").trim() ||
+    (senderType === "lead"
+      ? "Lead pediu retorno em outro momento. Retomar atendimento conforme combinado."
+      : "Atendente registrou compromisso de retorno. Validar pendencia e retomar contato.")
+
+  const enqueue = await new AgentTaskQueueService().enqueueReminder({
+    tenant: params.tenant,
+    sessionId: params.sessionId,
+    phone: normalizedPhone,
+    runAt: runAtIso,
+    message: queueMessage,
+    metadata: {
+      source: "conversation_listener_llm",
+      sender_type: senderType,
+      reason: decision.reason || null,
+      trigger_message: message.slice(0, 500),
+      trigger_message_id: params.event.messageId || null,
+      contact_name: leadName,
+      delay_minutes: delayMinutes,
+    },
+  })
+
+  if (!enqueue.ok) {
+    return {
+      processed: true,
+      senderType,
+      created: false,
+      reason: `task_enqueue_failed:${enqueue.error || "unknown"}`,
+    }
+  }
+
+  const groupTargets = normalizeNotificationGroupTargets(params.config.toolNotificationTargets)
+  let notified = 0
+  if (
+    decision.notify_group !== false &&
+    groupTargets.length > 0
+  ) {
+    const runAtFormatted = formatRunAtForNotification(runAtIso)
+    const templateMessage = renderConversationTaskNotificationTemplate(
+      params.config.conversationTaskNotificationTemplate,
+      {
+        tenant: params.tenant,
+        senderType,
+        leadName,
+        phone: normalizedPhone,
+        runAtFormatted,
+        reason: decision.reason || "compromisso de retorno",
+        message: message.slice(0, 220),
+      },
+    )
+    const fallbackMessage = [
+      "Tarefa de retorno criada automaticamente",
+      `Unidade: ${params.tenant}`,
+      `Origem: ${senderType === "human" ? "humano" : "lead"}`,
+      `Lead: ${leadName}`,
+      `Contato: wa.me/${normalizedPhone}`,
+      `Prazo: ${runAtFormatted}`,
+      `Motivo: ${decision.reason || "compromisso de retorno"}`,
+      `Mensagem: ${message.slice(0, 220)}`,
+    ].join("\n")
+    const notificationMessage =
+      String(decision.notification_message || "").trim() ||
+      templateMessage ||
+      fallbackMessage
+
+    const messaging = new TenantMessagingService()
+    for (const target of groupTargets) {
+      const sent = await messaging.sendText({
+        tenant: params.tenant,
+        phone: target,
+        sessionId: target,
+        message: notificationMessage,
+        source: "conversation-listener-task",
+        persistInHistory: false,
+      })
+      if (sent.success) {
+        notified += 1
+      }
+    }
+  }
+
+  return {
+    processed: true,
+    senderType,
+    created: true,
+    taskId: enqueue.id,
+    reason: decision.reason || "task_created",
+    notified,
+  }
+}
+
 function extractPhone(payload: any): string {
   const candidates = [
     payload?.phone,
@@ -607,6 +978,7 @@ function parseCallbackType(type: string): ZapiCallbackType {
   if (normalized === "deliverycallback") return "delivery"
   if (normalized === "messagestatuscallback") return "message_status"
   if (normalized === "presencechatcallback") return "chat_presence"
+  if (normalized === "callcallback") return "call"
   if (normalized === "connectedcallback") return "connected"
   if (normalized === "disconnectedcallback") return "disconnected"
   return "unknown"
@@ -828,6 +1200,13 @@ function sameText(a: string, b: string): boolean {
   return String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase()
 }
 
+function extractInstanceIdFromZapiUrl(value: string): string {
+  const text = String(value || "").trim()
+  if (!text) return ""
+  const match = text.match(/\/instances\/([^/]+)\//i)
+  return String(match?.[1] || "").trim()
+}
+
 function resolveSessionForPersistence(event: ZapiMessageEvent): string {
   const candidate = readString(
     event.sessionId,
@@ -971,7 +1350,7 @@ async function resolveConversationRouting(params: {
         ...event.ids,
       ]
         .map((value) => String(value || "").trim())
-      .filter(Boolean),
+        .filter(Boolean),
     ),
   )
 
@@ -1058,6 +1437,10 @@ function buildContent(event: ZapiMessageEvent): string {
 
   if (event.callbackType === "chat_presence") {
     return `[PresenceChatCallback] ${event.status || "UNKNOWN"}`
+  }
+
+  if (event.callbackType === "call") {
+    return `[CallCallback] ${event.status || "UNKNOWN"}`
   }
 
   if (event.callbackType === "connected") {
@@ -1211,13 +1594,22 @@ async function isAiPausedForPhone(tenant: string, phone: string): Promise<boolea
   return until.getTime() > Date.now()
 }
 
-async function pauseAiForLead(tenant: string, phone: string): Promise<void> {
+async function pauseAiForLead(
+  tenant: string,
+  phone: string,
+  options?: { minutes?: number; reason?: string },
+): Promise<void> {
   const normalized = normalizePhoneNumber(phone)
   if (!normalized) return
 
   const supabase = createBiaSupabaseServerClient()
   const { pausar: pauseTable } = getTablesForTenant(tenant)
   const nowIso = new Date().toISOString()
+  const pauseMinutes = Math.max(0, Math.floor(Number(options?.minutes || 0)))
+  const pausedUntilIso =
+    pauseMinutes > 0
+      ? new Date(Date.now() + pauseMinutes * 60 * 1000).toISOString()
+      : null
   const payload: Record<string, any> = {
     numero: normalized,
     pausar: true,
@@ -1225,6 +1617,8 @@ async function pauseAiForLead(tenant: string, phone: string): Promise<void> {
     agendamento: true,
     updated_at: nowIso,
     pausado_em: nowIso,
+    paused_until: pausedUntilIso,
+    pause_reason: String(options?.reason || "").trim() || null,
   }
 
   let upsert = await supabase
@@ -1234,7 +1628,9 @@ async function pauseAiForLead(tenant: string, phone: string): Promise<void> {
 
   if (upsert.error) {
     const fallback = { ...payload }
+    delete fallback.paused_until
     delete fallback.pausado_em
+    delete fallback.pause_reason
     upsert = await supabase
       .from(pauseTable)
       .upsert(fallback, { onConflict: "numero", ignoreDuplicates: false })
@@ -1243,6 +1639,41 @@ async function pauseAiForLead(tenant: string, phone: string): Promise<void> {
 
   if (upsert.error) {
     console.warn("[zapi-webhook] failed to auto-pause AI for human intervention:", upsert.error)
+  }
+}
+
+async function unpauseAiForLead(tenant: string, phone: string): Promise<void> {
+  const normalized = normalizePhoneNumber(phone)
+  if (!normalized) return
+
+  const supabase = createBiaSupabaseServerClient()
+  const { pausar: pauseTable } = getTablesForTenant(tenant)
+  const nowIso = new Date().toISOString()
+  const payload: Record<string, any> = {
+    numero: normalized,
+    pausar: false,
+    vaga: false,
+    agendamento: false,
+    updated_at: nowIso,
+    paused_until: null,
+  }
+
+  let upsert = await supabase
+    .from(pauseTable)
+    .upsert(payload, { onConflict: "numero", ignoreDuplicates: false })
+    .select("numero")
+
+  if (upsert.error) {
+    const fallback = { ...payload }
+    delete fallback.paused_until
+    upsert = await supabase
+      .from(pauseTable)
+      .upsert(fallback, { onConflict: "numero", ignoreDuplicates: false })
+      .select("numero")
+  }
+
+  if (upsert.error) {
+    console.warn("[zapi-webhook] failed to unpause AI for reschedule flow:", upsert.error)
   }
 }
 
@@ -1505,6 +1936,52 @@ function normalizeComparableText(value: string): string {
     .trim()
 }
 
+function isRescheduleIntentMessage(text: string): boolean {
+  const normalized = normalizeComparableText(text)
+  if (!normalized) return false
+  return (
+    /\b(reagend|remarc|trocar horario|trocar dia|mudar horario|mudar dia|reprogramar|adiar|antecipar)\b/.test(
+      normalized,
+    ) ||
+    (/\bcancelar\b/.test(normalized) && /\b(agendamento|agenda|consulta|horario)\b/.test(normalized))
+  )
+}
+
+function isHumanCallInterventionEvent(event: ZapiMessageEvent): boolean {
+  if (event.fromMe !== true || event.fromApi === true || event.isGroup) return false
+
+  const raw = asObject(event.raw)
+  const data = asObject(raw.data)
+  const message = asObject(data.message || raw.message)
+
+  const unionText = normalizeComparableText(
+    readString(
+      event.type,
+      event.status,
+      event.metadata?.type,
+      event.metadata?.status,
+      raw.type,
+      raw.event,
+      raw.action,
+      data.type,
+      data.event,
+      data.action,
+      data.messageType,
+      message.type,
+      message.messageType,
+      message.stubType,
+      data.stubType,
+      raw.stubType,
+    ),
+  )
+
+  const hasCallKeyword = /\b(call|chamada|ligacao|ligacao|phone|voice)\b/.test(unionText)
+  const hasCallId = Boolean(readString(data.callId, raw.callId, message.callId))
+  const hasCallFlag = readBoolean(data.isCall ?? raw.isCall ?? message.isCall)
+
+  return event.callbackType === "call" || hasCallKeyword || hasCallId || hasCallFlag
+}
+
 function isIgnorableUnitWelcomeMessage(text: string): boolean {
   const normalized = normalizeComparableText(text)
   if (!normalized) return false
@@ -1606,9 +2083,9 @@ function mergeBufferedUserContent(turns: BufferedUserTurn[], fallback: string): 
 function canTriggerNativeAgent(event: ZapiMessageEvent, sessionId: string): boolean {
   return Boolean(
     event.callbackType === "received" &&
-      !event.fromMe &&
-      (event.text || event.isReaction || event.hasAudio || event.isGif) &&
-      sessionId,
+    !event.fromMe &&
+    (event.text || event.isReaction || event.hasAudio || event.isGif) &&
+    sessionId,
   )
 }
 
@@ -1658,6 +2135,7 @@ export async function GET() {
       "DeliveryCallback",
       "MessageStatusCallback",
       "PresenceChatCallback",
+      "CallCallback",
       "ConnectedCallback",
       "DisconnectedCallback",
     ],
@@ -1667,6 +2145,7 @@ export async function GET() {
       delivery: "/update-webhook-delivery",
       messageStatus: "/update-webhook-message-status",
       chatPresence: "/update-webhook-chat-presence",
+      call: "/update-webhook-call",
       connected: "/update-webhook-connected",
       disconnected: "/update-webhook-disconnected",
       all: "/update-every-webhooks",
@@ -1740,10 +2219,26 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    const allowedInstance = String(config.webhookAllowedInstanceId || "").trim()
-    if (allowedInstance) {
-      const incomingInstance = String(event.instanceId || "").trim()
-      if (!incomingInstance || !sameText(allowedInstance, incomingInstance)) {
+    const messagingConfig = await getMessagingConfigForTenant(tenant).catch(() => null)
+    const trustedInstanceCandidates = Array.from(
+      new Set(
+        [
+          String(config.webhookAllowedInstanceId || "").trim(),
+          String(messagingConfig?.instanceId || "").trim(),
+          extractInstanceIdFromZapiUrl(String(messagingConfig?.sendTextUrl || "")),
+          extractInstanceIdFromZapiUrl(String(messagingConfig?.apiUrl || "")),
+        ]
+          .map((value) => String(value || "").trim())
+          .filter(Boolean),
+      ),
+    )
+
+    const incomingInstance = String(event.instanceId || "").trim()
+    if (trustedInstanceCandidates.length > 0) {
+      const isTrustedInstance =
+        !!incomingInstance &&
+        trustedInstanceCandidates.some((candidate) => sameText(candidate, incomingInstance))
+      if (!isTrustedInstance) {
         return NextResponse.json(
           {
             received: false,
@@ -1768,13 +2263,12 @@ export async function POST(req: NextRequest) {
     }
 
     const incomingSecret = readWebhookSecret(req, body, event)
-    const incomingInstance = String(event.instanceId || "").trim()
     const secretMatches = incomingSecret ? sameSecret(expectedSecret, incomingSecret) : false
     const allowByTrustedInstanceOnly =
       !incomingSecret &&
-      Boolean(allowedInstance) &&
+      trustedInstanceCandidates.length > 0 &&
       Boolean(incomingInstance) &&
-      sameText(allowedInstance, incomingInstance)
+      trustedInstanceCandidates.some((candidate) => sameText(candidate, incomingInstance))
 
     if (!secretMatches && !allowByTrustedInstanceOnly) {
       return NextResponse.json(
@@ -1839,9 +2333,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const shouldAutoPauseByHumanIntervention = false
-
-    if (shouldAutoPauseByHumanIntervention) {
+    const isCallIntervention = isHumanCallInterventionEvent(event)
+    if (isCallIntervention) {
       const persisted = await persistZapiEvent({
         tenant,
         event,
@@ -1850,14 +2343,17 @@ export async function POST(req: NextRequest) {
       })
       const phoneToPause = canonicalPhone
       if (phoneToPause) {
-        await pauseAiForLead(tenant, phoneToPause)
+        await pauseAiForLead(tenant, phoneToPause, {
+          minutes: 30,
+          reason: "human_call_intervention",
+        })
         await new AgentTaskQueueService()
           .cancelPendingFollowups({
             tenant,
             sessionId: canonicalSessionId,
             phone: phoneToPause,
           })
-          .catch(() => {})
+          .catch(() => { })
       }
       if (config.autoLearningEnabled !== false) {
         await new NativeAgentLearningService()
@@ -1867,7 +2363,7 @@ export async function POST(req: NextRequest) {
             sendSuccess: true,
             humanIntervention: true,
           })
-          .catch(() => {})
+          .catch(() => { })
       }
 
       return NextResponse.json({
@@ -1876,8 +2372,9 @@ export async function POST(req: NextRequest) {
         callbackType: event.callbackType,
         persisted,
         ignored: true,
-        reason: "human_intervention_paused_ai",
+        reason: "human_call_intervention_paused_ai",
         autoPaused: Boolean(phoneToPause),
+        pausedMinutes: 30,
       })
     }
 
@@ -1890,45 +2387,7 @@ export async function POST(req: NextRequest) {
           sessionId: sessionForFollowupCancel,
           phone: phoneForFollowupCancel || undefined,
         })
-        .catch(() => {})
-    }
-
-    const shouldTriggerAgent =
-      canTriggerNativeAgent(event, canonicalSessionId) ||
-      shouldTriggerFromExternalStarter
-
-    if (!shouldTriggerAgent) {
-      const persisted = await persistZapiEvent({
-        tenant,
-        event,
-        sessionId: canonicalSessionId,
-        phone: canonicalPhone,
-      })
-      return NextResponse.json({
-        received: true,
-        tenant,
-        callbackType: event.callbackType,
-        persisted,
-        ignored: true,
-        reason: "callback_without_ai_response",
-        resolvedBy: routing.resolvedBy,
-      })
-    }
-
-    if (!config.enabled) {
-      const persisted = await persistZapiEvent({
-        tenant,
-        event,
-        sessionId: canonicalSessionId,
-        phone: canonicalPhone,
-      })
-      return NextResponse.json({
-        received: true,
-        ignored: true,
-        reason: "native_agent_disabled",
-        tenant,
-        persisted,
-      })
+        .catch(() => { })
     }
 
     const persisted = await persistZapiEvent({
@@ -1947,6 +2406,48 @@ export async function POST(req: NextRequest) {
       })
     }
 
+    const taskInsightPromise = processConversationTaskIntelligence({
+      tenant,
+      config,
+      event,
+      sessionId: canonicalSessionId,
+      phone: canonicalPhone || canonicalSessionId,
+    }).catch((error: any): ConversationTaskInsight => ({
+      processed: false,
+      created: false,
+      reason: `task_listener_failed:${String(error?.message || "unknown")}`,
+    }))
+
+    const shouldTriggerAgent =
+      canTriggerNativeAgent(event, canonicalSessionId) ||
+      shouldTriggerFromExternalStarter
+
+    if (!shouldTriggerAgent) {
+      const taskInsight = await taskInsightPromise
+      return NextResponse.json({
+        received: true,
+        tenant,
+        callbackType: event.callbackType,
+        persisted,
+        ignored: true,
+        reason: "callback_without_ai_response",
+        resolvedBy: routing.resolvedBy,
+        taskInsight,
+      })
+    }
+
+    if (!config.enabled) {
+      const taskInsight = await taskInsightPromise
+      return NextResponse.json({
+        received: true,
+        ignored: true,
+        reason: "native_agent_disabled",
+        tenant,
+        persisted,
+        taskInsight,
+      })
+    }
+
     const replyPhone = resolveReplyTarget({
       event,
       routing,
@@ -1954,35 +2455,63 @@ export async function POST(req: NextRequest) {
       canonicalSessionId,
     })
     if (!replyPhone) {
+      const taskInsight = await taskInsightPromise
       return NextResponse.json({
         received: true,
         ignored: true,
         reason: "missing_phone_for_reply",
         tenant,
         persisted,
+        taskInsight,
       })
     }
 
     if (config?.testModeEnabled === true && canonicalPhone) {
       if (!isPhoneAllowedInTestMode(config, canonicalPhone)) {
+        const taskInsight = await taskInsightPromise
         return NextResponse.json({
           received: true,
           ignored: true,
           reason: "test_mode_number_not_allowed",
           tenant,
           persisted,
+          taskInsight,
         })
       }
     }
 
     const paused = canonicalPhone ? await isAiPausedForPhone(tenant, canonicalPhone) : false
     if (paused) {
+      const shouldUnpauseForReschedule =
+        event.callbackType === "received" &&
+        event.fromMe !== true &&
+        isRescheduleIntentMessage(String(event.text || ""))
+
+      if (shouldUnpauseForReschedule && canonicalPhone) {
+        await unpauseAiForLead(tenant, canonicalPhone)
+      } else {
+        const taskInsight = await taskInsightPromise
+        return NextResponse.json({
+          received: true,
+          ignored: true,
+          reason: "ai_paused_by_human",
+          tenant,
+          persisted,
+          taskInsight,
+        })
+      }
+    }
+
+    const pausedAfterUnpauseAttempt = canonicalPhone ? await isAiPausedForPhone(tenant, canonicalPhone) : false
+    if (pausedAfterUnpauseAttempt) {
+      const taskInsight = await taskInsightPromise
       return NextResponse.json({
         received: true,
         ignored: true,
         reason: "ai_paused_by_human",
         tenant,
         persisted,
+        taskInsight,
       })
     }
 
@@ -2014,6 +2543,7 @@ export async function POST(req: NextRequest) {
         latestCreatedAtMs > currentCreatedAtMs + 250
 
       if (newerById || newerByTimestamp) {
+        const taskInsight = await taskInsightPromise
         return NextResponse.json({
           received: true,
           ignored: true,
@@ -2021,6 +2551,7 @@ export async function POST(req: NextRequest) {
           tenant,
           persisted,
           inboundBufferSeconds,
+          taskInsight,
         })
       }
     }
@@ -2096,6 +2627,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const taskInsight = await taskInsightPromise
+
     return NextResponse.json({
       received: true,
       tenant,
@@ -2107,6 +2640,7 @@ export async function POST(req: NextRequest) {
       inboundBufferSeconds,
       bufferedMessagesCount: bufferedTurns.length,
       result,
+      taskInsight,
     })
   } catch (error: any) {
     return NextResponse.json(

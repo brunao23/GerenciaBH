@@ -18,6 +18,11 @@ function mergeSecret(current: string | undefined, incoming: any): string | undef
   return value
 }
 
+function generateWebhookSecret(): string {
+  const uuid = crypto.randomUUID().replace(/-/g, "")
+  return `whsec_${uuid}`
+}
+
 function toBool(value: any, fallback: boolean): boolean {
   if (value === undefined || value === null) return fallback
   if (typeof value === "boolean") return value
@@ -385,6 +390,16 @@ export async function POST(req: Request) {
       testAllowedNumbers: [],
       toolNotificationsEnabled: false,
       toolNotificationTargets: [],
+      conversationTaskNotificationTemplate: [
+        "Tarefa de retorno criada automaticamente",
+        "Unidade: {{tenant}}",
+        "Origem: {{sender_type}}",
+        "Lead: {{lead_name}}",
+        "Contato: wa.me/{{phone}}",
+        "Prazo: {{run_at}}",
+        "Motivo: {{reason}}",
+        "Mensagem: {{message}}",
+      ].join("\n"),
       notifyOnScheduleSuccess: true,
       notifyOnScheduleError: true,
       notifyOnHumanHandoff: true,
@@ -562,6 +577,10 @@ export async function POST(req: Request) {
         body?.toolNotificationTargets !== undefined
           ? toNotificationTargets(body.toolNotificationTargets, [])
           : current.toolNotificationTargets,
+      conversationTaskNotificationTemplate:
+        body?.conversationTaskNotificationTemplate !== undefined
+          ? toOptionalText(body.conversationTaskNotificationTemplate)
+          : current.conversationTaskNotificationTemplate,
       notifyOnScheduleSuccess: toBool(
         body?.notifyOnScheduleSuccess,
         current.notifyOnScheduleSuccess,
@@ -854,6 +873,10 @@ export async function POST(req: Request) {
         : current.unitLongitude,
       unitName: body?.unitName !== undefined ? toOptionalText(body.unitName) : current.unitName,
       unitAddress: body?.unitAddress !== undefined ? toOptionalText(body.unitAddress) : current.unitAddress,
+    }
+
+    if (nextConfig.webhookEnabled && (!nextConfig.webhookSecret || nextConfig.webhookSecret.length < 8)) {
+      nextConfig.webhookSecret = generateWebhookSecret()
     }
 
     if (body?.followupPlan !== undefined && Array.isArray(nextConfig.followupPlan)) {

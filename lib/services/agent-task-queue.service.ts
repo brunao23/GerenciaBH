@@ -191,6 +191,32 @@ function isLikelyGenericFollowup(message: string): boolean {
   return blockedPatterns.some((pattern) => text.includes(pattern))
 }
 
+function isLikelyInternalTaskInstructionMessage(message: string): boolean {
+  const text = normalizeComparableText(message)
+  if (!text) return true
+
+  const startsWithInternalVerb = /^(verificar|checar|confirmar|validar|analisar|acompanhar|atualizar|revisar|monitorar|avaliar|registrar)\b/.test(
+    text,
+  )
+  const startsAsChecklist = /^(\d+[\.\)]\s*|checklist\b|tarefa\b|acao\b|acao:\b|ação\b|ação:\b)/.test(
+    text,
+  )
+  const mentionsSystemMeta =
+    /\b(lead|crm|pipeline|task|tarefas|cron|fila|queue|diagnostico na|diagnostico do|agendamento na)\b/.test(
+      text,
+    )
+  const addressesLeadDirectly =
+    /\b(voce|você|seu|sua|te|contigo|consigo|quer|prefere|posso|vamos)\b/.test(text) ||
+    /^(oi|ola|olá|bom dia|boa tarde|boa noite)\b/.test(text)
+  const startsAsInternalNote = /^verificar se o\b/.test(text)
+
+  if (startsAsInternalNote) return true
+  if ((startsWithInternalVerb || startsAsChecklist) && !addressesLeadDirectly) return true
+  if ((startsWithInternalVerb || startsAsChecklist) && mentionsSystemMeta) return true
+
+  return false
+}
+
 function isTooSimilarToAny(candidate: string, previousMessages: string[]): boolean {
   const normalizedCandidate = normalizeComparableText(candidate)
   if (!normalizedCandidate) return false
@@ -668,7 +694,12 @@ export class AgentTaskQueueService {
           createdAt: entry.createdAt,
         })),
       })
-      if (aiMessage) return aiMessage
+      if (aiMessage) {
+        const candidate = sanitizeFollowupText(aiMessage, 280)
+        if (!isLikelyInternalTaskInstructionMessage(candidate)) {
+          return candidate
+        }
+      }
 
       const fallback = buildRuntimeContextualFollowupMessage({
         step,

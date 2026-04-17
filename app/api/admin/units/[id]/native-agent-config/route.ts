@@ -318,6 +318,11 @@ function mergeSecret(current: string | undefined, incoming: any): string | undef
   return text
 }
 
+function generateWebhookSecret(): string {
+  const uuid = crypto.randomUUID().replace(/-/g, "")
+  return `whsec_${uuid}`
+}
+
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
     String(value || "").trim(),
@@ -484,6 +489,16 @@ export async function PATCH(req: NextRequest, context: { params: RouteParams }) 
         testAllowedNumbers: [],
         toolNotificationsEnabled: false,
         toolNotificationTargets: [],
+        conversationTaskNotificationTemplate: [
+          "Tarefa de retorno criada automaticamente",
+          "Unidade: {{tenant}}",
+          "Origem: {{sender_type}}",
+          "Lead: {{lead_name}}",
+          "Contato: wa.me/{{phone}}",
+          "Prazo: {{run_at}}",
+          "Motivo: {{reason}}",
+          "Mensagem: {{message}}",
+        ].join("\n"),
         notifyOnScheduleSuccess: true,
         notifyOnScheduleError: true,
         notifyOnHumanHandoff: true,
@@ -670,6 +685,10 @@ export async function PATCH(req: NextRequest, context: { params: RouteParams }) 
         body?.toolNotificationTargets !== undefined
           ? toNotificationTargets(body.toolNotificationTargets, [])
           : current.toolNotificationTargets,
+      conversationTaskNotificationTemplate:
+        body?.conversationTaskNotificationTemplate !== undefined
+          ? toOptionalText(body.conversationTaskNotificationTemplate)
+          : current.conversationTaskNotificationTemplate,
       notifyOnScheduleSuccess: toBool(
         body?.notifyOnScheduleSuccess,
         current.notifyOnScheduleSuccess,
@@ -965,6 +984,10 @@ export async function PATCH(req: NextRequest, context: { params: RouteParams }) 
         : current.unitLongitude,
       unitName: body?.unitName !== undefined ? toOptionalText(body.unitName) : current.unitName,
       unitAddress: body?.unitAddress !== undefined ? toOptionalText(body.unitAddress) : current.unitAddress,
+    }
+
+    if (nextConfig.webhookEnabled && (!nextConfig.webhookSecret || nextConfig.webhookSecret.length < 8)) {
+      nextConfig.webhookSecret = generateWebhookSecret()
     }
 
     if (body?.followupPlan !== undefined && Array.isArray(nextConfig.followupPlan)) {

@@ -166,6 +166,127 @@ function normalizeComparableMessage(value: string): string {
     .trim()
 }
 
+type QualificationState = {
+  hasArea: boolean
+  hasPain: boolean
+  qualified: boolean
+}
+
+function detectQualificationAreaSignal(value: string): boolean {
+  const text = normalizeComparableMessage(value)
+  if (!text) return false
+  return (
+    /\b(sou|trabalho|atuo|atuacao|minha area|minha profissao|profissao|profissional|estudante|empresari[oa])\b/.test(text) ||
+    /\b(advogad[oa]|medic[oa]|dentist[oa]|engenheir[oa]|professor[oa]?|vendedor[oa]?|gestor[oa]?|consultor[oa]?|analista)\b/.test(
+      text,
+    ) ||
+    /\b(rh|recursos humanos|ti|tecnologia|comercial|marketing|financeir[oa]|administracao|industria|farmaceutic[ao])\b/.test(
+      text,
+    )
+  )
+}
+
+function detectQualificationPainSignal(value: string): boolean {
+  const text = normalizeComparableMessage(value)
+  if (!text) return false
+  return (
+    /\b(desafio|dificuldade|dor|problema|vergonha|timidez|medo|inseguranca|nervosismo|ansiedade)\b/.test(text) ||
+    /\b(travo|travar|nao consigo|nao tenho confianca|falar em publico|apresentacao|oratoria|comunicacao)\b/.test(text) ||
+    /\b(quero melhorar|melhorar|evoluir|minha comunicacao|minha oratoria)\b/.test(text)
+  )
+}
+
+function resolveQualificationState(
+  conversationRows: Array<{ role: "user" | "assistant" | "system"; content: string }>,
+  fallbackLeadMessage: string,
+): QualificationState {
+  const userMessages = conversationRows
+    .filter((row) => row.role === "user")
+    .map((row) => String(row.content || "").trim())
+    .filter(Boolean)
+
+  if (fallbackLeadMessage && !userMessages.some((msg) => normalizeComparableMessage(msg) === normalizeComparableMessage(fallbackLeadMessage))) {
+    userMessages.push(fallbackLeadMessage)
+  }
+
+  let hasArea = false
+  let hasPain = false
+  for (const message of userMessages) {
+    if (!hasArea && detectQualificationAreaSignal(message)) hasArea = true
+    if (!hasPain && detectQualificationPainSignal(message)) hasPain = true
+    if (hasArea && hasPain) break
+  }
+
+  return {
+    hasArea,
+    hasPain,
+    qualified: hasArea && hasPain,
+  }
+}
+
+function buildQualificationQuestion(
+  qualification: QualificationState,
+  options?: { mentionValues?: boolean; mentionSchedule?: boolean },
+): string {
+  const mentionValues = options?.mentionValues === true
+  const mentionSchedule = options?.mentionSchedule === true
+  const intro = mentionValues
+    ? "Ja te passo os valores certinhos."
+    : mentionSchedule
+      ? "Antes de abrir horarios, preciso te conhecer melhor."
+      : "Para te orientar com precisao, preciso entender melhor seu contexto."
+
+  if (!qualification.hasArea && !qualification.hasPain) {
+    return `${intro} Me conta sua area de atuacao e qual desafio de comunicacao voce quer resolver?`
+  }
+  if (!qualification.hasArea) {
+    return `${intro} Me conta sua area de atuacao para eu te indicar o melhor caminho.`
+  }
+  if (!qualification.hasPain) {
+    return `${intro} Me conta qual desafio de comunicacao voce quer resolver agora.`
+  }
+  return `${intro} Me conta um pouco mais sobre seu contexto para eu seguir com a melhor orientacao.`
+}
+
+function enforceQualificationCommercialGuard(
+  responseText: string,
+  qualification: QualificationState,
+): string {
+  if (qualification.qualified) return responseText
+  const text = String(responseText || "").trim()
+  if (!text) return text
+
+  const normalized = normalizeComparableMessage(text)
+  const mentionsPrice =
+    /\br\$\s*\d/.test(normalized) ||
+    /\bpreco\b/.test(normalized) ||
+    /\bprecos\b/.test(normalized) ||
+    /\bvalor\b/.test(normalized) ||
+    /\bvalores\b/.test(normalized) ||
+    /\bmensalidade\b/.test(normalized) ||
+    /\bmensalidades\b/.test(normalized)
+  const mentionsScheduling =
+    /\bagendar\b/.test(normalized) ||
+    /\bagendamento\b/.test(normalized) ||
+    /\bhorario\b/.test(normalized) ||
+    /\bhorarios\b/.test(normalized) ||
+    /\bdisponivel\b/.test(normalized) ||
+    /\bdisponiveis\b/.test(normalized) ||
+    /\bagenda\b/.test(normalized) ||
+    /\bslots\b/.test(normalized) ||
+    /\bmanha\b/.test(normalized) ||
+    /\btarde\b/.test(normalized) ||
+    /\bnoite\b/.test(normalized)
+
+  if (mentionsPrice) {
+    return buildQualificationQuestion(qualification, { mentionValues: true })
+  }
+  if (mentionsScheduling) {
+    return buildQualificationQuestion(qualification, { mentionSchedule: true })
+  }
+  return text
+}
+
 function normalizeRecipientForMessaging(input: {
   phone?: string
   chatLid?: string
@@ -314,6 +435,31 @@ function shouldAutoPauseFromNegativeIntent(result: NegativeIntentResult): boolea
     result.category === "dissatisfaction" ||
     result.category === "bot_message"
   )
+}
+
+function resolveContactLaterFollowupDelayMinutes(message: string, config: NativeAgentConfig): number {
+  const text = normalizeComparableMessage(message)
+  if (!text) return 180
+
+  if (/\b(proxima semana|semana que vem)\b/.test(text)) {
+    return 7 * 24 * 60
+  }
+  if (/\b(amanha|amanhã)\b/.test(text)) {
+    return 24 * 60
+  }
+  if (/\b(mais tarde|depois|outro momento|outra hora|retorno|te chamo)\b/.test(text)) {
+    return 180
+  }
+
+  const configured = resolveFollowupIntervalsFromConfig(config)
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value) && value >= 30)
+    .sort((a, b) => a - b)
+
+  if (configured.length > 0) {
+    return Math.floor(configured[0])
+  }
+  return 180
 }
 
 /**
@@ -1026,6 +1172,126 @@ function parseTimeToMinutes(input: string): number | null {
   return hour * 60 + minute
 }
 
+type TodayPeriodAvailability = {
+  morning: boolean
+  afternoon: boolean
+  evening: boolean
+}
+
+function resolveTodayPeriodAvailability(
+  config: NativeAgentConfig,
+): { availability: TodayPeriodAvailability; nowParts: LocalDateTimeParts } {
+  const timezone = String(config.timezone || "America/Sao_Paulo").trim() || "America/Sao_Paulo"
+  const nowParts = getNowPartsForTimezone(timezone)
+  const nowMinutes = nowParts.hour * 60 + nowParts.minute
+  const weekday = localDayOfWeek(nowParts)
+
+  const defaultBusinessStart = parseTimeToMinutes(config.calendarBusinessStart || "08:00") ?? 8 * 60
+  const defaultBusinessEnd = parseTimeToMinutes(config.calendarBusinessEnd || "20:00") ?? 20 * 60
+
+  const daySchedule = config.calendarDaySchedule && typeof config.calendarDaySchedule === "object"
+    ? config.calendarDaySchedule
+    : {}
+  const dayConfigRaw = daySchedule[String(weekday)]
+  const dayConfig = dayConfigRaw && typeof dayConfigRaw === "object" ? dayConfigRaw : null
+
+  const businessDays = Array.isArray(config.calendarBusinessDays)
+    ? config.calendarBusinessDays
+      .map((day) => Number(day))
+      .filter((day) => Number.isInteger(day) && day >= 1 && day <= 7)
+    : []
+
+  const dayEnabled = dayConfig ? dayConfig.enabled !== false : businessDays.includes(weekday)
+  if (!dayEnabled) {
+    return {
+      nowParts,
+      availability: { morning: false, afternoon: false, evening: false },
+    }
+  }
+
+  const businessStart = parseTimeToMinutes(dayConfig?.start || config.calendarBusinessStart || "08:00") ?? defaultBusinessStart
+  const businessEnd = parseTimeToMinutes(dayConfig?.end || config.calendarBusinessEnd || "20:00") ?? defaultBusinessEnd
+
+  if (businessEnd <= businessStart) {
+    return {
+      nowParts,
+      availability: { morning: false, afternoon: false, evening: false },
+    }
+  }
+
+  const hasRemainingWindow = (windowStart: number, windowEnd: number): boolean => {
+    const start = Math.max(windowStart, businessStart, nowMinutes)
+    const end = Math.min(windowEnd, businessEnd)
+    return end > start
+  }
+
+  return {
+    nowParts,
+    availability: {
+      morning: hasRemainingWindow(5 * 60, 12 * 60),
+      afternoon: hasRemainingWindow(12 * 60, 18 * 60),
+      evening: hasRemainingWindow(18 * 60, 24 * 60),
+    },
+  }
+}
+
+function formatPeriodList(periods: string[]): string {
+  if (!periods.length) return ""
+  if (periods.length === 1) return periods[0]
+  if (periods.length === 2) return `${periods[0]} ou ${periods[1]}`
+  return `${periods.slice(0, -1).join(", ")} ou ${periods[periods.length - 1]}`
+}
+
+function buildTodayPeriodQuestion(availability: TodayPeriodAvailability): string {
+  const periods: string[] = []
+  if (availability.morning) periods.push("manhã")
+  if (availability.afternoon) periods.push("tarde")
+  if (availability.evening) periods.push("noite")
+
+  if (periods.length === 0) {
+    return "Para hoje não tenho mais horários disponíveis. Posso te oferecer amanhã?"
+  }
+
+  if (periods.length === 1) {
+    return `Ainda tenho horários hoje no período da ${periods[0]}. Esse período funciona melhor para você?`
+  }
+
+  const options = formatPeriodList(periods)
+  const normalizedOptions = options.charAt(0).toUpperCase() + options.slice(1)
+  return `Ainda tenho horários hoje. ${normalizedOptions} funciona melhor para você?`
+}
+
+function applyTemporalPeriodGuard(text: string, config: NativeAgentConfig): string {
+  const content = String(text || "").trim()
+  if (!content) return ""
+
+  const { availability } = resolveTodayPeriodAvailability(config)
+  const paragraphs = content.split(/\n{2,}/g).map((part) => part.trim()).filter(Boolean)
+  if (!paragraphs.length) return content
+
+  let changed = false
+  const guarded = paragraphs.map((paragraph) => {
+    const normalized = normalizeComparableMessage(paragraph)
+    const mentionsToday = /\bhoje\b/.test(normalized)
+    const hasPeriodWords = /\b(manha|tarde|noite)\b/.test(normalized)
+    const asksPeriodChoice = /(funciona\s+melhor|prefere|qual\s+periodo|melhor\s+para\s+voce|melhor\s+pra\s+voce|qual\s+desses)/.test(
+      normalized,
+    )
+
+    if (!(mentionsToday && hasPeriodWords && asksPeriodChoice)) {
+      return paragraph
+    }
+
+    const rewritten = buildTodayPeriodQuestion(availability)
+    if (normalizeComparableMessage(rewritten) !== normalizeComparableMessage(paragraph)) {
+      changed = true
+    }
+    return rewritten
+  })
+
+  return changed ? guarded.join("\n\n").trim() : content
+}
+
 function parseTimeRangeToMinutes(input: string): { start: number; end: number } | null {
   const match = String(input || "")
     .trim()
@@ -1353,6 +1619,7 @@ const SCHEDULE_NON_ERROR_CONFLICT_ERRORS = new Set([
   "blocked_time_range",
   "business_day_not_allowed",
   "invalid_date_or_time",
+  "qualification_required_before_scheduling",
 ])
 
 function normalizeEmailCandidate(value: any): string {
@@ -1495,9 +1762,7 @@ export class NativeAgentOrchestratorService {
     // Auto-pause: detect negative intent BEFORE any AI processing
     // Only runs when autoPauseOnHumanIntervention is explicitly enabled
     // -----------------------------------------------------------------------
-    const negativeIntent = config.autoPauseOnHumanIntervention
-      ? detectNegativeLeadIntent(content)
-      : { detected: false }
+    const negativeIntent = detectNegativeLeadIntent(content)
     if (negativeIntent.detected && shouldAutoPauseFromNegativeIntent(negativeIntent)) {
       const label = negativeIntentLabel(negativeIntent.category)
       console.log(
@@ -1574,6 +1839,49 @@ export class NativeAgentOrchestratorService {
       }
     }
 
+    if (negativeIntent.detected && negativeIntent.category === "will_contact_later") {
+      const delayMinutes = resolveContactLaterFollowupDelayMinutes(content, config)
+      const followupMessage = "Combinado. Retomo seu atendimento no momento combinado."
+      await this.taskQueue
+        .enqueueFollowupSequence({
+          tenant,
+          sessionId,
+          phone,
+          leadName: firstName(input.contactName) || input.contactName || undefined,
+          lastUserMessage: content,
+          lastAgentMessage: followupMessage,
+          intervalsMinutes: [delayMinutes],
+        })
+        .catch((error) => console.warn("[native-agent][contact-later] failed to schedule followup task:", error))
+
+      await chat
+        .persistMessage({
+          sessionId,
+          role: "system",
+          type: "status",
+          content: "lead_requested_contact_later_followup_scheduled",
+          additional: {
+            category: negativeIntent.category,
+            delay_minutes: delayMinutes,
+            original_message: content.slice(0, 500),
+          },
+        })
+        .catch(() => {})
+
+      return {
+        processed: true,
+        replied: false,
+        actions: [
+          {
+            type: "create_followup" as AgentActionPlan["type"],
+            ok: true,
+            details: { scheduled: true, delayMinutes },
+          },
+        ],
+        reason: "lead_requested_contact_later_followup_scheduled",
+      }
+    }
+
     if (!config.enabled) {
       return {
         processed: true,
@@ -1620,6 +1928,7 @@ export class NativeAgentOrchestratorService {
     const lastLeadMessageFromHistory = findLastLeadMessage(conversationRows)
     const effectiveLeadMessage = isFromMeTrigger ? lastLeadMessageFromHistory : content
     const learningUserMessage = effectiveLeadMessage || (isFromMeTrigger ? "[internal_fromme_trigger]" : content)
+    const qualificationState = resolveQualificationState(conversationRows, effectiveLeadMessage || content)
     const assistantMessagesCount = conversationRows.filter((turn) => turn.role === "assistant").length
     const userMessagesCount = conversationRows.filter((turn) => turn.role === "user").length
 
@@ -1668,6 +1977,7 @@ export class NativeAgentOrchestratorService {
       assistantMessagesCount,
       userMessagesCount,
       fromMeTriggerContent: isFromMeTrigger ? fromMeTriggerContent : undefined,
+      qualificationState,
     })
 
     // ── Semantic Cache: lookup ──────────────────────────────────
@@ -1736,6 +2046,7 @@ export class NativeAgentOrchestratorService {
               config,
               chat,
               incomingMessageId: input.messageId,
+              qualificationState,
             }),
         })
       } catch (toolError) {
@@ -1818,6 +2129,11 @@ export class NativeAgentOrchestratorService {
           error: execution.error,
         }))
       : [{ type: "none", ok: true }]
+    const hasSuccessfulSchedulingAction = actionResults.some(
+      (action) =>
+        action.ok === true &&
+        (action.type === "schedule_appointment" || action.type === "edit_appointment"),
+    )
 
     if (decision.executions.length > 0) {
       await this
@@ -1836,7 +2152,11 @@ export class NativeAgentOrchestratorService {
         })
     }
 
-    const responseText = applyAssistantOutputPolicy(String(decision.reply || ""), { allowEmojis: config.moderateEmojiEnabled !== false })
+    let responseText = applyAssistantOutputPolicy(String(decision.reply || ""), {
+      allowEmojis: config.moderateEmojiEnabled !== false,
+    })
+    responseText = applyTemporalPeriodGuard(responseText, config)
+    responseText = enforceQualificationCommercialGuard(responseText, qualificationState)
     if (!responseText) {
       return {
         processed: true,
@@ -1974,9 +2294,11 @@ export class NativeAgentOrchestratorService {
         .catch(() => {})
     }
 
-    const blocks = config.splitLongMessagesEnabled
-      ? splitLongMessageIntoBlocks(responseText, config.messageBlockMaxChars)
-      : [responseText]
+    const blocks = hasSuccessfulSchedulingAction
+      ? [responseText]
+      : config.splitLongMessagesEnabled
+        ? splitLongMessageIntoBlocks(responseText, config.messageBlockMaxChars)
+        : [responseText]
     const contextualReplyDecision = decideContextualReplyUsage({
       enabled: config.replyEnabled !== false,
       replyToMessageId: input.replyToMessageId,
@@ -2618,6 +2940,7 @@ export class NativeAgentOrchestratorService {
       assistantMessagesCount?: number
       userMessagesCount?: number
       fromMeTriggerContent?: string
+      qualificationState?: QualificationState
     },
   ): string {
     const contactFirstName = firstName(ctx.contactName)
@@ -2691,6 +3014,20 @@ export class NativeAgentOrchestratorService {
         ? "- Esta e a primeira resposta da IA: faca abertura precisa (saudacao + apresentacao curta + referencia ao que o lead disse + 1 pergunta de avancar)."
         : "- Mantenha continuidade precisa com o ponto exato onde a conversa parou."
       : "- Primeira resposta pode seguir fluxo livre."
+    const qualification = ctx.qualificationState || {
+      hasArea: false,
+      hasPain: false,
+      qualified: false,
+    }
+    const qualificationFlowRule = [
+      "- FLUXO COMERCIAL OBRIGATORIO: descoberta e qualificacao ANTES de valores e ANTES de agendamento.",
+      "- Descoberta minima obrigatoria: area de atuacao + dor/desafio principal.",
+      "- NUNCA negar pedido de valores. Se o lead pedir valores cedo, diga que vai passar os valores, colete a descoberta minima e so depois informe.",
+      "- NUNCA avancar para horarios, disponibilidade ou agendamento sem qualificacao minima concluida.",
+    ].join("\n")
+    const qualificationStateRule = qualification.qualified
+      ? "- ESTADO DE QUALIFICACAO ATUAL: concluido (area + dor/desafio identificados)."
+      : `- ESTADO DE QUALIFICACAO ATUAL: incompleto (area=${qualification.hasArea ? "sim" : "nao"}, dor_desafio=${qualification.hasPain ? "sim" : "nao"}). Antes de valores/agenda, conclua a descoberta.`
     const emailSchedulingRule = config.collectEmailForScheduling
       ? [
           "- REGRA CRITICA DE AGENDAMENTO: voce NUNCA deve chamar schedule_appointment ou edit_appointment sem ter o email do lead preenchido em customer_email.",
@@ -2863,6 +3200,8 @@ export class NativeAgentOrchestratorService {
       languageVicesRule,
       deepInteractionRule,
       firstMessageRule,
+      qualificationFlowRule,
+      qualificationStateRule,
       personalizationRule,
       emailSchedulingRule,
       onlineMeetRule,
@@ -3136,6 +3475,7 @@ export class NativeAgentOrchestratorService {
     config: NativeAgentConfig
     chat: TenantChatHistoryService
     incomingMessageId?: string
+    qualificationState: QualificationState
   }): Promise<GeminiToolHandlerResult> {
     const name = String(params.toolCall.name || "").trim().toLowerCase()
     const args = params.toolCall.args || {}
@@ -3179,6 +3519,22 @@ export class NativeAgentOrchestratorService {
           args.max_slots !== undefined && Number.isFinite(Number(args.max_slots))
             ? Number(args.max_slots)
             : undefined,
+      }
+
+      if (!params.qualificationState.qualified) {
+        return {
+          ok: false,
+          action,
+          error: "qualification_required_before_scheduling",
+          response: {
+            ok: false,
+            error: "qualification_required_before_scheduling",
+            qualification_required: true,
+            has_area: params.qualificationState.hasArea,
+            has_pain: params.qualificationState.hasPain,
+            guidance: buildQualificationQuestion(params.qualificationState, { mentionSchedule: true }),
+          },
+        }
       }
 
       const result = await this.getAvailableSlots({
@@ -3236,6 +3592,23 @@ export class NativeAgentOrchestratorService {
         customer_name: args.customer_name ? String(args.customer_name) : undefined,
         customer_email: args.customer_email ? String(args.customer_email) : undefined,
       }
+
+      if (!params.qualificationState.qualified) {
+        return {
+          ok: false,
+          action,
+          error: "qualification_required_before_scheduling",
+          response: {
+            ok: false,
+            error: "qualification_required_before_scheduling",
+            qualification_required: true,
+            has_area: params.qualificationState.hasArea,
+            has_pain: params.qualificationState.hasPain,
+            guidance: buildQualificationQuestion(params.qualificationState, { mentionSchedule: true }),
+          },
+        }
+      }
+
       const resolvedEmail = await this.resolveLeadEmailFromContext({
         providedEmail: action.customer_email,
         chat: params.chat,
@@ -3337,6 +3710,23 @@ export class NativeAgentOrchestratorService {
         note: args.note ? String(args.note) : undefined,
         customer_email: args.customer_email ? String(args.customer_email) : undefined,
       }
+
+      if (!params.qualificationState.qualified) {
+        return {
+          ok: false,
+          action,
+          error: "qualification_required_before_scheduling",
+          response: {
+            ok: false,
+            error: "qualification_required_before_scheduling",
+            qualification_required: true,
+            has_area: params.qualificationState.hasArea,
+            has_pain: params.qualificationState.hasPain,
+            guidance: buildQualificationQuestion(params.qualificationState, { mentionSchedule: true }),
+          },
+        }
+      }
+
       const resolvedEmail = await this.resolveLeadEmailFromContext({
         providedEmail: action.customer_email,
         chat: params.chat,
