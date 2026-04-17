@@ -17,16 +17,31 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files
-.env*
+# env files (SENSITIVE)
+# TRAVADO TUDO QUE É SENSÍVEL
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.production
+.env.*.local
+*.pem
+*.key
+credentials*.json
+
 !mobile/.env.example
+!.env.example
+!.env.production.example
 
 # vercel
 .vercel
 
-# auto-generated agent folders
+# auto-generated agent folders / AI Configs
 .agent/
 .emergent/
+.claude/
+.cursor/
 
 # expo / react-native
 mobile/.expo/
@@ -41,3 +56,7 @@ mobile/credentials.json
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# OS files
+.DS_Store
+Thumbs.db

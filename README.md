@@ -1,286 +1,67 @@
-# GerencIA - Guia de Instalação Local
+# GerencIA - Multi-Tenant AI Dashboard
+> O sistema escalável definitivo para gestão multi-tenant de inteligência artificial aplicada ao WhatsApp. Transforme IA previsional e reativa em dados e resultados mensuráveis acompanhados em tempo real.
 
-Este é um dashboard completo que resolve o maior problema da inteligência artificial: a falta de mensuração. Nossa plataforma transforma agentes de IA em resultados visuais e comprováveis para empresários tomarem decisões baseadas em dados reais.
+## 🚀 Arquitetura & Stack Tecnológica
+* **Frontend:** Next.js 16 (App Router), React 19, TypeScript 5.
+* **Estilização:** Tailwind CSS 4 + shadcn/ui.
+* **Backend:** Next.js API Routes com tipagem estrita de Zod.
+* **Banco de Dados:** Supabase (PostgreSQL Cloud) com isolamento nativo (RLS agressivo) suportando provisionamento dinâmico e auto-scaling.
+* **Autenticação:** JWT Customizado implementado via `jose` focado em JWT Claims (stateless Auth), reduzindo gargalos com o banco e elevando performance em edge.
+* **Integrações de Core:** N8N para controle de fluxos, Evolution API / Z-Api para disparos diretos de WhatsApp, Node.js + gRPC (onde aplicável) e Provedores LLM em Pool (OpenAI, Anthropic, Gemini, Vertex).
 
-## 🚀 Como Rodar Localmente
+---
 
-### 1. Pré-requisitos
+## 🏗️ Padrão Multi-Tenant e Isolamento (CRÍTICO)
 
-- Node.js 18+ instalado
-- npm ou yarn
-- Conta no Supabase (gratuita)
+A plataforma GerenciaBH opera unicamente através de uma infraestrutura robusta do tipo **SaaS Multi-Tenant**. Cada cliente final ou franqueado opera num casulo de dados virtual isolado por **Prefixos de Tabela Dinâmicos**. Nenhuma consulta deve furar esse padrão.
 
-### 2. Instalação
+### Regras Matrix de Operação:
+1. **TABELAS CÓDIGO-FONTE SÃO MUTÁVEIS DADOS SÃO IMUTÁVEIS.** Não use under-the-hood nomenclaturas duras. Se precisa buscar "agendamentos", não declare string bruta na table, prefira `const table = getTablesForTenant(prefix).agendamentos`.
+2. A validade do escopo do inquilino está centralizada: Todo prefixo (`unitPrefix`) está listado no `REGISTERED_TENANTS`.
+3. Validação de Interceptação nas Camadas de Rota (APIs):
+   ```typescript
+   import { getTenantFromRequest } from '@/lib/helpers/api-tenant'
+   // ...
+   const { unitPrefix, error } = await getTenantFromRequest(req)
+   if (error) return new Response('Unauthorized Access', { status: 401 })
+   
+   // Consulta Supabase com Isolamento Seguro:
+   const { data } = await supabase.from(`${unitPrefix}_agendamentos`).select('*')
+   ```
+4. **JWT Isolator Strategy**: Claims transportam dados essenciais `isAdmin`, `unitPrefix` e permissões de ACL limitando a visão estrita do usuário aos dados daquela Unidade. 
 
-\`\`\`bash
-# Clone o projeto (ou baixe o ZIP do v0)
-git clone <seu-repositorio>
-cd gerencia-dashboard
+---
 
-# Instale as dependências
-npm install
-\`\`\`
+## 🏢 Flexibilidade de Unidades (Tenant Management)
+A lógica suporta e gerencia estruturas corporativas de "Filiais" no mesmo painel através de reconfiguração de estados (semelhante ao Clerk B2B), ativando as `units_registry`.
+- Novas unidades podem ser ligadas mediante a execução de um script SQL gerador da estrutura limpa que herda as views master. Ao adicionar uma unidade nova, você SEMPRE DEVE rodar as migrations essenciais e registrar no Typescript central de constantes.
+- Exemplo das tabelas autogeradas: `{prefix}_agendamentos`, `{prefix}_sofian8n_chat_histories`, `{prefix}_crm_leads`.
 
-### 3. Configuração do Banco de Dados
+---
 
-#### Opção A: Usando Supabase (Recomendado)
+## 🛠️ Onboarding e Desenvolvimento Local
 
-1. Acesse [supabase.com](https://supabase.com) e crie um novo projeto
-2. Vá em Settings > API para obter suas chaves
-3. Crie um arquivo `.env.local` na raiz do projeto:
+**1. Clone e Build (CUIDADO COM REACT 19 PEER DEPS):**
+Para garantir coerência de pacotes na subida do dashboard inteiro instale ignorando dependências conflituosas em pacotes defasados de gráficos ou radix.
+```bash
+npm install --legacy-peer-deps
+```
 
-\`\`\`env
-# Supabase - Cliente (público)
-NEXT_PUBLIC_SUPABASE_URL=https://seu-projeto.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=sua-chave-anonima
+**2. Injeção Contextual de Variáveis (Env):**
+As chaves do projeto (`.env.local`) estão bloqueadas. Obtenha as chaves mestras e provisione um Supabase local ou staging key:
+```env
+# Banco de Dados
+NEXT_PUBLIC_SUPABASE_URL=https://<your-project>.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon-key>
+SUPABASE_SERVICE_ROLE_KEY=<secret> (NUNCA NO FRONTEND)
+```
 
-# Supabase - Servidor (privado)
-SUPABASE_URL=https://seu-projeto.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=sua-service-role-key
-
-# Opcional - Para desenvolvimento
-NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL=http://localhost:3000
-\`\`\`
-
-4. Execute os scripts SQL no Supabase:
-   - Vá no SQL Editor do Supabase
-   - Execute os arquivos na ordem:
-     - `scripts/sql/2025-08-11-realtime-setup.sql`
-     - `scripts/sql/2025-08-11-notifications.sql`
-     - `scripts/sql/2025-08-11-notifications-v2.sql`
-     - `scripts/sql/2025-08-11-notifications-v3.sql`
-     - `scripts/sql/2025-08-11-notifications-v3b.sql`
-
-#### Opção B: Usando PostgreSQL Local
-
-1. Instale PostgreSQL localmente
-2. Crie um banco de dados
-3. Configure as variáveis de ambiente:
-
-\`\`\`env
-# PostgreSQL Local
-POSTGRES_URL=postgresql://usuario:senha@localhost:5432/gerencia_dashboard
-POSTGRES_PRISMA_URL=postgresql://usuario:senha@localhost:5432/gerencia_dashboard
-POSTGRES_URL_NON_POOLING=postgresql://usuario:senha@localhost:5432/gerencia_dashboard
-POSTGRES_USER=usuario
-POSTGRES_PASSWORD=senha
-POSTGRES_DATABASE=gerencia_dashboard
-POSTGRES_HOST=localhost
-\`\`\`
-
-### 4. Executar o Projeto
-
-\`\`\`bash
-# Modo desenvolvimento
+**3. Test Drive:**
+```bash
 npm run dev
+```
 
-# Acesse http://localhost:3000
-\`\`\`
-
-## 🗄️ Expandindo para Múltiplos Bancos de Dados
-
-### Arquitetura Multi-Database
-
-O projeto já está preparado para trabalhar com múltiplos bancos. Aqui está como expandir:
-
-#### 1. Estrutura de Configuração
-
-Crie um arquivo `lib/database/config.ts`:
-
-\`\`\`typescript
-export const databaseConfigs = {
-  primary: {
-    supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  },
-  secondary: {
-    supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL_2!,
-    supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY_2!,
-    serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY_2!,
-  },
-  analytics: {
-    postgresUrl: process.env.POSTGRES_ANALYTICS_URL!,
-  }
-}
-\`\`\`
-
-#### 2. Cliente Multi-Database
-
-Crie `lib/database/multi-client.ts`:
-
-\`\`\`typescript
-import { createClient } from "@supabase/supabase-js"
-import { databaseConfigs } from "./config"
-
-export class MultiDatabaseClient {
-  private clients: Map<string, any> = new Map()
-
-  getSupabaseClient(database: 'primary' | 'secondary') {
-    if (!this.clients.has(database)) {
-      const config = databaseConfigs[database]
-      const client = createClient(config.supabaseUrl, config.supabaseKey)
-      this.clients.set(database, client)
-    }
-    return this.clients.get(database)
-  }
-
-  getPostgresClient(database: string) {
-    // Implementar conexão PostgreSQL direta se necessário
-  }
-}
-
-export const multiDB = new MultiDatabaseClient()
-\`\`\`
-
-#### 3. Variáveis de Ambiente para Múltiplos Bancos
-
-Adicione no seu `.env.local`:
-
-\`\`\`env
-# Banco Principal (Chats e Agendamentos)
-NEXT_PUBLIC_SUPABASE_URL=https://projeto1.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=chave1
-SUPABASE_SERVICE_ROLE_KEY=service1
-
-# Banco Secundário (Analytics e Logs)
-NEXT_PUBLIC_SUPABASE_URL_2=https://projeto2.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY_2=chave2
-SUPABASE_SERVICE_ROLE_KEY_2=service2
-
-# Banco de Analytics (PostgreSQL)
-POSTGRES_ANALYTICS_URL=postgresql://user:pass@host:5432/analytics
-
-# Banco de Relatórios (MySQL)
-MYSQL_REPORTS_URL=mysql://user:pass@host:3306/reports
-\`\`\`
-
-#### 4. Exemplo de Uso Multi-Database
-
-\`\`\`typescript
-// Em uma API route
-import { multiDB } from "@/lib/database/multi-client"
-
-export async function GET() {
-  // Buscar chats do banco principal
-  const chatsClient = multiDB.getSupabaseClient('primary')
-  const { data: chats } = await chatsClient
-    .from('sofian8n_chat_histories')
-    .select('*')
-
-  // Buscar analytics do banco secundário
-  const analyticsClient = multiDB.getSupabaseClient('secondary')
-  const { data: analytics } = await analyticsClient
-    .from('user_analytics')
-    .select('*')
-
-  return Response.json({ chats, analytics })
-}
-\`\`\`
-
-### Casos de Uso para Múltiplos Bancos
-
-1. **Separação por Funcionalidade**:
-   - Banco 1: Chats e conversas
-   - Banco 2: Agendamentos e follow-ups
-   - Banco 3: Analytics e relatórios
-
-2. **Separação por Cliente**:
-   - Cada cliente tem seu próprio banco
-   - Dashboard unificado com multi-tenancy
-
-3. **Separação por Região**:
-   - Banco US: Clientes americanos
-   - Banco BR: Clientes brasileiros
-   - Banco EU: Clientes europeus
-
-## 📊 Estrutura do Banco de Dados
-
-### Tabelas Principais
-
-- `sofian8n_chat_histories` - Histórico de conversas
-- `Agendamentos` - Agendamentos e reuniões
-- `sofia_followup` - Follow-ups e tarefas
-- `notifications` - Sistema de notificações
-- `Folow_normal` - Follow-ups normais
-
-### Funcionalidades Implementadas
-
-- ✅ Realtime com Supabase
-- ✅ Sistema de notificações
-- ✅ Dashboard responsivo
-- ✅ Tema dark/light
-- ✅ Gráficos e analytics
-- ✅ Multi-database ready
-- ✅ Mensuração visual de resultados de IA
-
-## 🛠️ Comandos Úteis
-
-### Instalação e Setup Inicial
-\`\`\`bash
-# 1. Clone ou baixe o projeto
-git clone <seu-repositorio>
-cd gerencia-dashboard
-
-# 2. Instale todas as dependências
-npm install
-
-# 3. Configure o arquivo .env.local (veja seção acima)
-# 4. Execute os scripts SQL no Supabase
-\`\`\`
-
-### Comandos de Desenvolvimento
-\`\`\`bash
-# Rodar em modo desenvolvimento (recomendado)
-npm run dev
-# Acesse: http://localhost:3000
-
-# Build para produção
-npm run build
-
-# Rodar versão de produção local
-npm run start
-
-# Verificar código (linting)
-npm run lint
-\`\`\`
-
-### Comandos por Ordem de Uso
-\`\`\`bash
-# 1º - Sempre primeiro
-npm install
-
-# 2º - Para desenvolvimento diário
-npm run dev
-
-# 3º - Antes de fazer deploy
-npm run build
-
-# 4º - Para testar build local
-npm run start
-\`\`\`
-
-## 🔧 Troubleshooting
-
-### Erro de Conexão com Supabase
-- Verifique se as URLs e chaves estão corretas
-- Confirme se o projeto Supabase está ativo
-- Execute os scripts SQL necessários
-
-### Erro de Permissões
-- Verifique se as policies RLS estão configuradas
-- Confirme se as tabelas estão na publicação realtime
-
-### Performance
-- Use índices nas colunas mais consultadas
-- Configure connection pooling
-- Considere usar CDN para assets estáticos
-
-## 📝 Próximos Passos
-
-1. Configurar autenticação de usuários
-2. Implementar cache com Redis
-3. Adicionar testes automatizados
-4. Configurar CI/CD
-5. Implementar backup automático
-6. Expandir métricas de ROI e eficácia de agentes de IA
+## 🔒 Postura de Segurança Defensiva e Git
+O `.gitignore` restringe **completamente** diretórios provados em vazamento: (Configs de IA e IDE como `.agent`, `.claude`, `.cursor`).
+- Ao implementar views e server actions, execute o fetch sob o wrapper de Server Authentication do Supabase Auth Helpers ou JWT local.
+- Respeitar estritamente a divisão de rotas predefinida: `/app/(dashboard)/` (Interfaces dos Clientes Tenants) x `/app/admin/(panel)/` (Área restrita de gestão raiz Genial Labs).
