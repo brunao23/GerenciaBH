@@ -27,6 +27,10 @@ interface WeeklyMetrics {
   aiErrorRate: number
   conversionRate: number
   agendamentos: number
+  attendanceCount: number
+  noShowCount: number
+  salesCount: number
+  totalSalesAmount: number
 }
 
 interface DispatchOptions {
@@ -147,6 +151,12 @@ function normalizeTimezone(raw: any): string {
   } catch {
     return "America/Sao_Paulo"
   }
+}
+
+function isMissingTableError(error: any): boolean {
+  const message = String(error?.message || "").toLowerCase()
+  const code = String(error?.code || "")
+  return code === "42P01" || message.includes("does not exist") || message.includes("relation")
 }
 
 function parseTimeZoneHourAndWeekday(now: Date, timezone: string): { dayOfWeek: number; hour: number } {
@@ -319,6 +329,14 @@ function buildWeeklyObservation(metrics: WeeklyMetrics): string {
     return "Taxa de erro da IA elevada. Recomenda-se revisar prompts, regras e tratativas de fallback."
   }
 
+  if (metrics.noShowCount > metrics.attendanceCount && metrics.noShowCount > 0) {
+    return "No-show superior ao comparecimento na semana. Priorizar agente de reengajamento."
+  }
+
+  if (metrics.salesCount > 0 && metrics.totalSalesAmount > 0) {
+    return "Semana com vendas registradas e receita confirmada. Escalar abordagem comercial que converteu."
+  }
+
   return "Resultado estavel na semana. Ajustes finos em abordagem e follow-up podem elevar a conversao."
 }
 
@@ -480,6 +498,36 @@ async function calculateTenantWeeklyMetrics(tenant: string): Promise<WeeklyMetri
   const aiSuccessRate = aiMessages > 0 ? (aiSuccess / aiMessages) * 100 : 0
   const aiErrorRate = aiMessages > 0 ? (aiError / aiMessages) * 100 : 0
   const conversionRate = leadsAtendidos > 0 ? (agendamentos / leadsAtendidos) * 100 : 0
+  let attendanceCount = 0
+  let noShowCount = 0
+  let salesCount = 0
+  let totalSalesAmount = 0
+
+  const businessEvents = await supabase
+    .from("tenant_business_events")
+    .select("event_type, sale_amount")
+    .eq("tenant", tenant)
+    .gte("event_at", start.toISOString())
+    .lte("event_at", now.toISOString())
+
+  if (!businessEvents.error) {
+    for (const row of businessEvents.data || []) {
+      const eventType = String((row as any)?.event_type || "").toLowerCase()
+      if (eventType === "attendance") attendanceCount += 1
+      if (eventType === "no_show") noShowCount += 1
+      if (eventType === "sale") {
+        salesCount += 1
+        const amount = Number((row as any)?.sale_amount)
+        if (Number.isFinite(amount)) {
+          totalSalesAmount += amount
+        }
+      }
+    }
+  } else if (!isMissingTableError(businessEvents.error)) {
+    console.warn(
+      `[WeeklyReport] Falha ao buscar tenant_business_events (${tenant}): ${businessEvents.error.message}`,
+    )
+  }
 
   return {
     leadsAtendidos,
@@ -488,6 +536,10 @@ async function calculateTenantWeeklyMetrics(tenant: string): Promise<WeeklyMetri
     aiErrorRate,
     conversionRate,
     agendamentos,
+    attendanceCount,
+    noShowCount,
+    salesCount,
+    totalSalesAmount: Number(totalSalesAmount.toFixed(2)),
   }
 }
 
@@ -507,6 +559,14 @@ function buildWeeklyMessage(unitName: string, metrics: WeeklyMetrics, notes: str
     `Taxa de acerto da IA: ${formatPercent(metrics.aiSuccessRate)}%`,
     `Taxa de erro da IA: ${formatPercent(metrics.aiErrorRate)}%`,
     `Conversao agendamento/leads: ${formatPercent(metrics.conversionRate)}%`,
+    "",
+    `Comparecimentos: ${metrics.attendanceCount}`,
+    `No-show: ${metrics.noShowCount}`,
+    `Vendas: ${metrics.salesCount}`,
+    `Valor vendido: ${metrics.totalSalesAmount.toLocaleString("pt-BR", {
+      style: "currency",
+      currency: "BRL",
+    })}`,
     "",
     `Observacao da semana: ${observation}`,
   ].join("\n")
@@ -605,6 +665,10 @@ export async function dispatchWeeklyReports(options: DispatchOptions = {}): Prom
         aiErrorRate: 0,
         conversionRate: 0,
         agendamentos: 0,
+        attendanceCount: 0,
+        noShowCount: 0,
+        salesCount: 0,
+        totalSalesAmount: 0,
       } as WeeklyMetrics,
       error: undefined as string | undefined,
     }

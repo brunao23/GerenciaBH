@@ -18,6 +18,10 @@ interface DailyMetrics {
   aiErrors: number
   aiErrorRate: number
   leadsPausedToday: number
+  attendanceCount: number
+  noShowCount: number
+  salesCount: number
+  totalSalesAmount: number
   dissatisfactionSignals: number
   dissatisfactionRate: number
   topUserTopics: string[]
@@ -135,6 +139,12 @@ function normalizeText(value: string): string {
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim()
+}
+
+function isMissingTableError(error: any): boolean {
+  const message = String(error?.message || "").toLowerCase()
+  const code = String(error?.code || "")
+  return code === "42P01" || message.includes("does not exist") || message.includes("relation")
 }
 
 // ---------------------------------------------------------------------------
@@ -427,7 +437,7 @@ async function calculateDailyMetrics(tenant: string): Promise<DailyMetrics> {
     .select("id")
     .eq("tenant", tenant)
     .eq("task_type", "followup")
-    .eq("status", "completed")
+    .in("status", ["done", "completed"])
     .gte("executed_at", todayStart.toISOString())
     .lte("executed_at", now.toISOString())
 
@@ -440,7 +450,7 @@ async function calculateDailyMetrics(tenant: string): Promise<DailyMetrics> {
       .select("id")
       .eq("tenant", tenant)
       .eq("task_type", "followup")
-      .eq("status", "completed")
+      .in("status", ["done", "completed"])
       .gte("updated_at", todayStart.toISOString())
       .lte("updated_at", now.toISOString())
 
@@ -462,6 +472,40 @@ async function calculateDailyMetrics(tenant: string): Promise<DailyMetrics> {
   if (!pauseResult.error) {
     leadsPausedToday = (pauseResult.data || []).length
   }
+
+  // --- Business events (comparecimento / no-show / vendas) ---
+  let attendanceCount = 0
+  let noShowCount = 0
+  let salesCount = 0
+  let totalSalesAmount = 0
+
+  const businessEvents = await supabase
+    .from("tenant_business_events")
+    .select("event_type, sale_amount")
+    .eq("tenant", tenant)
+    .gte("event_at", todayStart.toISOString())
+    .lte("event_at", now.toISOString())
+
+  if (!businessEvents.error) {
+    for (const row of businessEvents.data || []) {
+      const eventType = String((row as any)?.event_type || "").toLowerCase()
+      if (eventType === "attendance") attendanceCount += 1
+      if (eventType === "no_show") noShowCount += 1
+      if (eventType === "sale") {
+        salesCount += 1
+        const amount = Number((row as any)?.sale_amount)
+        if (Number.isFinite(amount)) {
+          totalSalesAmount += amount
+        }
+      }
+    }
+  } else if (!isMissingTableError(businessEvents.error)) {
+    console.warn(
+      `[DailyReport] Erro ao buscar tenant_business_events (${tenant}): ${businessEvents.error.message}`,
+    )
+  }
+
+  totalSalesAmount = Number(totalSalesAmount.toFixed(2))
 
   // --- Computed rates ---
   const aiErrorRate = totalAiMessages > 0 ? (aiErrors / totalAiMessages) * 100 : 0
@@ -485,6 +529,10 @@ async function calculateDailyMetrics(tenant: string): Promise<DailyMetrics> {
     aiErrors,
     aiErrorRate,
     leadsPausedToday,
+    attendanceCount,
+    noShowCount,
+    salesCount,
+    totalSalesAmount,
     dissatisfactionSignals,
     dissatisfactionRate,
     topUserTopics,
@@ -548,6 +596,12 @@ function buildOverallObservation(metrics: DailyMetrics): string {
   if (metrics.totalHumanMessages > metrics.totalAiMessages && metrics.totalAiMessages > 0) {
     points.push("Mais intervencoes humanas que respostas de IA - avaliar se IA precisa de ajustes")
   }
+  if (metrics.noShowCount > metrics.attendanceCount && metrics.noShowCount > 0) {
+    points.push("No-show acima de comparecimento - ativar reengajamento com prioridade")
+  }
+  if (metrics.salesCount > 0 && metrics.totalSalesAmount > 0) {
+    points.push("Vendas registradas no dia com receita confirmada")
+  }
 
   if (points.length === 0) {
     if (metrics.aiErrorRate <= 5 && metrics.dissatisfactionRate <= 3) {
@@ -598,6 +652,14 @@ function buildDailyMessage(unitName: string, metrics: DailyMetrics): string {
     `    ${metrics.dissatisfactionSignals} sinal(is) em ${metrics.totalUserMessages} mensagens`,
     "",
     `⏸️ *LEADS PAUSADOS HOJE:* ${metrics.leadsPausedToday}`,
+    "",
+    `✅ *COMPARECIMENTOS REGISTRADOS:* ${metrics.attendanceCount}`,
+    `🚫 *NO-SHOW REGISTRADOS:* ${metrics.noShowCount}`,
+    `💰 *VENDAS REGISTRADAS:* ${metrics.salesCount}`,
+    `   Valor total vendido: ${metrics.totalSalesAmount.toLocaleString("pt-BR", {
+      style: "currency",
+      currency: "BRL",
+    })}`,
     "",
     "━━━━━━━━━━━━━━━━━━━━━━",
     "",

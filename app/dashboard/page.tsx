@@ -10,6 +10,10 @@ import { OverviewChart } from "@/components/dashboard/overview-chart"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useTenant } from "@/lib/contexts/TenantContext"
 import { PeriodFilter } from "@/components/dashboard/period-filter"
 
@@ -27,6 +31,43 @@ type Overview = {
   avgFirstResponseTime?: number
   chartData?: any[]
   recentActivity?: any[]
+}
+
+type BusinessMetrics = {
+  totalEvents: number
+  attendanceCount: number
+  noShowCount: number
+  salesCount: number
+  totalSalesAmount: number
+}
+
+type BusinessEvent = {
+  id: string
+  lead_name?: string | null
+  phone_number?: string | null
+  event_type: "attendance" | "no_show" | "sale"
+  sale_amount?: number | null
+  product_or_service?: string | null
+  notes?: string | null
+  event_at: string
+}
+
+type BusinessEventForm = {
+  eventType: "attendance" | "no_show" | "sale"
+  leadName: string
+  phone: string
+  sessionId: string
+  saleAmount: string
+  productOrService: string
+  notes: string
+}
+
+const defaultBusinessMetrics: BusinessMetrics = {
+  totalEvents: 0,
+  attendanceCount: 0,
+  noShowCount: 0,
+  salesCount: 0,
+  totalSalesAmount: 0,
 }
 
 function toInputDate(date: Date): string {
@@ -50,13 +91,20 @@ export default function DashboardPage() {
   })
   const [customEndDate, setCustomEndDate] = useState(() => toInputDate(new Date()))
   const [customRangeVersion, setCustomRangeVersion] = useState(0)
+  const [businessMetrics, setBusinessMetrics] = useState<BusinessMetrics>(defaultBusinessMetrics)
+  const [recentBusinessEvents, setRecentBusinessEvents] = useState<BusinessEvent[]>([])
+  const [savingBusinessEvent, setSavingBusinessEvent] = useState(false)
+  const [businessForm, setBusinessForm] = useState<BusinessEventForm>({
+    eventType: "attendance",
+    leadName: "",
+    phone: "",
+    sessionId: "",
+    saleAmount: "",
+    productOrService: "",
+    notes: "",
+  })
 
-  useEffect(() => {
-    if (!tenant) return
-
-    setLoading(true)
-    setError(null)
-
+  const buildPeriodParams = () => {
     const params = new URLSearchParams()
     if (period === "custom") {
       params.set("period", "custom")
@@ -65,17 +113,39 @@ export default function DashboardPage() {
     } else {
       params.set("period", period)
     }
+    return params
+  }
 
-    fetch(`/api/supabase/overview?${params.toString()}`)
-      .then(async (r) => {
-        if (!r.ok) {
-          const err = await r.json().catch(() => null)
-          throw new Error(err?.error || `Erro ao carregar dados (${r.status})`)
+  useEffect(() => {
+    if (!tenant) return
+
+    setLoading(true)
+    setError(null)
+
+    const params = buildPeriodParams()
+
+    Promise.all([
+      fetch(`/api/supabase/overview?${params.toString()}`),
+      fetch(`/api/dashboard/business-events?${params.toString()}`),
+    ])
+      .then(async ([overviewRes, businessRes]) => {
+        if (!overviewRes.ok) {
+          const err = await overviewRes.json().catch(() => null)
+          throw new Error(err?.error || `Erro ao carregar dados (${overviewRes.status})`)
         }
-        return r.json()
-      })
-      .then((d) => {
-        setData(d)
+
+        const overviewData = await overviewRes.json()
+        setData(overviewData)
+
+        if (businessRes.ok) {
+          const businessData = await businessRes.json().catch(() => null)
+          setBusinessMetrics(businessData?.metrics || defaultBusinessMetrics)
+          setRecentBusinessEvents(Array.isArray(businessData?.recentEvents) ? businessData.recentEvents : [])
+        } else {
+          setBusinessMetrics(defaultBusinessMetrics)
+          setRecentBusinessEvents([])
+        }
+
         setLoading(false)
       })
       .catch((err) => {
@@ -130,6 +200,57 @@ export default function DashboardPage() {
       setPeriod("custom")
     }
     setCustomRangeVersion((v) => v + 1)
+  }
+
+  const refreshBusinessPanel = async () => {
+    try {
+      const params = buildPeriodParams()
+      const res = await fetch(`/api/dashboard/business-events?${params.toString()}`)
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) return
+      setBusinessMetrics(json?.metrics || defaultBusinessMetrics)
+      setRecentBusinessEvents(Array.isArray(json?.recentEvents) ? json.recentEvents : [])
+    } catch {
+      // no-op
+    }
+  }
+
+  const submitBusinessEvent = async () => {
+    setSavingBusinessEvent(true)
+    setError(null)
+    try {
+      const payload = {
+        eventType: businessForm.eventType,
+        leadName: businessForm.leadName.trim() || undefined,
+        phone: businessForm.phone.trim() || undefined,
+        sessionId: businessForm.sessionId.trim() || undefined,
+        saleAmount: businessForm.saleAmount ? Number(businessForm.saleAmount) : undefined,
+        productOrService: businessForm.productOrService.trim() || undefined,
+        notes: businessForm.notes.trim() || undefined,
+      }
+
+      const res = await fetch("/api/dashboard/business-events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(json?.error || "Nao foi possivel registrar evento")
+      }
+
+      setBusinessForm((prev) => ({
+        ...prev,
+        saleAmount: "",
+        productOrService: "",
+        notes: "",
+      }))
+      await refreshBusinessPanel()
+    } catch (err: any) {
+      setError(err?.message || "Erro ao registrar evento")
+    } finally {
+      setSavingBusinessEvent(false)
+    }
   }
 
   const periodLabel =
@@ -266,6 +387,162 @@ export default function DashboardPage() {
             </Card>
           )
         })}
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card className="genial-card genial-elevate md:col-span-2">
+          <CardHeader>
+            <CardTitle className="text-pure-white">Eventos de Comparecimento e Vendas</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid md:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label>Tipo de evento</Label>
+                <Select
+                  value={businessForm.eventType}
+                  onValueChange={(value) =>
+                    setBusinessForm((prev) => ({
+                      ...prev,
+                      eventType: value as BusinessEventForm["eventType"],
+                    }))
+                  }
+                >
+                  <SelectTrigger className="bg-secondary border-border">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-secondary border-border text-foreground">
+                    <SelectItem value="attendance">Comparecimento</SelectItem>
+                    <SelectItem value="no_show">Bolo / Nao compareceu</SelectItem>
+                    <SelectItem value="sale">Venda realizada</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Nome do lead</Label>
+                <Input
+                  value={businessForm.leadName}
+                  onChange={(e) => setBusinessForm((prev) => ({ ...prev, leadName: e.target.value }))}
+                  className="bg-secondary border-border"
+                  placeholder="Ex: Carlos"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Telefone</Label>
+                <Input
+                  value={businessForm.phone}
+                  onChange={(e) => setBusinessForm((prev) => ({ ...prev, phone: e.target.value }))}
+                  className="bg-secondary border-border"
+                  placeholder="55..."
+                />
+              </div>
+            </div>
+
+            <div className="grid md:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label>Session ID (opcional)</Label>
+                <Input
+                  value={businessForm.sessionId}
+                  onChange={(e) => setBusinessForm((prev) => ({ ...prev, sessionId: e.target.value }))}
+                  className="bg-secondary border-border"
+                  placeholder="id da conversa"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Valor da venda</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={businessForm.saleAmount}
+                  onChange={(e) => setBusinessForm((prev) => ({ ...prev, saleAmount: e.target.value }))}
+                  className="bg-secondary border-border"
+                  placeholder="0,00"
+                  disabled={businessForm.eventType !== "sale"}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Produto/Servico</Label>
+                <Input
+                  value={businessForm.productOrService}
+                  onChange={(e) =>
+                    setBusinessForm((prev) => ({ ...prev, productOrService: e.target.value }))
+                  }
+                  className="bg-secondary border-border"
+                  placeholder="Ex: Curso Master"
+                  disabled={businessForm.eventType !== "sale"}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Observacoes</Label>
+              <Textarea
+                value={businessForm.notes}
+                onChange={(e) => setBusinessForm((prev) => ({ ...prev, notes: e.target.value }))}
+                className="bg-secondary border-border min-h-[96px]"
+                placeholder="Detalhes relevantes do evento"
+              />
+            </div>
+
+            <div className="flex justify-end">
+              <Button onClick={submitBusinessEvent} disabled={savingBusinessEvent}>
+                {savingBusinessEvent ? "Salvando..." : "Registrar evento"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="genial-card genial-elevate">
+          <CardHeader>
+            <CardTitle className="text-pure-white">Resumo Comercial</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-text-gray">Comparecimentos</span>
+              <span className="font-semibold text-pure-white">{businessMetrics.attendanceCount}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-text-gray">No-show</span>
+              <span className="font-semibold text-pure-white">{businessMetrics.noShowCount}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-text-gray">Vendas</span>
+              <span className="font-semibold text-pure-white">{businessMetrics.salesCount}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-text-gray">Valor vendido</span>
+              <span className="font-semibold text-accent-green">
+                {businessMetrics.totalSalesAmount.toLocaleString("pt-BR", {
+                  style: "currency",
+                  currency: "BRL",
+                })}
+              </span>
+            </div>
+            <div className="h-px bg-border/50" />
+            <div className="space-y-2">
+              <p className="text-xs text-text-gray">Ultimos eventos</p>
+              <div className="space-y-2">
+                {recentBusinessEvents.slice(0, 5).map((event) => (
+                  <div key={event.id} className="rounded border border-border/50 p-2 text-xs">
+                    <p className="text-pure-white">
+                      {event.event_type === "attendance"
+                        ? "Comparecimento"
+                        : event.event_type === "no_show"
+                          ? "No-show"
+                          : "Venda"}
+                      {event.lead_name ? ` - ${event.lead_name}` : ""}
+                    </p>
+                    <p className="text-text-gray">
+                      {new Date(event.event_at).toLocaleString("pt-BR")}
+                    </p>
+                  </div>
+                ))}
+                {recentBusinessEvents.length === 0 && (
+                  <p className="text-xs text-text-gray">Sem eventos no periodo.</p>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       <div className="grid gap-4 md:grid-cols-7">

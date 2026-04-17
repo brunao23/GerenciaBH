@@ -50,6 +50,12 @@ export interface NativeAgentConfig {
   notifyOnScheduleSuccess: boolean
   notifyOnScheduleError: boolean
   notifyOnHumanHandoff: boolean
+  reengagementAgentEnabled: boolean
+  reengagementDelayMinutes: number
+  reengagementTemplate?: string
+  welcomeAgentEnabled: boolean
+  welcomeDelayMinutes: number
+  welcomeTemplate?: string
   collectEmailForScheduling: boolean
   generateMeetForOnlineAppointments: boolean
   postScheduleAutomationEnabled: boolean
@@ -189,6 +195,14 @@ const DEFAULT_CONVERSATION_TASK_NOTIFICATION_TEMPLATE = [
 const DEFAULT_NOTIFY_ON_SCHEDULE_SUCCESS = true
 const DEFAULT_NOTIFY_ON_SCHEDULE_ERROR = true
 const DEFAULT_NOTIFY_ON_HUMAN_HANDOFF = true
+const DEFAULT_REENGAGEMENT_AGENT_ENABLED = true
+const DEFAULT_REENGAGEMENT_DELAY_MINUTES = 180
+const DEFAULT_REENGAGEMENT_TEMPLATE =
+  "Oi {{lead_name}}, vi que voce nao conseguiu comparecer no ultimo horario. Quer que eu te envie novas opcoes para reagendar?"
+const DEFAULT_WELCOME_AGENT_ENABLED = true
+const DEFAULT_WELCOME_DELAY_MINUTES = 10080
+const DEFAULT_WELCOME_TEMPLATE =
+  "Oi {{lead_name}}, passando para te dar as boas-vindas e saber como esta sua experiencia ate aqui. Se precisar, estou por aqui."
 const DEFAULT_COLLECT_EMAIL_FOR_SCHEDULING = true
 const DEFAULT_GENERATE_MEET_FOR_ONLINE = false
 const DEFAULT_POST_SCHEDULE_AUTOMATION_ENABLED = false
@@ -688,6 +702,26 @@ function normalizeConfig(input: any): NativeAgentConfig {
     ),
     notifyOnScheduleError: readBoolean(raw.notifyOnScheduleError, DEFAULT_NOTIFY_ON_SCHEDULE_ERROR),
     notifyOnHumanHandoff: readBoolean(raw.notifyOnHumanHandoff, DEFAULT_NOTIFY_ON_HUMAN_HANDOFF),
+    reengagementAgentEnabled: readBoolean(
+      raw.reengagementAgentEnabled,
+      DEFAULT_REENGAGEMENT_AGENT_ENABLED,
+    ),
+    reengagementDelayMinutes: readNumber(
+      raw.reengagementDelayMinutes,
+      DEFAULT_REENGAGEMENT_DELAY_MINUTES,
+      1,
+      60 * 24 * 90,
+    ),
+    reengagementTemplate:
+      readString(raw.reengagementTemplate) || DEFAULT_REENGAGEMENT_TEMPLATE,
+    welcomeAgentEnabled: readBoolean(raw.welcomeAgentEnabled, DEFAULT_WELCOME_AGENT_ENABLED),
+    welcomeDelayMinutes: readNumber(
+      raw.welcomeDelayMinutes,
+      DEFAULT_WELCOME_DELAY_MINUTES,
+      1,
+      60 * 24 * 180,
+    ),
+    welcomeTemplate: readString(raw.welcomeTemplate) || DEFAULT_WELCOME_TEMPLATE,
     collectEmailForScheduling: readBoolean(
       raw.collectEmailForScheduling,
       DEFAULT_COLLECT_EMAIL_FOR_SCHEDULING,
@@ -961,6 +995,14 @@ export function validateNativeAgentConfig(config: NativeAgentConfig): string | n
     }
   }
 
+  if (config.reengagementDelayMinutes < 1 || config.reengagementDelayMinutes > 60 * 24 * 90) {
+    return "reengagementDelayMinutes must be between 1 and 129600"
+  }
+
+  if (config.welcomeDelayMinutes < 1 || config.welcomeDelayMinutes > 60 * 24 * 180) {
+    return "welcomeDelayMinutes must be between 1 and 259200"
+  }
+
   if (
     config.conversationTaskNotificationTemplate &&
     config.conversationTaskNotificationTemplate.length > 2000
@@ -1163,6 +1205,12 @@ export async function updateNativeAgentConfigForTenant(
       notifyOnScheduleSuccess: config.notifyOnScheduleSuccess,
       notifyOnScheduleError: config.notifyOnScheduleError,
       notifyOnHumanHandoff: config.notifyOnHumanHandoff,
+      reengagementAgentEnabled: config.reengagementAgentEnabled,
+      reengagementDelayMinutes: config.reengagementDelayMinutes,
+      reengagementTemplate: config.reengagementTemplate,
+      welcomeAgentEnabled: config.welcomeAgentEnabled,
+      welcomeDelayMinutes: config.welcomeDelayMinutes,
+      welcomeTemplate: config.welcomeTemplate,
       collectEmailForScheduling: config.collectEmailForScheduling,
       generateMeetForOnlineAppointments: config.generateMeetForOnlineAppointments,
       postScheduleAutomationEnabled: config.postScheduleAutomationEnabled,

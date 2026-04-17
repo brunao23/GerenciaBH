@@ -59,6 +59,12 @@ type TenantNativeAgentConfig = {
   notifyOnScheduleSuccess: boolean
   notifyOnScheduleError: boolean
   notifyOnHumanHandoff: boolean
+  reengagementAgentEnabled: boolean
+  reengagementDelayMinutes: number
+  reengagementTemplate: string
+  welcomeAgentEnabled: boolean
+  welcomeDelayMinutes: number
+  welcomeTemplate: string
   collectEmailForScheduling: boolean
   generateMeetForOnlineAppointments: boolean
   postScheduleAutomationEnabled: boolean
@@ -156,6 +162,14 @@ const defaultConfig: TenantNativeAgentConfig = {
   notifyOnScheduleSuccess: true,
   notifyOnScheduleError: true,
   notifyOnHumanHandoff: true,
+  reengagementAgentEnabled: true,
+  reengagementDelayMinutes: 180,
+  reengagementTemplate:
+    "Oi {{lead_name}}, vi que voce nao conseguiu comparecer no ultimo horario. Quer que eu te envie novas opcoes para reagendar?",
+  welcomeAgentEnabled: true,
+  welcomeDelayMinutes: 10080,
+  welcomeTemplate:
+    "Oi {{lead_name}}, passando para te dar as boas-vindas e saber como esta sua experiencia ate aqui. Se precisar, estou por aqui.",
   collectEmailForScheduling: true,
   generateMeetForOnlineAppointments: false,
   postScheduleAutomationEnabled: false,
@@ -327,6 +341,22 @@ function normalizeConfig(raw: any): TenantNativeAgentConfig {
     notifyOnScheduleSuccess: source.notifyOnScheduleSuccess !== false,
     notifyOnScheduleError: source.notifyOnScheduleError !== false,
     notifyOnHumanHandoff: source.notifyOnHumanHandoff !== false,
+    reengagementAgentEnabled: source.reengagementAgentEnabled !== false,
+    reengagementDelayMinutes: Number.isFinite(Number(source.reengagementDelayMinutes))
+      ? Number(source.reengagementDelayMinutes)
+      : 180,
+    reengagementTemplate: String(
+      source.reengagementTemplate ||
+      "Oi {{lead_name}}, vi que voce nao conseguiu comparecer no ultimo horario. Quer que eu te envie novas opcoes para reagendar?",
+    ),
+    welcomeAgentEnabled: source.welcomeAgentEnabled !== false,
+    welcomeDelayMinutes: Number.isFinite(Number(source.welcomeDelayMinutes))
+      ? Number(source.welcomeDelayMinutes)
+      : 10080,
+    welcomeTemplate: String(
+      source.welcomeTemplate ||
+      "Oi {{lead_name}}, passando para te dar as boas-vindas e saber como esta sua experiencia ate aqui. Se precisar, estou por aqui.",
+    ),
     collectEmailForScheduling: source.collectEmailForScheduling === true,
     generateMeetForOnlineAppointments: source.generateMeetForOnlineAppointments === true,
     postScheduleAutomationEnabled: source.postScheduleAutomationEnabled === true,
@@ -696,6 +726,18 @@ export default function AgenteIAPage() {
         notifyOnScheduleSuccess: config.notifyOnScheduleSuccess,
         notifyOnScheduleError: config.notifyOnScheduleError,
         notifyOnHumanHandoff: config.notifyOnHumanHandoff,
+        reengagementAgentEnabled: config.reengagementAgentEnabled,
+        reengagementDelayMinutes: Math.max(
+          1,
+          Math.min(60 * 24 * 90, Number(config.reengagementDelayMinutes || 180)),
+        ),
+        reengagementTemplate: toOptionalText(config.reengagementTemplate),
+        welcomeAgentEnabled: config.welcomeAgentEnabled,
+        welcomeDelayMinutes: Math.max(
+          1,
+          Math.min(60 * 24 * 180, Number(config.welcomeDelayMinutes || 10080)),
+        ),
+        welcomeTemplate: toOptionalText(config.welcomeTemplate),
         collectEmailForScheduling: config.collectEmailForScheduling,
         generateMeetForOnlineAppointments: config.generateMeetForOnlineAppointments,
         postScheduleAutomationEnabled: config.postScheduleAutomationEnabled,
@@ -1861,6 +1903,110 @@ export default function AgenteIAPage() {
               onChange={(e) => setToolNotificationTargetsInput(e.target.value)}
               className="bg-secondary border-border text-foreground min-h-[120px]"
               placeholder={"5565999999999\n120363040490321289-group"}
+              disabled={loading}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-card border-border text-foreground">
+        <CardHeader>
+          <CardTitle>Novos agentes de ciclo comercial</CardTitle>
+          <CardDescription className="text-gray-400">
+            Automatize o reengajamento de no-show e mensagens de boas-vindas para novos clientes.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Agente de reengajamento no-show</Label>
+              <Select
+                value={config.reengagementAgentEnabled ? "on" : "off"}
+                onValueChange={(v) =>
+                  setConfig((prev) => ({ ...prev, reengagementAgentEnabled: v === "on" }))
+                }
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-secondary border-border">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-secondary border-border text-foreground">
+                  <SelectItem value="on">Ativado</SelectItem>
+                  <SelectItem value="off">Desativado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Delay reengajamento (minutos)</Label>
+              <Input
+                type="number"
+                min={1}
+                max={129600}
+                value={config.reengagementDelayMinutes}
+                onChange={(e) =>
+                  setConfig((prev) => ({
+                    ...prev,
+                    reengagementDelayMinutes: Number(e.target.value || 180),
+                  }))
+                }
+                className="bg-secondary border-border text-foreground"
+                disabled={loading}
+              />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label>Template reengajamento no-show</Label>
+            <Textarea
+              value={config.reengagementTemplate}
+              onChange={(e) => setConfig((prev) => ({ ...prev, reengagementTemplate: e.target.value }))}
+              className="bg-secondary border-border text-foreground min-h-[96px]"
+              placeholder="Use {{lead_name}}, {{event_date}} e {{phone}}"
+              disabled={loading}
+            />
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Agente de boas-vindas cliente</Label>
+              <Select
+                value={config.welcomeAgentEnabled ? "on" : "off"}
+                onValueChange={(v) => setConfig((prev) => ({ ...prev, welcomeAgentEnabled: v === "on" }))}
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-secondary border-border">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-secondary border-border text-foreground">
+                  <SelectItem value="on">Ativado</SelectItem>
+                  <SelectItem value="off">Desativado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Delay boas-vindas (minutos)</Label>
+              <Input
+                type="number"
+                min={1}
+                max={259200}
+                value={config.welcomeDelayMinutes}
+                onChange={(e) =>
+                  setConfig((prev) => ({
+                    ...prev,
+                    welcomeDelayMinutes: Number(e.target.value || 10080),
+                  }))
+                }
+                className="bg-secondary border-border text-foreground"
+                disabled={loading}
+              />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label>Template boas-vindas cliente</Label>
+            <Textarea
+              value={config.welcomeTemplate}
+              onChange={(e) => setConfig((prev) => ({ ...prev, welcomeTemplate: e.target.value }))}
+              className="bg-secondary border-border text-foreground min-h-[96px]"
+              placeholder="Use {{lead_name}}, {{product}} e {{sale_amount}}"
               disabled={loading}
             />
           </div>

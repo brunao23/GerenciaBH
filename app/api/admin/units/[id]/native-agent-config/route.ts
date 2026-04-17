@@ -502,6 +502,14 @@ export async function PATCH(req: NextRequest, context: { params: RouteParams }) 
         notifyOnScheduleSuccess: true,
         notifyOnScheduleError: true,
         notifyOnHumanHandoff: true,
+        reengagementAgentEnabled: true,
+        reengagementDelayMinutes: 180,
+        reengagementTemplate:
+          "Oi {{lead_name}}, vi que voce nao conseguiu comparecer no ultimo horario. Quer que eu te envie novas opcoes para reagendar?",
+        welcomeAgentEnabled: true,
+        welcomeDelayMinutes: 10080,
+        welcomeTemplate:
+          "Oi {{lead_name}}, passando para te dar as boas-vindas e saber como esta sua experiencia ate aqui. Se precisar, estou por aqui.",
         collectEmailForScheduling: true,
         generateMeetForOnlineAppointments: false,
         postScheduleAutomationEnabled: false,
@@ -695,6 +703,31 @@ export async function PATCH(req: NextRequest, context: { params: RouteParams }) 
       ),
       notifyOnScheduleError: toBool(body?.notifyOnScheduleError, current.notifyOnScheduleError),
       notifyOnHumanHandoff: toBool(body?.notifyOnHumanHandoff, current.notifyOnHumanHandoff),
+      reengagementAgentEnabled: toBool(
+        body?.reengagementAgentEnabled,
+        current.reengagementAgentEnabled,
+      ),
+      reengagementDelayMinutes: toNumber(
+        body?.reengagementDelayMinutes,
+        current.reengagementDelayMinutes,
+        1,
+        60 * 24 * 90,
+      ),
+      reengagementTemplate:
+        body?.reengagementTemplate !== undefined
+          ? toOptionalText(body.reengagementTemplate)
+          : current.reengagementTemplate,
+      welcomeAgentEnabled: toBool(body?.welcomeAgentEnabled, current.welcomeAgentEnabled),
+      welcomeDelayMinutes: toNumber(
+        body?.welcomeDelayMinutes,
+        current.welcomeDelayMinutes,
+        1,
+        60 * 24 * 180,
+      ),
+      welcomeTemplate:
+        body?.welcomeTemplate !== undefined
+          ? toOptionalText(body.welcomeTemplate)
+          : current.welcomeTemplate,
       collectEmailForScheduling: toBool(
         body?.collectEmailForScheduling,
         current.collectEmailForScheduling,
