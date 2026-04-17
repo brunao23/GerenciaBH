@@ -3011,7 +3011,7 @@ export class NativeAgentOrchestratorService {
       : "- Use apenas o contexto imediato da ultima mensagem."
     const firstMessageRule = config.preciseFirstMessageEnabled
       ? Number(ctx.assistantMessagesCount || 0) === 0
-        ? "- Esta e a primeira resposta da IA: faca abertura precisa com: (1) saudacao pelo periodo do dia, (2) apresentacao curta da unidade/servico, (3) OBRIGATORIO — pergunte a area de atuacao do lead usando este script como base: 'Antes de abrir horarios, preciso te conhecer melhor. Me conta sua area de atuacao para eu te indicar o melhor caminho.' Adapte o tom ao perfil, mas mantenha a essencia. NAO mencione valores, horarios ou disponibilidade nesta primeira mensagem."
+        ? "- Esta e a primeira resposta da IA: (1) saudacao pelo periodo do dia, (2) apresentacao curta e natural da unidade/servico, (3) pergunte de forma leve a area de atuacao do lead para personalizar o atendimento — ex.: 'Me conta qual e a sua area de atuacao para eu te orientar melhor.' NAO mencione horarios, agenda, valores ou disponibilidade nesta abertura."
         : "- Mantenha continuidade precisa com o ponto exato onde a conversa parou."
       : "- Primeira resposta pode seguir fluxo livre."
     const qualification = ctx.qualificationState || {
