@@ -680,36 +680,36 @@ export default function AdminUnitsPage() {
     const activeLogsUnit = isLogsView ? (units.find(u => u.id === currentView?.unitId) || logsUnit) : null
 
     return (
-        <div className="flex h-screen overflow-hidden bg-[#080808]">
+        <div className="flex h-screen overflow-hidden bg-background">
 
             {/* ═══════════════════ SIDEBAR ═══════════════════ */}
-            <aside className={`${logsExpanded ? 'w-0 min-w-0 overflow-hidden' : 'w-[260px] min-w-[260px]'} transition-all duration-300 flex flex-col h-screen border-r border-[#161616] bg-[#0a0a0a] overflow-hidden`}>
+            <aside className={`${logsExpanded ? 'w-0 min-w-0 overflow-hidden' : 'w-[260px] min-w-[260px]'} transition-all duration-300 flex flex-col h-screen border-r border-border bg-card overflow-hidden`}>
 
                 {/* Header */}
-                <div className="flex-shrink-0 px-4 pt-5 pb-4 border-b border-[#161616]">
+                <div className="flex-shrink-0 px-4 pt-5 pb-4 border-b border-border">
                     <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-2">
-                            <Database className="w-3.5 h-3.5 text-green-400" />
-                            <span className="text-xs font-semibold text-white tracking-wide">UNIDADES</span>
+                            <Database className="w-5 h-5 text-green-400" />
+                            <span className="text-base font-semibold text-white tracking-wide">UNIDADES</span>
                         </div>
                         <div className="flex items-center gap-2">
-                            <span className="text-[10px] text-green-400 bg-green-900/30 border border-green-900/40 px-1.5 py-0.5 rounded font-mono">{activeUnits}</span>
-                            <button onClick={() => setCreating(true)} className="text-gray-600 hover:text-green-400 transition-colors" title="Nova Unidade">
-                                <Plus className="w-3.5 h-3.5" />
+                            <span className="text-base text-green-400 bg-green-900/30 border border-green-900/40 px-1.5 py-0.5 rounded font-mono">{activeUnits}</span>
+                            <button onClick={() => setCreating(true)} className="text-muted-foreground/80 hover:text-green-400 transition-colors" title="Nova Unidade">
+                                <Plus className="w-5 h-5" />
                             </button>
                         </div>
                     </div>
                     <div className="relative">
-                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-700" />
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground/60" />
                         <input
                             value={sidebarSearch}
                             onChange={e => setSidebarSearch(e.target.value)}
                             placeholder="Buscar..."
-                            className="w-full bg-[#111] border border-[#1e1e1e] rounded-md pl-7 pr-3 py-1.5 text-[11px] text-gray-400 placeholder-gray-700 focus:outline-none focus:border-green-900"
+                            className="w-full bg-secondary border border-border rounded-md pl-7 pr-3 py-1.5 text-base text-muted-foreground placeholder-gray-700 focus:outline-none focus:border-green-900"
                         />
                         {sidebarSearch && (
-                            <button onClick={() => setSidebarSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-700 hover:text-gray-400">
-                                <XCircle className="w-3 h-3" />
+                            <button onClick={() => setSidebarSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground/60 hover:text-muted-foreground">
+                                <XCircle className="w-5 h-5" />
                             </button>
                         )}
                     </div>
@@ -718,9 +718,9 @@ export default function AdminUnitsPage() {
                 {/* Units list */}
                 <div className="flex-1 overflow-y-auto py-1">
                     {loading ? (
-                        <div className="text-center py-6 text-gray-700 text-[11px] animate-pulse">Carregando...</div>
+                        <div className="text-center py-6 text-muted-foreground/60 text-base animate-pulse">Carregando...</div>
                     ) : filteredUnits.length === 0 ? (
-                        <div className="text-center py-6 text-gray-700 text-[11px]">Nenhuma unidade</div>
+                        <div className="text-center py-6 text-muted-foreground/60 text-base">Nenhuma unidade</div>
                     ) : (
                         filteredUnits.map(unit => {
                             const isExpanded = expandedUnit === unit.id
@@ -731,27 +731,27 @@ export default function AdminUnitsPage() {
                                     {/* Unit header row */}
                                     <button
                                         onClick={() => setExpandedUnit(isExpanded ? null : unit.id)}
-                                        className={`w-full flex items-center gap-2 px-4 py-2.5 text-left transition-colors hover:bg-[#111] ${isExpanded ? 'bg-[#0f0f0f]' : ''}`}
+                                        className={`w-full flex items-center gap-2 px-4 py-2.5 text-left transition-colors hover:bg-secondary ${isExpanded ? 'bg-secondary' : ''}`}
                                     >
                                         <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${unit.is_active ? 'bg-green-400' : 'bg-red-600'}`} />
                                         <div className="flex-1 min-w-0">
-                                            <div className="text-[11px] font-medium text-gray-300 truncate">{unit.name}</div>
-                                            <div className="text-[9px] text-gray-700 font-mono truncate">{unit.prefix}</div>
+                                            <div className="text-base font-medium text-foreground truncate">{unit.name}</div>
+                                            <div className="text-base text-muted-foreground/60 font-mono truncate">{unit.prefix}</div>
                                         </div>
-                                        {hasAgent && <Bot className="w-2.5 h-2.5 text-purple-600 flex-shrink-0" />}
-                                        {hasWA && <MessageSquare className="w-2.5 h-2.5 text-green-700 flex-shrink-0" />}
-                                        <ChevronRight className={`w-3 h-3 text-gray-700 flex-shrink-0 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`} />
+                                        {hasAgent && <Bot className="w-5 h-5 text-purple-600 flex-shrink-0" />}
+                                        {hasWA && <MessageSquare className="w-5 h-5 text-green-700 flex-shrink-0" />}
+                                        <ChevronRight className={`w-5 h-5 text-muted-foreground/60 flex-shrink-0 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`} />
                                     </button>
 
                                     {/* Sub-menu */}
                                     {isExpanded && (
-                                        <div className="border-l-2 border-[#1e1e1e] ml-5 mb-0.5">
+                                        <div className="border-l-2 border-border ml-5 mb-0.5">
                                             <button
                                                 onClick={() => handleAccessUnit(unit.prefix)}
-                                                className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-[#111] transition-colors group"
+                                                className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-secondary transition-colors group"
                                             >
-                                                <ExternalLink className="w-2.5 h-2.5 text-green-600 group-hover:text-green-400" />
-                                                <span className="text-[10px] text-green-700 group-hover:text-green-400 font-medium">Acessar Painel</span>
+                                                <ExternalLink className="w-5 h-5 text-green-600 group-hover:text-green-400" />
+                                                <span className="text-base text-green-700 group-hover:text-green-400 font-medium">Acessar Painel</span>
                                             </button>
                                             {[
                                                 { id: 'n8n', icon: LinkIcon, label: 'N8N / Workflow', color: 'text-orange-600 group-hover:text-orange-400' },
@@ -763,18 +763,18 @@ export default function AdminUnitsPage() {
                                                 <button
                                                     key={item.id}
                                                     onClick={() => handleSidebarAction(unit, item.id)}
-                                                    className={`w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-[#111] transition-colors group ${currentView?.unitId === unit.id && currentView?.panel === item.id ? 'bg-[#111]' : ''}`}
+                                                    className={`w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-secondary transition-colors group ${currentView?.unitId === unit.id && currentView?.panel === item.id ? 'bg-secondary' : ''}`}
                                                 >
-                                                    <item.icon className={`w-2.5 h-2.5 flex-shrink-0 ${item.color}`} />
-                                                    <span className={`text-[10px] ${item.color}`}>{item.label}</span>
+                                                    <item.icon className={`w-5 h-5 flex-shrink-0 ${item.color}`} />
+                                                    <span className={`text-base ${item.color}`}>{item.label}</span>
                                                 </button>
                                             ))}
                                             <button
                                                 onClick={() => handleDelete(unit)}
                                                 className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-red-950/20 transition-colors group"
                                             >
-                                                <Trash2 className="w-2.5 h-2.5 text-red-900 group-hover:text-red-600" />
-                                                <span className="text-[10px] text-red-900 group-hover:text-red-600">Excluir</span>
+                                                <Trash2 className="w-5 h-5 text-red-900 group-hover:text-red-600" />
+                                                <span className="text-base text-red-900 group-hover:text-red-600">Excluir</span>
                                             </button>
                                         </div>
                                     )}
@@ -784,36 +784,26 @@ export default function AdminUnitsPage() {
                     )}
                 </div>
 
-                {/* Sidebar footer */}
-                <div className="flex-shrink-0 p-3 border-t border-[#161616]">
-                    <button
-                        onClick={() => window.location.href = '/admin/workflows'}
-                        className="w-full flex items-center gap-2 px-3 py-2 rounded-md bg-[#111] border border-[#1e1e1e] hover:border-green-900/40 hover:bg-green-950/10 transition-colors"
-                    >
-                        <Activity className="w-3 h-3 text-green-600" />
-                        <span className="text-[11px] text-green-700 hover:text-green-400">N8N Manager</span>
-                    </button>
-                </div>
-            </aside>
+                </aside>
 
             {/* ═══════════════════ MAIN CONTENT ═══════════════════ */}
             <main className="flex-1 min-w-0 h-screen flex flex-col overflow-hidden">
 
                 {isLogsView && activeLogsUnit ? (
                     /* ─── LOGS PANEL ─── */
-                    <div className="flex-1 flex flex-col overflow-hidden bg-[#080808]">
+                    <div className="flex-1 flex flex-col overflow-hidden bg-background">
                         {/* Logs toolbar */}
-                        <div className="flex-shrink-0 flex flex-wrap items-center gap-2.5 px-5 py-3 border-b border-[#161616] bg-[#0a0a0a]">
+                        <div className="flex-shrink-0 flex flex-wrap items-center gap-2.5 px-5 py-3 border-b border-border bg-card">
                             <div className="flex items-center gap-2 mr-1">
-                                <FileText className="w-4 h-4 text-yellow-500" />
-                                <span className="text-sm font-semibold text-white">Logs do Sistema</span>
-                                <span className="text-xs text-gray-500">— {activeLogsUnit.name}</span>
+                                <FileText className="w-5 h-5 text-yellow-500" />
+                                <span className="text-base font-semibold text-white">Logs do Sistema</span>
+                                <span className="text-base text-muted-foreground">— {activeLogsUnit.name}</span>
                             </div>
 
                             <select
                                 value={systemLogsSeverityFilter}
                                 onChange={async e => { setSystemLogsSeverityFilter(e.target.value); if (logsUnit) await fetchSystemLogs(logsUnit, { severity: e.target.value, source: systemLogsSourceFilter, limit: systemLogsLimit }) }}
-                                className="text-[11px] bg-[#111] border border-[#1e1e1e] rounded px-2 py-1.5 text-gray-400 focus:outline-none focus:border-yellow-800"
+                                className="text-base bg-secondary border border-border rounded px-2 py-1.5 text-muted-foreground focus:outline-none focus:border-yellow-800"
                             >
                                 <option value="all">Severidade: Todas</option>
                                 <option value="error">Erros</option>
@@ -825,7 +815,7 @@ export default function AdminUnitsPage() {
                             <select
                                 value={systemLogsSourceFilter}
                                 onChange={async e => { setSystemLogsSourceFilter(e.target.value); if (logsUnit) await fetchSystemLogs(logsUnit, { severity: systemLogsSeverityFilter, source: e.target.value, limit: systemLogsLimit }) }}
-                                className="text-[11px] bg-[#111] border border-[#1e1e1e] rounded px-2 py-1.5 text-gray-400 focus:outline-none focus:border-yellow-800"
+                                className="text-base bg-secondary border border-border rounded px-2 py-1.5 text-muted-foreground focus:outline-none focus:border-yellow-800"
                             >
                                 <option value="all">Fonte: Todas</option>
                                 <option value="native-agent">Agente IA</option>
@@ -837,7 +827,7 @@ export default function AdminUnitsPage() {
                             <select
                                 value={systemLogsLimit}
                                 onChange={async e => { setSystemLogsLimit(Number(e.target.value)); if (logsUnit) await fetchSystemLogs(logsUnit, { severity: systemLogsSeverityFilter, source: systemLogsSourceFilter, limit: Number(e.target.value) }) }}
-                                className="text-[11px] bg-[#111] border border-[#1e1e1e] rounded px-2 py-1.5 text-gray-400 focus:outline-none focus:border-yellow-800"
+                                className="text-base bg-secondary border border-border rounded px-2 py-1.5 text-muted-foreground focus:outline-none focus:border-yellow-800"
                             >
                                 <option value="50">50</option>
                                 <option value="100">100</option>
@@ -850,9 +840,9 @@ export default function AdminUnitsPage() {
                                 variant="outline"
                                 onClick={refreshSystemLogs}
                                 disabled={loadingSystemLogs}
-                                className="text-[11px] h-7 border-yellow-900/40 text-yellow-600 hover:text-yellow-400 hover:bg-yellow-950/20"
+                                className="text-base h-7 border-yellow-900/40 text-yellow-600 hover:text-yellow-400 hover:bg-yellow-950/20"
                             >
-                                <RefreshCw className={`w-3 h-3 mr-1 ${loadingSystemLogs ? 'animate-spin' : ''}`} />
+                                <RefreshCw className={`w-5 h-5 mr-1 ${loadingSystemLogs ? 'animate-spin' : ''}`} />
                                 {loadingSystemLogs ? 'Atualizando...' : 'Atualizar'}
                             </Button>
 
@@ -864,45 +854,45 @@ export default function AdminUnitsPage() {
                                         if (!count) return null
                                         const cls: Record<string, string> = { error: 'text-red-500', warn: 'text-yellow-500', success: 'text-green-500', info: 'text-blue-500' }
                                         const lbl: Record<string, string> = { error: 'err', warn: 'warn', success: 'ok', info: 'info' }
-                                        return <span key={sev} className={`text-[10px] font-mono ${cls[sev]}`}>{count} {lbl[sev]}</span>
+                                        return <span key={sev} className={`text-base font-mono ${cls[sev]}`}>{count} {lbl[sev]}</span>
                                     })}
                                 </div>
                             )}
 
                             <div className="ml-auto flex items-center gap-2">
-                                <span className="text-[10px] text-gray-700">{systemLogs.length} registros</span>
+                                <span className="text-base text-muted-foreground/60">{systemLogs.length} registros</span>
                                 <button
                                     onClick={() => setLogsExpanded(v => !v)}
                                     title={logsExpanded ? 'Restaurar sidebar' : 'Expandir (ocultar sidebar)'}
-                                    className="p-1.5 rounded text-gray-600 hover:text-yellow-400 hover:bg-yellow-950/20 transition-colors"
+                                    className="p-1.5 rounded text-muted-foreground/80 hover:text-yellow-400 hover:bg-yellow-950/20 transition-colors"
                                 >
-                                    {logsExpanded ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+                                    {logsExpanded ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
                                 </button>
                                 <button
                                     onClick={() => { setCurrentView(null); setLogsExpanded(false) }}
-                                    className="p-1.5 rounded text-gray-600 hover:text-red-400 hover:bg-red-950/20 transition-colors"
+                                    className="p-1.5 rounded text-muted-foreground/80 hover:text-red-400 hover:bg-red-950/20 transition-colors"
                                     title="Fechar painel de logs"
                                 >
-                                    <XCircle className="w-3.5 h-3.5" />
+                                    <XCircle className="w-5 h-5" />
                                 </button>
                             </div>
                         </div>
 
                         {/* Log entries */}
-                        <div className="flex-1 overflow-y-auto p-4 space-y-1 font-mono text-xs">
+                        <div className="flex-1 overflow-y-auto p-4 space-y-1 font-mono text-base">
                             {loadingSystemLogs ? (
                                 <div className="flex h-full items-center justify-center">
-                                    <div className="text-center text-gray-700">
+                                    <div className="text-center text-muted-foreground/60">
                                         <RefreshCw className="w-8 h-8 mx-auto mb-3 animate-spin opacity-50" />
-                                        <p className="text-sm">Carregando logs...</p>
+                                        <p className="text-base">Carregando logs...</p>
                                     </div>
                                 </div>
                             ) : systemLogs.length === 0 ? (
                                 <div className="flex h-full items-center justify-center">
-                                    <div className="text-center text-gray-700">
+                                    <div className="text-center text-muted-foreground/60">
                                         <FileText className="w-12 h-12 mx-auto mb-4 opacity-20" />
-                                        <p className="text-sm font-medium text-gray-600">Nenhum log encontrado</p>
-                                        <p className="text-xs text-gray-700 mt-1">Os logs aparecem conforme as interações ocorrem.</p>
+                                        <p className="text-base font-medium text-muted-foreground/80">Nenhum log encontrado</p>
+                                        <p className="text-base text-muted-foreground/60 mt-1">Os logs aparecem conforme as interações ocorrem.</p>
                                     </div>
                                 </div>
                             ) : (
@@ -923,27 +913,27 @@ export default function AdminUnitsPage() {
                                     return (
                                         <div key={log.id || idx} className={`rounded border px-3 py-2 transition-colors ${rowCls[log.severity] || rowCls.info}`}>
                                             <div className="flex items-start gap-2">
-                                                <SeverityIcon className={`w-3.5 h-3.5 mt-0.5 flex-shrink-0 ${labelCls[log.severity] || labelCls.info}`} />
+                                                <SeverityIcon className={`w-5 h-5 mt-0.5 flex-shrink-0 ${labelCls[log.severity] || labelCls.info}`} />
                                                 <div className="flex-1 min-w-0">
                                                     <div className="flex items-baseline gap-2 flex-wrap">
-                                                        <span className={`font-bold text-[10px] ${labelCls[log.severity] || labelCls.info}`}>[{(log.severity || 'info').toUpperCase()}]</span>
-                                                        <span className="text-gray-200 truncate max-w-[500px] text-[11px]">{log.event || log.content}</span>
-                                                        <span className="text-gray-700 text-[9px] ml-auto flex-shrink-0">{new Date(log.createdAt).toLocaleString('pt-BR')}</span>
+                                                        <span className={`font-bold text-base ${labelCls[log.severity] || labelCls.info}`}>[{(log.severity || 'info').toUpperCase()}]</span>
+                                                        <span className="text-foreground truncate max-w-[500px] text-base">{log.event || log.content}</span>
+                                                        <span className="text-muted-foreground/60 text-base ml-auto flex-shrink-0">{new Date(log.createdAt).toLocaleString('pt-BR')}</span>
                                                     </div>
-                                                    <div className="flex flex-wrap gap-x-4 mt-1 text-[9px]">
-                                                        {log.source && <span className="text-gray-600">fonte: <span className="text-gray-500">{log.source}</span></span>}
-                                                        {log.sessionId && <span className="text-gray-700">sessão: <span className="text-gray-600">{log.sessionId.slice(0, 20)}</span></span>}
-                                                        {log.phone && <span className="text-gray-600">tel: <span className="text-gray-300">{log.phone}</span></span>}
+                                                    <div className="flex flex-wrap gap-x-4 mt-1 text-base">
+                                                        {log.source && <span className="text-muted-foreground/80">fonte: <span className="text-muted-foreground">{log.source}</span></span>}
+                                                        {log.sessionId && <span className="text-muted-foreground/60">sessão: <span className="text-muted-foreground/80">{log.sessionId.slice(0, 20)}</span></span>}
+                                                        {log.phone && <span className="text-muted-foreground/80">tel: <span className="text-foreground">{log.phone}</span></span>}
                                                         {log.statusCode && <span className={log.statusCode >= 400 ? 'text-red-500' : 'text-green-600'}>HTTP {log.statusCode}</span>}
-                                                        {log.duration && <span className="text-gray-700">⏱ {log.duration}ms</span>}
+                                                        {log.duration && <span className="text-muted-foreground/60">⏱ {log.duration}ms</span>}
                                                     </div>
                                                     {log.error && (
-                                                        <div className="mt-1 text-red-400 text-[10px] bg-red-950/40 rounded px-2 py-0.5 border border-red-900/20">✖ {log.error}</div>
+                                                        <div className="mt-1 text-red-400 text-base bg-red-950/40 rounded px-2 py-0.5 border border-red-900/20">✖ {log.error}</div>
                                                     )}
                                                     {log.details && Object.keys(log.details).length > 0 && (
                                                         <details className="mt-1">
-                                                            <summary className="cursor-pointer text-[9px] text-gray-700 hover:text-gray-500">▸ {Object.keys(log.details).length} campos adicionais</summary>
-                                                            <pre className="text-[9px] text-gray-600 mt-1 overflow-x-auto max-h-36 bg-black/40 rounded p-1.5 border border-[#1a1a1a]">{JSON.stringify(log.details, null, 2)}</pre>
+                                                            <summary className="cursor-pointer text-base text-muted-foreground/60 hover:text-muted-foreground">▸ {Object.keys(log.details).length} campos adicionais</summary>
+                                                            <pre className="text-sm text-foreground mt-2 whitespace-pre-wrap break-words bg-secondary/30 rounded-md p-4 border border-border overflow-y-auto max-h-[400px] font-mono">{JSON.stringify(log.details, null, 2)}</pre>
                                                         </details>
                                                     )}
                                                 </div>
@@ -962,28 +952,28 @@ export default function AdminUnitsPage() {
                         <div className="flex items-center justify-between">
                             <div>
                                 <h1 className="text-lg font-semibold text-white">Painel de Unidades</h1>
-                                <p className="text-gray-600 text-xs mt-0.5">Selecione uma unidade na barra lateral para configurar</p>
+                                <p className="text-muted-foreground/80 text-base mt-0.5">Selecione uma unidade na barra lateral para configurar</p>
                             </div>
                             <div className="flex items-center gap-4">
-                                <div className="flex items-center gap-3 text-xs">
-                                    <span className="flex items-center gap-1.5 text-gray-500"><span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />{activeUnits} ativas</span>
-                                    <span className="flex items-center gap-1.5 text-gray-500"><span className="w-1.5 h-1.5 rounded-full bg-red-500 inline-block" />{inactiveUnits} inativas</span>
+                                <div className="flex items-center gap-3 text-base">
+                                    <span className="flex items-center gap-1.5 text-muted-foreground"><span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />{activeUnits} ativas</span>
+                                    <span className="flex items-center gap-1.5 text-muted-foreground"><span className="w-1.5 h-1.5 rounded-full bg-red-500 inline-block" />{inactiveUnits} inativas</span>
                                 </div>
                             </div>
                         </div>
 
                         {/* Broadcast */}
-                        <div className="bg-[#0d0d0d] border border-[#1a1a1a] rounded-xl p-5">
+                        <div className="bg-card border border-border rounded-xl p-5">
                             <div className="flex items-center gap-2 mb-4">
-                                <Megaphone className="w-3.5 h-3.5 text-green-400" />
-                                <h3 className="text-xs font-semibold text-gray-300 uppercase tracking-wide">Aviso Global para Clientes</h3>
+                                <Megaphone className="w-5 h-5 text-green-400" />
+                                <h3 className="text-base font-semibold text-foreground uppercase tracking-wide">Aviso Global para Clientes</h3>
                             </div>
                             <div className="grid grid-cols-1 lg:grid-cols-4 gap-2.5 mb-2.5">
                                 <Select value={broadcastTarget} onValueChange={setBroadcastTarget}>
-                                    <SelectTrigger className="bg-[#141414] border-[#1e1e1e] text-gray-400 h-8 text-xs">
+                                    <SelectTrigger className="bg-secondary/80 border-border text-muted-foreground h-8 text-base">
                                         <SelectValue placeholder="Destino" />
                                     </SelectTrigger>
-                                    <SelectContent className="bg-[#141414] border-[#1e1e1e] text-white text-xs">
+                                    <SelectContent className="bg-secondary/80 border-border text-white text-base">
                                         <SelectItem value="all">Todas as unidades ativas</SelectItem>
                                         {units.filter(u => u.is_active).map(u => (
                                             <SelectItem key={u.id} value={u.prefix}>{u.name}</SelectItem>
@@ -994,13 +984,13 @@ export default function AdminUnitsPage() {
                                     value={broadcastTitle}
                                     onChange={e => setBroadcastTitle(e.target.value)}
                                     placeholder="Título"
-                                    className="bg-[#141414] border-[#1e1e1e] text-white h-8 text-xs lg:col-span-2"
+                                    className="bg-secondary/80 border-border text-white h-8 text-base lg:col-span-2"
                                     maxLength={140}
                                 />
                                 <Button
                                     onClick={handleBroadcast}
                                     disabled={sendingBroadcast || !broadcastTitle.trim() || !broadcastMessage.trim()}
-                                    className="bg-green-500 hover:bg-green-600 text-black text-xs h-8 font-semibold"
+                                    className="bg-green-500 hover:bg-green-600 text-black text-base h-8 font-semibold"
                                 >
                                     {sendingBroadcast ? 'Enviando...' : 'Enviar'}
                                 </Button>
@@ -1009,7 +999,7 @@ export default function AdminUnitsPage() {
                                 value={broadcastMessage}
                                 onChange={e => setBroadcastMessage(e.target.value)}
                                 placeholder="Mensagem..."
-                                className="min-h-[70px] bg-[#141414] border-[#1e1e1e] text-white text-xs resize-none"
+                                className="min-h-[70px] bg-secondary/80 border-border text-white text-base resize-none"
                                 maxLength={800}
                             />
                         </div>
@@ -1018,53 +1008,53 @@ export default function AdminUnitsPage() {
                         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
                             {loading ? (
                                 Array.from({ length: 8 }).map((_, i) => (
-                                    <div key={i} className="bg-[#0d0d0d] border border-[#1a1a1a] rounded-xl p-5 animate-pulse h-32" />
+                                    <div key={i} className="bg-card border border-border rounded-xl p-5 animate-pulse h-32" />
                                 ))
                             ) : units.map(unit => {
                                 const hasWA = Boolean(unit.metadata?.messaging?.provider)
                                 const hasAgent = Boolean(unit.metadata?.nativeAgent?.enabled || unit.metadata?.aiAgent?.enabled)
                                 return (
-                                    <div key={unit.id} className="bg-[#0d0d0d] border border-[#1a1a1a] hover:border-[#2a2a2a] rounded-xl p-4 transition-all group">
+                                    <div key={unit.id} className="bg-card border border-border hover:border-[#2a2a2a] rounded-xl p-4 transition-all group">
                                         <div className="flex items-start gap-3 mb-3">
-                                            <div className="w-8 h-8 rounded-lg bg-[#111] border border-[#1e1e1e] flex items-center justify-center flex-shrink-0">
-                                                <Database className="w-3.5 h-3.5 text-green-600" />
+                                            <div className="w-8 h-8 rounded-lg bg-secondary border border-border flex items-center justify-center flex-shrink-0">
+                                                <Database className="w-5 h-5 text-green-600" />
                                             </div>
                                             <div className="flex-1 min-w-0">
-                                                <h3 className="text-xs font-semibold text-white truncate">{unit.name}</h3>
-                                                <p className="text-[9px] text-gray-700 font-mono truncate">{unit.prefix}</p>
+                                                <h3 className="text-base font-semibold text-white truncate">{unit.name}</h3>
+                                                <p className="text-base text-muted-foreground/60 font-mono truncate">{unit.prefix}</p>
                                             </div>
                                             <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 mt-1 ${unit.is_active ? 'bg-green-400' : 'bg-red-600'}`} />
                                         </div>
 
                                         <div className="flex gap-1.5 flex-wrap mb-3">
-                                            {hasWA && <span className="text-[9px] text-green-600 bg-green-950/20 border border-green-900/20 px-1.5 py-0.5 rounded font-mono">WhatsApp</span>}
-                                            {hasAgent && <span className="text-[9px] text-purple-600 bg-purple-950/20 border border-purple-900/20 px-1.5 py-0.5 rounded font-mono">IA</span>}
+                                            {hasWA && <span className="text-base text-green-600 bg-green-950/20 border border-green-900/20 px-1.5 py-0.5 rounded font-mono">WhatsApp</span>}
+                                            {hasAgent && <span className="text-base text-purple-600 bg-purple-950/20 border border-purple-900/20 px-1.5 py-0.5 rounded font-mono">IA</span>}
                                         </div>
 
-                                        <div className="flex gap-3 pt-2 border-t border-[#161616]">
+                                        <div className="flex gap-3 pt-2 border-t border-border">
                                             <button
                                                 onClick={() => handleSidebarAction(unit, 'logs')}
-                                                className="text-[10px] text-yellow-700 hover:text-yellow-400 flex items-center gap-1 transition-colors"
+                                                className="text-base text-yellow-700 hover:text-yellow-400 flex items-center gap-1 transition-colors"
                                             >
-                                                <FileText className="w-2.5 h-2.5" /> Logs
+                                                <FileText className="w-5 h-5" /> Logs
                                             </button>
                                             <button
                                                 onClick={() => openMessagingDialog(unit)}
-                                                className="text-[10px] text-gray-600 hover:text-green-400 flex items-center gap-1 transition-colors"
+                                                className="text-base text-muted-foreground/80 hover:text-green-400 flex items-center gap-1 transition-colors"
                                             >
-                                                <MessageSquare className="w-2.5 h-2.5" /> WA
+                                                <MessageSquare className="w-5 h-5" /> WA
                                             </button>
                                             <button
                                                 onClick={() => openNativeAgentDialog(unit)}
-                                                className="text-[10px] text-gray-600 hover:text-purple-400 flex items-center gap-1 transition-colors"
+                                                className="text-base text-muted-foreground/80 hover:text-purple-400 flex items-center gap-1 transition-colors"
                                             >
-                                                <Bot className="w-2.5 h-2.5" /> IA
+                                                <Bot className="w-5 h-5" /> IA
                                             </button>
                                             <button
                                                 onClick={() => handleAccessUnit(unit.prefix)}
-                                                className="text-[10px] text-gray-600 hover:text-green-400 flex items-center gap-1 transition-colors ml-auto"
+                                                className="text-base text-muted-foreground/80 hover:text-green-400 flex items-center gap-1 transition-colors ml-auto"
                                             >
-                                                <ExternalLink className="w-2.5 h-2.5" /> Acessar
+                                                <ExternalLink className="w-5 h-5" /> Acessar
                                             </button>
                                         </div>
                                     </div>
@@ -1082,7 +1072,7 @@ export default function AdminUnitsPage() {
                 <DialogContent className="bg-card border-border text-foreground">
                     <DialogHeader>
                         <DialogTitle className="text-green-500 flex items-center gap-2"><Plus className="w-5 h-5" /> Nova Unidade</DialogTitle>
-                        <DialogDescription className="text-gray-400">Criação automatizada de infraestrutura.</DialogDescription>
+                        <DialogDescription className="text-muted-foreground">Criação automatizada de infraestrutura.</DialogDescription>
                     </DialogHeader>
                     <form onSubmit={handleCreate} className="space-y-4 py-4">
                         <div className="space-y-2">
@@ -1092,7 +1082,7 @@ export default function AdminUnitsPage() {
                         <div className="space-y-2">
                             <Label>Prefixo (slug)</Label>
                             <Input required placeholder="vox_rio" value={newPrefix} onChange={e => setNewPrefix(e.target.value)} className="bg-secondary border-border text-white font-mono" />
-                            <p className="text-xs text-gray-500">Identificador único. Apenas letras, números e _.</p>
+                            <p className="text-base text-muted-foreground">Identificador único. Apenas letras, números e _.</p>
                         </div>
                         <DialogFooter>
                             <Button type="button" variant="ghost" onClick={() => setCreating(false)}>Cancelar</Button>
@@ -1107,7 +1097,7 @@ export default function AdminUnitsPage() {
                 <DialogContent className="bg-card border-border text-white">
                     <DialogHeader>
                         <DialogTitle>Integração N8N — {selectedUnit?.name}</DialogTitle>
-                        <DialogDescription className="text-gray-400">Vincular workflows para esta unidade.</DialogDescription>
+                        <DialogDescription className="text-muted-foreground">Vincular workflows para esta unidade.</DialogDescription>
                     </DialogHeader>
                     <div className="py-4 space-y-4">
                         <div className="space-y-2">
@@ -1136,8 +1126,8 @@ export default function AdminUnitsPage() {
             <Dialog open={messagingDialogOpen} onOpenChange={setMessagingDialogOpen}>
                 <DialogContent className="bg-card border-border text-white max-w-xl max-h-[85vh] overflow-y-auto">
                     <DialogHeader>
-                        <DialogTitle className="text-green-400 flex items-center gap-2"><MessageSquare className="w-4 h-4" /> WhatsApp — {messagingUnit?.name}</DialogTitle>
-                        <DialogDescription className="text-gray-500">Configure o provedor de mensagens desta unidade.</DialogDescription>
+                        <DialogTitle className="text-green-400 flex items-center gap-2"><MessageSquare className="w-5 h-5" /> WhatsApp — {messagingUnit?.name}</DialogTitle>
+                        <DialogDescription className="text-muted-foreground">Configure o provedor de mensagens desta unidade.</DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4 py-2">
                         <div className="space-y-2">
@@ -1152,23 +1142,23 @@ export default function AdminUnitsPage() {
                             </Select>
                         </div>
                         {messagingProvider === 'zapi' && (<>
-                            <div className="space-y-2"><Label>Send Text URL</Label><Input value={sendTextUrl} onChange={e => setSendTextUrl(e.target.value)} placeholder="https://..." className="bg-secondary border-border text-white text-xs" /></div>
-                            <div className="space-y-2"><Label>Client Token</Label><Input value={clientToken} onChange={e => setClientToken(e.target.value)} placeholder="Client-Token" className="bg-secondary border-border text-white text-xs" /></div>
+                            <div className="space-y-2"><Label>Send Text URL</Label><Input value={sendTextUrl} onChange={e => setSendTextUrl(e.target.value)} placeholder="https://..." className="bg-secondary border-border text-white text-base" /></div>
+                            <div className="space-y-2"><Label>Client Token</Label><Input value={clientToken} onChange={e => setClientToken(e.target.value)} placeholder="Client-Token" className="bg-secondary border-border text-white text-base" /></div>
                             <div className="grid grid-cols-2 gap-3">
-                                <div className="space-y-2"><Label>API URL</Label><Input value={apiUrl} onChange={e => setApiUrl(e.target.value)} className="bg-secondary border-border text-white text-xs" /></div>
-                                <div className="space-y-2"><Label>Instance ID</Label><Input value={instanceId} onChange={e => setInstanceId(e.target.value)} className="bg-secondary border-border text-white text-xs" /></div>
+                                <div className="space-y-2"><Label>API URL</Label><Input value={apiUrl} onChange={e => setApiUrl(e.target.value)} className="bg-secondary border-border text-white text-base" /></div>
+                                <div className="space-y-2"><Label>Instance ID</Label><Input value={instanceId} onChange={e => setInstanceId(e.target.value)} className="bg-secondary border-border text-white text-base" /></div>
                             </div>
-                            <div className="space-y-2"><Label>Token</Label><Input value={providerToken} onChange={e => setProviderToken(e.target.value)} className="bg-secondary border-border text-white text-xs" /></div>
+                            <div className="space-y-2"><Label>Token</Label><Input value={providerToken} onChange={e => setProviderToken(e.target.value)} className="bg-secondary border-border text-white text-base" /></div>
                         </>)}
                         {messagingProvider === 'evolution' && (<>
-                            <div className="space-y-2"><Label>API URL</Label><Input value={apiUrl} onChange={e => setApiUrl(e.target.value)} className="bg-secondary border-border text-white text-xs" /></div>
-                            <div className="space-y-2"><Label>Instance Name</Label><Input value={instanceName} onChange={e => setInstanceName(e.target.value)} className="bg-secondary border-border text-white text-xs" /></div>
-                            <div className="space-y-2"><Label>Token</Label><Input value={providerToken} onChange={e => setProviderToken(e.target.value)} className="bg-secondary border-border text-white text-xs" /></div>
+                            <div className="space-y-2"><Label>API URL</Label><Input value={apiUrl} onChange={e => setApiUrl(e.target.value)} className="bg-secondary border-border text-white text-base" /></div>
+                            <div className="space-y-2"><Label>Instance Name</Label><Input value={instanceName} onChange={e => setInstanceName(e.target.value)} className="bg-secondary border-border text-white text-base" /></div>
+                            <div className="space-y-2"><Label>Token</Label><Input value={providerToken} onChange={e => setProviderToken(e.target.value)} className="bg-secondary border-border text-white text-base" /></div>
                         </>)}
                         {messagingProvider === 'meta' && (<>
-                            <div className="space-y-2"><Label>Access Token</Label><Input value={metaAccessToken} onChange={e => setMetaAccessToken(e.target.value)} className="bg-secondary border-border text-white text-xs" /></div>
-                            <div className="space-y-2"><Label>Phone Number ID</Label><Input value={metaPhoneNumberId} onChange={e => setMetaPhoneNumberId(e.target.value)} className="bg-secondary border-border text-white text-xs" /></div>
-                            <div className="space-y-2"><Label>WABA ID</Label><Input value={metaWabaId} onChange={e => setMetaWabaId(e.target.value)} className="bg-secondary border-border text-white text-xs" /></div>
+                            <div className="space-y-2"><Label>Access Token</Label><Input value={metaAccessToken} onChange={e => setMetaAccessToken(e.target.value)} className="bg-secondary border-border text-white text-base" /></div>
+                            <div className="space-y-2"><Label>Phone Number ID</Label><Input value={metaPhoneNumberId} onChange={e => setMetaPhoneNumberId(e.target.value)} className="bg-secondary border-border text-white text-base" /></div>
+                            <div className="space-y-2"><Label>WABA ID</Label><Input value={metaWabaId} onChange={e => setMetaWabaId(e.target.value)} className="bg-secondary border-border text-white text-base" /></div>
                         </>)}
                     </div>
                     <DialogFooter>
@@ -1184,19 +1174,19 @@ export default function AdminUnitsPage() {
             <Dialog open={nativeAgentDialogOpen} onOpenChange={setNativeAgentDialogOpen}>
                 <DialogContent className="bg-card border-border text-white max-w-2xl max-h-[85vh] overflow-y-auto">
                     <DialogHeader>
-                        <DialogTitle className="text-purple-400 flex items-center gap-2"><Bot className="w-4 h-4" /> Agente IA — {nativeAgentUnit?.name}</DialogTitle>
-                        <DialogDescription className="text-gray-500">Configure o agente de atendimento automático.</DialogDescription>
+                        <DialogTitle className="text-purple-400 flex items-center gap-2"><Bot className="w-5 h-5" /> Agente IA — {nativeAgentUnit?.name}</DialogTitle>
+                        <DialogDescription className="text-muted-foreground">Configure o agente de atendimento automático.</DialogDescription>
                     </DialogHeader>
                     {loadingNativeAgent ? (
-                        <div className="py-12 text-center text-gray-500 animate-pulse">Carregando configurações...</div>
+                        <div className="py-12 text-center text-muted-foreground animate-pulse">Carregando configurações...</div>
                     ) : (
                         <div className="space-y-4 py-2">
                             <div className="flex items-center gap-3">
-                                <input type="checkbox" id="agent-enabled" checked={nativeAgentConfig.enabled} onChange={e => setNativeAgentConfig(p => ({ ...p, enabled: e.target.checked }))} className="accent-purple-400 w-4 h-4" />
+                                <input type="checkbox" id="agent-enabled" checked={nativeAgentConfig.enabled} onChange={e => setNativeAgentConfig(p => ({ ...p, enabled: e.target.checked }))} className="accent-purple-400 w-5 h-5" />
                                 <Label htmlFor="agent-enabled" className="text-white">Agente IA Habilitado</Label>
                             </div>
                             <div className="space-y-2"><Label>Gemini API Key</Label>
-                                <Input type="password" value={nativeAgentConfig.geminiApiKey} onChange={e => setNativeAgentConfig(p => ({ ...p, geminiApiKey: e.target.value }))} placeholder="AIza..." className="bg-secondary border-border text-white text-xs font-mono" />
+                                <Input type="password" value={nativeAgentConfig.geminiApiKey} onChange={e => setNativeAgentConfig(p => ({ ...p, geminiApiKey: e.target.value }))} placeholder="AIza..." className="bg-secondary border-border text-white text-base font-mono" />
                             </div>
                             <div className="space-y-2"><Label>Modelo Gemini</Label>
                                 <Select value={nativeAgentConfig.geminiModel} onValueChange={v => setNativeAgentConfig(p => ({ ...p, geminiModel: v }))}>
@@ -1209,11 +1199,11 @@ export default function AdminUnitsPage() {
                                 </Select>
                             </div>
                             <div className="space-y-2"><Label>Prompt Base</Label>
-                                <Textarea value={nativeAgentConfig.promptBase} onChange={e => setNativeAgentConfig(p => ({ ...p, promptBase: e.target.value }))} className="min-h-[120px] bg-secondary border-border text-white text-xs" placeholder="Instruções base para o agente..." />
+                                <Textarea value={nativeAgentConfig.promptBase} onChange={e => setNativeAgentConfig(p => ({ ...p, promptBase: e.target.value }))} className="min-h-[120px] bg-secondary border-border text-white text-base" placeholder="Instruções base para o agente..." />
                             </div>
                             <div className="flex items-center gap-3">
-                                <input type="checkbox" checked={nativeAgentConfig.reactionsEnabled} onChange={e => setNativeAgentConfig(p => ({ ...p, reactionsEnabled: e.target.checked }))} className="accent-purple-400 w-4 h-4" />
-                                <Label className="text-white text-sm">Ativar reações com emojis</Label>
+                                <input type="checkbox" checked={nativeAgentConfig.reactionsEnabled} onChange={e => setNativeAgentConfig(p => ({ ...p, reactionsEnabled: e.target.checked }))} className="accent-purple-400 w-5 h-5" />
+                                <Label className="text-white text-base">Ativar reações com emojis</Label>
                             </div>
                         </div>
                     )}
@@ -1231,7 +1221,7 @@ export default function AdminUnitsPage() {
                 <DialogContent className="bg-card border-red-900/50 text-white">
                     <DialogHeader>
                         <DialogTitle className="text-red-500">Confirmar Exclusão</DialogTitle>
-                        <DialogDescription className="text-gray-400">
+                        <DialogDescription className="text-muted-foreground">
                             Isso removerá todo banco de dados e conexões da unidade <strong>{unitToDelete?.name}</strong>. Esta ação é irreversível.
                         </DialogDescription>
                     </DialogHeader>
