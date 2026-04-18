@@ -109,14 +109,16 @@ export class TenantBusinessEventsService {
         .single()
 
       if (error) {
+        console.error("[TenantBusinessEventsService.createEvent] Supabase error:", error.code, error.message, error.details)
         if (isMissingTableError(error)) {
-          return { ok: false, error: "tenant_business_events_table_missing" }
+          return { ok: false, error: "tenant_business_events_table_missing — rode o SQL de migração no Supabase" }
         }
         return { ok: false, error: error.message }
       }
 
       return { ok: true, event: data as TenantBusinessEventRecord }
     } catch (error: any) {
+      console.error("[TenantBusinessEventsService.createEvent] Exceção:", error?.message, error?.code)
       return { ok: false, error: error?.message || "failed_to_create_business_event" }
     }
   }

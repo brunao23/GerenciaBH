@@ -157,6 +157,7 @@ export async function POST(req: Request) {
     })
 
     if (!createResult.ok || !createResult.event) {
+      console.error("[business-events POST] createEvent falhou:", createResult.error, "| tenant:", tenant)
       return NextResponse.json(
         {
           success: false,
@@ -252,6 +253,7 @@ export async function POST(req: Request) {
       queuedTask,
     })
   } catch (error: any) {
+    console.error("[business-events POST] Exceção não capturada:", error?.message, error?.code, error?.stack?.slice(0, 400))
     return NextResponse.json(
       {
         success: false,
