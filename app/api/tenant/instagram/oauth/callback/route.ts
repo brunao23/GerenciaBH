@@ -164,61 +164,66 @@ async function resolveInstagramAccount(params: {
   accessToken: string
   apiVersion: string
 }): Promise<{ instagramAccountId: string; usableAccessToken: string }> {
-  // Método 1: graph.instagram.com/{version}/me — token de Instagram OAuth direto
-  const igMeVersionedUrl = new URL(`https://graph.instagram.com/${params.apiVersion}/me`)
-  igMeVersionedUrl.searchParams.set("fields", "id,username,name")
-  igMeVersionedUrl.searchParams.set("access_token", params.accessToken)
-  const igMeVersionedRes = await fetch(igMeVersionedUrl.toString(), { method: "GET" })
-  const igMeVersionedJson = await igMeVersionedRes.json().catch(() => ({}))
-  const igVersionedId = readIgId(igMeVersionedJson?.id)
-  if (igMeVersionedRes.ok && igVersionedId) {
-    return { instagramAccountId: igVersionedId, usableAccessToken: params.accessToken }
-  }
+  const diag: string[] = []
 
-  // Método 2: graph.instagram.com/me sem versão (fallback Instagram)
-  const igMeUrl = new URL("https://graph.instagram.com/me")
-  igMeUrl.searchParams.set("fields", "id,username,name")
-  igMeUrl.searchParams.set("access_token", params.accessToken)
-  const igMeRes = await fetch(igMeUrl.toString(), { method: "GET" })
-  const igMeJson = await igMeRes.json().catch(() => ({}))
-  const igId = readIgId(igMeJson?.id)
-  if (igMeRes.ok && igId) {
-    return { instagramAccountId: igId, usableAccessToken: params.accessToken }
-  }
+  // Método 1: graph.instagram.com/{version}/me — Instagram API with Instagram Login
+  try {
+    const url1 = new URL(`https://graph.instagram.com/${params.apiVersion}/me`)
+    url1.searchParams.set("fields", "id,username")
+    url1.searchParams.set("access_token", params.accessToken)
+    const res1 = await fetch(url1.toString(), { method: "GET" })
+    const json1 = await res1.json().catch(() => ({}))
+    const id1 = readIgId(json1?.id)
+    if (res1.ok && id1) return { instagramAccountId: id1, usableAccessToken: params.accessToken }
+    diag.push(`ig_versioned:${res1.status}:${json1?.error?.code}:${json1?.error?.type}:${json1?.error?.message?.slice(0,60)}`)
+  } catch (e: any) { diag.push(`ig_versioned:err:${e?.message?.slice(0,40)}`) }
 
-  // Método 3: graph.facebook.com/me/accounts — token de Facebook Login com página vinculada
+  // Método 2: graph.instagram.com/me sem versão
+  try {
+    const url2 = new URL("https://graph.instagram.com/me")
+    url2.searchParams.set("fields", "id,username")
+    url2.searchParams.set("access_token", params.accessToken)
+    const res2 = await fetch(url2.toString(), { method: "GET" })
+    const json2 = await res2.json().catch(() => ({}))
+    const id2 = readIgId(json2?.id)
+    if (res2.ok && id2) return { instagramAccountId: id2, usableAccessToken: params.accessToken }
+    diag.push(`ig_plain:${res2.status}:${json2?.error?.code}:${json2?.error?.type}:${json2?.error?.message?.slice(0,60)}`)
+  } catch (e: any) { diag.push(`ig_plain:err:${e?.message?.slice(0,40)}`) }
+
+  // Método 3: graph.facebook.com/me/accounts (Facebook Login com página vinculada)
   const base = `https://graph.facebook.com/${params.apiVersion}`
-  const pagesUrl = new URL(`${base}/me/accounts`)
-  pagesUrl.searchParams.set(
-    "fields",
-    "id,name,access_token,instagram_business_account{id,username},connected_instagram_account{id,username}",
-  )
-  pagesUrl.searchParams.set("access_token", params.accessToken)
-  const pagesRes = await fetch(pagesUrl.toString(), { method: "GET" })
-  const pagesJson = await pagesRes.json().catch(() => ({}))
-  if (pagesRes.ok && Array.isArray(pagesJson?.data)) {
-    for (const page of pagesJson.data) {
-      const igFromBusiness = readIgId(page?.instagram_business_account?.id)
-      const igFromConnected = readIgId(page?.connected_instagram_account?.id)
-      const instagramAccountId = igFromBusiness || igFromConnected
-      if (!instagramAccountId) continue
-      const pageToken = String(page?.access_token || "").trim()
-      return { instagramAccountId, usableAccessToken: pageToken || params.accessToken }
+  try {
+    const url3 = new URL(`${base}/me/accounts`)
+    url3.searchParams.set("fields", "id,name,access_token,instagram_business_account{id,username},connected_instagram_account{id,username}")
+    url3.searchParams.set("access_token", params.accessToken)
+    const res3 = await fetch(url3.toString(), { method: "GET" })
+    const json3 = await res3.json().catch(() => ({}))
+    if (res3.ok && Array.isArray(json3?.data)) {
+      for (const page of json3.data) {
+        const igId = readIgId(page?.instagram_business_account?.id) || readIgId(page?.connected_instagram_account?.id)
+        if (!igId) continue
+        const pageToken = String(page?.access_token || "").trim()
+        return { instagramAccountId: igId, usableAccessToken: pageToken || params.accessToken }
+      }
+      diag.push(`fb_pages:ok:no_ig_found:pages=${json3.data.length}`)
+    } else {
+      diag.push(`fb_pages:${res3.status}:${json3?.error?.code}:${json3?.error?.message?.slice(0,60)}`)
     }
-  }
+  } catch (e: any) { diag.push(`fb_pages:err:${e?.message?.slice(0,40)}`) }
 
-  // Método 4: graph.facebook.com/me — token de usuário Facebook
-  const meUrl = new URL(`${base}/me`)
-  meUrl.searchParams.set("fields", "id,username")
-  meUrl.searchParams.set("access_token", params.accessToken)
-  const meRes = await fetch(meUrl.toString(), { method: "GET" })
-  const meJson = await meRes.json().catch(() => ({}))
-  const meId = readIgId(meJson?.id)
-  if (meRes.ok && meId) {
-    return { instagramAccountId: meId, usableAccessToken: params.accessToken }
-  }
+  // Método 4: graph.facebook.com/me
+  try {
+    const url4 = new URL(`${base}/me`)
+    url4.searchParams.set("fields", "id,username")
+    url4.searchParams.set("access_token", params.accessToken)
+    const res4 = await fetch(url4.toString(), { method: "GET" })
+    const json4 = await res4.json().catch(() => ({}))
+    const id4 = readIgId(json4?.id)
+    if (res4.ok && id4) return { instagramAccountId: id4, usableAccessToken: params.accessToken }
+    diag.push(`fb_me:${res4.status}:${json4?.error?.code}:${json4?.error?.message?.slice(0,60)}`)
+  } catch (e: any) { diag.push(`fb_me:err:${e?.message?.slice(0,40)}`) }
 
-  throw new Error("instagram_account_nao_identificada")
+  throw new Error(`instagram_nao_identificada | ${diag.join(" | ")}`)
 }
 
 async function ensureInstagramAccountNotLinkedInOtherTenant(params: {
