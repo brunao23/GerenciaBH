@@ -2222,23 +2222,29 @@ export default function AgenteIAPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
-          <div className="rounded-lg border border-border/70 bg-secondary/25 p-4">
+          <div className={`rounded-lg border p-4 ${instagramConnectionReady ? "border-green-500/50 bg-green-500/5" : "border-border/70 bg-secondary/25"}`}>
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <div>
-                <p className="text-sm font-medium text-foreground">Conexao da conta Instagram</p>
-                <p className="text-xs text-gray-400 mt-1">
-                  {instagramConnectionReady
-                    ? `Conta conectada${instagramAccountId ? ` (${instagramAccountId})` : ""}`
-                    : "Conta ainda nao conectada para esta unidade"}
-                </p>
+              <div className="flex items-center gap-2">
+                <div className={`w-2 h-2 rounded-full shrink-0 ${instagramConnectionReady ? "bg-green-500" : "bg-gray-500"}`} />
+                <div>
+                  <p className="text-sm font-medium text-foreground">Conexao da conta Instagram</p>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {instagramConnectionReady
+                      ? `Conectado${instagramAccountId ? ` · ID: ${instagramAccountId}` : ""}`
+                      : "Nenhuma conta conectada para esta unidade"}
+                  </p>
+                </div>
               </div>
               <Button
                 type="button"
                 onClick={() => handleConnectInstagram("instagram")}
                 disabled={instagramConnectLoading}
-                className="border border-primary bg-primary text-black hover:bg-primary/80 hover:border-primary/80"
+                variant={instagramConnectionReady ? "outline" : "default"}
+                className={instagramConnectionReady
+                  ? "border border-green-500 text-green-500 hover:bg-green-500/10 shrink-0"
+                  : "border border-primary bg-primary text-black hover:bg-primary/80 hover:border-primary/80 shrink-0"}
               >
-                {instagramConnectLoading ? "Conectando..." : "Conectar Instagram"}
+                {instagramConnectLoading ? "Conectando..." : instagramConnectionReady ? "Reconectar" : "Conectar Instagram"}
               </Button>
             </div>
           </div>
