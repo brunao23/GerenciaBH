@@ -9,9 +9,9 @@ import { Button } from "../../../components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../../components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../../components/ui/table"
 import { FollowUpScheduler } from "../../../components/follow-up-scheduler"
-import { Calendar, Search, Sparkles, RefreshCw, Filter, Clock, User, FileText, Edit2, Trash2, X, Save, Plus, Send } from "lucide-react"
+import { Calendar, Search, Sparkles, RefreshCw, Filter, Clock, User, FileText, Edit2, Trash2, X, Save, Plus, Send, CheckCircle2, UserMinus, DollarSign, Loader2 } from "lucide-react"
 import { toast } from "sonner"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../../../components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "../../../components/ui/dialog"
 import { Textarea } from "../../../components/ui/textarea"
 import { Label } from "../../../components/ui/label"
 import { useTenant } from "@/lib/contexts/TenantContext"
@@ -56,8 +56,15 @@ export default function AgendamentosPage() {
   const [savingWithWebhook, setSavingWithWebhook] = useState(false)
   const [savingInlineIds, setSavingInlineIds] = useState<Set<string | number>>(new Set())
   const [busyEvents, setBusyEvents] = useState<Set<string>>(new Set())
+  const [saleModal, setSaleModal] = useState<{ open: boolean; row: Agendamento | null }>({ open: false, row: null })
+  const [saleForm, setSaleForm] = useState({ amount: "", day: "", month: "", year: "" })
+  const [submittingSale, setSubmittingSale] = useState(false)
 
   const submitQuickEvent = async (r: Agendamento, eventType: "attendance" | "no_show" | "sale") => {
+    if (eventType === "sale") {
+      setSaleModal({ open: true, row: r })
+      return
+    }
     const key = `${r.id}:${eventType}`
     setBusyEvents((prev) => new Set(prev).add(key))
     try {
@@ -72,12 +79,13 @@ export default function AgendamentosPage() {
           sessionId: phone ? `${phone}@c.us` : undefined,
         }),
       })
-      if (!res.ok) throw new Error()
-      toast.success(
-        eventType === "attendance" ? "Comparecimento registrado!" : eventType === "no_show" ? "Bolo registrado!" : "Venda registrada!",
-      )
-    } catch {
-      toast.error("Erro ao registrar evento")
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || "Falha na requisição")
+      }
+      toast.success(eventType === "attendance" ? "Comparecimento registrado!" : "Bolo registrado!")
+    } catch (err: any) {
+      toast.error(`Erro: ${err.message}`)
     } finally {
       setBusyEvents((prev) => {
         const s = new Set(prev)
@@ -86,6 +94,51 @@ export default function AgendamentosPage() {
       })
     }
   }
+
+  const handleSaleSubmit = async () => {
+    const r = saleModal.row
+    if (!r) return
+    const amount = parseFloat(saleForm.amount.replace(",", "."))
+    if (!amount || amount <= 0) {
+      toast.error("Informe o valor da venda")
+      return
+    }
+    const day = parseInt(saleForm.day)
+    const month = parseInt(saleForm.month)
+    const year = parseInt(saleForm.year) || new Date().getFullYear()
+    let eventAt: string | undefined
+    if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
+      eventAt = new Date(year, month - 1, day).toISOString()
+    }
+    setSubmittingSale(true)
+    try {
+      const phone = r.contato?.replace(/\D/g, "") || ""
+      const res = await fetch("/api/dashboard/business-events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          eventType: "sale",
+          leadName: r.nome || r.nome_responsavel || r.nome_aluno || undefined,
+          phone,
+          sessionId: phone ? `${phone}@c.us` : undefined,
+          saleAmount: amount,
+          eventAt,
+        }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || "Falha na requisição")
+      }
+      toast.success("Venda registrada!")
+      setSaleModal({ open: false, row: null })
+      setSaleForm({ amount: "", day: "", month: "", year: "" })
+    } catch (err: any) {
+      toast.error(`Erro: ${err.message}`)
+    } finally {
+      setSubmittingSale(false)
+    }
+  }
+
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [creating, setCreating] = useState(false)
   const [newAgendamento, setNewAgendamento] = useState({
@@ -1095,7 +1148,7 @@ export default function AgendamentosPage() {
                                 onClick={() => submitQuickEvent(r, "attendance")}
                                 title="Registrar comparecimento"
                               >
-                                ✅ Compareceu
+                                <CheckCircle2 className="w-3 h-3 mr-1" />Compareceu
                               </Button>
                               <Button
                                 size="sm"
@@ -1105,17 +1158,16 @@ export default function AgendamentosPage() {
                                 onClick={() => submitQuickEvent(r, "no_show")}
                                 title="Registrar bolo"
                               >
-                                🎂 Bolo
+                                <UserMinus className="w-3 h-3 mr-1" />Bolo
                               </Button>
                               <Button
                                 size="sm"
                                 variant="ghost"
                                 className="h-6 text-[10px] px-1.5 text-blue-400 hover:bg-blue-400/10 hover:text-blue-300"
-                                disabled={busyEvents.has(`${r.id}:sale`)}
                                 onClick={() => submitQuickEvent(r, "sale")}
                                 title="Registrar venda"
                               >
-                                💰 Venda
+                                <DollarSign className="w-3 h-3 mr-1" />Venda
                               </Button>
                             </div>
                             <div className="flex items-center justify-center gap-2">
@@ -1335,6 +1387,40 @@ export default function AgendamentosPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={saleModal.open} onOpenChange={(open) => { if (!open) { setSaleModal({ open: false, row: null }); setSaleForm({ amount: "", day: "", month: "", year: "" }) } }}>
+        <DialogContent className="bg-secondary-black border-border-gray sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-pure-white flex items-center gap-2">
+              <DollarSign className="w-5 h-5 text-accent-green" /> Registrar Venda
+            </DialogTitle>
+            <DialogDescription className="text-text-gray">
+              {saleModal.row?.nome || saleModal.row?.nome_responsavel || saleModal.row?.contato || "Lead"}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label className="text-text-gray text-sm">Valor da Venda (R$)</Label>
+              <Input type="number" placeholder="0.00" min="0" step="0.01" value={saleForm.amount} onChange={(e) => setSaleForm((f) => ({ ...f, amount: e.target.value }))} className="bg-primary-black border-border-gray text-pure-white" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-text-gray text-sm">Data da Venda</Label>
+              <div className="grid grid-cols-3 gap-2">
+                <Input type="number" placeholder="Dia" min={1} max={31} value={saleForm.day} onChange={(e) => setSaleForm((f) => ({ ...f, day: e.target.value }))} className="bg-primary-black border-border-gray text-pure-white" />
+                <Input type="number" placeholder="Mês" min={1} max={12} value={saleForm.month} onChange={(e) => setSaleForm((f) => ({ ...f, month: e.target.value }))} className="bg-primary-black border-border-gray text-pure-white" />
+                <Input type="number" placeholder="Ano" min={2020} max={2035} value={saleForm.year} onChange={(e) => setSaleForm((f) => ({ ...f, year: e.target.value }))} className="bg-primary-black border-border-gray text-pure-white" />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" className="border-border-gray text-text-gray hover:bg-secondary-black" onClick={() => { setSaleModal({ open: false, row: null }); setSaleForm({ amount: "", day: "", month: "", year: "" }) }}>Cancelar</Button>
+            <Button onClick={handleSaleSubmit} disabled={submittingSale} className="bg-accent-green text-black hover:bg-accent-green/90">
+              {submittingSale ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <DollarSign className="w-4 h-4 mr-2" />}
+              Confirmar Venda
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

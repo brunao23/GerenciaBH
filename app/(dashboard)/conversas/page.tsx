@@ -30,7 +30,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Search, MessageSquare, Phone, User, Clock, AlertCircle, CheckCircle2, PauseCircle, PlayCircle, Calendar, UserMinus, Loader2, Briefcase, Target, Clock3, Sparkles, Zap, Download, ListChecks, XCircle, Send, Trash2, Edit2 } from "lucide-react"
+import { Search, MessageSquare, Phone, User, Clock, AlertCircle, CheckCircle2, PauseCircle, PlayCircle, Calendar, UserMinus, Loader2, Briefcase, Target, Clock3, Sparkles, Zap, Download, ListChecks, XCircle, Send, Trash2, Edit2, DollarSign } from "lucide-react"
 import { useTenant } from "@/lib/contexts/TenantContext"
 import { toast } from "sonner"
 
@@ -582,8 +582,15 @@ export default function ConversasPage() {
   const [detailLoadingSessionId, setDetailLoadingSessionId] = useState<string | null>(null)
   const [nativeAgentOverview, setNativeAgentOverview] = useState<NativeAgentOverview | null>(null)
   const [busyEvents, setBusyEvents] = useState<Set<string>>(new Set())
+  const [saleModal, setSaleModal] = useState<{ open: boolean; session: ChatSession | null }>({ open: false, session: null })
+  const [saleForm, setSaleForm] = useState({ amount: "", day: "", month: "", year: "" })
+  const [submittingSale, setSubmittingSale] = useState(false)
 
   const submitQuickEvent = async (session: ChatSession, eventType: "attendance" | "no_show" | "sale") => {
+    if (eventType === "sale") {
+      setSaleModal({ open: true, session })
+      return
+    }
     const key = `${session.session_id}:${eventType}`
     setBusyEvents((prev) => new Set(prev).add(key))
     try {
@@ -598,18 +605,63 @@ export default function ConversasPage() {
           sessionId: session.session_id,
         }),
       })
-      if (!res.ok) throw new Error()
-      toast.success(
-        eventType === "attendance" ? "Comparecimento registrado!" : eventType === "no_show" ? "Bolo registrado!" : "Venda registrada!",
-      )
-    } catch {
-      toast.error("Erro ao registrar evento")
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || "Falha na requisição")
+      }
+      toast.success(eventType === "attendance" ? "Comparecimento registrado!" : "Bolo registrado!")
+    } catch (err: any) {
+      toast.error(`Erro: ${err.message}`)
     } finally {
       setBusyEvents((prev) => {
         const s = new Set(prev)
         s.delete(key)
         return s
       })
+    }
+  }
+
+  const handleSaleSubmit = async () => {
+    const session = saleModal.session
+    if (!session) return
+    const amount = parseFloat(saleForm.amount.replace(",", "."))
+    if (!amount || amount <= 0) {
+      toast.error("Informe o valor da venda")
+      return
+    }
+    const day = parseInt(saleForm.day)
+    const month = parseInt(saleForm.month)
+    const year = parseInt(saleForm.year) || new Date().getFullYear()
+    let eventAt: string | undefined
+    if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
+      eventAt = new Date(year, month - 1, day).toISOString()
+    }
+    setSubmittingSale(true)
+    try {
+      const phone = session.numero || session.session_id
+      const res = await fetch("/api/dashboard/business-events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          eventType: "sale",
+          leadName: session.contact_name || undefined,
+          phone,
+          sessionId: session.session_id,
+          saleAmount: amount,
+          eventAt,
+        }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || "Falha na requisição")
+      }
+      toast.success("Venda registrada!")
+      setSaleModal({ open: false, session: null })
+      setSaleForm({ amount: "", day: "", month: "", year: "" })
+    } catch (err: any) {
+      toast.error(`Erro: ${err.message}`)
+    } finally {
+      setSubmittingSale(false)
     }
   }
 
@@ -2008,7 +2060,7 @@ export default function ConversasPage() {
                             onClick={() => submitQuickEvent(session, "attendance")}
                             title="Registrar comparecimento"
                           >
-                            ✅ Compareceu
+                            <CheckCircle2 className="w-3 h-3 mr-1" />Compareceu
                           </Button>
                           <Button
                             size="sm"
@@ -2018,17 +2070,16 @@ export default function ConversasPage() {
                             onClick={() => submitQuickEvent(session, "no_show")}
                             title="Registrar bolo / não compareceu"
                           >
-                            🎂 Bolo
+                            <UserMinus className="w-3 h-3 mr-1" />Bolo
                           </Button>
                           <Button
                             size="sm"
                             variant="ghost"
                             className="h-6 text-[10px] px-1.5 text-blue-400 hover:bg-blue-400/10 hover:text-blue-300"
-                            disabled={busyEvents.has(`${session.session_id}:sale`)}
                             onClick={() => submitQuickEvent(session, "sale")}
                             title="Registrar venda realizada"
                           >
-                            💰 Venda
+                            <DollarSign className="w-3 h-3 mr-1" />Venda
                           </Button>
                         </div>
                       </div>
@@ -2716,6 +2767,99 @@ export default function ConversasPage() {
              }}>
                 Salvar Alterações
              </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de Venda */}
+      <Dialog
+        open={saleModal.open}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSaleModal({ open: false, session: null })
+            setSaleForm({ amount: "", day: "", month: "", year: "" })
+          }
+        }}
+      >
+        <DialogContent className="bg-secondary-black border-border-gray sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-pure-white flex items-center gap-2">
+              <DollarSign className="w-5 h-5 text-accent-green" />
+              Registrar Venda
+            </DialogTitle>
+            <DialogDescription className="text-text-gray">
+              {saleModal.session?.contact_name || saleModal.session?.numero || "Lead"}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label className="text-text-gray text-sm">Valor da Venda (R$)</Label>
+              <Input
+                type="number"
+                placeholder="0.00"
+                min="0"
+                step="0.01"
+                value={saleForm.amount}
+                onChange={(e) => setSaleForm((f) => ({ ...f, amount: e.target.value }))}
+                className="bg-primary-black border-border-gray text-pure-white"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-text-gray text-sm">Data da Venda</Label>
+              <div className="grid grid-cols-3 gap-2">
+                <Input
+                  type="number"
+                  placeholder="Dia"
+                  min={1}
+                  max={31}
+                  value={saleForm.day}
+                  onChange={(e) => setSaleForm((f) => ({ ...f, day: e.target.value }))}
+                  className="bg-primary-black border-border-gray text-pure-white"
+                />
+                <Input
+                  type="number"
+                  placeholder="Mês"
+                  min={1}
+                  max={12}
+                  value={saleForm.month}
+                  onChange={(e) => setSaleForm((f) => ({ ...f, month: e.target.value }))}
+                  className="bg-primary-black border-border-gray text-pure-white"
+                />
+                <Input
+                  type="number"
+                  placeholder="Ano"
+                  min={2020}
+                  max={2035}
+                  value={saleForm.year}
+                  onChange={(e) => setSaleForm((f) => ({ ...f, year: e.target.value }))}
+                  className="bg-primary-black border-border-gray text-pure-white"
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              className="border-border-gray text-text-gray hover:bg-secondary-black"
+              onClick={() => {
+                setSaleModal({ open: false, session: null })
+                setSaleForm({ amount: "", day: "", month: "", year: "" })
+              }}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleSaleSubmit}
+              disabled={submittingSale}
+              className="bg-accent-green text-black hover:bg-accent-green/90"
+            >
+              {submittingSale ? (
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              ) : (
+                <DollarSign className="w-4 h-4 mr-2" />
+              )}
+              Confirmar Venda
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

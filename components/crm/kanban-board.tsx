@@ -3,12 +3,13 @@
 import { useState, useEffect } from "react"
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd"
 import { Badge } from "@/components/ui/badge"
-import { Clock, Phone, Eye, Settings2, Plus, X, PauseCircle, Clock3, Timer, GripVertical } from "lucide-react"
+import { Clock, Phone, Eye, Settings2, Plus, X, PauseCircle, Clock3, Timer, GripVertical, CheckCircle2, UserMinus, DollarSign, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { LeadDetailsModal } from "./lead-details-modal"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
 import { useTenant } from "@/lib/contexts/TenantContext"
 
 interface CRMCard {
@@ -77,8 +78,15 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
     const [selectedLead, setSelectedLead] = useState<CRMCard | null>(null)
     const [isModalOpen, setIsModalOpen] = useState(false)
     const [busyEvents, setBusyEvents] = useState<Set<string>>(new Set())
+    const [saleModal, setSaleModal] = useState<{ open: boolean; card: CRMCard | null }>({ open: false, card: null })
+    const [saleForm, setSaleForm] = useState({ amount: "", day: "", month: "", year: "" })
+    const [submittingSale, setSubmittingSale] = useState(false)
 
     const submitQuickEvent = async (card: CRMCard, eventType: "attendance" | "no_show" | "sale") => {
+        if (eventType === "sale") {
+            setSaleModal({ open: true, card })
+            return
+        }
         const key = `${card.id}:${eventType}`
         setBusyEvents((prev) => new Set(prev).add(key))
         try {
@@ -92,18 +100,62 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                     sessionId: `${card.numero}@c.us`,
                 }),
             })
-            if (!res.ok) throw new Error()
-            toast.success(
-                eventType === "attendance" ? "Comparecimento registrado!" : eventType === "no_show" ? "Bolo registrado!" : "Venda registrada!",
-            )
-        } catch {
-            toast.error("Erro ao registrar evento")
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}))
+                throw new Error(data.error || "Falha na requisição")
+            }
+            toast.success(eventType === "attendance" ? "Comparecimento registrado!" : "Bolo registrado!")
+        } catch (err: any) {
+            toast.error(`Erro: ${err.message}`)
         } finally {
             setBusyEvents((prev) => {
                 const s = new Set(prev)
                 s.delete(key)
                 return s
             })
+        }
+    }
+
+    const handleSaleSubmit = async () => {
+        const card = saleModal.card
+        if (!card) return
+        const amount = parseFloat(saleForm.amount.replace(",", "."))
+        if (!amount || amount <= 0) {
+            toast.error("Informe o valor da venda")
+            return
+        }
+        const day = parseInt(saleForm.day)
+        const month = parseInt(saleForm.month)
+        const year = parseInt(saleForm.year) || new Date().getFullYear()
+        let eventAt: string | undefined
+        if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
+            eventAt = new Date(year, month - 1, day).toISOString()
+        }
+        setSubmittingSale(true)
+        try {
+            const res = await fetch("/api/dashboard/business-events", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    eventType: "sale",
+                    leadName: card.name,
+                    phone: card.numero,
+                    sessionId: `${card.numero}@c.us`,
+                    saleAmount: amount,
+                    eventAt,
+                }),
+            })
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}))
+                throw new Error(data.error || "Falha na requisição")
+            }
+            toast.success("Venda registrada!")
+            setSaleModal({ open: false, card: null })
+            setSaleForm({ amount: "", day: "", month: "", year: "" })
+        } catch (err: any) {
+            toast.error(`Erro: ${err.message}`)
+        } finally {
+            setSubmittingSale(false)
         }
     }
     const [isFunnelModalOpen, setIsFunnelModalOpen] = useState(false)
@@ -594,7 +646,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                                                                         onClick={() => submitQuickEvent(card, "attendance")}
                                                                                         title="Registrar comparecimento"
                                                                                     >
-                                                                                        ✅ Compareceu
+                                                                                        <CheckCircle2 className="w-3 h-3 mr-1" />Compareceu
                                                                                     </Button>
                                                                                     <Button
                                                                                         size="sm"
@@ -604,17 +656,16 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                                                                         onClick={() => submitQuickEvent(card, "no_show")}
                                                                                         title="Registrar bolo"
                                                                                     >
-                                                                                        🎂 Bolo
+                                                                                        <UserMinus className="w-3 h-3 mr-1" />Bolo
                                                                                     </Button>
                                                                                     <Button
                                                                                         size="sm"
                                                                                         variant="ghost"
                                                                                         className="flex-1 h-6 text-[10px] px-1 text-blue-400 hover:bg-blue-400/10 hover:text-blue-300"
-                                                                                        disabled={busyEvents.has(`${card.id}:sale`)}
                                                                                         onClick={() => submitQuickEvent(card, "sale")}
                                                                                         title="Registrar venda"
                                                                                     >
-                                                                                        💰 Venda
+                                                                                        <DollarSign className="w-3 h-3 mr-1" />Venda
                                                                                     </Button>
                                                                                 </div>
                                                                                 <Button
@@ -654,6 +705,40 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                 onClose={() => setIsModalOpen(false)}
                 lead={selectedLead}
             />
+
+            <Dialog open={saleModal.open} onOpenChange={(open) => { if (!open) { setSaleModal({ open: false, card: null }); setSaleForm({ amount: "", day: "", month: "", year: "" }) } }}>
+                <DialogContent className="bg-secondary-black border-border-gray sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle className="text-pure-white flex items-center gap-2">
+                            <DollarSign className="w-5 h-5 text-accent-green" /> Registrar Venda
+                        </DialogTitle>
+                        <DialogDescription className="text-text-gray">
+                            {saleModal.card?.name || saleModal.card?.numero || "Lead"}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-2">
+                        <div className="space-y-1.5">
+                            <Label className="text-text-gray text-sm">Valor da Venda (R$)</Label>
+                            <Input type="number" placeholder="0.00" min="0" step="0.01" value={saleForm.amount} onChange={(e) => setSaleForm((f) => ({ ...f, amount: e.target.value }))} className="bg-primary-black border-border-gray text-pure-white" />
+                        </div>
+                        <div className="space-y-1.5">
+                            <Label className="text-text-gray text-sm">Data da Venda</Label>
+                            <div className="grid grid-cols-3 gap-2">
+                                <Input type="number" placeholder="Dia" min={1} max={31} value={saleForm.day} onChange={(e) => setSaleForm((f) => ({ ...f, day: e.target.value }))} className="bg-primary-black border-border-gray text-pure-white" />
+                                <Input type="number" placeholder="Mês" min={1} max={12} value={saleForm.month} onChange={(e) => setSaleForm((f) => ({ ...f, month: e.target.value }))} className="bg-primary-black border-border-gray text-pure-white" />
+                                <Input type="number" placeholder="Ano" min={2020} max={2035} value={saleForm.year} onChange={(e) => setSaleForm((f) => ({ ...f, year: e.target.value }))} className="bg-primary-black border-border-gray text-pure-white" />
+                            </div>
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" className="border-border-gray text-text-gray hover:bg-secondary-black" onClick={() => { setSaleModal({ open: false, card: null }); setSaleForm({ amount: "", day: "", month: "", year: "" }) }}>Cancelar</Button>
+                        <Button onClick={handleSaleSubmit} disabled={submittingSale} className="bg-accent-green text-black hover:bg-accent-green/90">
+                            {submittingSale ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <DollarSign className="w-4 h-4 mr-2" />}
+                            Confirmar Venda
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </>
     )
 }
