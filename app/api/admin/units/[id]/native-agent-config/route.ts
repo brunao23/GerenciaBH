@@ -502,6 +502,12 @@ export async function PATCH(req: NextRequest, context: { params: RouteParams }) 
         notifyOnScheduleSuccess: true,
         notifyOnScheduleError: true,
         notifyOnHumanHandoff: true,
+        socialSellerAgentEnabled: false,
+        socialSellerInstagramDmEnabled: true,
+        socialSellerInstagramCommentsEnabled: true,
+        socialSellerInstagramMentionsEnabled: true,
+        socialSellerPrompt:
+          "Atue como social seller no Instagram da unidade, com respostas curtas, contextuais e foco em conversao para atendimento.",
         reengagementAgentEnabled: true,
         reengagementDelayMinutes: 180,
         reengagementTemplate:
@@ -703,6 +709,26 @@ export async function PATCH(req: NextRequest, context: { params: RouteParams }) 
       ),
       notifyOnScheduleError: toBool(body?.notifyOnScheduleError, current.notifyOnScheduleError),
       notifyOnHumanHandoff: toBool(body?.notifyOnHumanHandoff, current.notifyOnHumanHandoff),
+      socialSellerAgentEnabled: toBool(
+        body?.socialSellerAgentEnabled,
+        current.socialSellerAgentEnabled,
+      ),
+      socialSellerInstagramDmEnabled: toBool(
+        body?.socialSellerInstagramDmEnabled,
+        current.socialSellerInstagramDmEnabled,
+      ),
+      socialSellerInstagramCommentsEnabled: toBool(
+        body?.socialSellerInstagramCommentsEnabled,
+        current.socialSellerInstagramCommentsEnabled,
+      ),
+      socialSellerInstagramMentionsEnabled: toBool(
+        body?.socialSellerInstagramMentionsEnabled,
+        current.socialSellerInstagramMentionsEnabled,
+      ),
+      socialSellerPrompt:
+        body?.socialSellerPrompt !== undefined
+          ? toOptionalText(body.socialSellerPrompt)
+          : current.socialSellerPrompt,
       reengagementAgentEnabled: toBool(
         body?.reengagementAgentEnabled,
         current.reengagementAgentEnabled,

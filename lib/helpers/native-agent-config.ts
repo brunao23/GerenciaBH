@@ -50,6 +50,11 @@ export interface NativeAgentConfig {
   notifyOnScheduleSuccess: boolean
   notifyOnScheduleError: boolean
   notifyOnHumanHandoff: boolean
+  socialSellerAgentEnabled: boolean
+  socialSellerInstagramDmEnabled: boolean
+  socialSellerInstagramCommentsEnabled: boolean
+  socialSellerInstagramMentionsEnabled: boolean
+  socialSellerPrompt?: string
   reengagementAgentEnabled: boolean
   reengagementDelayMinutes: number
   reengagementTemplate?: string
@@ -195,6 +200,12 @@ const DEFAULT_CONVERSATION_TASK_NOTIFICATION_TEMPLATE = [
 const DEFAULT_NOTIFY_ON_SCHEDULE_SUCCESS = true
 const DEFAULT_NOTIFY_ON_SCHEDULE_ERROR = true
 const DEFAULT_NOTIFY_ON_HUMAN_HANDOFF = true
+const DEFAULT_SOCIAL_SELLER_AGENT_ENABLED = false
+const DEFAULT_SOCIAL_SELLER_INSTAGRAM_DM_ENABLED = true
+const DEFAULT_SOCIAL_SELLER_INSTAGRAM_COMMENTS_ENABLED = true
+const DEFAULT_SOCIAL_SELLER_INSTAGRAM_MENTIONS_ENABLED = true
+const DEFAULT_SOCIAL_SELLER_PROMPT =
+  "Atue como social seller no Instagram da unidade, com respostas curtas, contextuais e foco em conversao para atendimento."
 const DEFAULT_REENGAGEMENT_AGENT_ENABLED = true
 const DEFAULT_REENGAGEMENT_DELAY_MINUTES = 180
 const DEFAULT_REENGAGEMENT_TEMPLATE =
@@ -702,6 +713,24 @@ function normalizeConfig(input: any): NativeAgentConfig {
     ),
     notifyOnScheduleError: readBoolean(raw.notifyOnScheduleError, DEFAULT_NOTIFY_ON_SCHEDULE_ERROR),
     notifyOnHumanHandoff: readBoolean(raw.notifyOnHumanHandoff, DEFAULT_NOTIFY_ON_HUMAN_HANDOFF),
+    socialSellerAgentEnabled: readBoolean(
+      raw.socialSellerAgentEnabled,
+      DEFAULT_SOCIAL_SELLER_AGENT_ENABLED,
+    ),
+    socialSellerInstagramDmEnabled: readBoolean(
+      raw.socialSellerInstagramDmEnabled,
+      DEFAULT_SOCIAL_SELLER_INSTAGRAM_DM_ENABLED,
+    ),
+    socialSellerInstagramCommentsEnabled: readBoolean(
+      raw.socialSellerInstagramCommentsEnabled,
+      DEFAULT_SOCIAL_SELLER_INSTAGRAM_COMMENTS_ENABLED,
+    ),
+    socialSellerInstagramMentionsEnabled: readBoolean(
+      raw.socialSellerInstagramMentionsEnabled,
+      DEFAULT_SOCIAL_SELLER_INSTAGRAM_MENTIONS_ENABLED,
+    ),
+    socialSellerPrompt:
+      readString(raw.socialSellerPrompt) || DEFAULT_SOCIAL_SELLER_PROMPT,
     reengagementAgentEnabled: readBoolean(
       raw.reengagementAgentEnabled,
       DEFAULT_REENGAGEMENT_AGENT_ENABLED,
@@ -1010,6 +1039,15 @@ export function validateNativeAgentConfig(config: NativeAgentConfig): string | n
     return "conversationTaskNotificationTemplate must be <= 2000 chars"
   }
 
+  if (
+    config.socialSellerAgentEnabled &&
+    !config.socialSellerInstagramDmEnabled &&
+    !config.socialSellerInstagramCommentsEnabled &&
+    !config.socialSellerInstagramMentionsEnabled
+  ) {
+    return "at least one Instagram channel must be enabled when socialSellerAgentEnabled is true"
+  }
+
   if (config.postScheduleAutomationEnabled && config.postScheduleMessageMode !== "text") {
     if (!config.postScheduleMediaUrl) {
       return "postScheduleMediaUrl is required when postScheduleMessageMode is media"
@@ -1205,6 +1243,11 @@ export async function updateNativeAgentConfigForTenant(
       notifyOnScheduleSuccess: config.notifyOnScheduleSuccess,
       notifyOnScheduleError: config.notifyOnScheduleError,
       notifyOnHumanHandoff: config.notifyOnHumanHandoff,
+      socialSellerAgentEnabled: config.socialSellerAgentEnabled,
+      socialSellerInstagramDmEnabled: config.socialSellerInstagramDmEnabled,
+      socialSellerInstagramCommentsEnabled: config.socialSellerInstagramCommentsEnabled,
+      socialSellerInstagramMentionsEnabled: config.socialSellerInstagramMentionsEnabled,
+      socialSellerPrompt: config.socialSellerPrompt,
       reengagementAgentEnabled: config.reengagementAgentEnabled,
       reengagementDelayMinutes: config.reengagementDelayMinutes,
       reengagementTemplate: config.reengagementTemplate,

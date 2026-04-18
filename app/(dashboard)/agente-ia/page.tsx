@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { CalendarDays, MapPin, Save } from "lucide-react"
+import { CalendarDays, Instagram, MapPin, Save } from "lucide-react"
 import { toast } from "sonner"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
@@ -60,6 +60,11 @@ type TenantNativeAgentConfig = {
   notifyOnScheduleSuccess: boolean
   notifyOnScheduleError: boolean
   notifyOnHumanHandoff: boolean
+  socialSellerAgentEnabled: boolean
+  socialSellerInstagramDmEnabled: boolean
+  socialSellerInstagramCommentsEnabled: boolean
+  socialSellerInstagramMentionsEnabled: boolean
+  socialSellerPrompt: string
   reengagementAgentEnabled: boolean
   reengagementDelayMinutes: number
   reengagementTemplate: string
@@ -163,6 +168,12 @@ const defaultConfig: TenantNativeAgentConfig = {
   notifyOnScheduleSuccess: true,
   notifyOnScheduleError: true,
   notifyOnHumanHandoff: true,
+  socialSellerAgentEnabled: false,
+  socialSellerInstagramDmEnabled: true,
+  socialSellerInstagramCommentsEnabled: true,
+  socialSellerInstagramMentionsEnabled: true,
+  socialSellerPrompt:
+    "Atue como social seller no Instagram da unidade, com respostas curtas, contextuais e foco em conversao para atendimento.",
   reengagementAgentEnabled: true,
   reengagementDelayMinutes: 180,
   reengagementTemplate:
@@ -342,6 +353,14 @@ function normalizeConfig(raw: any): TenantNativeAgentConfig {
     notifyOnScheduleSuccess: source.notifyOnScheduleSuccess !== false,
     notifyOnScheduleError: source.notifyOnScheduleError !== false,
     notifyOnHumanHandoff: source.notifyOnHumanHandoff !== false,
+    socialSellerAgentEnabled: source.socialSellerAgentEnabled === true,
+    socialSellerInstagramDmEnabled: source.socialSellerInstagramDmEnabled !== false,
+    socialSellerInstagramCommentsEnabled: source.socialSellerInstagramCommentsEnabled !== false,
+    socialSellerInstagramMentionsEnabled: source.socialSellerInstagramMentionsEnabled !== false,
+    socialSellerPrompt: String(
+      source.socialSellerPrompt ||
+      "Atue como social seller no Instagram da unidade, com respostas curtas, contextuais e foco em conversao para atendimento.",
+    ),
     reengagementAgentEnabled: source.reengagementAgentEnabled !== false,
     reengagementDelayMinutes: Number.isFinite(Number(source.reengagementDelayMinutes))
       ? Number(source.reengagementDelayMinutes)
@@ -586,10 +605,27 @@ export default function AgenteIAPage() {
   const [saving, setSaving] = useState(false)
   const [connectingGoogle, setConnectingGoogle] = useState(false)
   const [disconnectingGoogle, setDisconnectingGoogle] = useState(false)
+  const [instagramConnectLoading, setInstagramConnectLoading] = useState(false)
+  const [instagramConnectionReady, setInstagramConnectionReady] = useState(false)
+  const [instagramAccountId, setInstagramAccountId] = useState("")
 
   const googleCalendarConnected = useMemo(() => {
     return Boolean(config.googleOAuthConnectedAt) || config.googleOAuthRefreshToken === "***"
   }, [config.googleOAuthConnectedAt, config.googleOAuthRefreshToken])
+
+  const loadInstagramStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/tenant/instagram/oauth/status", { cache: "no-store" })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || "Falha ao carregar status do Instagram")
+
+      setInstagramConnectionReady(Boolean(data?.connected))
+      setInstagramAccountId(String(data?.instagramAccountId || "").trim())
+    } catch {
+      setInstagramConnectionReady(false)
+      setInstagramAccountId("")
+    }
+  }, [])
 
   useEffect(() => {
     const load = async () => {
@@ -607,14 +643,15 @@ export default function AgenteIAPage() {
         setToolNotificationTargetsInput((normalized.toolNotificationTargets || []).join("\n"))
         setCalendarBlockedDatesInput((normalized.calendarBlockedDates || []).join("\n"))
         setCalendarBlockedTimeRangesInput((normalized.calendarBlockedTimeRanges || []).join("\n"))
+        await loadInstagramStatus()
       } catch (error: any) {
         toast.error(error?.message || "Erro ao carregar configuracao")
       } finally {
         setLoading(false)
       }
     }
-    load()
-  }, [])
+    void load()
+  }, [loadInstagramStatus])
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -634,6 +671,89 @@ export default function AgenteIAPage() {
     window.history.replaceState({}, "", url.toString())
   }, [])
 
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const url = new URL(window.location.href)
+    const status = url.searchParams.get("instagram_status")
+    const message = url.searchParams.get("instagram_message")
+    if (!status) return
+
+    if (status === "connected") {
+      toast.success("Instagram conectado com sucesso.")
+      void loadInstagramStatus()
+    } else if (status === "error") {
+      toast.error(message || "Falha ao conectar Instagram")
+    }
+
+    url.searchParams.delete("instagram_status")
+    url.searchParams.delete("instagram_message")
+    window.history.replaceState({}, "", url.toString())
+  }, [loadInstagramStatus])
+
+  const openExternalAuthWithChromePreference = (
+    rawUrl: string,
+    options?: { preferCurrentSession?: boolean },
+  ) => {
+    if (typeof window === "undefined") return
+    const targetUrl = String(rawUrl || "").trim()
+    if (!targetUrl) return
+    const preferCurrentSession = options?.preferCurrentSession === true
+
+    if (preferCurrentSession) {
+      window.location.href = targetUrl
+      return
+    }
+
+    const userAgent = String(window.navigator?.userAgent || "")
+    const isEdge = /\bEdg\//i.test(userAgent)
+    const isHttpUrl = /^https?:\/\//i.test(targetUrl)
+
+    // No navegador Edge, tentamos abrir o fluxo no Chrome para manter o padrao solicitado.
+    if (isEdge && isHttpUrl) {
+      const chromeProtocolUrl = `googlechrome:${targetUrl.replace(/^https?:/i, "")}`
+      const fallbackTimer = window.setTimeout(() => {
+        if (!document.hidden) {
+          window.location.href = targetUrl
+        }
+      }, 1200)
+
+      try {
+        window.location.href = chromeProtocolUrl
+        window.setTimeout(() => {
+          if (document.hidden) {
+            window.clearTimeout(fallbackTimer)
+          }
+        }, 300)
+        return
+      } catch {
+        window.clearTimeout(fallbackTimer)
+      }
+    }
+
+    window.location.href = targetUrl
+  }
+
+  const handleConnectInstagram = async () => {
+    setInstagramConnectLoading(true)
+    try {
+      const returnTo = encodeURIComponent("/agente-ia")
+      const provider = "facebook"
+      const res = await fetch(`/api/tenant/instagram/oauth/start?returnTo=${returnTo}&provider=${provider}`, {
+        cache: "no-store",
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || "Falha ao iniciar conexao com Instagram")
+      if (!data?.url) throw new Error("URL de autorizacao nao retornada")
+      openExternalAuthWithChromePreference(String(data.url), {
+        // Preserva sessao ativa do usuario no navegador atual para evitar novo login.
+        preferCurrentSession: true,
+      })
+    } catch (error: any) {
+      toast.error(error?.message || "Falha ao conectar Instagram")
+      setInstagramConnectLoading(false)
+    }
+  }
+
   const connectGoogleCalendarOAuth = async () => {
     setConnectingGoogle(true)
     try {
@@ -647,7 +767,7 @@ export default function AgenteIAPage() {
       if (!res.ok) throw new Error(data.error || "Falha ao iniciar conexao Google")
       if (!data.url) throw new Error("URL de autenticacao nao retornada")
 
-      window.location.href = data.url
+      openExternalAuthWithChromePreference(String(data.url))
     } catch (error: any) {
       toast.error(error?.message || "Falha ao conectar Google Calendar")
       setConnectingGoogle(false)
@@ -727,6 +847,11 @@ export default function AgenteIAPage() {
         notifyOnScheduleSuccess: config.notifyOnScheduleSuccess,
         notifyOnScheduleError: config.notifyOnScheduleError,
         notifyOnHumanHandoff: config.notifyOnHumanHandoff,
+        socialSellerAgentEnabled: config.socialSellerAgentEnabled,
+        socialSellerInstagramDmEnabled: config.socialSellerInstagramDmEnabled,
+        socialSellerInstagramCommentsEnabled: config.socialSellerInstagramCommentsEnabled,
+        socialSellerInstagramMentionsEnabled: config.socialSellerInstagramMentionsEnabled,
+        socialSellerPrompt: toOptionalText(config.socialSellerPrompt),
         reengagementAgentEnabled: config.reengagementAgentEnabled,
         reengagementDelayMinutes: Math.max(
           1,
@@ -844,14 +969,23 @@ export default function AgenteIAPage() {
         </div>
       </div>
 
-      <Tabs defaultValue="qualificador" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="qualificador">Agente Qualificador</TabsTrigger>
-          <TabsTrigger value="engajamento">Agente Engajamento (Bolo)</TabsTrigger>
-          <TabsTrigger value="boasvindas">Agente Boas Vindas</TabsTrigger>
-        </TabsList>
+      <Card className="bg-card border-border text-foreground">
+        <CardHeader>
+          <CardTitle>Configuracao por agente</CardTitle>
+          <CardDescription className="text-gray-400">
+            Separe as regras de cada agente para manter o comportamento configurado de forma independente.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <Tabs defaultValue="qualificador" className="space-y-6">
+            <TabsList className="grid w-full grid-cols-4">
+              <TabsTrigger value="qualificador">Agente Qualificador</TabsTrigger>
+              <TabsTrigger value="socialseller">Agente Social Seller (Instagram)</TabsTrigger>
+              <TabsTrigger value="engajamento">Agente Engajamento (Bolo)</TabsTrigger>
+              <TabsTrigger value="boasvindas">Agente Boas Vindas</TabsTrigger>
+            </TabsList>
 
-        <TabsContent value="qualificador" className="space-y-6">
+            <TabsContent value="qualificador" className="space-y-6">
 
       <Card className="bg-card border-border text-foreground">
         <CardHeader>
@@ -2076,9 +2210,130 @@ export default function AgenteIAPage() {
           </div>
         </CardContent>
       </Card>
-        </TabsContent>
+            </TabsContent>
 
-        <TabsContent value="engajamento" className="space-y-6">
+            <TabsContent value="socialseller" className="space-y-6">
+      <Card className="bg-card border-border text-foreground">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Instagram className="h-4 w-4 text-primary" />
+            Agente Social Seller (Instagram)
+          </CardTitle>
+          <CardDescription className="text-gray-400">
+            Configure separadamente a atuação da IA para Direct, comentarios e mencoes do Instagram.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="rounded-lg border border-border/70 bg-secondary/25 p-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-sm font-medium text-foreground">Conexao da conta Instagram</p>
+                <p className="text-xs text-gray-400 mt-1">
+                  {instagramConnectionReady
+                    ? `Conta conectada${instagramAccountId ? ` (${instagramAccountId})` : ""}`
+                    : "Conta ainda nao conectada para esta unidade"}
+                </p>
+              </div>
+              <Button
+                type="button"
+                onClick={handleConnectInstagram}
+                disabled={instagramConnectLoading}
+                className="border border-primary bg-primary text-black hover:bg-primary/80 hover:border-primary/80"
+              >
+                {instagramConnectLoading ? "Conectando..." : "Conectar Instagram"}
+              </Button>
+            </div>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Agente Social Seller</Label>
+              <Select
+                value={config.socialSellerAgentEnabled ? "on" : "off"}
+                onValueChange={(v) => setConfig((prev) => ({ ...prev, socialSellerAgentEnabled: v === "on" }))}
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-secondary border-border">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="on">Ativo</SelectItem>
+                  <SelectItem value="off">Inativo</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Responder Direct</Label>
+              <Select
+                value={config.socialSellerInstagramDmEnabled ? "on" : "off"}
+                onValueChange={(v) => setConfig((prev) => ({ ...prev, socialSellerInstagramDmEnabled: v === "on" }))}
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-secondary border-border">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="on">Ativo</SelectItem>
+                  <SelectItem value="off">Inativo</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Responder comentarios</Label>
+              <Select
+                value={config.socialSellerInstagramCommentsEnabled ? "on" : "off"}
+                onValueChange={(v) =>
+                  setConfig((prev) => ({ ...prev, socialSellerInstagramCommentsEnabled: v === "on" }))
+                }
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-secondary border-border">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="on">Ativo</SelectItem>
+                  <SelectItem value="off">Inativo</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Responder mencoes</Label>
+              <Select
+                value={config.socialSellerInstagramMentionsEnabled ? "on" : "off"}
+                onValueChange={(v) =>
+                  setConfig((prev) => ({ ...prev, socialSellerInstagramMentionsEnabled: v === "on" }))
+                }
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-secondary border-border">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="on">Ativo</SelectItem>
+                  <SelectItem value="off">Inativo</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Prompt do Social Seller</Label>
+            <Textarea
+              value={config.socialSellerPrompt}
+              onChange={(e) => setConfig((prev) => ({ ...prev, socialSellerPrompt: e.target.value }))}
+              className="bg-secondary border-border text-foreground min-h-[110px]"
+              placeholder="Defina como o agente deve atuar no Instagram..."
+              disabled={loading}
+            />
+            <p className="text-xs text-gray-500">
+              Dica: conecte o Instagram em Configuracao para receber e responder eventos de Direct e comentarios.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+            </TabsContent>
+
+            <TabsContent value="engajamento" className="space-y-6">
       <Card className="bg-card border-border text-foreground">
         <CardHeader>
           <CardTitle>Agente de reengajamento no-show</CardTitle>
@@ -2490,8 +2745,10 @@ export default function AgenteIAPage() {
           </div>
         </CardContent>
       </Card>
-        </TabsContent>
-      </Tabs>
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+      </Card>
 
       <div className="flex flex-wrap justify-end gap-2">
         <Button

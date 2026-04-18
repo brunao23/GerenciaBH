@@ -2,6 +2,8 @@ import { createHmac, timingSafeEqual } from "node:crypto"
 import { NextRequest, NextResponse } from "next/server"
 import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
 import { normalizeTenant } from "@/lib/helpers/normalize-tenant"
+import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
+import { resolveTenantRegistryPrefix } from "@/lib/helpers/tenant-resolution"
 import {
   getMessagingConfigForTenant,
   updateMessagingConfigForTenant,
@@ -43,8 +45,20 @@ function normalizeApiVersion(value?: string): string {
   return raw.startsWith("v") ? raw : `v${raw}`
 }
 
-function redirectToConfig(req: NextRequest, status: string, message?: string): NextResponse {
-  const url = new URL("/configuracao", req.url)
+function normalizeReturnTo(value?: string): string {
+  const raw = String(value || "").trim()
+  if (!raw) return "/configuracao"
+  if (!raw.startsWith("/") || raw.startsWith("//")) return "/configuracao"
+  return raw
+}
+
+function redirectToConfig(
+  req: NextRequest,
+  status: string,
+  message?: string,
+  returnTo?: string,
+): NextResponse {
+  const url = new URL(normalizeReturnTo(returnTo), req.url)
   url.searchParams.set("instagram_status", status)
   if (message) url.searchParams.set("instagram_message", message.slice(0, 250))
   return NextResponse.redirect(url)
@@ -86,6 +100,54 @@ async function exchangeMetaCode(params: {
     fb_exchange_token: accessToken,
   })
   const longRes = await fetch(`${base}/oauth/access_token?${exchangeParams.toString()}`, { method: "GET" })
+  const longJson = await longRes.json().catch(() => ({}))
+  if (longRes.ok && longJson?.access_token) {
+    accessToken = String(longJson.access_token || "").trim()
+    const longExpires = Number(longJson?.expires_in || 0)
+    if (Number.isFinite(longExpires) && longExpires > 0) {
+      expiresIn = longExpires
+    }
+  }
+
+  return { accessToken, expiresIn, tokenType }
+}
+
+async function exchangeInstagramCode(params: {
+  code: string
+  appId: string
+  appSecret: string
+  redirectUri: string
+}): Promise<{ accessToken: string; expiresIn?: number; tokenType?: string }> {
+  const form = new URLSearchParams({
+    client_id: params.appId,
+    client_secret: params.appSecret,
+    grant_type: "authorization_code",
+    redirect_uri: params.redirectUri,
+    code: params.code,
+  })
+
+  const shortRes = await fetch("https://api.instagram.com/oauth/access_token", {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body: form.toString(),
+  })
+  const shortJson = await shortRes.json().catch(() => ({}))
+  if (!shortRes.ok || !shortJson?.access_token) {
+    throw new Error(shortJson?.error_message || shortJson?.error?.message || "falha_code_exchange_instagram")
+  }
+
+  let accessToken = String(shortJson.access_token || "").trim()
+  let expiresIn = Number(shortJson?.expires_in || 0) || undefined
+  const tokenType = String(shortJson?.token_type || "").trim() || undefined
+
+  const longUrl = new URL("https://graph.instagram.com/access_token")
+  longUrl.searchParams.set("grant_type", "ig_exchange_token")
+  longUrl.searchParams.set("client_secret", params.appSecret)
+  longUrl.searchParams.set("access_token", accessToken)
+
+  const longRes = await fetch(longUrl.toString(), { method: "GET" })
   const longJson = await longRes.json().catch(() => ({}))
   if (longRes.ok && longJson?.access_token) {
     accessToken = String(longJson.access_token || "").trim()
@@ -142,10 +204,53 @@ async function resolveInstagramAccount(params: {
     }
   }
 
+  const igMeUrl = new URL("https://graph.instagram.com/me")
+  igMeUrl.searchParams.set("fields", "id,username,user_id")
+  igMeUrl.searchParams.set("access_token", params.accessToken)
+  const igMeRes = await fetch(igMeUrl.toString(), { method: "GET" })
+  const igMeJson = await igMeRes.json().catch(() => ({}))
+  const igId = readIgId(igMeJson?.id || igMeJson?.user_id)
+  if (igMeRes.ok && igId) {
+    return {
+      instagramAccountId: igId,
+      usableAccessToken: params.accessToken,
+    }
+  }
+
   throw new Error("instagram_account_nao_identificada")
 }
 
+async function ensureInstagramAccountNotLinkedInOtherTenant(params: {
+  stateTenant: string
+  instagramAccountId: string
+}): Promise<void> {
+  const accountId = readIgId(params.instagramAccountId)
+  if (!accountId) return
+
+  const registryTenant = await resolveTenantRegistryPrefix(params.stateTenant)
+  const supabase = createBiaSupabaseServerClient()
+
+  const { data, error } = await supabase
+    .from("units_registry")
+    .select("unit_prefix, metadata")
+    .neq("unit_prefix", registryTenant)
+
+  if (error || !Array.isArray(data)) {
+    return
+  }
+
+  const conflict = data.find((row: any) => {
+    const linkedId = readIgId(row?.metadata?.messaging?.metaInstagramAccountId)
+    return linkedId === accountId
+  })
+
+  if (conflict) {
+    throw new Error("instagram_account_already_linked_other_tenant")
+  }
+}
+
 export async function GET(req: NextRequest) {
+  let returnTo = "/configuracao"
   try {
     const url = new URL(req.url)
     const oauthError = String(url.searchParams.get("error") || "").trim()
@@ -158,39 +263,67 @@ export async function GET(req: NextRequest) {
     if (!code || !state) return redirectToConfig(req, "error", "code_ou_state_ausente")
 
     const statePayload = verifyAndParseState(state)
+    returnTo = normalizeReturnTo(statePayload?.returnTo)
     const stateTenant = normalizeTenant(statePayload?.tenant || "")
     if (!stateTenant) {
-      return redirectToConfig(req, "error", "state_tenant_invalido")
+      return redirectToConfig(req, "error", "state_tenant_invalido", returnTo)
     }
 
     const tenantInfo = await getTenantFromRequest().catch(() => null)
     const authTenant = normalizeTenant(tenantInfo?.tenant || "")
     if (authTenant && authTenant !== stateTenant) {
-      return redirectToConfig(req, "error", "state_tenant_mismatch")
+      return redirectToConfig(req, "error", "state_tenant_mismatch", returnTo)
     }
 
     const appId = String(process.env.NEXT_PUBLIC_META_APP_ID || "").trim()
     const appSecret = String(process.env.META_APP_SECRET || "").trim()
     if (!appId || !appSecret) {
-      return redirectToConfig(req, "error", "meta_app_id_ou_secret_ausente")
+      return redirectToConfig(req, "error", "meta_app_id_ou_secret_ausente", returnTo)
     }
 
     const apiVersion = normalizeApiVersion(statePayload?.apiVersion || undefined)
     const redirectUri = `${url.origin}/api/tenant/instagram/oauth/callback`
-    const tokenData = await exchangeMetaCode({
-      code,
-      appId,
-      appSecret,
-      redirectUri,
-      apiVersion,
-    })
+    let tokenData:
+      | { accessToken: string; expiresIn?: number; tokenType?: string }
+      | undefined
+    let metaExchangeError = ""
+    try {
+      tokenData = await exchangeMetaCode({
+        code,
+        appId,
+        appSecret,
+        redirectUri,
+        apiVersion,
+      })
+    } catch (error: any) {
+      metaExchangeError = String(error?.message || "falha_code_exchange_meta")
+    }
+
+    if (!tokenData?.accessToken) {
+      try {
+        tokenData = await exchangeInstagramCode({
+          code,
+          appId,
+          appSecret,
+          redirectUri,
+        })
+      } catch (error: any) {
+        const instagramExchangeError = String(error?.message || "falha_code_exchange_instagram")
+        throw new Error(`falha_code_exchange: meta=${metaExchangeError}; instagram=${instagramExchangeError}`)
+      }
+    }
+
     if (!tokenData.accessToken) {
-      return redirectToConfig(req, "error", "meta_access_token_ausente")
+      return redirectToConfig(req, "error", "meta_access_token_ausente", returnTo)
     }
 
     const instagram = await resolveInstagramAccount({
       accessToken: tokenData.accessToken,
       apiVersion,
+    })
+    await ensureInstagramAccountNotLinkedInOtherTenant({
+      stateTenant,
+      instagramAccountId: instagram.instagramAccountId,
     })
 
     const current = (await getMessagingConfigForTenant(stateTenant)) || ({ provider: "meta" } as MessagingConfig)
@@ -206,8 +339,8 @@ export async function GET(req: NextRequest) {
     }
     await updateMessagingConfigForTenant(stateTenant, nextConfig)
 
-    return redirectToConfig(req, "connected", instagram.instagramAccountId)
+    return redirectToConfig(req, "connected", instagram.instagramAccountId, returnTo)
   } catch (error: any) {
-    return redirectToConfig(req, "error", error?.message || "falha_callback_instagram")
+    return redirectToConfig(req, "error", error?.message || "falha_callback_instagram", returnTo)
   }
 }
