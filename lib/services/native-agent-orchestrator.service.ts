@@ -2487,9 +2487,11 @@ export class NativeAgentOrchestratorService {
 
   private isScheduleGuardrailExecution(execution: GeminiToolExecution): boolean {
     const actionType = String(execution.action?.type || "").trim().toLowerCase()
-    if (actionType !== "schedule_appointment" && actionType !== "edit_appointment") {
-      return false
-    }
+    const isScheduleAction =
+      actionType === "schedule_appointment" ||
+      actionType === "edit_appointment" ||
+      actionType === "get_available_slots"
+    if (!isScheduleAction) return false
 
     const errorCode = String(
       execution.error || execution.response?.error || "",

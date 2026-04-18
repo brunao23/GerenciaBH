@@ -1587,11 +1587,10 @@ async function isAiPausedForPhone(tenant: string, phone: string): Promise<boolea
   if (!paused) return false
 
   const pausedUntil = String(row?.paused_until || "").trim()
-  // pausa permanente (agendamento) não bloqueia inbound — apenas impede proativos/task-queue
-  if (!pausedUntil) return false
+  if (!pausedUntil) return true
 
   const until = new Date(pausedUntil)
-  if (Number.isNaN(until.getTime())) return false
+  if (Number.isNaN(until.getTime())) return true
   return until.getTime() > Date.now()
 }
 
@@ -1940,12 +1939,23 @@ function normalizeComparableText(value: string): string {
 function isRescheduleIntentMessage(text: string): boolean {
   const normalized = normalizeComparableText(text)
   if (!normalized) return false
-  return (
-    /\b(reagend|remarc|trocar horario|trocar dia|mudar horario|mudar dia|reprogramar|adiar|antecipar)\b/.test(
-      normalized,
-    ) ||
-    (/\bcancelar\b/.test(normalized) && /\b(agendamento|agenda|consulta|horario)\b/.test(normalized))
-  )
+  return isImportantMessageFromScheduledLead(normalized)
+}
+
+function isImportantMessageFromScheduledLead(normalized: string): boolean {
+  if (!normalized) return false
+  // reagendamento / remarcação
+  if (/\b(reagend|remarc|trocar horario|trocar dia|mudar horario|mudar dia|reprogramar|adiar|antecipar)\b/.test(normalized)) return true
+  // cancelamento explícito de agendamento
+  if (/\bcancelar\b/.test(normalized) && /\b(agendamento|agenda|consulta|horario|reuniao|sessao|atendimento)\b/.test(normalized)) return true
+  if (/\b(nao vou mais|desistir|desisti|nao quero mais)\b/.test(normalized)) return true
+  // confirmação / dúvida sobre o agendamento
+  if (/\b(confirmad|confirmou|confirmacao|vai acontecer|e amanha|e hoje|qual.*hora|que hora|a que hora|onde fica|endereco|como chego|o local|local do)\b/.test(normalized)) return true
+  // reclamação ou problema
+  if (/\b(problema|deu errado|nao funcionou|nao apareceu|nao fui avisad|nao recebi|nao consegui|esqueci|esqueceu|nao foi)\b/.test(normalized)) return true
+  // urgência
+  if (/\b(urgente|emergencia|socorro|preciso de ajuda)\b/.test(normalized)) return true
+  return false
 }
 
 function isHumanCallInterventionEvent(event: ZapiMessageEvent): boolean {
@@ -2544,14 +2554,19 @@ export async function POST(req: NextRequest) {
     }
 
     const paused = canonicalPhone ? await isAiPausedForPhone(tenant, canonicalPhone) : false
+    let allowedThroughDespitePause = false
     if (paused) {
-      const shouldUnpauseForReschedule =
-        event.callbackType === "received" &&
-        event.fromMe !== true &&
-        isRescheduleIntentMessage(String(event.text || ""))
+      const inboundText = String(event.text || "")
+      const isInboundFromLead = event.callbackType === "received" && event.fromMe !== true
+      const isReschedule = isInboundFromLead && isRescheduleIntentMessage(inboundText)
+      const isImportant = isInboundFromLead && isImportantMessageFromScheduledLead(normalizeComparableText(inboundText))
 
-      if (shouldUnpauseForReschedule && canonicalPhone) {
+      if (isReschedule && canonicalPhone) {
+        // reagendamento: remove a pausa completamente para retomar o fluxo
         await unpauseAiForLead(tenant, canonicalPhone)
+      } else if (isImportant) {
+        // mensagem importante (confirmação, reclamação, urgência): AI responde mas mantém o lead pausado
+        allowedThroughDespitePause = true
       } else {
         const taskInsight = await taskInsightPromise
         return NextResponse.json({
@@ -2565,17 +2580,19 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const pausedAfterUnpauseAttempt = canonicalPhone ? await isAiPausedForPhone(tenant, canonicalPhone) : false
-    if (pausedAfterUnpauseAttempt) {
-      const taskInsight = await taskInsightPromise
-      return NextResponse.json({
-        received: true,
-        ignored: true,
-        reason: "ai_paused_by_human",
-        tenant,
-        persisted,
-        taskInsight,
-      })
+    if (!allowedThroughDespitePause) {
+      const pausedAfterUnpauseAttempt = canonicalPhone ? await isAiPausedForPhone(tenant, canonicalPhone) : false
+      if (pausedAfterUnpauseAttempt) {
+        const taskInsight = await taskInsightPromise
+        return NextResponse.json({
+          received: true,
+          ignored: true,
+          reason: "ai_paused_by_human",
+          tenant,
+          persisted,
+          taskInsight,
+        })
+      }
     }
 
     const inboundBufferSeconds = clampInboundBufferSeconds(config.inboundMessageBufferSeconds)
