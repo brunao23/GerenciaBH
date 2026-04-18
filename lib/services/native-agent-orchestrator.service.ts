@@ -1583,7 +1583,6 @@ const SCHEDULE_NON_ERROR_CONFLICT_ERRORS = new Set([
   "blocked_time_range",
   "business_day_not_allowed",
   "invalid_date_or_time",
-  "qualification_required_before_scheduling",
 ])
 
 function normalizeEmailCandidate(value: any): string {
@@ -3525,22 +3524,6 @@ export class NativeAgentOrchestratorService {
             : undefined,
       }
 
-      if (!params.qualificationState.qualified) {
-        return {
-          ok: false,
-          action,
-          error: "qualification_required_before_scheduling",
-          response: {
-            ok: false,
-            error: "qualification_required_before_scheduling",
-            qualification_required: true,
-            has_area: params.qualificationState.hasArea,
-            has_pain: params.qualificationState.hasPain,
-            guidance: buildQualificationQuestion(params.qualificationState, { mentionSchedule: true }),
-          },
-        }
-      }
-
       const result = await this.getAvailableSlots({
         tenant: params.tenant,
         config: params.config,
@@ -3595,22 +3578,6 @@ export class NativeAgentOrchestratorService {
         note: args.note ? String(args.note) : undefined,
         customer_name: args.customer_name ? String(args.customer_name) : undefined,
         customer_email: args.customer_email ? String(args.customer_email) : undefined,
-      }
-
-      if (!params.qualificationState.qualified) {
-        return {
-          ok: false,
-          action,
-          error: "qualification_required_before_scheduling",
-          response: {
-            ok: false,
-            error: "qualification_required_before_scheduling",
-            qualification_required: true,
-            has_area: params.qualificationState.hasArea,
-            has_pain: params.qualificationState.hasPain,
-            guidance: buildQualificationQuestion(params.qualificationState, { mentionSchedule: true }),
-          },
-        }
       }
 
       const resolvedEmail = await this.resolveLeadEmailFromContext({
@@ -3713,22 +3680,6 @@ export class NativeAgentOrchestratorService {
           String(args.appointment_mode || "").toLowerCase() === "online" ? "online" : "presencial",
         note: args.note ? String(args.note) : undefined,
         customer_email: args.customer_email ? String(args.customer_email) : undefined,
-      }
-
-      if (!params.qualificationState.qualified) {
-        return {
-          ok: false,
-          action,
-          error: "qualification_required_before_scheduling",
-          response: {
-            ok: false,
-            error: "qualification_required_before_scheduling",
-            qualification_required: true,
-            has_area: params.qualificationState.hasArea,
-            has_pain: params.qualificationState.hasPain,
-            guidance: buildQualificationQuestion(params.qualificationState, { mentionSchedule: true }),
-          },
-        }
       }
 
       const resolvedEmail = await this.resolveLeadEmailFromContext({
