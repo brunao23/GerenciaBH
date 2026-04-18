@@ -2234,20 +2234,11 @@ export default function AgenteIAPage() {
               </div>
               <Button
                 type="button"
-                onClick={() => handleConnectInstagram("facebook")}
+                onClick={() => handleConnectInstagram("instagram")}
                 disabled={instagramConnectLoading}
                 className="border border-primary bg-primary text-black hover:bg-primary/80 hover:border-primary/80"
               >
-                {instagramConnectLoading ? "Conectando..." : "Conectar via Facebook"}
-              </Button>
-              <Button
-                type="button"
-                onClick={() => handleConnectInstagram("instagram")}
-                disabled={instagramConnectLoading}
-                variant="outline"
-                className="border border-pink-500 text-pink-500 hover:bg-pink-500/10"
-              >
-                {instagramConnectLoading ? "Conectando..." : "Conectar via Instagram"}
+                {instagramConnectLoading ? "Conectando..." : "Conectar Instagram"}
               </Button>
             </div>
           </div>
