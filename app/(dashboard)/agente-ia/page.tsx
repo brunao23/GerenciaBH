@@ -608,6 +608,7 @@ export default function AgenteIAPage() {
   const [instagramConnectLoading, setInstagramConnectLoading] = useState(false)
   const [instagramConnectionReady, setInstagramConnectionReady] = useState(false)
   const [instagramAccountId, setInstagramAccountId] = useState("")
+  const [instagramOauthError, setInstagramOauthError] = useState("")
 
   const googleCalendarConnected = useMemo(() => {
     return Boolean(config.googleOAuthConnectedAt) || config.googleOAuthRefreshToken === "***"
@@ -679,10 +680,12 @@ export default function AgenteIAPage() {
     if (!status) return
 
     if (status === "connected") {
+      setInstagramOauthError("")
       toast.success("Instagram conectado com sucesso.")
       void loadInstagramStatus()
     } else if (status === "error") {
-      toast.error(message || "Falha ao conectar Instagram")
+      setInstagramOauthError(message || "Falha ao conectar Instagram")
+      toast.error(message || "Falha ao conectar Instagram", { duration: 8000 })
     }
 
     url.searchParams.delete("instagram_status")
@@ -2248,6 +2251,13 @@ export default function AgenteIAPage() {
               </Button>
             </div>
           </div>
+
+          {instagramOauthError && (
+            <div className="rounded-lg border border-red-500/50 bg-red-500/5 p-3">
+              <p className="text-xs text-red-400 font-medium">Erro ao conectar Instagram:</p>
+              <p className="text-xs text-red-300 mt-0.5 break-all">{instagramOauthError}</p>
+            </div>
+          )}
 
           <div className="grid md:grid-cols-2 gap-4">
             <div className="space-y-2">
