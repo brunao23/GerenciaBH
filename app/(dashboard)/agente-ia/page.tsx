@@ -733,11 +733,10 @@ export default function AgenteIAPage() {
     window.location.href = targetUrl
   }
 
-  const handleConnectInstagram = async () => {
+  const handleConnectInstagram = async (provider: "instagram" | "facebook" = "facebook") => {
     setInstagramConnectLoading(true)
     try {
       const returnTo = encodeURIComponent("/agente-ia")
-      const provider = "facebook"
       const res = await fetch(`/api/tenant/instagram/oauth/start?returnTo=${returnTo}&provider=${provider}`, {
         cache: "no-store",
       })
@@ -745,7 +744,6 @@ export default function AgenteIAPage() {
       if (!res.ok) throw new Error(data?.error || "Falha ao iniciar conexao com Instagram")
       if (!data?.url) throw new Error("URL de autorizacao nao retornada")
       openExternalAuthWithChromePreference(String(data.url), {
-        // Preserva sessao ativa do usuario no navegador atual para evitar novo login.
         preferCurrentSession: true,
       })
     } catch (error: any) {
@@ -2236,11 +2234,20 @@ export default function AgenteIAPage() {
               </div>
               <Button
                 type="button"
-                onClick={handleConnectInstagram}
+                onClick={() => handleConnectInstagram("facebook")}
                 disabled={instagramConnectLoading}
                 className="border border-primary bg-primary text-black hover:bg-primary/80 hover:border-primary/80"
               >
-                {instagramConnectLoading ? "Conectando..." : "Conectar Instagram"}
+                {instagramConnectLoading ? "Conectando..." : "Conectar via Facebook"}
+              </Button>
+              <Button
+                type="button"
+                onClick={() => handleConnectInstagram("instagram")}
+                disabled={instagramConnectLoading}
+                variant="outline"
+                className="border border-pink-500 text-pink-500 hover:bg-pink-500/10"
+              >
+                {instagramConnectLoading ? "Conectando..." : "Conectar via Instagram"}
               </Button>
             </div>
           </div>
