@@ -737,7 +737,7 @@ export default function AgenteIAPage() {
     setInstagramConnectLoading(true)
     try {
       const returnTo = encodeURIComponent("/agente-ia")
-      const provider = "instagram"
+      const provider = "facebook"
       const res = await fetch(`/api/tenant/instagram/oauth/start?returnTo=${returnTo}&provider=${provider}`, {
         cache: "no-store",
       })
