@@ -1587,10 +1587,10 @@ async function isAiPausedForPhone(tenant: string, phone: string): Promise<boolea
   if (!paused) return false
 
   const pausedUntil = String(row?.paused_until || "").trim()
-  if (!pausedUntil) return true
+  if (!pausedUntil) return false // pausa permanente não bloqueia mensagens inbound do lead
 
   const until = new Date(pausedUntil)
-  if (Number.isNaN(until.getTime())) return true
+  if (Number.isNaN(until.getTime())) return false
   return until.getTime() > Date.now()
 }
 
