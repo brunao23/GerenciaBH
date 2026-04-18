@@ -2423,6 +2423,10 @@ export class NativeAgentOrchestratorService {
         .catch(() => {})
     }
 
+    if (hasSuccessfulSchedulingAction) {
+      await this.pauseLeadAfterScheduling(tenant, phone).catch(() => {})
+    }
+
     if (config.followupEnabled) {
       const followupLeadContext = sanitizeLeadContextForFollowup(
         effectiveLeadMessage || (isFromMeTrigger ? "" : content),
@@ -5368,9 +5372,9 @@ export class NativeAgentOrchestratorService {
     sessionId: string
     contactName?: string
     config: NativeAgentConfig
+    skipPause?: boolean
   }): Promise<void> {
     const tasks: Array<Promise<unknown>> = [
-      this.pauseLeadAfterScheduling(params.tenant, params.phone),
       this.markLeadAsAgendado(params.tenant, params.sessionId),
       this.taskQueue.cancelPendingFollowups({
         tenant: params.tenant,
