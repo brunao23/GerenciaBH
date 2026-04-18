@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/select"
 import { CalendarDays, MapPin, Save } from "lucide-react"
 import { toast } from "sonner"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 type ConversationTone = "consultivo" | "acolhedor" | "direto" | "formal"
 type AudioProvider = "elevenlabs" | "custom_http"
@@ -843,6 +844,15 @@ export default function AgenteIAPage() {
         </div>
       </div>
 
+      <Tabs defaultValue="qualificador" className="space-y-6">
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="qualificador">Agente Qualificador</TabsTrigger>
+          <TabsTrigger value="engajamento">Agente Engajamento (Bolo)</TabsTrigger>
+          <TabsTrigger value="boasvindas">Agente Boas Vindas</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="qualificador" className="space-y-6">
+
       <Card className="bg-card border-border text-foreground">
         <CardHeader>
           <CardTitle>Ativacao e comportamento</CardTitle>
@@ -1486,302 +1496,6 @@ export default function AgenteIAPage() {
 
       <Card className="bg-card border-border text-foreground">
         <CardHeader>
-          <CardTitle>Follow-up adaptativo</CardTitle>
-          <CardDescription className="text-gray-400">
-            Defina a cadencia por unidade e janela de horario para follow-up contextual.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label>Intervalos de follow-up em minutos (separados por virgula)</Label>
-            <Input
-              value={followupIntervalsInput}
-              onChange={(e) => setFollowupIntervalsInput(e.target.value)}
-              className="bg-secondary border-border text-foreground"
-              placeholder="15,60,360,1440,2880,4320,7200"
-              disabled={loading}
-            />
-          </div>
-
-          <div className="grid md:grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <Label>Horario inicial follow-up</Label>
-              <Input
-                type="time"
-                value={config.followupBusinessStart}
-                onChange={(e) =>
-                  setConfig((prev) => ({ ...prev, followupBusinessStart: e.target.value }))
-                }
-                className="bg-secondary border-border text-foreground"
-                disabled={loading}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Horario final follow-up</Label>
-              <Input
-                type="time"
-                value={config.followupBusinessEnd}
-                onChange={(e) =>
-                  setConfig((prev) => ({ ...prev, followupBusinessEnd: e.target.value }))
-                }
-                className="bg-secondary border-border text-foreground"
-                disabled={loading}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Dias follow-up (0=Dom, 6=Sab)</Label>
-              <Input
-                value={followupBusinessDaysInput}
-                onChange={(e) => setFollowupBusinessDaysInput(e.target.value)}
-                className="bg-secondary border-border text-foreground"
-                placeholder="0,1,2,3,4,5,6"
-                disabled={loading}
-              />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="bg-card border-border text-foreground">
-        <CardHeader>
-          <CardTitle>Modo de envio Z-API</CardTitle>
-          <CardDescription className="text-gray-400">
-            Configure o formato de envio apos agendamento, follow-up e lembretes.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="space-y-4">
-            <h3 className="text-sm font-medium">Pos-agendamento</h3>
-            <div className="grid md:grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label>Automacao pos-agendamento</Label>
-                <Select
-                  value={config.postScheduleAutomationEnabled ? "on" : "off"}
-                  onValueChange={(v) =>
-                    setConfig((prev) => ({ ...prev, postScheduleAutomationEnabled: v === "on" }))
-                  }
-                  disabled={loading}
-                >
-                  <SelectTrigger className="bg-secondary border-border">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="bg-secondary border-border text-foreground">
-                    <SelectItem value="on">Ativado</SelectItem>
-                    <SelectItem value="off">Desativado</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Modo de envio</Label>
-                <Select
-                  value={config.postScheduleMessageMode}
-                  onValueChange={(v) =>
-                    setConfig((prev) => ({ ...prev, postScheduleMessageMode: v as MessageMode }))
-                  }
-                  disabled={loading}
-                >
-                  <SelectTrigger className="bg-secondary border-border">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="bg-secondary border-border text-foreground">
-                    <SelectItem value="text">Texto</SelectItem>
-                    <SelectItem value="image">Imagem</SelectItem>
-                    <SelectItem value="video">Video</SelectItem>
-                    <SelectItem value="document">Documento</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Delay apos agendar (min)</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  max={1440}
-                  value={config.postScheduleDelayMinutes}
-                  onChange={(e) =>
-                    setConfig((prev) => ({ ...prev, postScheduleDelayMinutes: Number(e.target.value || 0) }))
-                  }
-                  className="bg-secondary border-border text-foreground"
-                  disabled={loading}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Texto do pos-agendamento</Label>
-              <Textarea
-                value={config.postScheduleTextTemplate}
-                onChange={(e) => setConfig((prev) => ({ ...prev, postScheduleTextTemplate: e.target.value }))}
-                className="bg-secondary border-border text-foreground min-h-[100px]"
-                placeholder="Mensagem de confirmacao ou proximo passo."
-                disabled={loading}
-              />
-            </div>
-
-            {config.postScheduleMessageMode !== "text" && (
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>URL da midia (obrigatorio)</Label>
-                  <Input
-                    value={config.postScheduleMediaUrl}
-                    onChange={(e) => setConfig((prev) => ({ ...prev, postScheduleMediaUrl: e.target.value }))}
-                    className="bg-secondary border-border text-foreground"
-                    placeholder="https://..."
-                    disabled={loading}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Legenda (opcional)</Label>
-                  <Input
-                    value={config.postScheduleCaption}
-                    onChange={(e) => setConfig((prev) => ({ ...prev, postScheduleCaption: e.target.value }))}
-                    className="bg-secondary border-border text-foreground"
-                    placeholder="Legenda enviada com a midia"
-                    disabled={loading}
-                  />
-                </div>
-                {config.postScheduleMessageMode === "document" && (
-                  <div className="space-y-2 md:col-span-2">
-                    <Label>Nome do arquivo (opcional)</Label>
-                    <Input
-                      value={config.postScheduleDocumentFileName}
-                      onChange={(e) =>
-                        setConfig((prev) => ({ ...prev, postScheduleDocumentFileName: e.target.value }))
-                      }
-                      className="bg-secondary border-border text-foreground"
-                      placeholder="ex: comprovante.pdf"
-                      disabled={loading}
-                    />
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div className="grid md:grid-cols-2 gap-6">
-            <div className="space-y-3">
-              <h3 className="text-sm font-medium">Follow-up</h3>
-              <div className="space-y-2">
-                <Label>Modo de envio</Label>
-                <Select
-                  value={config.followupMessageMode}
-                  onValueChange={(v) => setConfig((prev) => ({ ...prev, followupMessageMode: v as MessageMode }))}
-                  disabled={loading}
-                >
-                  <SelectTrigger className="bg-secondary border-border">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="bg-secondary border-border text-foreground">
-                    <SelectItem value="text">Texto</SelectItem>
-                    <SelectItem value="image">Imagem</SelectItem>
-                    <SelectItem value="video">Video</SelectItem>
-                    <SelectItem value="document">Documento</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              {config.followupMessageMode !== "text" && (
-                <>
-                  <div className="space-y-2">
-                    <Label>URL da midia</Label>
-                    <Input
-                      value={config.followupMediaUrl}
-                      onChange={(e) => setConfig((prev) => ({ ...prev, followupMediaUrl: e.target.value }))}
-                      className="bg-secondary border-border text-foreground"
-                      placeholder="https://..."
-                      disabled={loading}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Legenda (opcional)</Label>
-                    <Input
-                      value={config.followupCaption}
-                      onChange={(e) => setConfig((prev) => ({ ...prev, followupCaption: e.target.value }))}
-                      className="bg-secondary border-border text-foreground"
-                      disabled={loading}
-                    />
-                  </div>
-                  {config.followupMessageMode === "document" && (
-                    <div className="space-y-2">
-                      <Label>Nome do arquivo (opcional)</Label>
-                      <Input
-                        value={config.followupDocumentFileName}
-                        onChange={(e) =>
-                          setConfig((prev) => ({ ...prev, followupDocumentFileName: e.target.value }))
-                        }
-                        className="bg-secondary border-border text-foreground"
-                        placeholder="ex: material.pdf"
-                        disabled={loading}
-                      />
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-
-            <div className="space-y-3">
-              <h3 className="text-sm font-medium">Lembretes</h3>
-              <div className="space-y-2">
-                <Label>Modo de envio</Label>
-                <Select
-                  value={config.reminderMessageMode}
-                  onValueChange={(v) => setConfig((prev) => ({ ...prev, reminderMessageMode: v as MessageMode }))}
-                  disabled={loading}
-                >
-                  <SelectTrigger className="bg-secondary border-border">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="bg-secondary border-border text-foreground">
-                    <SelectItem value="text">Texto</SelectItem>
-                    <SelectItem value="image">Imagem</SelectItem>
-                    <SelectItem value="video">Video</SelectItem>
-                    <SelectItem value="document">Documento</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              {config.reminderMessageMode !== "text" && (
-                <>
-                  <div className="space-y-2">
-                    <Label>URL da midia</Label>
-                    <Input
-                      value={config.reminderMediaUrl}
-                      onChange={(e) => setConfig((prev) => ({ ...prev, reminderMediaUrl: e.target.value }))}
-                      className="bg-secondary border-border text-foreground"
-                      placeholder="https://..."
-                      disabled={loading}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Legenda (opcional)</Label>
-                    <Input
-                      value={config.reminderCaption}
-                      onChange={(e) => setConfig((prev) => ({ ...prev, reminderCaption: e.target.value }))}
-                      className="bg-secondary border-border text-foreground"
-                      disabled={loading}
-                    />
-                  </div>
-                  {config.reminderMessageMode === "document" && (
-                    <div className="space-y-2">
-                      <Label>Nome do arquivo (opcional)</Label>
-                      <Input
-                        value={config.reminderDocumentFileName}
-                        onChange={(e) =>
-                          setConfig((prev) => ({ ...prev, reminderDocumentFileName: e.target.value }))
-                        }
-                        className="bg-secondary border-border text-foreground"
-                        placeholder="ex: contrato.pdf"
-                        disabled={loading}
-                      />
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="bg-card border-border text-foreground">
-        <CardHeader>
           <CardTitle>Modo numeros teste</CardTitle>
           <CardDescription className="text-gray-400">
             Quando ativado, a IA responde apenas aos numeros da lista abaixo.
@@ -1903,110 +1617,6 @@ export default function AgenteIAPage() {
               onChange={(e) => setToolNotificationTargetsInput(e.target.value)}
               className="bg-secondary border-border text-foreground min-h-[120px]"
               placeholder={"5565999999999\n120363040490321289-group"}
-              disabled={loading}
-            />
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="bg-card border-border text-foreground">
-        <CardHeader>
-          <CardTitle>Novos agentes de ciclo comercial</CardTitle>
-          <CardDescription className="text-gray-400">
-            Automatize o reengajamento de no-show e mensagens de boas-vindas para novos clientes.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          <div className="grid md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Agente de reengajamento no-show</Label>
-              <Select
-                value={config.reengagementAgentEnabled ? "on" : "off"}
-                onValueChange={(v) =>
-                  setConfig((prev) => ({ ...prev, reengagementAgentEnabled: v === "on" }))
-                }
-                disabled={loading}
-              >
-                <SelectTrigger className="bg-secondary border-border">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-secondary border-border text-foreground">
-                  <SelectItem value="on">Ativado</SelectItem>
-                  <SelectItem value="off">Desativado</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Delay reengajamento (minutos)</Label>
-              <Input
-                type="number"
-                min={1}
-                max={129600}
-                value={config.reengagementDelayMinutes}
-                onChange={(e) =>
-                  setConfig((prev) => ({
-                    ...prev,
-                    reengagementDelayMinutes: Number(e.target.value || 180),
-                  }))
-                }
-                className="bg-secondary border-border text-foreground"
-                disabled={loading}
-              />
-            </div>
-          </div>
-          <div className="space-y-2">
-            <Label>Template reengajamento no-show</Label>
-            <Textarea
-              value={config.reengagementTemplate}
-              onChange={(e) => setConfig((prev) => ({ ...prev, reengagementTemplate: e.target.value }))}
-              className="bg-secondary border-border text-foreground min-h-[96px]"
-              placeholder="Use {{lead_name}}, {{event_date}} e {{phone}}"
-              disabled={loading}
-            />
-          </div>
-
-          <div className="grid md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Agente de boas-vindas cliente</Label>
-              <Select
-                value={config.welcomeAgentEnabled ? "on" : "off"}
-                onValueChange={(v) => setConfig((prev) => ({ ...prev, welcomeAgentEnabled: v === "on" }))}
-                disabled={loading}
-              >
-                <SelectTrigger className="bg-secondary border-border">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-secondary border-border text-foreground">
-                  <SelectItem value="on">Ativado</SelectItem>
-                  <SelectItem value="off">Desativado</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Delay boas-vindas (minutos)</Label>
-              <Input
-                type="number"
-                min={1}
-                max={259200}
-                value={config.welcomeDelayMinutes}
-                onChange={(e) =>
-                  setConfig((prev) => ({
-                    ...prev,
-                    welcomeDelayMinutes: Number(e.target.value || 10080),
-                  }))
-                }
-                className="bg-secondary border-border text-foreground"
-                disabled={loading}
-              />
-            </div>
-          </div>
-          <div className="space-y-2">
-            <Label>Template boas-vindas cliente</Label>
-            <Textarea
-              value={config.welcomeTemplate}
-              onChange={(e) => setConfig((prev) => ({ ...prev, welcomeTemplate: e.target.value }))}
-              className="bg-secondary border-border text-foreground min-h-[96px]"
-              placeholder="Use {{lead_name}}, {{product}} e {{sale_amount}}"
               disabled={loading}
             />
           </div>
@@ -2466,6 +2076,422 @@ export default function AgenteIAPage() {
           </div>
         </CardContent>
       </Card>
+        </TabsContent>
+
+        <TabsContent value="engajamento" className="space-y-6">
+      <Card className="bg-card border-border text-foreground">
+        <CardHeader>
+          <CardTitle>Agente de reengajamento no-show</CardTitle>
+          <CardDescription className="text-gray-400">
+            Automatize o reengajamento de leads que nao compareceram ao agendamento.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Agente de reengajamento no-show</Label>
+              <Select
+                value={config.reengagementAgentEnabled ? "on" : "off"}
+                onValueChange={(v) =>
+                  setConfig((prev) => ({ ...prev, reengagementAgentEnabled: v === "on" }))
+                }
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-secondary border-border">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-secondary border-border text-foreground">
+                  <SelectItem value="on">Ativado</SelectItem>
+                  <SelectItem value="off">Desativado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Delay reengajamento (minutos)</Label>
+              <Input
+                type="number"
+                min={1}
+                max={129600}
+                value={config.reengagementDelayMinutes}
+                onChange={(e) =>
+                  setConfig((prev) => ({
+                    ...prev,
+                    reengagementDelayMinutes: Number(e.target.value || 180),
+                  }))
+                }
+                className="bg-secondary border-border text-foreground"
+                disabled={loading}
+              />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label>Template reengajamento no-show</Label>
+            <Textarea
+              value={config.reengagementTemplate}
+              onChange={(e) => setConfig((prev) => ({ ...prev, reengagementTemplate: e.target.value }))}
+              className="bg-secondary border-border text-foreground min-h-[96px]"
+              placeholder="Use {{lead_name}}, {{event_date}} e {{phone}}"
+              disabled={loading}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-card border-border text-foreground">
+        <CardHeader>
+          <CardTitle>Follow-up adaptativo</CardTitle>
+          <CardDescription className="text-gray-400">
+            Defina a cadencia por unidade e janela de horario para follow-up contextual.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label>Intervalos de follow-up em minutos (separados por virgula)</Label>
+            <Input
+              value={followupIntervalsInput}
+              onChange={(e) => setFollowupIntervalsInput(e.target.value)}
+              className="bg-secondary border-border text-foreground"
+              placeholder="15,60,360,1440,2880,4320,7200"
+              disabled={loading}
+            />
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label>Horario inicial follow-up</Label>
+              <Input
+                type="time"
+                value={config.followupBusinessStart}
+                onChange={(e) =>
+                  setConfig((prev) => ({ ...prev, followupBusinessStart: e.target.value }))
+                }
+                className="bg-secondary border-border text-foreground"
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Horario final follow-up</Label>
+              <Input
+                type="time"
+                value={config.followupBusinessEnd}
+                onChange={(e) =>
+                  setConfig((prev) => ({ ...prev, followupBusinessEnd: e.target.value }))
+                }
+                className="bg-secondary border-border text-foreground"
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Dias follow-up (0=Dom, 6=Sab)</Label>
+              <Input
+                value={followupBusinessDaysInput}
+                onChange={(e) => setFollowupBusinessDaysInput(e.target.value)}
+                className="bg-secondary border-border text-foreground"
+                placeholder="0,1,2,3,4,5,6"
+                disabled={loading}
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-card border-border text-foreground">
+        <CardHeader>
+          <CardTitle>Modo de envio Z-API</CardTitle>
+          <CardDescription className="text-gray-400">
+            Configure o formato de envio apos agendamento, follow-up e lembretes.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="space-y-4">
+            <h3 className="text-sm font-medium">Pos-agendamento</h3>
+            <div className="grid md:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label>Automacao pos-agendamento</Label>
+                <Select
+                  value={config.postScheduleAutomationEnabled ? "on" : "off"}
+                  onValueChange={(v) =>
+                    setConfig((prev) => ({ ...prev, postScheduleAutomationEnabled: v === "on" }))
+                  }
+                  disabled={loading}
+                >
+                  <SelectTrigger className="bg-secondary border-border">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-secondary border-border text-foreground">
+                    <SelectItem value="on">Ativado</SelectItem>
+                    <SelectItem value="off">Desativado</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Modo de envio</Label>
+                <Select
+                  value={config.postScheduleMessageMode}
+                  onValueChange={(v) =>
+                    setConfig((prev) => ({ ...prev, postScheduleMessageMode: v as MessageMode }))
+                  }
+                  disabled={loading}
+                >
+                  <SelectTrigger className="bg-secondary border-border">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-secondary border-border text-foreground">
+                    <SelectItem value="text">Texto</SelectItem>
+                    <SelectItem value="image">Imagem</SelectItem>
+                    <SelectItem value="video">Video</SelectItem>
+                    <SelectItem value="document">Documento</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Delay apos agendar (min)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={1440}
+                  value={config.postScheduleDelayMinutes}
+                  onChange={(e) =>
+                    setConfig((prev) => ({ ...prev, postScheduleDelayMinutes: Number(e.target.value || 0) }))
+                  }
+                  className="bg-secondary border-border text-foreground"
+                  disabled={loading}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Texto do pos-agendamento</Label>
+              <Textarea
+                value={config.postScheduleTextTemplate}
+                onChange={(e) => setConfig((prev) => ({ ...prev, postScheduleTextTemplate: e.target.value }))}
+                className="bg-secondary border-border text-foreground min-h-[100px]"
+                placeholder="Mensagem de confirmacao ou proximo passo."
+                disabled={loading}
+              />
+            </div>
+
+            {config.postScheduleMessageMode !== "text" && (
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>URL da midia (obrigatorio)</Label>
+                  <Input
+                    value={config.postScheduleMediaUrl}
+                    onChange={(e) => setConfig((prev) => ({ ...prev, postScheduleMediaUrl: e.target.value }))}
+                    className="bg-secondary border-border text-foreground"
+                    placeholder="https://..."
+                    disabled={loading}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Legenda (opcional)</Label>
+                  <Input
+                    value={config.postScheduleCaption}
+                    onChange={(e) => setConfig((prev) => ({ ...prev, postScheduleCaption: e.target.value }))}
+                    className="bg-secondary border-border text-foreground"
+                    placeholder="Legenda enviada com a midia"
+                    disabled={loading}
+                  />
+                </div>
+                {config.postScheduleMessageMode === "document" && (
+                  <div className="space-y-2 md:col-span-2">
+                    <Label>Nome do arquivo (opcional)</Label>
+                    <Input
+                      value={config.postScheduleDocumentFileName}
+                      onChange={(e) =>
+                        setConfig((prev) => ({ ...prev, postScheduleDocumentFileName: e.target.value }))
+                      }
+                      className="bg-secondary border-border text-foreground"
+                      placeholder="ex: comprovante.pdf"
+                      disabled={loading}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-6">
+            <div className="space-y-3">
+              <h3 className="text-sm font-medium">Follow-up</h3>
+              <div className="space-y-2">
+                <Label>Modo de envio</Label>
+                <Select
+                  value={config.followupMessageMode}
+                  onValueChange={(v) => setConfig((prev) => ({ ...prev, followupMessageMode: v as MessageMode }))}
+                  disabled={loading}
+                >
+                  <SelectTrigger className="bg-secondary border-border">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-secondary border-border text-foreground">
+                    <SelectItem value="text">Texto</SelectItem>
+                    <SelectItem value="image">Imagem</SelectItem>
+                    <SelectItem value="video">Video</SelectItem>
+                    <SelectItem value="document">Documento</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {config.followupMessageMode !== "text" && (
+                <>
+                  <div className="space-y-2">
+                    <Label>URL da midia</Label>
+                    <Input
+                      value={config.followupMediaUrl}
+                      onChange={(e) => setConfig((prev) => ({ ...prev, followupMediaUrl: e.target.value }))}
+                      className="bg-secondary border-border text-foreground"
+                      placeholder="https://..."
+                      disabled={loading}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Legenda (opcional)</Label>
+                    <Input
+                      value={config.followupCaption}
+                      onChange={(e) => setConfig((prev) => ({ ...prev, followupCaption: e.target.value }))}
+                      className="bg-secondary border-border text-foreground"
+                      disabled={loading}
+                    />
+                  </div>
+                  {config.followupMessageMode === "document" && (
+                    <div className="space-y-2">
+                      <Label>Nome do arquivo (opcional)</Label>
+                      <Input
+                        value={config.followupDocumentFileName}
+                        onChange={(e) =>
+                          setConfig((prev) => ({ ...prev, followupDocumentFileName: e.target.value }))
+                        }
+                        className="bg-secondary border-border text-foreground"
+                        placeholder="ex: material.pdf"
+                        disabled={loading}
+                      />
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            <div className="space-y-3">
+              <h3 className="text-sm font-medium">Lembretes</h3>
+              <div className="space-y-2">
+                <Label>Modo de envio</Label>
+                <Select
+                  value={config.reminderMessageMode}
+                  onValueChange={(v) => setConfig((prev) => ({ ...prev, reminderMessageMode: v as MessageMode }))}
+                  disabled={loading}
+                >
+                  <SelectTrigger className="bg-secondary border-border">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-secondary border-border text-foreground">
+                    <SelectItem value="text">Texto</SelectItem>
+                    <SelectItem value="image">Imagem</SelectItem>
+                    <SelectItem value="video">Video</SelectItem>
+                    <SelectItem value="document">Documento</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {config.reminderMessageMode !== "text" && (
+                <>
+                  <div className="space-y-2">
+                    <Label>URL da midia</Label>
+                    <Input
+                      value={config.reminderMediaUrl}
+                      onChange={(e) => setConfig((prev) => ({ ...prev, reminderMediaUrl: e.target.value }))}
+                      className="bg-secondary border-border text-foreground"
+                      placeholder="https://..."
+                      disabled={loading}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Legenda (opcional)</Label>
+                    <Input
+                      value={config.reminderCaption}
+                      onChange={(e) => setConfig((prev) => ({ ...prev, reminderCaption: e.target.value }))}
+                      className="bg-secondary border-border text-foreground"
+                      disabled={loading}
+                    />
+                  </div>
+                  {config.reminderMessageMode === "document" && (
+                    <div className="space-y-2">
+                      <Label>Nome do arquivo (opcional)</Label>
+                      <Input
+                        value={config.reminderDocumentFileName}
+                        onChange={(e) =>
+                          setConfig((prev) => ({ ...prev, reminderDocumentFileName: e.target.value }))
+                        }
+                        className="bg-secondary border-border text-foreground"
+                        placeholder="ex: contrato.pdf"
+                        disabled={loading}
+                      />
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+        </TabsContent>
+
+        <TabsContent value="boasvindas" className="space-y-6">
+      <Card className="bg-card border-border text-foreground">
+        <CardHeader>
+          <CardTitle>Agente de boas-vindas</CardTitle>
+          <CardDescription className="text-gray-400">
+            Envie uma mensagem automatica de boas-vindas para novos clientes apos a compra.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Agente de boas-vindas cliente</Label>
+              <Select
+                value={config.welcomeAgentEnabled ? "on" : "off"}
+                onValueChange={(v) => setConfig((prev) => ({ ...prev, welcomeAgentEnabled: v === "on" }))}
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-secondary border-border">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-secondary border-border text-foreground">
+                  <SelectItem value="on">Ativado</SelectItem>
+                  <SelectItem value="off">Desativado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Delay boas-vindas (minutos)</Label>
+              <Input
+                type="number"
+                min={1}
+                max={259200}
+                value={config.welcomeDelayMinutes}
+                onChange={(e) =>
+                  setConfig((prev) => ({
+                    ...prev,
+                    welcomeDelayMinutes: Number(e.target.value || 10080),
+                  }))
+                }
+                className="bg-secondary border-border text-foreground"
+                disabled={loading}
+              />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label>Template boas-vindas cliente</Label>
+            <Textarea
+              value={config.welcomeTemplate}
+              onChange={(e) => setConfig((prev) => ({ ...prev, welcomeTemplate: e.target.value }))}
+              className="bg-secondary border-border text-foreground min-h-[96px]"
+              placeholder="Use {{lead_name}}, {{product}} e {{sale_amount}}"
+              disabled={loading}
+            />
+          </div>
+        </CardContent>
+      </Card>
+        </TabsContent>
+      </Tabs>
 
       <div className="flex flex-wrap justify-end gap-2">
         <Button
