@@ -167,64 +167,49 @@ async function resolveInstagramAccount(params: {
   apiVersion: string
   userId?: string
 }): Promise<{ instagramAccountId: string; usableAccessToken: string }> {
-  const diag: string[] = []
   const igBase = `https://graph.instagram.com/${params.apiVersion}`
   const fbBase = `https://graph.facebook.com/${params.apiVersion}`
 
   // Método 1: user_id retornado diretamente pela troca de código (mais confiável)
   if (params.userId) {
     const uid = readIgId(params.userId)
-    if (uid) {
-      diag.push(`userId_direct:ok:${uid}`)
-      return { instagramAccountId: uid, usableAccessToken: params.accessToken }
-    }
+    if (uid) return { instagramAccountId: uid, usableAccessToken: params.accessToken }
   }
 
   // Método 2: graph.instagram.com/{version}/me com Bearer header
-  try {
-    const res2 = await fetch(`${igBase}/me?fields=id,username`, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${params.accessToken}` },
-    })
-    const json2 = await res2.json().catch(() => ({}))
-    const id2 = readIgId(json2?.id)
-    if (res2.ok && id2) return { instagramAccountId: id2, usableAccessToken: params.accessToken }
-    diag.push(`ig_bearer:${res2.status}:${json2?.error?.code}:${json2?.error?.message?.slice(0,60)}`)
-  } catch (e: any) { diag.push(`ig_bearer:err:${e?.message?.slice(0,40)}`) }
+  const res2 = await fetch(`${igBase}/me?fields=id,username`, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${params.accessToken}` },
+  }).catch(() => null)
+  const json2 = await res2?.json().catch(() => ({}))
+  const id2 = readIgId(json2?.id)
+  if (res2?.ok && id2) return { instagramAccountId: id2, usableAccessToken: params.accessToken }
 
   // Método 3: graph.instagram.com/{version}/me com access_token query param
-  try {
-    const url3 = new URL(`${igBase}/me`)
-    url3.searchParams.set("fields", "id,username")
-    url3.searchParams.set("access_token", params.accessToken)
-    const res3 = await fetch(url3.toString(), { method: "GET" })
-    const json3 = await res3.json().catch(() => ({}))
-    const id3 = readIgId(json3?.id)
-    if (res3.ok && id3) return { instagramAccountId: id3, usableAccessToken: params.accessToken }
-    diag.push(`ig_qparam:${res3.status}:${json3?.error?.code}:${json3?.error?.message?.slice(0,60)}`)
-  } catch (e: any) { diag.push(`ig_qparam:err:${e?.message?.slice(0,40)}`) }
+  const url3 = new URL(`${igBase}/me`)
+  url3.searchParams.set("fields", "id,username")
+  url3.searchParams.set("access_token", params.accessToken)
+  const res3 = await fetch(url3.toString()).catch(() => null)
+  const json3 = await res3?.json().catch(() => ({}))
+  const id3 = readIgId(json3?.id)
+  if (res3?.ok && id3) return { instagramAccountId: id3, usableAccessToken: params.accessToken }
 
   // Método 4: graph.facebook.com/me/accounts (Facebook Login com página vinculada ao Instagram)
-  try {
-    const url4 = new URL(`${fbBase}/me/accounts`)
-    url4.searchParams.set("fields", "id,name,access_token,instagram_business_account{id,username},connected_instagram_account{id,username}")
-    url4.searchParams.set("access_token", params.accessToken)
-    const res4 = await fetch(url4.toString(), { method: "GET" })
-    const json4 = await res4.json().catch(() => ({}))
-    if (res4.ok && Array.isArray(json4?.data)) {
-      for (const page of json4.data) {
-        const igId = readIgId(page?.instagram_business_account?.id) || readIgId(page?.connected_instagram_account?.id)
-        if (!igId) continue
-        const pageToken = String(page?.access_token || "").trim()
-        return { instagramAccountId: igId, usableAccessToken: pageToken || params.accessToken }
-      }
-      diag.push(`fb_pages:ok:no_ig:count=${json4.data.length}`)
-    } else {
-      diag.push(`fb_pages:${res4.status}:${json4?.error?.code}:${json4?.error?.message?.slice(0,60)}`)
+  const url4 = new URL(`${fbBase}/me/accounts`)
+  url4.searchParams.set("fields", "id,name,access_token,instagram_business_account{id,username},connected_instagram_account{id,username}")
+  url4.searchParams.set("access_token", params.accessToken)
+  const res4 = await fetch(url4.toString()).catch(() => null)
+  const json4 = await res4?.json().catch(() => ({}))
+  if (res4?.ok && Array.isArray(json4?.data)) {
+    for (const page of json4.data) {
+      const igId = readIgId(page?.instagram_business_account?.id) || readIgId(page?.connected_instagram_account?.id)
+      if (!igId) continue
+      const pageToken = String(page?.access_token || "").trim()
+      return { instagramAccountId: igId, usableAccessToken: pageToken || params.accessToken }
     }
-  } catch (e: any) { diag.push(`fb_pages:err:${e?.message?.slice(0,40)}`) }
+  }
 
-  throw new Error(`instagram_nao_identificada | ${diag.join(" | ")}`)
+  throw new Error("instagram_account_nao_identificada")
 }
 
 async function ensureInstagramAccountNotLinkedInOtherTenant(params: {
