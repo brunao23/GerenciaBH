@@ -55,6 +55,7 @@ export async function POST(req: Request) {
       metaAccessToken: body.metaAccessToken?.trim() || undefined,
       metaPhoneNumberId: body.metaPhoneNumberId?.trim() || undefined,
       metaWabaId: body.metaWabaId?.trim() || undefined,
+      metaInstagramAccountId: body.metaInstagramAccountId?.trim() || undefined,
       metaVerifyToken: body.metaVerifyToken?.trim() || undefined,
       metaAppSecret: body.metaAppSecret?.trim() || undefined,
       metaApiVersion: body.metaApiVersion?.trim() || undefined,

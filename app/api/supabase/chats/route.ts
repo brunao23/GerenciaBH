@@ -12,6 +12,7 @@ type ChatsCacheEntry = {
 }
 
 type SenderType = "lead" | "ia" | "human" | "system"
+type SessionChannel = "whatsapp" | "instagram"
 
 const CHATS_CACHE_TTL_MS = 15_000
 const CHATS_CACHE_MAX_KEYS = 30
@@ -223,6 +224,24 @@ function parseBoolean(value: any): boolean | null {
   if (normalized === "true" || normalized === "1") return true
   if (normalized === "false" || normalized === "0") return false
   return null
+}
+
+function detectSessionChannel(sessionId: string, items: Row[]): SessionChannel {
+  const lowerSession = String(sessionId || "").toLowerCase()
+  if (lowerSession.startsWith("ig_") || lowerSession.startsWith("igcomment_") || lowerSession.startsWith("ig_comment_")) {
+    return "instagram"
+  }
+
+  for (const item of items) {
+    const msg = item?.message && typeof item.message === "object" ? item.message : {}
+    const source = String(msg.source ?? "").toLowerCase()
+    const channel = String(msg.channel ?? msg.additional?.channel ?? "").toLowerCase()
+    if (source.includes("instagram") || channel === "instagram") {
+      return "instagram"
+    }
+  }
+
+  return "whatsapp"
 }
 
 function isInternalInvisibleMessage(msg: any): boolean {
@@ -1708,27 +1727,42 @@ export async function GET(req: Request) {
 
       const last_id = Math.max(...items.map((i) => i.id))
 
-      // Extrai nÃºmero de telefone do session_id
+      const channel = detectSessionChannel(session_id, items)
+
+      // Extrai numero apenas para canal WhatsApp
       let numero: string | null = null
-      if (session_id.endsWith("@s.whatsapp.net")) {
-        numero = session_id.replace("@s.whatsapp.net", "")
-      } else if (/^\d+$/.test(session_id)) {
-        // Se session_id contÃ©m apenas dÃ­gitos, Ã© o nÃºmero limpo
-        numero = session_id
-      } else {
-        // Tenta extrair nÃºmeros do session_id
-        const digitsMatch = session_id.match(/(\d{10,15})/)
-        if (digitsMatch) {
-          numero = digitsMatch[1]
+      if (channel === "whatsapp") {
+        if (session_id.endsWith("@s.whatsapp.net")) {
+          numero = session_id.replace("@s.whatsapp.net", "")
+        } else if (/^\d+$/.test(session_id)) {
+          numero = session_id
+        } else {
+          const digitsMatch = session_id.match(/(\d{10,15})/)
+          if (digitsMatch) {
+            numero = digitsMatch[1]
+          }
         }
       }
 
-      const contact_name = detectedName || (numero ? `Lead ${numero.substring(numero.length - 4)}` : `Lead #${leadNumbers.get(session_id) || 1}`)
+      let contact_name = detectedName || null
+      if (!contact_name) {
+        if (channel === "instagram") {
+          const igDigits = session_id.replace(/\D/g, "")
+          contact_name = igDigits
+            ? `Instagram ${igDigits.substring(Math.max(0, igDigits.length - 4))}`
+            : `Instagram #${leadNumbers.get(session_id) || 1}`
+        } else {
+          contact_name = numero
+            ? `Lead ${numero.substring(numero.length - 4)}`
+            : `Lead #${leadNumbers.get(session_id) || 1}`
+        }
+      }
 
       return {
         session_id,
         numero,
         contact_name,
+        channel,
         messages: finalMessages,
         last_id,
         error: hasError,

@@ -39,6 +39,22 @@ export function normalizeSessionId(input: string): string {
   if (!raw) return ""
 
   const lower = raw.toLowerCase()
+  if (lower.startsWith("ig_")) return lower
+  if (lower.startsWith("igcomment_")) return lower
+  if (lower.startsWith("ig_comment_")) return lower
+  if (lower.startsWith("ig:")) {
+    const id = raw.slice(3).replace(/\D/g, "")
+    return id ? `ig_${id}` : lower
+  }
+  if (lower.startsWith("ig-comment:")) {
+    const parts = raw.split(":").map((part) => String(part || "").trim())
+    const commentId = String(parts[1] || "").replace(/\D/g, "")
+    const recipientId = String(parts[2] || "").replace(/\D/g, "")
+    if (commentId && recipientId) return `ig_${recipientId}`
+    if (recipientId) return `ig_${recipientId}`
+    if (commentId) return `ig_comment_${commentId}`
+    return lower
+  }
   if (lower.startsWith("lid_")) return lower
   if (lower.includes("@lid")) {
     const base = raw.split("@")[0].replace(/\D/g, "")

@@ -8,6 +8,7 @@ import { normalizeTenant } from "@/lib/helpers/normalize-tenant"
 import { ZApiService } from "@/lib/services/z-api.service"
 import { EvolutionAPIService } from "@/lib/services/evolution-api.service"
 import { MetaWhatsAppService } from "@/lib/services/meta-whatsapp.service"
+import { MetaInstagramService } from "@/lib/services/meta-instagram.service"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import {
   normalizePhoneNumber,
@@ -123,10 +124,50 @@ function sanitizeOutgoingMessageText(value: string): string {
     .trim()
 }
 
+type InstagramTarget =
+  | { mode: "dm"; recipientId: string }
+  | { mode: "comment"; commentId: string; recipientId?: string }
+
 export class TenantMessagingService {
+  private parseInstagramTarget(value: string): InstagramTarget | null {
+    const raw = String(value || "").trim()
+    if (!raw) return null
+
+    if (/^ig-comment:/i.test(raw)) {
+      const parts = raw.split(":").map((part) => String(part || "").trim())
+      const commentId = String(parts[1] || "").trim()
+      const recipientId = String(parts[2] || "").trim()
+      if (!commentId) return null
+      return {
+        mode: "comment",
+        commentId,
+        recipientId: recipientId || undefined,
+      }
+    }
+
+    if (/^ig:/i.test(raw)) {
+      const recipientId = raw.replace(/^ig:/i, "").trim()
+      if (!recipientId) return null
+      return { mode: "dm", recipientId }
+    }
+
+    return null
+  }
+
+  private extractInstagramRecipientIdFromSession(sessionId?: string): string | null {
+    const session = String(sessionId || "").trim().toLowerCase()
+    if (!session) return null
+    if (session.startsWith("ig_")) {
+      const value = session.slice(3).replace(/\D/g, "")
+      return value || null
+    }
+    return null
+  }
+
   private normalizeRecipient(input: string): string {
     const raw = String(input || "").trim()
     if (!raw) return ""
+    if (/^ig:/i.test(raw) || /^ig-comment:/i.test(raw)) return raw
     if (/@g\.us$/i.test(raw) || /@lid$/i.test(raw)) return raw
     if (/-group$/i.test(raw)) return raw
 
@@ -148,6 +189,7 @@ export class TenantMessagingService {
     if (!tenant) return { success: false, error: "Invalid tenant" }
 
     const phone = this.normalizeRecipient(input.phone)
+    const instagramTarget = this.parseInstagramTarget(phone)
     const message = sanitizeOutgoingMessageText(String(input.message || ""))
     if (!phone || !message) {
       return { success: false, error: "phone and message are required" }
@@ -156,6 +198,72 @@ export class TenantMessagingService {
     let config = await getMessagingConfigForTenant(tenant)
     if (!config || config.isActive === false) {
       return { success: false, error: "WhatsApp config missing or disabled" }
+    }
+
+    if (instagramTarget) {
+      if (!config.metaAccessToken) {
+        return { success: false, error: "metaAccessToken is required for Instagram messaging", provider: "meta" }
+      }
+
+      const instagram = new MetaInstagramService({
+        accessToken: config.metaAccessToken,
+        apiVersion: config.metaApiVersion,
+      })
+
+      const dmRecipientFromSession = this.extractInstagramRecipientIdFromSession(input.sessionId)
+      const target =
+        instagramTarget.mode === "dm"
+          ? {
+              mode: "dm" as const,
+              recipientId: instagramTarget.recipientId || dmRecipientFromSession || "",
+            }
+          : instagramTarget
+
+      if (target.mode === "dm" && !target.recipientId) {
+        return { success: false, provider: "meta", error: "Instagram recipientId is required" }
+      }
+
+      const sent =
+        target.mode === "comment"
+          ? await instagram.replyToComment({
+              commentId: target.commentId,
+              message,
+            })
+          : await instagram.sendDirectMessage({
+              recipientId: target.recipientId,
+              message,
+            })
+
+      if (!sent.success) {
+        return {
+          success: false,
+          provider: "meta",
+          error: sent.error || "Failed to send Instagram message",
+        }
+      }
+
+      if (input.persistInHistory !== false) {
+        await this.persistOutgoingMessage({
+          tenant,
+          sessionId: input.sessionId || (target.mode === "dm" ? `ig_${target.recipientId}` : `ig_comment_${target.commentId}`),
+          message,
+          messageId: sent.messageId,
+          source: input.source || "instagram-agent",
+          additional: {
+            channel: "instagram",
+            instagram_target_mode: target.mode,
+            instagram_recipient_id: target.mode === "dm" ? target.recipientId : target.recipientId || null,
+            instagram_comment_id: target.mode === "comment" ? target.commentId : null,
+            reply_to_message_id: input.replyToMessageId || null,
+          },
+        })
+      }
+
+      return {
+        success: true,
+        messageId: sent.messageId,
+        provider: "meta",
+      }
     }
 
     if (config.provider === "meta" && !config.metaPhoneNumberId) {

@@ -30,7 +30,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Search, MessageSquare, Phone, User, Clock, AlertCircle, CheckCircle2, PauseCircle, PlayCircle, Calendar, UserMinus, Loader2, Briefcase, Target, Clock3, Sparkles, Zap, Download, ListChecks, XCircle, Send, Trash2, Edit2, DollarSign } from "lucide-react"
+import { Search, MessageSquare, Phone, User, Clock, AlertCircle, CheckCircle2, PauseCircle, PlayCircle, Calendar, UserMinus, Loader2, Briefcase, Target, Clock3, Sparkles, Zap, Download, ListChecks, XCircle, Send, Trash2, Edit2, DollarSign, Copy, RefreshCcw } from "lucide-react"
 import { useTenant } from "@/lib/contexts/TenantContext"
 import { toast } from "sonner"
 
@@ -51,6 +51,7 @@ type ChatSession = {
   session_id: string
   numero?: string | null
   contact_name?: string
+  channel?: "whatsapp" | "instagram"
   messages: ChatMessage[]
   messages_count?: number
   last_message_preview?: string
@@ -560,6 +561,7 @@ export default function ConversasPage() {
   const [query, setQuery] = useState("")
   const deferredQuery = useDeferredValue(query)
   const [activeTab, setActiveTab] = useState<"leads" | "grupos" | "contatos">("leads")
+  const [activeChannelFilter, setActiveChannelFilter] = useState<"all" | "whatsapp" | "instagram">("all")
   const [editContactModalOpen, setEditContactModalOpen] = useState(false)
   const [editContactName, setEditContactName] = useState("")
   const [active, setActive] = useState<string | null>(null)
@@ -575,6 +577,9 @@ export default function ConversasPage() {
   const [messageInput, setMessageInput] = useState("")
   const [pauseDuration, setPauseDuration] = useState("30")
   const [isSending, setIsSending] = useState(false)
+  const [isGeneratingSuggestion, setIsGeneratingSuggestion] = useState(false)
+  const [lastSuggestedText, setLastSuggestedText] = useState("")
+  const [suggestionVariant, setSuggestionVariant] = useState(0)
   const [takeoverLoading, setTakeoverLoading] = useState(false)
   const [deletingMessageId, setDeletingMessageId] = useState<number | null>(null)
   const [clearingMemory, setClearingMemory] = useState(false)
@@ -1127,6 +1132,11 @@ export default function ConversasPage() {
   }, [current?.numero, current?.session_id, fetchPauseStatus, fetchFollowupAIStatus])
 
   useEffect(() => {
+    setLastSuggestedText("")
+    setSuggestionVariant(0)
+  }, [current?.session_id])
+
+  useEffect(() => {
     if (focusAppliedRef.current) return
     const focus = params.get("focus")
     if (!focus) return
@@ -1190,12 +1200,14 @@ export default function ConversasPage() {
   const filtered = useMemo(() => {
     return sessions
       .filter((s) => {
+        const channel = s.channel === "instagram" ? "instagram" : "whatsapp"
+        if (activeChannelFilter !== "all" && channel !== activeChannelFilter) return false
         if (activeTab === "grupos") return s.isGroup
         if (activeTab === "leads") return !s.isGroup
         return true
       })
       .map((session) => ({ session, score: 0, matchedMessages: [] }))
-  }, [sessions, activeTab])
+  }, [sessions, activeTab, activeChannelFilter])
 
   const isSearchPending = query !== deferredQuery || serverSearching
   const trimmedQuery = query.trim()
@@ -1672,6 +1684,74 @@ export default function ConversasPage() {
     }
   }
 
+  const handleGenerateAiSuggestion = async (regenerate = false) => {
+    if (!current || isGeneratingSuggestion) return
+    const sourceMessages = Array.isArray(current.messages) ? current.messages : []
+    if (sourceMessages.length === 0) {
+      toast.error("Conversa sem historico para gerar sugestao")
+      return
+    }
+
+    setIsGeneratingSuggestion(true)
+    try {
+      const response = await fetch("/api/conversas/ai-suggest", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-tenant-prefix": tenant?.prefix || "",
+        },
+        body: JSON.stringify({
+          sessionId: current.session_id,
+          contactName: current.contact_name || "",
+          previousSuggestion: regenerate ? (messageInput.trim() || lastSuggestedText) : "",
+          variantIndex: regenerate ? suggestionVariant + 1 : 1,
+          messages: sourceMessages.map((message) => ({
+            role: message.role,
+            content: message.content,
+            senderType: message.senderType,
+            fromMe: message.fromMe,
+            isManual: message.isManual,
+          })),
+        }),
+      })
+
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(payload?.error || "Erro ao gerar sugestao")
+      }
+
+      const suggestedReply = String(payload?.reply || "").trim()
+      if (!suggestedReply) {
+        toast.message("Sem sugestao no momento")
+        return
+      }
+
+      setMessageInput(suggestedReply)
+      setLastSuggestedText(suggestedReply)
+      setSuggestionVariant((prev) => (regenerate ? prev + 1 : 1))
+      toast.success(regenerate ? "Nova sugestao gerada" : "Sugestao gerada com IA")
+    } catch (error: any) {
+      toast.error(error?.message || "Erro ao gerar sugestao")
+    } finally {
+      setIsGeneratingSuggestion(false)
+    }
+  }
+
+  const handleCopySuggestion = async () => {
+    const text = messageInput.trim()
+    if (!text) {
+      toast.error("Nada para copiar")
+      return
+    }
+
+    try {
+      await navigator.clipboard.writeText(text)
+      toast.success("Sugestao copiada")
+    } catch {
+      toast.error("Falha ao copiar sugestao")
+    }
+  }
+
   const handleDeleteMessage = async (msg: ChatMessage) => {
     if (!current) return
     if (!msg.message_id) {
@@ -1879,6 +1959,38 @@ export default function ConversasPage() {
             </Tabs>
           </div>
 
+          {activeTab !== "contatos" && (
+            <div className="mt-3 flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={activeChannelFilter === "all" ? "default" : "outline"}
+                className={`h-7 text-xs ${activeChannelFilter === "all" ? "bg-accent-green text-black hover:bg-accent-green/90" : "border-border-gray text-text-gray hover:text-white"}`}
+                onClick={() => setActiveChannelFilter("all")}
+              >
+                Todos
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={activeChannelFilter === "whatsapp" ? "default" : "outline"}
+                className={`h-7 text-xs ${activeChannelFilter === "whatsapp" ? "bg-emerald-500 text-black hover:bg-emerald-500/90" : "border-border-gray text-text-gray hover:text-white"}`}
+                onClick={() => setActiveChannelFilter("whatsapp")}
+              >
+                WhatsApp
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={activeChannelFilter === "instagram" ? "default" : "outline"}
+                className={`h-7 text-xs ${activeChannelFilter === "instagram" ? "bg-pink-500 text-white hover:bg-pink-500/90" : "border-border-gray text-text-gray hover:text-white"}`}
+                onClick={() => setActiveChannelFilter("instagram")}
+              >
+                Instagram
+              </Button>
+            </div>
+          )}
+
           <div className="relative mt-3">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-text-gray" />
             {isSearchPending && (
@@ -2031,6 +2143,12 @@ export default function ConversasPage() {
                           <h4 className="font-semibold text-pure-white truncate text-sm">
                             {highlightText(session.contact_name || "Lead", query)}
                           </h4>
+                          <Badge
+                            variant="outline"
+                            className={`text-[10px] px-1.5 py-0 border ${session.channel === "instagram" ? "border-pink-400/60 text-pink-300" : "border-emerald-400/60 text-emerald-300"}`}
+                          >
+                            {session.channel === "instagram" ? "Instagram" : "WhatsApp"}
+                          </Badge>
                           {session.error && <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />}
                           {session.success && <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />}
                         </div>
@@ -2112,6 +2230,12 @@ export default function ConversasPage() {
                   <div>
                     <h3 className="text-lg font-bold text-pure-white flex items-center gap-2">
                        {current.contact_name || "Lead"}
+                       <Badge
+                         variant="outline"
+                         className={`text-[10px] border ${current.channel === "instagram" ? "border-pink-400/60 text-pink-300" : "border-emerald-400/60 text-emerald-300"}`}
+                       >
+                         {current.channel === "instagram" ? "Instagram" : "WhatsApp"}
+                       </Badge>
                        <Button size="icon" variant="ghost" className="h-6 w-6 hover:bg-white/10" onClick={() => {
                           setEditContactName(current.contact_name || "")
                           setEditContactModalOpen(true)
@@ -2121,7 +2245,11 @@ export default function ConversasPage() {
                     </h3>
                     <div className="flex items-center gap-2 text-sm text-text-gray mt-1">
                       <Phone className="w-3 h-3" />
-                      <span className="font-mono">{current.numero || "Sem número"}</span>
+                      <span className="font-mono">
+                        {current.channel === "instagram"
+                          ? `IG ${current.session_id.replace(/^ig_/, "")}`
+                          : current.numero || "Sem número"}
+                      </span>
                       <span>•</span>
                       <span>
                         {current.isSummary ? "~" : ""}
@@ -2409,17 +2537,50 @@ export default function ConversasPage() {
                     }
                   }}
                 />
-                <Button
-                  onClick={handleSendMessage}
-                  disabled={!messageInput.trim() || isSending}
-                  className="h-[50px] w-[50px] bg-accent-green hover:bg-green-600 shadow-lg shadow-green-900/20 shrink-0"
-                >
-                  {isSending ? (
-                    <Loader2 className="w-5 h-5 animate-spin text-white" />
-                  ) : (
-                    <Send className="w-5 h-5 text-white" />
-                  )}
-                </Button>
+                <div className="flex flex-col gap-2 shrink-0">
+                  <Button
+                    onClick={() => handleGenerateAiSuggestion(false)}
+                    disabled={isGeneratingSuggestion || !current}
+                    variant="outline"
+                    className="h-[50px] border-border-gray text-pure-white hover:bg-white/10"
+                    title="Gerar resposta contextual com IA"
+                  >
+                    {isGeneratingSuggestion ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Sparkles className="w-4 h-4" />
+                    )}
+                  </Button>
+                  <Button
+                    onClick={() => handleGenerateAiSuggestion(true)}
+                    disabled={isGeneratingSuggestion || !current || (!messageInput.trim() && !lastSuggestedText)}
+                    variant="outline"
+                    className="h-[50px] border-border-gray text-pure-white hover:bg-white/10"
+                    title="Gerar outra versao da sugestao"
+                  >
+                    <RefreshCcw className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    onClick={handleCopySuggestion}
+                    disabled={!messageInput.trim()}
+                    variant="outline"
+                    className="h-[50px] border-border-gray text-pure-white hover:bg-white/10"
+                    title="Copiar sugestao"
+                  >
+                    <Copy className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    onClick={handleSendMessage}
+                    disabled={!messageInput.trim() || isSending}
+                    className="h-[50px] bg-accent-green hover:bg-green-600 shadow-lg shadow-green-900/20"
+                  >
+                    {isSending ? (
+                      <Loader2 className="w-5 h-5 animate-spin text-white" />
+                    ) : (
+                      <Send className="w-5 h-5 text-white" />
+                    )}
+                  </Button>
+                </div>
               </div>
             </div>
 

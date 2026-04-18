@@ -4,6 +4,7 @@ import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { getTablesForTenant } from "@/lib/helpers/tenant"
 import { resolveTenantDataPrefix } from "@/lib/helpers/tenant-resolution"
 import { type MessagingConfig } from "@/lib/helpers/messaging-config"
+import { resolveMetaWebhookVerifyToken } from "@/lib/helpers/meta-webhook"
 
 function safeMetadata(input: any): Record<string, any> {
   if (input && typeof input === "object" && !Array.isArray(input)) return input
@@ -70,7 +71,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Invalid webhook verification" }, { status: 400 })
   }
 
-  const envToken = process.env.META_WEBHOOK_VERIFY_TOKEN
+  const envToken = resolveMetaWebhookVerifyToken()
   const tokenOk = token === envToken || (await findTenantByVerifyToken(token))
 
   if (!tokenOk) {

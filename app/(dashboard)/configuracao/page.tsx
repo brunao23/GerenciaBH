@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Settings, RefreshCw, QrCode, Smartphone } from "lucide-react"
+import { Settings, RefreshCw, QrCode, Smartphone, Instagram, Copy, ExternalLink } from "lucide-react"
 import { toast } from "sonner"
 import { useTenant } from "@/lib/contexts/TenantContext"
 
@@ -33,9 +33,14 @@ export default function ConfiguracaoPage() {
   const [metaAccessToken, setMetaAccessToken] = useState("")
   const [metaPhoneNumberId, setMetaPhoneNumberId] = useState("")
   const [metaWabaId, setMetaWabaId] = useState("")
+  const [metaInstagramAccountId, setMetaInstagramAccountId] = useState("")
+  const [metaVerifyToken, setMetaVerifyToken] = useState("")
   const [metaApiVersion, setMetaApiVersion] = useState("v21.0")
   const [metaPricingCurrency, setMetaPricingCurrency] = useState("BRL")
   const [metaPricingMarket, setMetaPricingMarket] = useState("BR")
+  const [instagramConnectLoading, setInstagramConnectLoading] = useState(false)
+  const [instagramWebhookUrl, setInstagramWebhookUrl] = useState("")
+  const [instagramConnectionReady, setInstagramConnectionReady] = useState(false)
 
   const [zapiQrLoading, setZapiQrLoading] = useState(false)
   const [zapiQrImage, setZapiQrImage] = useState("")
@@ -65,6 +70,8 @@ export default function ConfiguracaoPage() {
           setMetaAccessToken(config.metaAccessToken || "")
           setMetaPhoneNumberId(config.metaPhoneNumberId || "")
           setMetaWabaId(config.metaWabaId || "")
+          setMetaInstagramAccountId(config.metaInstagramAccountId || "")
+          setMetaVerifyToken(config.metaVerifyToken || "")
           setMetaApiVersion(config.metaApiVersion || "v21.0")
           setMetaPricingCurrency(config.metaPricingCurrency || "BRL")
           setMetaPricingMarket(config.metaPricingMarket || "BR")
@@ -88,14 +95,14 @@ export default function ConfiguracaoPage() {
       ? zapiReady
       : provider === "evolution"
         ? Boolean(apiUrl.trim() && instanceName.trim() && providerToken.trim())
-        : Boolean(metaAccessToken.trim() && metaPhoneNumberId.trim())
+        : Boolean(metaAccessToken.trim() && (metaPhoneNumberId.trim() || metaInstagramAccountId.trim()))
 
   const providerWarning =
     provider === "zapi"
       ? "Informe Client-Token e send-text URL ou API URL + Instance ID + Token da Z-API."
       : provider === "evolution"
         ? "Informe API URL, Instance Name e Token da Evolution."
-        : "Informe Access Token e Phone Number ID da Meta."
+        : "Informe Access Token e ao menos um identificador Meta: Phone Number ID (WhatsApp) ou Instagram Account ID."
 
   const handleSaveConfig = async () => {
     setSavingConfig(true)
@@ -114,6 +121,7 @@ export default function ConfiguracaoPage() {
           metaAccessToken: metaAccessToken.trim() || undefined,
           metaPhoneNumberId: metaPhoneNumberId.trim() || undefined,
           metaWabaId: metaWabaId.trim() || undefined,
+          metaInstagramAccountId: metaInstagramAccountId.trim() || undefined,
           metaApiVersion: metaApiVersion.trim() || "v21.0",
           metaPricingCurrency: metaPricingCurrency.trim() || "BRL",
           metaPricingMarket: metaPricingMarket.trim() || undefined,
@@ -242,6 +250,90 @@ export default function ConfiguracaoPage() {
       toast.error(error?.message || "Erro ao gerar codigo por telefone")
     } finally {
       setZapiPhoneCodeLoading(false)
+    }
+  }
+
+  const handleLoadInstagramStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/tenant/instagram/oauth/status", { cache: "no-store" })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || data?.success !== true) return
+
+      setInstagramWebhookUrl(String(data.webhookUrl || "").trim())
+      setMetaVerifyToken(String(data.verifyToken || "").trim())
+      setInstagramConnectionReady(Boolean(data.connected))
+
+      const accountId = String(data.instagramAccountId || "").trim()
+      if (accountId && !metaInstagramAccountId.trim()) {
+        setMetaInstagramAccountId(accountId)
+      }
+      const version = String(data.metaApiVersion || "").trim()
+      if (version && !metaApiVersion.trim()) {
+        setMetaApiVersion(version)
+      }
+    } catch {
+      // silencioso
+    }
+  }, [metaApiVersion, metaInstagramAccountId])
+
+  useEffect(() => {
+    if (!tenant?.prefix) return
+    void handleLoadInstagramStatus()
+  }, [tenant?.prefix, handleLoadInstagramStatus])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const url = new URL(window.location.href)
+    const status = String(url.searchParams.get("instagram_status") || "").trim()
+    const message = String(url.searchParams.get("instagram_message") || "").trim()
+    if (!status) return
+
+    if (status === "connected") {
+      toast.success("Instagram conectado com sucesso.")
+      setInstagramConnectionReady(true)
+      if (message && !metaInstagramAccountId) {
+        setMetaInstagramAccountId(message)
+      }
+      void handleLoadInstagramStatus()
+    } else if (status === "error") {
+      toast.error(message || "Falha ao conectar Instagram")
+    }
+
+    url.searchParams.delete("instagram_status")
+    url.searchParams.delete("instagram_message")
+    window.history.replaceState({}, "", `${url.pathname}${url.search}`)
+  }, [handleLoadInstagramStatus, metaInstagramAccountId])
+
+  const handleConnectInstagram = async () => {
+    setInstagramConnectLoading(true)
+    try {
+      const res = await fetch("/api/tenant/instagram/oauth/start", { cache: "no-store" })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || data?.success !== true || !data?.url) {
+        throw new Error(data?.error || "Falha ao iniciar conexao com Instagram")
+      }
+
+      setInstagramWebhookUrl(String(data.webhookUrl || "").trim())
+      setMetaVerifyToken(String(data.verifyToken || "").trim())
+      window.location.href = String(data.url)
+    } catch (error: any) {
+      toast.error(error?.message || "Falha ao conectar Instagram")
+    } finally {
+      setInstagramConnectLoading(false)
+    }
+  }
+
+  const copyToClipboard = async (value: string, successMessage: string) => {
+    const text = String(value || "").trim()
+    if (!text) {
+      toast.error("Nada para copiar.")
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(text)
+      toast.success(successMessage)
+    } catch {
+      toast.error("Falha ao copiar para a area de transferencia.")
     }
   }
 
@@ -487,6 +579,15 @@ export default function ConfiguracaoPage() {
                 />
               </div>
               <div className="space-y-2">
+                <Label>Instagram Account ID (opcional)</Label>
+                <Input
+                  value={metaInstagramAccountId}
+                  onChange={(e) => setMetaInstagramAccountId(e.target.value)}
+                  placeholder="1784..."
+                  className="bg-foreground/8 border-border-gray text-pure-white"
+                />
+              </div>
+              <div className="space-y-2">
                 <Label>API Version</Label>
                 <Input
                   value={metaApiVersion}
@@ -513,6 +614,85 @@ export default function ConfiguracaoPage() {
                   className="bg-foreground/8 border-border-gray text-pure-white"
                 />
               </div>
+              <div className="md:col-span-2 rounded-lg border border-border-gray/60 bg-foreground/5 p-4 space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm text-pure-white font-medium flex items-center gap-2">
+                      <Instagram className="w-4 h-4 text-pink-400" />
+                      Conexao Instagram em 1 clique
+                    </p>
+                    <p className="text-xs text-text-gray">
+                      Clique para autorizar pelo app Meta e salvar token + conta Instagram automaticamente.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    onClick={handleConnectInstagram}
+                    disabled={instagramConnectLoading}
+                    className="bg-pink-500 hover:bg-pink-500/85 text-white"
+                  >
+                    {instagramConnectLoading ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                        Conectando...
+                      </>
+                    ) : (
+                      <>
+                        <ExternalLink className="w-4 h-4 mr-2" />
+                        Conectar Instagram
+                      </>
+                    )}
+                  </Button>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Webhook URL (Meta)</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={instagramWebhookUrl}
+                      readOnly
+                      placeholder="Clique em Conectar Instagram para gerar"
+                      className="bg-foreground/8 border-border-gray text-pure-white"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="border-border-gray text-pure-white hover:bg-white/10"
+                      onClick={() => copyToClipboard(instagramWebhookUrl, "Webhook copiado.")}
+                    >
+                      <Copy className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Verify Token (Meta)</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={metaVerifyToken}
+                      readOnly
+                      placeholder="Gerado automaticamente"
+                      className="bg-foreground/8 border-border-gray text-pure-white"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="border-border-gray text-pure-white hover:bg-white/10"
+                      onClick={() => copyToClipboard(metaVerifyToken, "Verify token copiado.")}
+                    >
+                      <Copy className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="text-xs">
+                  {instagramConnectionReady ? (
+                    <span className="text-emerald-400">Instagram conectado para esta unidade.</span>
+                  ) : (
+                    <span className="text-amber-400">Instagram ainda nao conectado nesta unidade.</span>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 
@@ -536,4 +716,3 @@ export default function ConfiguracaoPage() {
     </div>
   )
 }
-

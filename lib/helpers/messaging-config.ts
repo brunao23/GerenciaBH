@@ -14,6 +14,7 @@ export interface MessagingConfig {
   metaAccessToken?: string
   metaPhoneNumberId?: string
   metaWabaId?: string
+  metaInstagramAccountId?: string
   metaVerifyToken?: string
   metaAppSecret?: string
   metaApiVersion?: string
@@ -58,8 +59,11 @@ export function validateMessagingConfig(config: MessagingConfig): string | null 
   }
 
   if (config.provider === "meta") {
-    if (!config.metaAccessToken || !config.metaPhoneNumberId) {
-      return "metaAccessToken and metaPhoneNumberId are required for Meta Cloud API"
+    if (!config.metaAccessToken) {
+      return "metaAccessToken is required for Meta integrations"
+    }
+    if (!config.metaPhoneNumberId && !config.metaInstagramAccountId) {
+      return "metaPhoneNumberId (WhatsApp) or metaInstagramAccountId (Instagram) is required for Meta provider"
     }
   }
 

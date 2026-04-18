@@ -21,6 +21,7 @@ type SummarySession = {
   session_id: string
   numero: string | null
   contact_name: string
+  channel: "whatsapp" | "instagram"
   messages: SummaryMessage[]
   messages_count: number
   last_id: number
@@ -331,8 +332,28 @@ function sanitizePreview(text: string): string {
   return text.replace(/\s+/g, " ").trim().slice(0, 180)
 }
 
+function detectChannel(sessionId: string, msg?: any): "whatsapp" | "instagram" {
+  const session = String(sessionId || "").toLowerCase()
+  if (session.startsWith("ig_") || session.startsWith("igcomment_") || session.startsWith("ig_comment_")) {
+    return "instagram"
+  }
+
+  const message = msg && typeof msg === "object" ? msg : {}
+  const source = String(message.source ?? "").toLowerCase()
+  const channel = String(message.channel ?? message.additional?.channel ?? "").toLowerCase()
+  if (source.includes("instagram") || channel === "instagram") {
+    return "instagram"
+  }
+
+  return "whatsapp"
+}
+
 function extractNumber(sessionId: string): string | null {
   if (!sessionId) return null
+  const lower = String(sessionId || "").toLowerCase()
+  if (lower.startsWith("ig_") || lower.startsWith("igcomment_") || lower.startsWith("ig_comment_")) {
+    return null
+  }
   if (sessionId.endsWith("@s.whatsapp.net")) {
     return onlyDigits(sessionId.replace("@s.whatsapp.net", ""))
   }
@@ -742,6 +763,7 @@ export async function GET(req: Request) {
         session = {
           session_id: row.session_id,
           numero,
+          channel: detectChannel(row.session_id, msg),
           contact_name: null as any,
           messages: [
             {
@@ -756,6 +778,12 @@ export async function GET(req: Request) {
           score: 0,
         }
         bySession.set(row.session_id, session)
+      } else if (session.channel !== "instagram") {
+        const rowChannel = detectChannel(row.session_id, msg)
+        if (rowChannel === "instagram") {
+          session.channel = "instagram"
+          session.numero = null
+        }
       }
 
       session.messages_count += 1
@@ -815,7 +843,14 @@ export async function GET(req: Request) {
     // --- Resolve contact names with priority: user pushName > any pushName > text patterns ---
     for (const [sessionId, session] of bySession.entries()) {
       const bestName = extractContactNameFromMessages(rows, sessionId)
-      session.contact_name = bestName || (session.numero ? `Lead ${session.numero.slice(-4)}` : "Lead")
+      if (bestName) {
+        session.contact_name = bestName
+      } else if (session.channel === "instagram") {
+        const igId = onlyDigits(sessionId)
+        session.contact_name = igId ? `Instagram ${igId.slice(-4)}` : "Instagram"
+      } else {
+        session.contact_name = session.numero ? `Lead ${session.numero.slice(-4)}` : "Lead"
+      }
       
       const bestProfilePic = extractContactProfilePicFromMessages(rows, sessionId)
       if (bestProfilePic) {

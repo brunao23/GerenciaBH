@@ -135,6 +135,7 @@ export default function AdminUnitsPage() {
     const [metaAccessToken, setMetaAccessToken] = useState("")
     const [metaPhoneNumberId, setMetaPhoneNumberId] = useState("")
     const [metaWabaId, setMetaWabaId] = useState("")
+    const [metaInstagramAccountId, setMetaInstagramAccountId] = useState("")
     const [metaVerifyToken, setMetaVerifyToken] = useState("")
     const [metaAppSecret, setMetaAppSecret] = useState("")
     const [metaApiVersion, setMetaApiVersion] = useState("v21.0")
@@ -307,6 +308,7 @@ export default function AdminUnitsPage() {
         setMetaAccessToken(config.metaAccessToken || "")
         setMetaPhoneNumberId(config.metaPhoneNumberId || "")
         setMetaWabaId(config.metaWabaId || "")
+        setMetaInstagramAccountId(config.metaInstagramAccountId || "")
         setMetaVerifyToken(config.metaVerifyToken || "")
         setMetaAppSecret(config.metaAppSecret || "")
         setMetaApiVersion(config.metaApiVersion || "v21.0")
@@ -334,6 +336,7 @@ export default function AdminUnitsPage() {
                 metaAccessToken: metaAccessToken.trim() || undefined,
                 metaPhoneNumberId: metaPhoneNumberId.trim() || undefined,
                 metaWabaId: metaWabaId.trim() || undefined,
+                metaInstagramAccountId: metaInstagramAccountId.trim() || undefined,
                 metaVerifyToken: metaVerifyToken.trim() || undefined,
                 metaAppSecret: metaAppSecret.trim() || undefined,
                 metaApiVersion: metaApiVersion.trim() || undefined,
@@ -954,6 +957,7 @@ export default function AdminUnitsPage() {
                             <div className="space-y-2"><Label>Access Token</Label><Input value={metaAccessToken} onChange={e => setMetaAccessToken(e.target.value)} className="bg-secondary border-border text-white text-base" /></div>
                             <div className="space-y-2"><Label>Phone Number ID</Label><Input value={metaPhoneNumberId} onChange={e => setMetaPhoneNumberId(e.target.value)} className="bg-secondary border-border text-white text-base" /></div>
                             <div className="space-y-2"><Label>WABA ID</Label><Input value={metaWabaId} onChange={e => setMetaWabaId(e.target.value)} className="bg-secondary border-border text-white text-base" /></div>
+                            <div className="space-y-2"><Label>Instagram Account ID</Label><Input value={metaInstagramAccountId} onChange={e => setMetaInstagramAccountId(e.target.value)} className="bg-secondary border-border text-white text-base" /></div>
                         </>)}
                     </div>
                     <DialogFooter>
