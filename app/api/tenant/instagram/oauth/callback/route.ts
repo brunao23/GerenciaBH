@@ -249,6 +249,26 @@ async function ensureInstagramAccountNotLinkedInOtherTenant(params: {
   }
 }
 
+async function subscribeToInstagramWebhook(params: {
+  igAccountId: string
+  accessToken: string
+  apiVersion: string
+}): Promise<void> {
+  const fields = "messages,comments,mentions"
+  // Tenta via graph.instagram.com (Instagram OAuth direto)
+  const igUrl = new URL(`https://graph.instagram.com/${params.apiVersion}/${params.igAccountId}/subscribed_apps`)
+  igUrl.searchParams.set("subscribed_fields", fields)
+  igUrl.searchParams.set("access_token", params.accessToken)
+  const igRes = await fetch(igUrl.toString(), { method: "POST" })
+  if (igRes.ok) return
+
+  // Fallback: graph.facebook.com (Facebook Login)
+  const fbUrl = new URL(`https://graph.facebook.com/${params.apiVersion}/${params.igAccountId}/subscribed_apps`)
+  fbUrl.searchParams.set("subscribed_fields", fields)
+  fbUrl.searchParams.set("access_token", params.accessToken)
+  await fetch(fbUrl.toString(), { method: "POST" })
+}
+
 export async function GET(req: NextRequest) {
   let returnTo = "/configuracao"
   try {
@@ -345,6 +365,13 @@ export async function GET(req: NextRequest) {
       isActive: current.isActive !== false,
     }
     await updateMessagingConfigForTenant(stateTenant, nextConfig)
+
+    // Subscreve o app aos eventos do Instagram (messages, comments, mentions)
+    await subscribeToInstagramWebhook({
+      igAccountId: instagram.instagramAccountId,
+      accessToken: instagram.usableAccessToken,
+      apiVersion,
+    }).catch(() => {})
 
     return redirectToConfig(req, "connected", instagram.instagramAccountId, returnTo)
   } catch (error: any) {
