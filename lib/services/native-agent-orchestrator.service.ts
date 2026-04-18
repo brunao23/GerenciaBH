@@ -2424,6 +2424,36 @@ export class NativeAgentOrchestratorService {
     }
 
     if (hasSuccessfulSchedulingAction) {
+      const onlineExecution = decision.executions.find(
+        (ex) =>
+          ex.ok &&
+          (ex.action.type === "schedule_appointment" || ex.action.type === "edit_appointment") &&
+          (ex.response as any)?.appointmentMode === "online" &&
+          (ex.response as any)?.meetLink,
+      )
+      if (onlineExecution) {
+        const rawDate = String((onlineExecution.action as any).date || "").trim()
+        const rawTime = String((onlineExecution.action as any).time || "").trim()
+        const formattedDate = rawDate.includes("-") ? rawDate.split("-").reverse().join("/") : rawDate
+        const meetLink = String((onlineExecution.response as any).meetLink || "").trim()
+        const onlineConfirmMsg = [
+          "✅ Agendamento realizado com sucesso!",
+          "",
+          `📆 Data: ${formattedDate}`,
+          `🕐 Horário: ${rawTime}`,
+          "📍 Modalidade: 🌐 Online",
+          `🔗 Acesse pelo Google Meet: ${meetLink}`,
+        ].join("\n")
+        await this.messaging
+          .sendText({
+            tenant,
+            phone: recipient,
+            message: onlineConfirmMsg,
+            sessionId,
+            source: "native-agent-online-schedule",
+          })
+          .catch(() => {})
+      }
       await this.pauseLeadAfterScheduling(tenant, phone).catch(() => {})
     }
 
