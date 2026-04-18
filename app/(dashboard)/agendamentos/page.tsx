@@ -55,6 +55,37 @@ export default function AgendamentosPage() {
   const [savingModal, setSavingModal] = useState(false)
   const [savingWithWebhook, setSavingWithWebhook] = useState(false)
   const [savingInlineIds, setSavingInlineIds] = useState<Set<string | number>>(new Set())
+  const [busyEvents, setBusyEvents] = useState<Set<string>>(new Set())
+
+  const submitQuickEvent = async (r: Agendamento, eventType: "attendance" | "no_show" | "sale") => {
+    const key = `${r.id}:${eventType}`
+    setBusyEvents((prev) => new Set(prev).add(key))
+    try {
+      const phone = r.contato?.replace(/\D/g, "") || ""
+      const res = await fetch("/api/dashboard/business-events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          eventType,
+          leadName: r.nome || r.nome_responsavel || r.nome_aluno || undefined,
+          phone,
+          sessionId: phone ? `${phone}@c.us` : undefined,
+        }),
+      })
+      if (!res.ok) throw new Error()
+      toast.success(
+        eventType === "attendance" ? "Comparecimento registrado!" : eventType === "no_show" ? "Bolo registrado!" : "Venda registrada!",
+      )
+    } catch {
+      toast.error("Erro ao registrar evento")
+    } finally {
+      setBusyEvents((prev) => {
+        const s = new Set(prev)
+        s.delete(key)
+        return s
+      })
+    }
+  }
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [creating, setCreating] = useState(false)
   const [newAgendamento, setNewAgendamento] = useState({
@@ -1054,30 +1085,64 @@ export default function AgendamentosPage() {
                           />
                         </TableCell>
                         <TableCell>
-                          <div className="flex items-center justify-center gap-2">
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => handleEdit(r)}
-                              className="h-8 w-8 p-0 hover:bg-accent-green/10 hover:text-accent-green"
-                              title="Editar agendamento"
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => handleDelete(r.id)}
-                              disabled={deletingId === r.id}
-                              className="h-8 w-8 p-0 hover:bg-red-500/10 hover:text-red-400"
-                              title="Excluir agendamento"
-                            >
-                              {deletingId === r.id ? (
-                                <RefreshCw className="w-4 h-4 animate-spin" />
-                              ) : (
-                                <Trash2 className="w-4 h-4" />
-                              )}
-                            </Button>
+                          <div className="flex flex-col gap-1">
+                            <div className="flex items-center justify-center gap-1">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 text-[10px] px-1.5 text-emerald-400 hover:bg-emerald-400/10 hover:text-emerald-300"
+                                disabled={busyEvents.has(`${r.id}:attendance`)}
+                                onClick={() => submitQuickEvent(r, "attendance")}
+                                title="Registrar comparecimento"
+                              >
+                                ✅ Compareceu
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 text-[10px] px-1.5 text-yellow-400 hover:bg-yellow-400/10 hover:text-yellow-300"
+                                disabled={busyEvents.has(`${r.id}:no_show`)}
+                                onClick={() => submitQuickEvent(r, "no_show")}
+                                title="Registrar bolo"
+                              >
+                                🎂 Bolo
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 text-[10px] px-1.5 text-blue-400 hover:bg-blue-400/10 hover:text-blue-300"
+                                disabled={busyEvents.has(`${r.id}:sale`)}
+                                onClick={() => submitQuickEvent(r, "sale")}
+                                title="Registrar venda"
+                              >
+                                💰 Venda
+                              </Button>
+                            </div>
+                            <div className="flex items-center justify-center gap-2">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleEdit(r)}
+                                className="h-8 w-8 p-0 hover:bg-accent-green/10 hover:text-accent-green"
+                                title="Editar agendamento"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleDelete(r.id)}
+                                disabled={deletingId === r.id}
+                                className="h-8 w-8 p-0 hover:bg-red-500/10 hover:text-red-400"
+                                title="Excluir agendamento"
+                              >
+                                {deletingId === r.id ? (
+                                  <RefreshCw className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <Trash2 className="w-4 h-4" />
+                                )}
+                              </Button>
+                            </div>
                           </div>
                         </TableCell>
                       </TableRow>

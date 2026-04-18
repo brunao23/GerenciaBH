@@ -12,6 +12,14 @@ type LearningStats = {
   sendFailures: number
   avgUserMessageLength: number
   avgAssistantMessageLength: number
+  leadMessages: number
+  humanMessages: number
+  iaMessages: number
+  mediaMessages: number
+  imageMessages: number
+  videoMessages: number
+  documentMessages: number
+  taskCommitmentSignals: number
 }
 
 type LearningSample = {
@@ -26,6 +34,15 @@ type LearningState = {
   updatedAt?: string
   stats: LearningStats
   samples: LearningSample[]
+  signals: LearningSignalSample[]
+}
+
+type LearningSignalSample = {
+  senderType: "lead" | "human" | "ia" | "system"
+  message: string
+  mediaType?: "audio" | "image" | "video" | "document"
+  taskCommitment?: boolean
+  created_at: string
 }
 
 const POSITIVE_HINTS = [
@@ -81,6 +98,17 @@ function hasAny(text: string, hints: string[]): boolean {
   return hints.some((hint) => source.includes(normalizeText(hint)))
 }
 
+function detectTaskCommitment(text: string): boolean {
+  const source = normalizeText(text)
+  if (!source) return false
+  return (
+    /\b(vou te retornar|te retorno|vou te chamar|depois te aviso|me lembra|me lembre|retorna depois|falo com voce depois)\b/.test(
+      source,
+    ) ||
+    /\b(amanha te|semana que vem te|vou confirmar depois|te ligo depois)\b/.test(source)
+  )
+}
+
 function clampAverage(prevAvg: number, prevCount: number, value: number): number {
   if (!Number.isFinite(value) || value < 0) return prevAvg
   const count = Math.max(0, prevCount)
@@ -102,8 +130,17 @@ function defaultState(): LearningState {
       sendFailures: 0,
       avgUserMessageLength: 0,
       avgAssistantMessageLength: 0,
+      leadMessages: 0,
+      humanMessages: 0,
+      iaMessages: 0,
+      mediaMessages: 0,
+      imageMessages: 0,
+      videoMessages: 0,
+      documentMessages: 0,
+      taskCommitmentSignals: 0,
     },
     samples: [],
+    signals: [],
   }
 }
 
@@ -131,6 +168,7 @@ export class NativeAgentLearningService {
     const raw = safeObject(metadata.nativeAgentLearning)
     const stats = safeObject(raw.stats)
     const samplesRaw = Array.isArray(raw.samples) ? raw.samples : []
+    const signalsRaw = Array.isArray(raw.signals) ? raw.signals : []
     return {
       enabled: raw.enabled !== false,
       updatedAt: String(raw.updatedAt || raw.updated_at || ""),
@@ -144,6 +182,14 @@ export class NativeAgentLearningService {
         sendFailures: Number(stats.sendFailures || 0),
         avgUserMessageLength: Number(stats.avgUserMessageLength || 0),
         avgAssistantMessageLength: Number(stats.avgAssistantMessageLength || 0),
+        leadMessages: Number(stats.leadMessages || 0),
+        humanMessages: Number(stats.humanMessages || 0),
+        iaMessages: Number(stats.iaMessages || 0),
+        mediaMessages: Number(stats.mediaMessages || 0),
+        imageMessages: Number(stats.imageMessages || 0),
+        videoMessages: Number(stats.videoMessages || 0),
+        documentMessages: Number(stats.documentMessages || 0),
+        taskCommitmentSignals: Number(stats.taskCommitmentSignals || 0),
       },
       samples: samplesRaw
         .map((item: any) => ({
@@ -153,6 +199,15 @@ export class NativeAgentLearningService {
           created_at: String(item?.created_at || new Date().toISOString()),
         }))
         .filter((item: LearningSample) => item.user || item.assistant),
+      signals: signalsRaw
+        .map((item: any) => ({
+          senderType: String(item?.senderType || "system").toLowerCase() as LearningSignalSample["senderType"],
+          message: String(item?.message || "").slice(0, 350),
+          mediaType: item?.mediaType ? String(item.mediaType).toLowerCase() as LearningSignalSample["mediaType"] : undefined,
+          taskCommitment: Boolean(item?.taskCommitment),
+          created_at: String(item?.created_at || new Date().toISOString()),
+        }))
+        .filter((item: LearningSignalSample) => item.message),
     }
   }
 
@@ -168,6 +223,7 @@ export class NativeAgentLearningService {
         updatedAt: state.updatedAt || new Date().toISOString(),
         stats: state.stats,
         samples: state.samples.slice(-40),
+        signals: state.signals.slice(-80),
       },
     }
 
@@ -181,7 +237,7 @@ export class NativeAgentLearningService {
     if (state.enabled === false) return ""
 
     const interactions = Math.max(0, state.stats.interactions)
-    if (interactions === 0) {
+    if (interactions === 0 && state.signals.length === 0) {
       return [
         "APRENDIZADO_AUTOMATICO:",
         "- Sem historico suficiente ainda; mantenha respostas objetivas e contextualizadas.",
@@ -194,6 +250,15 @@ export class NativeAgentLearningService {
     const targetChars = negativeRate > positiveRate ? 180 : 260
     const avoidPressure = negativeRate >= 25 || state.stats.humanInterventions >= 3
     const prioritizeSchedule = scheduleRate >= 20
+    const senderMix = state.stats.leadMessages + state.stats.humanMessages + state.stats.iaMessages
+    const humanShare = senderMix > 0 ? (state.stats.humanMessages / senderMix) * 100 : 0
+    const mediaSignalCount = state.stats.mediaMessages
+    const recentHumanSignals = state.signals
+      .filter((signal) => signal.senderType === "human")
+      .slice(-3)
+      .map((signal) => signal.message)
+      .filter(Boolean)
+    const commitmentSignals = state.stats.taskCommitmentSignals
 
     const lines = [
       "APRENDIZADO_AUTOMATICO:",
@@ -206,7 +271,22 @@ export class NativeAgentLearningService {
       prioritizeSchedule
         ? "- Priorize conduzir para agendamento quando houver abertura do lead."
         : "- Priorize diagnostico curto antes de propor agendamento.",
+      mediaSignalCount > 0
+        ? `- Historico multimodal ativo (${mediaSignalCount} mensagem(ns) com midia). Use contexto de imagem/video/documento quando disponivel.`
+        : "- Sem sinais multimodais relevantes no historico recente.",
+      humanShare >= 20
+        ? "- Ha volume relevante de mensagens humanas no historico; preserve continuidade do que foi prometido pelo atendente."
+        : "- Predominio de conversa direta com lead; mantenha condução objetiva.",
+      commitmentSignals > 0
+        ? `- Existem ${commitmentSignals} sinais de compromisso de retorno; priorize consistencia em tarefas e follow-up.`
+        : "- Sem compromissos de retorno relevantes detectados.",
     ]
+
+    if (recentHumanSignals.length > 0) {
+      lines.push(
+        `- Ultimos sinais de contexto humano: ${recentHumanSignals.map((item) => `"${item}"`).join(" | ")}`,
+      )
+    }
 
     return lines.join("\n")
   }
@@ -245,6 +325,9 @@ export class NativeAgentLearningService {
     state.stats.scheduleSignals += schedule ? 1 : 0
     state.stats.sendFailures += input.sendSuccess ? 0 : 1
     state.stats.humanInterventions += input.humanIntervention ? 1 : 0
+    state.stats.leadMessages += 1
+    state.stats.iaMessages += assistantMessage ? 1 : 0
+    state.stats.taskCommitmentSignals += detectTaskCommitment(userMessage) ? 1 : 0
     state.stats.avgUserMessageLength = clampAverage(
       state.stats.avgUserMessageLength,
       prevInteractions,
@@ -266,5 +349,47 @@ export class NativeAgentLearningService {
 
     await this.saveState(row.id, row.metadata, state)
   }
-}
 
+  async trackConversationSignal(input: {
+    tenant: string
+    senderType: "lead" | "human" | "ia" | "system"
+    message: string
+    mediaType?: "audio" | "image" | "video" | "document"
+  }): Promise<void> {
+    const row = await this.loadUnitRow(input.tenant)
+    if (!row) return
+    const state = this.parseState(row.metadata)
+    if (state.enabled === false) return
+
+    const senderType = input.senderType
+    const message = String(input.message || "").trim()
+    if (!message) return
+    const mediaType = input.mediaType
+    const hasMedia = Boolean(mediaType)
+    const hasTaskCommitment = detectTaskCommitment(message)
+
+    if (senderType === "lead") state.stats.leadMessages += 1
+    if (senderType === "human") state.stats.humanMessages += 1
+    if (senderType === "ia") state.stats.iaMessages += 1
+    if (hasMedia) {
+      state.stats.mediaMessages += 1
+      if (mediaType === "image") state.stats.imageMessages += 1
+      if (mediaType === "video") state.stats.videoMessages += 1
+      if (mediaType === "document") state.stats.documentMessages += 1
+    }
+    if (hasTaskCommitment) {
+      state.stats.taskCommitmentSignals += 1
+    }
+    state.updatedAt = new Date().toISOString()
+
+    state.signals.push({
+      senderType,
+      message: message.slice(0, 350),
+      mediaType,
+      taskCommitment: hasTaskCommitment,
+      created_at: state.updatedAt,
+    })
+
+    await this.saveState(row.id, row.metadata, state)
+  }
+}

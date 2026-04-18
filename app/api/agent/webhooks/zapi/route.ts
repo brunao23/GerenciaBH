@@ -67,9 +67,20 @@ type ZapiMessageEvent = {
   audioBase64?: string
   audioTranscription?: string
   audioTranscriptionError?: string
+  hasMedia?: boolean
+  mediaType?: ZapiMediaType
+  mediaMimeType?: string
+  mediaUrl?: string
+  mediaBase64?: string
+  mediaCaption?: string
+  mediaFileName?: string
+  mediaAnalysis?: string
+  mediaAnalysisError?: string
   metadata: Record<string, any>
   raw: any
 }
+
+type ZapiMediaType = "image" | "video" | "document"
 
 function asObject(value: any): Record<string, any> {
   if (value && typeof value === "object" && !Array.isArray(value)) return value
@@ -285,6 +296,17 @@ type ExtractedAudioPayload = {
   source?: string
 }
 
+type ExtractedMediaPayload = {
+  hasMedia: boolean
+  mediaType?: ZapiMediaType
+  mimeType?: string
+  url?: string
+  base64?: string
+  caption?: string
+  fileName?: string
+  source?: string
+}
+
 function normalizeAudioMimeType(value: string): string {
   const text = String(value || "").trim()
   if (!text) return "audio/ogg"
@@ -299,16 +321,177 @@ function parseDataUriBase64(value: string): { mimeType?: string; base64: string 
   const match = text.match(/^data:([^;]+);base64,(.+)$/i)
   if (!match?.[2]) return null
   return {
-    mimeType: normalizeAudioMimeType(String(match[1] || "")),
+    mimeType: String(match[1] || "").trim() || undefined,
     base64: String(match[2] || "").replace(/\s+/g, "").trim(),
   }
 }
 
-function isLikelyAudioBase64(value: string): boolean {
+function isLikelyBase64(value: string, minLength = 120): boolean {
   const text = String(value || "").replace(/\s+/g, "").trim()
   if (!text) return false
-  if (text.length < 180) return false
+  if (text.length < minLength) return false
   return /^[A-Za-z0-9+/=]+$/.test(text)
+}
+
+function isLikelyAudioBase64(value: string): boolean {
+  return isLikelyBase64(value, 180)
+}
+
+function normalizeMediaMimeType(value: string, mediaType?: ZapiMediaType): string {
+  const text = String(value || "").trim().toLowerCase()
+  if (text) return text
+  if (mediaType === "image") return "image/jpeg"
+  if (mediaType === "video") return "video/mp4"
+  if (mediaType === "document") return "application/pdf"
+  return "application/octet-stream"
+}
+
+function detectMediaTypeFromHint(hint: string): ZapiMediaType | undefined {
+  const normalized = String(hint || "").toLowerCase()
+  if (!normalized) return undefined
+  if (normalized.includes("image") || normalized.includes("photo")) return "image"
+  if (normalized.includes("video") || normalized.includes("movie")) return "video"
+  if (
+    normalized.includes("document") ||
+    normalized.includes("file") ||
+    normalized.includes("pdf") ||
+    normalized.includes("doc")
+  ) {
+    return "document"
+  }
+  return undefined
+}
+
+function extractMediaPayload(payload: any): ExtractedMediaPayload {
+  const event = asObject(payload)
+  const message = asObject(event?.message)
+  const data = asObject(event?.data)
+  const dataMessage = asObject(data?.message)
+
+  const imageNode = asObject(
+    event?.image ||
+      event?.media?.image ||
+      message?.imageMessage ||
+      data?.image ||
+      data?.media?.image ||
+      dataMessage?.imageMessage,
+  )
+  const videoNode = asObject(
+    event?.video ||
+      event?.media?.video ||
+      message?.videoMessage ||
+      data?.video ||
+      data?.media?.video ||
+      dataMessage?.videoMessage,
+  )
+  const documentNode = asObject(
+    event?.document ||
+      event?.file ||
+      event?.media?.document ||
+      message?.documentMessage ||
+      data?.document ||
+      data?.file ||
+      data?.media?.document ||
+      dataMessage?.documentMessage,
+  )
+
+  const explicitMediaType: ZapiMediaType | undefined = imageNode && Object.keys(imageNode).length
+    ? "image"
+    : videoNode && Object.keys(videoNode).length
+      ? "video"
+      : documentNode && Object.keys(documentNode).length
+        ? "document"
+        : undefined
+
+  const typeHints = [
+    readString(
+      event?.messageType,
+      event?.typeMessage,
+      event?.mediaType,
+      message?.type,
+      data?.messageType,
+      data?.typeMessage,
+      data?.mediaType,
+      dataMessage?.type,
+      event?.type,
+    ),
+  ]
+  const hintedType = typeHints.map((hint) => detectMediaTypeFromHint(hint)).find(Boolean)
+  const mediaType = explicitMediaType || hintedType
+  if (!mediaType) return { hasMedia: false }
+
+  const mediaNode = mediaType === "image" ? imageNode : mediaType === "video" ? videoNode : documentNode
+
+  const url = readString(
+    mediaNode?.url,
+    mediaNode?.link,
+    mediaNode?.message,
+    event?.mediaUrl,
+    event?.url,
+    event?.fileUrl,
+    event?.documentUrl,
+    data?.mediaUrl,
+    data?.url,
+    data?.fileUrl,
+    data?.documentUrl,
+  )
+  const rawBase64 = readString(
+    mediaNode?.base64,
+    mediaNode?.fileBase64,
+    event?.mediaBase64,
+    event?.base64,
+    data?.mediaBase64,
+    data?.base64,
+  )
+  const dataUri = parseDataUriBase64(rawBase64)
+  const base64 = dataUri?.base64 || (isLikelyBase64(rawBase64, 240) ? rawBase64 : "")
+  const caption = readString(
+    mediaNode?.caption,
+    mediaNode?.description,
+    event?.caption,
+    event?.description,
+    data?.caption,
+    data?.description,
+  )
+  const fileName = readString(
+    mediaNode?.fileName,
+    mediaNode?.filename,
+    event?.fileName,
+    event?.filename,
+    data?.fileName,
+    data?.filename,
+  )
+  const mimeType = normalizeMediaMimeType(
+    readString(
+      dataUri?.mimeType,
+      mediaNode?.mimeType,
+      mediaNode?.mimetype,
+      event?.mimeType,
+      event?.mimetype,
+      data?.mimeType,
+      data?.mimetype,
+    ),
+    mediaType,
+  )
+  const hasMedia = Boolean(url || base64 || caption || explicitMediaType || hintedType)
+  if (!hasMedia) return { hasMedia: false }
+
+  let source = ""
+  if (base64) source = "base64"
+  else if (url) source = "url"
+  else if (caption) source = "caption_only"
+  else source = "type_hint"
+
+  return {
+    hasMedia: true,
+    mediaType,
+    mimeType,
+    url: url || undefined,
+    base64: base64 || undefined,
+    caption: caption || undefined,
+    fileName: fileName || undefined,
+    source,
+  }
 }
 
 function extractAudioPayload(payload: any): ExtractedAudioPayload {
@@ -504,6 +687,112 @@ async function transcribeAudioForEvent(params: {
   }
 
   return { error: lastError || "audio_transcription_failed" }
+}
+
+async function fetchMediaAsBase64(params: {
+  url: string
+  mediaType: ZapiMediaType
+}): Promise<{ base64: string; mimeType?: string }> {
+  const target = String(params.url || "").trim()
+  if (!target || !isHttpUrl(target)) {
+    throw new Error("media_url_invalid")
+  }
+
+  const response = await fetch(target)
+  if (!response.ok) {
+    throw new Error(`media_download_failed_${response.status}`)
+  }
+
+  const buffer = Buffer.from(await response.arrayBuffer())
+  if (!buffer.length) {
+    throw new Error("media_download_empty")
+  }
+
+  const maxBytesByType: Record<ZapiMediaType, number> = {
+    image: 12 * 1024 * 1024,
+    video: 22 * 1024 * 1024,
+    document: 16 * 1024 * 1024,
+  }
+  const maxBytes = maxBytesByType[params.mediaType]
+  if (buffer.length > maxBytes) {
+    throw new Error("media_too_large")
+  }
+
+  const mimeType = normalizeMediaMimeType(
+    String(response.headers.get("content-type") || ""),
+    params.mediaType,
+  )
+  return {
+    base64: buffer.toString("base64"),
+    mimeType,
+  }
+}
+
+async function analyzeMediaForEvent(params: {
+  event: ZapiMessageEvent
+  config: Awaited<ReturnType<typeof getNativeAgentConfigForTenant>>
+}): Promise<{ text?: string; error?: string }> {
+  const event = params.event
+  const config = params.config
+  if (!event.hasMedia || !event.mediaType) return {}
+  if (!config?.geminiApiKey) {
+    return { error: "missing_gemini_api_key_for_media_analysis" }
+  }
+
+  let mimeType = normalizeMediaMimeType(String(event.mediaMimeType || ""), event.mediaType)
+  let base64 = String(event.mediaBase64 || "").replace(/\s+/g, "").trim()
+
+  if (!base64 && event.mediaUrl) {
+    const downloaded = await fetchMediaAsBase64({
+      url: event.mediaUrl,
+      mediaType: event.mediaType,
+    })
+    base64 = downloaded.base64
+    mimeType = normalizeMediaMimeType(downloaded.mimeType || mimeType, event.mediaType)
+  }
+
+  if (!base64) {
+    if (event.mediaCaption) return { text: event.mediaCaption }
+    return { error: "media_payload_unavailable" }
+  }
+
+  const modelCandidates = Array.from(
+    new Set(
+      [
+        String(config.geminiModel || "").trim(),
+        "gemini-2.5-flash",
+      ].filter(Boolean),
+    ),
+  )
+
+  let lastError = ""
+  for (const model of modelCandidates) {
+    try {
+      const gemini = new GeminiService(config.geminiApiKey, model)
+      const analysis = await gemini.analyzeMedia({
+        mediaBase64: base64,
+        mimeType,
+        mediaType: event.mediaType,
+        prompt:
+          event.mediaType === "document"
+            ? "Leia este documento enviado no WhatsApp e retorne um resumo objetivo em portugues do Brasil com os pontos principais para atendimento comercial. Se nao conseguir ler o conteudo, retorne [midia_sem_contexto_legivel]."
+            : event.mediaType === "video"
+              ? "Analise este video enviado no WhatsApp e retorne um resumo objetivo em portugues do Brasil do que aparece/acontece no conteudo para contexto de atendimento comercial. Se nao for possivel interpretar, retorne [midia_sem_contexto_legivel]."
+              : "Analise esta imagem enviada no WhatsApp e retorne um resumo objetivo em portugues do Brasil do que aparece no conteudo para contexto de atendimento comercial. Se nao for possivel interpretar, retorne [midia_sem_contexto_legivel].",
+      })
+      const text = String(analysis || "").trim()
+      if (!text) {
+        lastError = "media_analysis_empty"
+        continue
+      }
+      event.metadata.mediaAnalysisModel = model
+      return { text }
+    } catch (error: any) {
+      lastError = String(error?.message || "media_analysis_failed")
+    }
+  }
+
+  return { error: lastError || "media_analysis_failed" }
 }
 
 type ConversationTaskInsight = {
@@ -756,7 +1045,12 @@ async function processConversationTaskIntelligence(params: {
     return { processed: false, senderType, created: false, reason: "sender_not_eligible" }
   }
 
-  const message = String(params.event.text || "").trim()
+  const message = String(
+    params.event.text ||
+    params.event.mediaAnalysis ||
+    params.event.mediaCaption ||
+    "",
+  ).trim()
   if (!message) {
     return { processed: false, senderType, created: false, reason: "empty_message" }
   }
@@ -996,6 +1290,11 @@ function parseZapiEvent(raw: any): ZapiMessageEvent {
       message: data.message ?? body.message,
       text: data.text ?? body.text,
       audio: data.audio ?? body.audio,
+      image: data.image ?? body.image,
+      video: data.video ?? body.video,
+      document: data.document ?? body.document,
+      file: data.file ?? body.file,
+      media: data.media ?? body.media,
       reaction: data.reaction ?? body.reaction,
       quotedMsg: data.quotedMsg ?? body.quotedMsg,
       quotedMessage: data.quotedMessage ?? body.quotedMessage,
@@ -1029,6 +1328,7 @@ function parseZapiEvent(raw: any): ZapiMessageEvent {
   const isGif = extractIsGif(event)
   const replyContext = extractReplyContext(event)
   const audioPayload = extractAudioPayload(event)
+  const mediaPayload = extractMediaPayload(event)
 
   const ids = asArray<any>(event.ids)
     .map((id) => String(id || "").trim())
@@ -1061,6 +1361,13 @@ function parseZapiEvent(raw: any): ZapiMessageEvent {
     audioMimeType: audioPayload.mimeType || null,
     audioUrl: audioPayload.url || null,
     audioSource: audioPayload.source || null,
+    hasMedia: mediaPayload.hasMedia,
+    mediaType: mediaPayload.mediaType || null,
+    mediaMimeType: mediaPayload.mimeType || null,
+    mediaUrl: mediaPayload.url || null,
+    mediaFileName: mediaPayload.fileName || null,
+    mediaCaption: mediaPayload.caption || null,
+    mediaSource: mediaPayload.source || null,
     isEdit: readBoolean(event.isEdit),
     isNewsletter: readBoolean(event.isNewsletter),
     broadcast: readBoolean(event.broadcast),
@@ -1102,6 +1409,13 @@ function parseZapiEvent(raw: any): ZapiMessageEvent {
     audioMimeType: audioPayload.mimeType,
     audioUrl: audioPayload.url,
     audioBase64: audioPayload.base64,
+    hasMedia: mediaPayload.hasMedia,
+    mediaType: mediaPayload.mediaType,
+    mediaMimeType: mediaPayload.mimeType,
+    mediaUrl: mediaPayload.url,
+    mediaBase64: mediaPayload.base64,
+    mediaCaption: mediaPayload.caption,
+    mediaFileName: mediaPayload.fileName,
     replyToMessageId: replyContext.replyToMessageId,
     replyPreview: replyContext.replyPreview,
     metadata,
@@ -1425,6 +1739,16 @@ function buildContent(event: ZapiMessageEvent): string {
     return `[Reacao] ${event.reactionValue}`
   }
   if (event.hasAudio) return "[Audio recebido]"
+  if (event.hasMedia) {
+    if (event.mediaType === "image") return event.mediaCaption ? `[Imagem] ${event.mediaCaption}` : "[Imagem recebida]"
+    if (event.mediaType === "video") return event.mediaCaption ? `[Video] ${event.mediaCaption}` : "[Video recebido]"
+    if (event.mediaType === "document") {
+      const fileLabel = String(event.mediaFileName || "").trim()
+      if (fileLabel) return `[Documento] ${fileLabel}`
+      return "[Documento recebido]"
+    }
+    return "[Midia recebida]"
+  }
 
   if (event.callbackType === "delivery") {
     return `[DeliveryCallback] Mensagem enviada (${event.messageId || event.zaapId || "sem_id"})`
@@ -1455,7 +1779,7 @@ function buildContent(event: ZapiMessageEvent): string {
 }
 
 function buildType(event: ZapiMessageEvent): string {
-  if (event.callbackType === "received" && (event.text || event.hasAudio)) {
+  if (event.callbackType === "received" && (event.text || event.hasAudio || event.hasMedia)) {
     return event.fromMe ? "assistant" : "human"
   }
   // Reactions without text are logged as status events, not conversation turns
@@ -1466,7 +1790,7 @@ function buildType(event: ZapiMessageEvent): string {
 }
 
 function buildRole(event: ZapiMessageEvent): "user" | "assistant" | "system" {
-  if (event.callbackType === "received" && (event.text || event.hasAudio)) {
+  if (event.callbackType === "received" && (event.text || event.hasAudio || event.hasMedia)) {
     return event.fromMe ? "assistant" : "user"
   }
   // Reactions without text go as system messages — not user conversation
@@ -1771,6 +2095,14 @@ async function persistZapiEvent(params: {
       audio_url: event.audioUrl || null,
       audio_transcription: event.audioTranscription || null,
       audio_transcription_error: event.audioTranscriptionError || null,
+      has_media: event.hasMedia === true,
+      media_type: event.mediaType || null,
+      media_mime_type: event.mediaMimeType || null,
+      media_url: event.mediaUrl || null,
+      media_file_name: event.mediaFileName || null,
+      media_caption: event.mediaCaption || null,
+      media_analysis: event.mediaAnalysis || null,
+      media_analysis_error: event.mediaAnalysisError || null,
       reply_to_message_id: event.replyToMessageId || null,
       reply_preview: event.replyPreview || null,
       callback_type: event.callbackType,
@@ -2117,11 +2449,38 @@ function mergeBufferedUserContent(turns: BufferedUserTurn[], fallback: string): 
   return chunks.join("\n")
 }
 
+function buildInboundMediaContext(event: ZapiMessageEvent): string {
+  if (!event.hasMedia) return ""
+  const mediaTypeLabel =
+    event.mediaType === "image"
+      ? "imagem"
+      : event.mediaType === "video"
+        ? "video"
+        : event.mediaType === "document"
+          ? "documento"
+          : "midia"
+  const analysis = String(event.mediaAnalysis || "").trim()
+  const caption = String(event.mediaCaption || "").trim()
+  const fileName = String(event.mediaFileName || "").trim()
+  const base = analysis || caption || (fileName ? `arquivo ${fileName}` : "")
+  if (!base) return `O lead enviou ${mediaTypeLabel} sem texto.`
+  return `O lead enviou ${mediaTypeLabel}: ${base}`
+}
+
+function appendMediaContextToInbound(baseMessage: string, mediaContext: string): string {
+  const base = String(baseMessage || "").trim()
+  const context = String(mediaContext || "").trim()
+  if (!context) return base
+  if (!base) return context
+  if (base.toLowerCase().includes(context.toLowerCase())) return base
+  return `${base}\n${context}`
+}
+
 function canTriggerNativeAgent(event: ZapiMessageEvent, sessionId: string): boolean {
   return Boolean(
     event.callbackType === "received" &&
     !event.fromMe &&
-    (event.text || event.isReaction || event.hasAudio || event.isGif) &&
+    (event.text || event.isReaction || event.hasAudio || event.hasMedia || event.isGif) &&
     sessionId,
   )
 }
@@ -2327,6 +2686,33 @@ export async function POST(req: NextRequest) {
       })
     }
 
+    if (config.autoLearningEnabled !== false && event.callbackType === "received") {
+      const senderType = resolveSenderTypeForEvent(event)
+      const learningMessage = String(
+        event.text ||
+        event.mediaAnalysis ||
+        event.mediaCaption ||
+        (event.hasAudio ? "[audio_recebido]" : event.hasMedia ? `[${event.mediaType || "midia"}_recebida]` : ""),
+      ).trim()
+      const learningMediaType =
+        event.hasAudio
+          ? "audio"
+          : event.hasMedia
+            ? (event.mediaType as "image" | "video" | "document" | undefined)
+            : undefined
+
+      if (learningMessage) {
+        new NativeAgentLearningService()
+          .trackConversationSignal({
+            tenant,
+            senderType,
+            message: learningMessage,
+            mediaType: learningMediaType,
+          })
+          .catch(() => { })
+      }
+    }
+
     if (
       event.callbackType === "received" &&
       event.fromMe === true &&
@@ -2367,6 +2753,25 @@ export async function POST(req: NextRequest) {
         event.metadata.audioTranscriptionStatus = "error"
         event.metadata.audioTranscriptionError = event.audioTranscriptionError
         event.text = "[Audio recebido sem transcricao]"
+      }
+    }
+
+    if (event.callbackType === "received" && event.hasMedia && event.mediaType) {
+      try {
+        const mediaInsight = await analyzeMediaForEvent({ event, config })
+        if (mediaInsight.text) {
+          event.mediaAnalysis = mediaInsight.text
+          event.metadata.mediaAnalysis = mediaInsight.text
+          event.metadata.mediaAnalysisStatus = "ok"
+        } else {
+          event.mediaAnalysisError = mediaInsight.error || "media_analysis_unavailable"
+          event.metadata.mediaAnalysisStatus = "error"
+          event.metadata.mediaAnalysisError = event.mediaAnalysisError
+        }
+      } catch (error: any) {
+        event.mediaAnalysisError = String(error?.message || "media_analysis_failed")
+        event.metadata.mediaAnalysisStatus = "error"
+        event.metadata.mediaAnalysisError = event.mediaAnalysisError
       }
     }
 
@@ -2640,9 +3045,13 @@ export async function POST(req: NextRequest) {
       ? buildFromMeTriggerContent(event)
       : String(event.text || "")
 
-    const mergedInboundMessage = mergeBufferedUserContent(
+    const mergedInboundRaw = mergeBufferedUserContent(
       bufferedTurns,
       fromMeTriggerContent,
+    )
+    const mergedInboundMessage = appendMediaContextToInbound(
+      mergedInboundRaw,
+      buildInboundMediaContext(event),
     )
 
     const orchestrator = new NativeAgentOrchestratorService()
@@ -2678,6 +3087,14 @@ export async function POST(req: NextRequest) {
         isReaction: event.isReaction,
         reactionValue: event.reactionValue,
         isGif: event.isGif,
+        hasMedia: event.hasMedia,
+        mediaType: event.mediaType,
+        mediaMimeType: event.mediaMimeType,
+        mediaUrl: event.mediaUrl,
+        mediaCaption: event.mediaCaption,
+        mediaFileName: event.mediaFileName,
+        mediaAnalysis: event.mediaAnalysis,
+        mediaAnalysisError: event.mediaAnalysisError,
         raw: event.raw,
       })
     } catch (orchestratorError: any) {

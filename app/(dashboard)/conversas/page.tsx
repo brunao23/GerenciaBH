@@ -581,6 +581,37 @@ export default function ConversasPage() {
   const [serverSearching, setServerSearching] = useState(false)
   const [detailLoadingSessionId, setDetailLoadingSessionId] = useState<string | null>(null)
   const [nativeAgentOverview, setNativeAgentOverview] = useState<NativeAgentOverview | null>(null)
+  const [busyEvents, setBusyEvents] = useState<Set<string>>(new Set())
+
+  const submitQuickEvent = async (session: ChatSession, eventType: "attendance" | "no_show" | "sale") => {
+    const key = `${session.session_id}:${eventType}`
+    setBusyEvents((prev) => new Set(prev).add(key))
+    try {
+      const phone = session.numero || session.session_id
+      const res = await fetch("/api/dashboard/business-events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          eventType,
+          leadName: session.contact_name || undefined,
+          phone,
+          sessionId: session.session_id,
+        }),
+      })
+      if (!res.ok) throw new Error()
+      toast.success(
+        eventType === "attendance" ? "Comparecimento registrado!" : eventType === "no_show" ? "Bolo registrado!" : "Venda registrada!",
+      )
+    } catch {
+      toast.error("Erro ao registrar evento")
+    } finally {
+      setBusyEvents((prev) => {
+        const s = new Set(prev)
+        s.delete(key)
+        return s
+      })
+    }
+  }
 
   // Estados para Seleção Múltipla
   const [isSelectionMode, setIsSelectionMode] = useState(false)
@@ -1967,6 +1998,38 @@ export default function ConversasPage() {
                             {session.isSummary ? "~" : ""}
                             {session.messages_count ?? session.messages.length} msgs
                           </Badge>
+                        </div>
+                        <div className="flex gap-1 mt-2" onClick={(e) => e.stopPropagation()}>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 text-[10px] px-1.5 text-emerald-400 hover:bg-emerald-400/10 hover:text-emerald-300"
+                            disabled={busyEvents.has(`${session.session_id}:attendance`)}
+                            onClick={() => submitQuickEvent(session, "attendance")}
+                            title="Registrar comparecimento"
+                          >
+                            ✅ Compareceu
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 text-[10px] px-1.5 text-yellow-400 hover:bg-yellow-400/10 hover:text-yellow-300"
+                            disabled={busyEvents.has(`${session.session_id}:no_show`)}
+                            onClick={() => submitQuickEvent(session, "no_show")}
+                            title="Registrar bolo / não compareceu"
+                          >
+                            🎂 Bolo
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 text-[10px] px-1.5 text-blue-400 hover:bg-blue-400/10 hover:text-blue-300"
+                            disabled={busyEvents.has(`${session.session_id}:sale`)}
+                            onClick={() => submitQuickEvent(session, "sale")}
+                            title="Registrar venda realizada"
+                          >
+                            💰 Venda
+                          </Button>
                         </div>
                       </div>
                     </div>

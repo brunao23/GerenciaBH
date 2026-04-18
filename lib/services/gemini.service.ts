@@ -65,6 +65,13 @@ export interface GeminiToolDecision extends GeminiAgentDecision {
   executions: GeminiToolExecution[]
 }
 
+export interface GeminiMediaAnalysisInput {
+  mediaBase64: string
+  mimeType: string
+  mediaType?: "image" | "video" | "document"
+  prompt?: string
+}
+
 function extractJsonObject(input: string): string | null {
   const text = String(input || "").trim()
   if (!text) return null
@@ -484,6 +491,61 @@ export class GeminiService {
       generationConfig: {
         temperature: 0.1,
         topP: 0.95,
+      },
+    }
+
+    const data = await this.requestGenerateContent(payload)
+    const parts = Array.isArray(data?.candidates?.[0]?.content?.parts)
+      ? data.candidates[0].content.parts
+      : []
+    const outputText = extractTextFromParts(parts)
+    return String(outputText || "").trim()
+  }
+
+  async analyzeMedia(input: GeminiMediaAnalysisInput): Promise<string> {
+    if (!this.apiKey) {
+      throw new Error("GEMINI_API_KEY not configured")
+    }
+
+    const mediaBase64 = String(input.mediaBase64 || "").replace(/\s+/g, "").trim()
+    if (!mediaBase64) {
+      throw new Error("media_base64_missing")
+    }
+
+    const mimeType = String(input.mimeType || "").trim() || "application/octet-stream"
+    const mediaType = String(input.mediaType || "").trim().toLowerCase()
+    const mediaLabel =
+      mediaType === "image"
+        ? "imagem"
+        : mediaType === "video"
+          ? "video"
+          : mediaType === "document"
+            ? "documento"
+            : "arquivo"
+    const prompt = String(
+      input.prompt ||
+        `Analise este ${mediaLabel} enviado no WhatsApp e retorne um resumo curto e objetivo em portugues do Brasil para contexto de atendimento comercial. ` +
+          "Inclua apenas o que for observavel no conteudo, sem inventar. Se nao for possivel interpretar, retorne somente: [midia_sem_contexto_legivel].",
+    ).trim()
+
+    const payload = {
+      contents: [
+        {
+          role: "user",
+          parts: [
+            { text: prompt },
+            {
+              inlineData: {
+                mimeType,
+                data: mediaBase64,
+              },
+            },
+          ],
+        },
+      ],
+      generationConfig: {
+        temperature: 0.2,
+        topP: 0.9,
       },
     }
 

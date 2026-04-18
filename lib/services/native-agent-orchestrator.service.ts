@@ -112,6 +112,14 @@ export interface HandleInboundMessageInput {
   isReaction?: boolean
   reactionValue?: string
   isGif?: boolean
+  hasMedia?: boolean
+  mediaType?: "image" | "video" | "document"
+  mediaMimeType?: string
+  mediaUrl?: string
+  mediaCaption?: string
+  mediaFileName?: string
+  mediaAnalysis?: string
+  mediaAnalysisError?: string
   raw?: any
   bufferAnchorCreatedAt?: string
   bufferAnchorMessageId?: string
@@ -164,6 +172,27 @@ function normalizeComparableMessage(value: string): string {
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim()
+}
+
+function buildInboundMediaContext(input: HandleInboundMessageInput): string {
+  if (!input.hasMedia) return ""
+  const mediaType = String(input.mediaType || "").toLowerCase()
+  const mediaLabel =
+    mediaType === "image"
+      ? "imagem"
+      : mediaType === "video"
+        ? "video"
+        : mediaType === "document"
+          ? "documento"
+          : "midia"
+  const analysis = String(input.mediaAnalysis || "").trim()
+  const caption = String(input.mediaCaption || "").trim()
+  const fileName = String(input.mediaFileName || "").trim()
+  const fallback = analysis || caption || (fileName ? `arquivo ${fileName}` : "")
+  if (!fallback) {
+    return `O lead enviou ${mediaLabel} sem conteudo textual legivel.`
+  }
+  return `Contexto da ${mediaLabel} enviada pelo lead: ${fallback}`
 }
 
 type QualificationState = {
@@ -1610,7 +1639,7 @@ export class NativeAgentOrchestratorService {
 
   async handleInboundMessage(input: HandleInboundMessageInput): Promise<HandleInboundMessageResult> {
     const tenant = normalizeTenant(input.tenant)
-    const content = String(input.message || "").trim()
+    let content = String(input.message || "").trim()
     const phone = normalizePhoneNumber(input.phone)
     const recipient = normalizeRecipientForMessaging({
       phone: input.phone,
@@ -1644,6 +1673,15 @@ export class NativeAgentOrchestratorService {
         replied: false,
         actions: [{ type: "none" as const, ok: true, details: { isReaction: true, reactionValue: input.reactionValue } }],
         reason: "lead_reaction_acknowledged",
+      }
+    }
+
+    const inboundMediaContext = buildInboundMediaContext(input)
+    if (inboundMediaContext) {
+      const normalizedContext = normalizeComparableMessage(inboundMediaContext)
+      const normalizedContent = normalizeComparableMessage(content)
+      if (!normalizedContent || !normalizedContent.includes(normalizedContext)) {
+        content = content ? `${content}\n${inboundMediaContext}` : inboundMediaContext
       }
     }
 
@@ -1705,6 +1743,14 @@ export class NativeAgentOrchestratorService {
           is_status_reply: input.isStatusReply === true,
           reply_to_message_id: input.replyToMessageId || null,
           reply_preview: input.replyPreview || null,
+          has_media: input.hasMedia === true,
+          media_type: input.mediaType || null,
+          media_mime_type: input.mediaMimeType || null,
+          media_url: input.mediaUrl || null,
+          media_caption: input.mediaCaption || null,
+          media_file_name: input.mediaFileName || null,
+          media_analysis: input.mediaAnalysis || null,
+          media_analysis_error: input.mediaAnalysisError || null,
         },
       })
     }
@@ -1940,6 +1986,7 @@ export class NativeAgentOrchestratorService {
       assistantMessagesCount,
       userMessagesCount,
       fromMeTriggerContent: isFromMeTrigger ? fromMeTriggerContent : undefined,
+      inboundMediaContext: inboundMediaContext || undefined,
       qualificationState,
     })
 
@@ -2943,6 +2990,7 @@ export class NativeAgentOrchestratorService {
       assistantMessagesCount?: number
       userMessagesCount?: number
       fromMeTriggerContent?: string
+      inboundMediaContext?: string
       qualificationState?: QualificationState
     },
   ): string {
@@ -3111,6 +3159,10 @@ export class NativeAgentOrchestratorService {
     const internalFromMeRule = internalFromMeTrigger
       ? `- GATILHO INTERNO FROMME detectado: "${internalFromMeTrigger.slice(0, 240)}". Isso NAO e mensagem do lead. Nao agradeca, nao responda como se o lead tivesse enviado essa frase; use apenas para iniciar/retomar o atendimento de forma natural e contextual.`
       : ""
+    const inboundMediaContext = String(ctx.inboundMediaContext || "").trim()
+    const inboundMediaRule = inboundMediaContext
+      ? `- CONTEXTO MULTIMODAL DO ULTIMO EVENTO: ${inboundMediaContext.slice(0, 900)}. Use esse contexto na resposta sem mencionar que veio de analise interna.`
+      : ""
 
     const pieces = [
       resolvedPromptBase,
@@ -3218,6 +3270,7 @@ export class NativeAgentOrchestratorService {
       lunchBreakRule,
       googleEventsRule,
       internalFromMeRule,
+      inboundMediaRule,
       "",
       "LINGUAGEM DE CONVERSAO — USO NATURAL E MODERADO:",
       "Ao longo da conversa, use frases motivacionais e de reforco positivo para incentivar o lead a agendar, de forma natural e sem exagero.",

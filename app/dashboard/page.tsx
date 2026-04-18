@@ -10,10 +10,6 @@ import { OverviewChart } from "@/components/dashboard/overview-chart"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useTenant } from "@/lib/contexts/TenantContext"
 import { PeriodFilter } from "@/components/dashboard/period-filter"
 
@@ -52,16 +48,6 @@ type BusinessEvent = {
   event_at: string
 }
 
-type BusinessEventForm = {
-  eventType: "attendance" | "no_show" | "sale"
-  leadName: string
-  phone: string
-  sessionId: string
-  saleAmount: string
-  productOrService: string
-  notes: string
-}
-
 const defaultBusinessMetrics: BusinessMetrics = {
   totalEvents: 0,
   attendanceCount: 0,
@@ -93,16 +79,6 @@ export default function DashboardPage() {
   const [customRangeVersion, setCustomRangeVersion] = useState(0)
   const [businessMetrics, setBusinessMetrics] = useState<BusinessMetrics>(defaultBusinessMetrics)
   const [recentBusinessEvents, setRecentBusinessEvents] = useState<BusinessEvent[]>([])
-  const [savingBusinessEvent, setSavingBusinessEvent] = useState(false)
-  const [businessForm, setBusinessForm] = useState<BusinessEventForm>({
-    eventType: "attendance",
-    leadName: "",
-    phone: "",
-    sessionId: "",
-    saleAmount: "",
-    productOrService: "",
-    notes: "",
-  })
 
   const buildPeriodParams = () => {
     const params = new URLSearchParams()
@@ -215,44 +191,7 @@ export default function DashboardPage() {
     }
   }
 
-  const submitBusinessEvent = async () => {
-    setSavingBusinessEvent(true)
-    setError(null)
-    try {
-      const payload = {
-        eventType: businessForm.eventType,
-        leadName: businessForm.leadName.trim() || undefined,
-        phone: businessForm.phone.trim() || undefined,
-        sessionId: businessForm.sessionId.trim() || undefined,
-        saleAmount: businessForm.saleAmount ? Number(businessForm.saleAmount) : undefined,
-        productOrService: businessForm.productOrService.trim() || undefined,
-        notes: businessForm.notes.trim() || undefined,
-      }
-
-      const res = await fetch("/api/dashboard/business-events", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      })
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        throw new Error(json?.error || "Nao foi possivel registrar evento")
-      }
-
-      setBusinessForm((prev) => ({
-        ...prev,
-        saleAmount: "",
-        productOrService: "",
-        notes: "",
-      }))
-      await refreshBusinessPanel()
-    } catch (err: any) {
-      setError(err?.message || "Erro ao registrar evento")
-    } finally {
-      setSavingBusinessEvent(false)
-    }
-  }
-
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const periodLabel =
     period === "custom"
       ? `${customStartDate} ate ${customEndDate}`
@@ -389,108 +328,7 @@ export default function DashboardPage() {
         })}
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card className="genial-card genial-elevate md:col-span-2">
-          <CardHeader>
-            <CardTitle className="text-pure-white">Eventos de Comparecimento e Vendas</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid md:grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label>Tipo de evento</Label>
-                <Select
-                  value={businessForm.eventType}
-                  onValueChange={(value) =>
-                    setBusinessForm((prev) => ({
-                      ...prev,
-                      eventType: value as BusinessEventForm["eventType"],
-                    }))
-                  }
-                >
-                  <SelectTrigger className="bg-secondary border-border">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="bg-secondary border-border text-foreground">
-                    <SelectItem value="attendance">Comparecimento</SelectItem>
-                    <SelectItem value="no_show">Bolo / Nao compareceu</SelectItem>
-                    <SelectItem value="sale">Venda realizada</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Nome do lead</Label>
-                <Input
-                  value={businessForm.leadName}
-                  onChange={(e) => setBusinessForm((prev) => ({ ...prev, leadName: e.target.value }))}
-                  className="bg-secondary border-border"
-                  placeholder="Ex: Carlos"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Telefone</Label>
-                <Input
-                  value={businessForm.phone}
-                  onChange={(e) => setBusinessForm((prev) => ({ ...prev, phone: e.target.value }))}
-                  className="bg-secondary border-border"
-                  placeholder="55..."
-                />
-              </div>
-            </div>
-
-            <div className="grid md:grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label>Session ID (opcional)</Label>
-                <Input
-                  value={businessForm.sessionId}
-                  onChange={(e) => setBusinessForm((prev) => ({ ...prev, sessionId: e.target.value }))}
-                  className="bg-secondary border-border"
-                  placeholder="id da conversa"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Valor da venda</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={businessForm.saleAmount}
-                  onChange={(e) => setBusinessForm((prev) => ({ ...prev, saleAmount: e.target.value }))}
-                  className="bg-secondary border-border"
-                  placeholder="0,00"
-                  disabled={businessForm.eventType !== "sale"}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Produto/Servico</Label>
-                <Input
-                  value={businessForm.productOrService}
-                  onChange={(e) =>
-                    setBusinessForm((prev) => ({ ...prev, productOrService: e.target.value }))
-                  }
-                  className="bg-secondary border-border"
-                  placeholder="Ex: Curso Master"
-                  disabled={businessForm.eventType !== "sale"}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Observacoes</Label>
-              <Textarea
-                value={businessForm.notes}
-                onChange={(e) => setBusinessForm((prev) => ({ ...prev, notes: e.target.value }))}
-                className="bg-secondary border-border min-h-[96px]"
-                placeholder="Detalhes relevantes do evento"
-              />
-            </div>
-
-            <div className="flex justify-end">
-              <Button onClick={submitBusinessEvent} disabled={savingBusinessEvent}>
-                {savingBusinessEvent ? "Salvando..." : "Registrar evento"}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
+      <div className="grid gap-4">
         <Card className="genial-card genial-elevate">
           <CardHeader>
             <CardTitle className="text-pure-white">Resumo Comercial</CardTitle>

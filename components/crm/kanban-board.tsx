@@ -4,11 +4,11 @@ import { useState, useEffect } from "react"
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd"
 import { Badge } from "@/components/ui/badge"
 import { Clock, Phone, Eye, Settings2, Plus, X, PauseCircle, Clock3, Timer, GripVertical } from "lucide-react"
+import { toast } from "sonner"
 import { LeadDetailsModal } from "./lead-details-modal"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { toast } from "sonner"
 import { useTenant } from "@/lib/contexts/TenantContext"
 
 interface CRMCard {
@@ -76,6 +76,36 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
     const [columns, setColumns] = useState<CRMColumn[]>(initialData)
     const [selectedLead, setSelectedLead] = useState<CRMCard | null>(null)
     const [isModalOpen, setIsModalOpen] = useState(false)
+    const [busyEvents, setBusyEvents] = useState<Set<string>>(new Set())
+
+    const submitQuickEvent = async (card: CRMCard, eventType: "attendance" | "no_show" | "sale") => {
+        const key = `${card.id}:${eventType}`
+        setBusyEvents((prev) => new Set(prev).add(key))
+        try {
+            const res = await fetch("/api/dashboard/business-events", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    eventType,
+                    leadName: card.name,
+                    phone: card.numero,
+                    sessionId: `${card.numero}@c.us`,
+                }),
+            })
+            if (!res.ok) throw new Error()
+            toast.success(
+                eventType === "attendance" ? "Comparecimento registrado!" : eventType === "no_show" ? "Bolo registrado!" : "Venda registrada!",
+            )
+        } catch {
+            toast.error("Erro ao registrar evento")
+        } finally {
+            setBusyEvents((prev) => {
+                const s = new Set(prev)
+                s.delete(key)
+                return s
+            })
+        }
+    }
     const [isFunnelModalOpen, setIsFunnelModalOpen] = useState(false)
     const [customColumns, setCustomColumns] = useState<FunnelColumn[]>(() => (
         funnelConfig.length > 0 ? funnelConfig : mapColumnsToFunnel(initialData)
@@ -555,10 +585,42 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                                                                     )}
                                                                                 </div>
 
+                                                                                <div className="flex gap-1 mt-2" onClick={(e) => e.stopPropagation()}>
+                                                                                    <Button
+                                                                                        size="sm"
+                                                                                        variant="ghost"
+                                                                                        className="flex-1 h-6 text-[10px] px-1 text-emerald-400 hover:bg-emerald-400/10 hover:text-emerald-300"
+                                                                                        disabled={busyEvents.has(`${card.id}:attendance`)}
+                                                                                        onClick={() => submitQuickEvent(card, "attendance")}
+                                                                                        title="Registrar comparecimento"
+                                                                                    >
+                                                                                        ✅ Compareceu
+                                                                                    </Button>
+                                                                                    <Button
+                                                                                        size="sm"
+                                                                                        variant="ghost"
+                                                                                        className="flex-1 h-6 text-[10px] px-1 text-yellow-400 hover:bg-yellow-400/10 hover:text-yellow-300"
+                                                                                        disabled={busyEvents.has(`${card.id}:no_show`)}
+                                                                                        onClick={() => submitQuickEvent(card, "no_show")}
+                                                                                        title="Registrar bolo"
+                                                                                    >
+                                                                                        🎂 Bolo
+                                                                                    </Button>
+                                                                                    <Button
+                                                                                        size="sm"
+                                                                                        variant="ghost"
+                                                                                        className="flex-1 h-6 text-[10px] px-1 text-blue-400 hover:bg-blue-400/10 hover:text-blue-300"
+                                                                                        disabled={busyEvents.has(`${card.id}:sale`)}
+                                                                                        onClick={() => submitQuickEvent(card, "sale")}
+                                                                                        title="Registrar venda"
+                                                                                    >
+                                                                                        💰 Venda
+                                                                                    </Button>
+                                                                                </div>
                                                                                 <Button
                                                                                     size="sm"
                                                                                     variant="ghost"
-                                                                                    className="w-full mt-2 text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                                                                                    className="w-full mt-1 text-xs opacity-0 group-hover:opacity-100 transition-opacity"
                                                                                     onClick={(e) => {
                                                                                         e.stopPropagation()
                                                                                         handleCardClick(card)
