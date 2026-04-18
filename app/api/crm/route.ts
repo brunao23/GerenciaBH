@@ -712,38 +712,35 @@ export async function GET(req: Request) {
         const pauseTable = `${tenant}_pausar` // CorreÃ§Ã£o: de pausar_robsonvox para {tenant}_pausar
 
         let savedFunnelColumns: FunnelColumn[] = []
-        try {
-            const { data: funnelConfigRow, error: funnelError } = await supabase
+
+        const [funnelConfigResult, testResult] = await Promise.all([
+            supabase
                 .from(funnelConfigTable)
                 .select("columns")
                 .order("created_at", { ascending: false })
                 .limit(1)
-                .maybeSingle()
+                .maybeSingle(),
+            supabase
+                .from(chatTable)
+                .select("id")
+                .limit(1)
+        ])
 
-            if (funnelError) {
-                if (!isMissingTableError(funnelError) && funnelError.code !== "PGRST116") {
-                    console.warn(`[CRM] Erro ao buscar funil salvo (${funnelConfigTable}):`, funnelError.message)
-                }
-            } else {
-                savedFunnelColumns = normalizeFunnelColumns(funnelConfigRow?.columns)
+        const { data: funnelConfigRow, error: funnelError } = funnelConfigResult
+        if (funnelError) {
+            if (!isMissingTableError(funnelError) && funnelError.code !== "PGRST116") {
+                console.warn(`[CRM] Erro ao buscar funil salvo (${funnelConfigTable}):`, funnelError.message)
             }
-        } catch (funnelErr: any) {
-            console.warn("[CRM] Erro ao carregar configuracao de funil:", funnelErr?.message || funnelErr)
+        } else {
+            savedFunnelColumns = normalizeFunnelColumns(funnelConfigRow?.columns)
         }
 
-        const effectiveFunnelColumns = getEffectiveFunnelColumns(savedFunnelColumns)
-
-        // Verificar se a tabela existe antes de fazer a consulta
-        const { data: testQuery, error: testError } = await supabase
-            .from(chatTable)
-            .select("id")
-            .limit(1)
-
+        const { error: testError } = testResult
         if (testError) {
             console.error(`[CRM] Erro ao acessar tabela ${chatTable}:`, testError)
             return NextResponse.json(
                 {
-                    error: `Tabela de histÃ³rico de chats nÃ£o encontrada (${chatTable})`,
+                    error: `Tabela de histórico de chats não encontrada (${chatTable})`,
                     details: testError.message,
                     code: testError.code
                 },
@@ -751,15 +748,18 @@ export async function GET(req: Request) {
             )
         }
 
+        const effectiveFunnelColumns = getEffectiveFunnelColumns(savedFunnelColumns)
+
         const sessionMap = new Map<string, any[]>()
         let totalRecords = 0
         let page = 0
         const pageSize = 1000
-        const maxRecords = 50000 // Limite alto para mostrar tudo
+        const maxRecords = 10000
+        const maxSessions = 600
+        const maxMsgsPerSession = 50
         let hasMore = true
 
         while (hasMore && totalRecords < maxRecords) {
-            // Buscar apenas campos necessÃ¡rios para melhor performance
             const { data: chats, error } = await supabase
                 .from(chatTable)
                 .select("session_id, message, id, created_at")
@@ -770,7 +770,7 @@ export async function GET(req: Request) {
                 console.error('[CRM] Erro ao buscar chats:', error)
                 return NextResponse.json(
                     {
-                        error: 'Erro ao buscar histÃ³rico de chats',
+                        error: 'Erro ao buscar histórico de chats',
                         details: error.message,
                         code: error.code
                     },
@@ -782,16 +782,17 @@ export async function GET(req: Request) {
                 totalRecords += chats.length
                 for (const chat of chats) {
                     const rawSessionId = String(chat.session_id || "").trim()
-                    if (!rawSessionId || rawSessionId === "undefined" || rawSessionId === "null") {
-                        continue
+                    if (!rawSessionId || rawSessionId === "undefined" || rawSessionId === "null") continue
+                    if (!sessionMap.has(rawSessionId)) {
+                        if (sessionMap.size >= maxSessions) continue
+                        sessionMap.set(rawSessionId, [])
                     }
-                    const sessionId = rawSessionId
-                    if (!sessionMap.has(sessionId)) sessionMap.set(sessionId, [])
-                    sessionMap.get(sessionId)!.push(chat)
+                    const msgs = sessionMap.get(rawSessionId)!
+                    if (msgs.length < maxMsgsPerSession) msgs.push(chat)
                 }
-                console.log(`[CRM] PÃ¡gina ${page + 1}: ${chats.length} registros (Total: ${totalRecords}/${maxRecords})`)
+                console.log(`[CRM] Página ${page + 1}: ${chats.length} registros (sessões: ${sessionMap.size})`)
                 page++
-                hasMore = chats.length === pageSize && totalRecords < maxRecords
+                hasMore = chats.length === pageSize && totalRecords < maxRecords && sessionMap.size < maxSessions
             } else {
                 hasMore = false
             }
@@ -1010,25 +1011,12 @@ export async function GET(req: Request) {
 
             const recentMessages = messages.slice(-30)
 
-            const messageContents = recentMessages
-                .filter(m => m && m.message) // Filtra mensagens invÃ¡lidas
-                .map(m => {
-                    try {
-                        const rawContent = String(m.message?.content || m.message?.text || '')
-                        // LEI INVIOLÃVEL: NormalizaÃ§Ã£o robusta de role
-                        const type = String(m.message?.type ?? "").toLowerCase()
-                        const roleStr = String(m.message?.role ?? "").toLowerCase()
-                        const isUser = type === "human" || type === "user" || roleStr === "user" || roleStr === "human"
-                        return isUser ? cleanHumanMessage(rawContent) : cleanAIMessage(rawContent)
-                    } catch (e) {
-                        console.warn(`[CRM] Erro ao processar mensagem da sessÃ£o ${sessionId}:`, e)
-                        return ""
-                    }
-                })
-                .filter(content => content && content.trim().length >= 3) // Remove vazias
-
-            const fullText = messageContents.length > 0 ? messageContents.join(' ').toLowerCase() : ""
-
+            const fullText = recentMessages
+                .filter(m => m && m.message)
+                .map(m => String(m.message?.content || m.message?.text || '').substring(0, 300))
+                .join(' ')
+                .toLowerCase()
+                .substring(0, 8000)
             // Buscar status salvo do lead (se existir)
             let savedStatus: string | null = null
             if (statusTableAvailable) {
@@ -1371,107 +1359,7 @@ export async function GET(req: Request) {
         }
         // ── Fim Kommo ───────────────────────────────────────────────────────
 
-        // Buscar informaÃ§Ãµes de follow-up ativo ANTES de determinar status
-        const followUpMap = new Map<string, {
-            isActive: boolean
-            attemptCount: number
-            nextFollowUpAt: string | null
-            lastInteractionAt: string
-            sessionId: string
-        }>()
-
-        const sessionIdsForFollowUp = deduplicatedCards
-            .map(card => String(card.id || "").trim())
-            .filter(Boolean)
-
-        const phoneCandidatesForFollowUp = new Set<string>()
-        for (const card of deduplicatedCards) {
-            const rawDigits = String(card.numero || "").replace(/\D/g, "")
-            if (rawDigits) {
-                phoneCandidatesForFollowUp.add(rawDigits)
-            }
-            const normalized = normalizePhone(rawDigits)
-            if (normalized) {
-                phoneCandidatesForFollowUp.add(normalized)
-                if (rawDigits && !rawDigits.startsWith("55")) {
-                    phoneCandidatesForFollowUp.add(`55${normalized}`)
-                }
-            }
-        }
-
-        if (sessionIdsForFollowUp.length > 0 || phoneCandidatesForFollowUp.size > 0) {
-            try {
-                let followUpTableAvailable = true
-
-                if (sessionIdsForFollowUp.length > 0) {
-                    for (const chunk of chunkArray(sessionIdsForFollowUp, 200)) {
-                        const { data: activeFollowups, error: followUpError } = await supabase
-                            .from(followupTable)
-                            .select("*")
-                            .in("session_id", chunk)
-                            .eq("is_active", true)
-
-                        if (followUpError) {
-                            if (isMissingTableError(followUpError)) {
-                                followUpTableAvailable = false
-                                console.warn(`[CRM] Tabela de followup ${followupTable} nÃ£o encontrada.`)
-                            } else {
-                                console.warn(`[CRM] Erro ao buscar informaÃ§Ãµes de follow-up por session_id:`, followUpError.message)
-                            }
-                            break
-                        }
-
-                        for (const followup of activeFollowups || []) {
-                            const normalizedPhone = normalizePhone(followup.phone_number || followup.session_id || "")
-                            if (!normalizedPhone) continue
-                            followUpMap.set(normalizedPhone, {
-                                isActive: followup.is_active || false,
-                                attemptCount: followup.attempt_count || 0,
-                                nextFollowUpAt: followup.next_followup_at || null,
-                                lastInteractionAt: followup.last_interaction_at || followup.created_at,
-                                sessionId: followup.session_id || ''
-                            })
-                        }
-                    }
-                }
-
-                const phoneCandidateList = Array.from(phoneCandidatesForFollowUp)
-                if (followUpTableAvailable && phoneCandidateList.length > 0) {
-                    for (const chunk of chunkArray(phoneCandidateList, 200)) {
-                        const { data: activeFollowups, error: followUpError } = await supabase
-                            .from(followupTable)
-                            .select("*")
-                            .in("phone_number", chunk)
-                            .eq("is_active", true)
-
-                        if (followUpError) {
-                            if (isMissingTableError(followUpError)) {
-                                console.warn(`[CRM] Tabela de followup ${followupTable} nÃ£o encontrada.`)
-                            } else {
-                                console.warn(`[CRM] Erro ao buscar informaÃ§Ãµes de follow-up por phone_number:`, followUpError.message)
-                            }
-                            break
-                        }
-
-                        for (const followup of activeFollowups || []) {
-                            const normalizedPhone = normalizePhone(followup.phone_number || followup.session_id || "")
-                            if (!normalizedPhone) continue
-                            followUpMap.set(normalizedPhone, {
-                                isActive: followup.is_active || false,
-                                attemptCount: followup.attempt_count || 0,
-                                nextFollowUpAt: followup.next_followup_at || null,
-                                lastInteractionAt: followup.last_interaction_at || followup.created_at,
-                                sessionId: followup.session_id || ''
-                            })
-                        }
-                    }
-                }
-
-                console.log(`[CRM] InformaÃ§Ãµes de follow-up carregadas para ${followUpMap.size} leads`)
-            } catch (followUpErr: any) {
-                console.warn('[CRM] Erro ao buscar informaÃ§Ãµes de follow-up (continuando sem):', followUpErr.message)
-            }
-        }
+        const followUpMap = followUpMapForStatus
 
         // Buscar status de pausa para todos os leads
         const phoneNumbers = deduplicatedCards.map(card => {
