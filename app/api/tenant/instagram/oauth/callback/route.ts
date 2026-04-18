@@ -275,8 +275,15 @@ export async function GET(req: NextRequest) {
       return redirectToConfig(req, "error", "state_tenant_mismatch", returnTo)
     }
 
-    const appId = String(process.env.NEXT_PUBLIC_META_APP_ID || "").trim()
-    const appSecret = String(process.env.META_APP_SECRET || "").trim()
+    const oauthProvider = String(statePayload?.oauthProvider || "instagram").trim()
+    const appId =
+      oauthProvider === "instagram"
+        ? String(process.env.INSTAGRAM_APP_ID || process.env.NEXT_PUBLIC_META_APP_ID || "").trim()
+        : String(process.env.NEXT_PUBLIC_META_APP_ID || "").trim()
+    const appSecret =
+      oauthProvider === "instagram"
+        ? String(process.env.INSTAGRAM_APP_SECRET || process.env.META_APP_SECRET || "").trim()
+        : String(process.env.META_APP_SECRET || "").trim()
     if (!appId || !appSecret) {
       return redirectToConfig(req, "error", "meta_app_id_ou_secret_ausente", returnTo)
     }

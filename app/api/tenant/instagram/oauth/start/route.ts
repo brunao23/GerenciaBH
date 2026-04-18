@@ -96,21 +96,24 @@ export async function GET(req: NextRequest) {
     const tenant = tenantInfo.tenant
     const tenantRef = tenantInfo.rawTenant || tenantInfo.logicalTenant || tenant
 
-    const appId = String(process.env.NEXT_PUBLIC_META_APP_ID || "").trim()
+    const url = new URL(req.url)
+    const oauthProvider = resolveOAuthProvider(url.searchParams.get("provider"))
+    const appId =
+      oauthProvider === "instagram"
+        ? String(process.env.INSTAGRAM_APP_ID || process.env.NEXT_PUBLIC_META_APP_ID || "").trim()
+        : String(process.env.NEXT_PUBLIC_META_APP_ID || "").trim()
     if (!appId) {
       return NextResponse.json(
-        { error: "NEXT_PUBLIC_META_APP_ID nao configurado no ambiente." },
+        { error: "App ID da Meta/Instagram nao configurado no ambiente." },
         { status: 500 },
       )
     }
 
-    const url = new URL(req.url)
     const apiVersion = normalizeApiVersion(url.searchParams.get("apiVersion") || undefined)
     const returnTo = normalizeReturnTo(url.searchParams.get("returnTo") || undefined)
     const callbackUrl = `${url.origin}/api/tenant/instagram/oauth/callback`
     const webhookUrl = resolveMetaWebhookPublicUrl(url.origin)
     const verifyToken = resolveMetaWebhookVerifyToken()
-    const oauthProvider = resolveOAuthProvider(url.searchParams.get("provider"))
     const scopes = resolveScopes(oauthProvider)
     const facebookBusinessConfigId = resolveFacebookBusinessConfigId(url.searchParams.get("config_id"))
     const queryForceReauth = parseBooleanInput(url.searchParams.get("force_reauth"))
