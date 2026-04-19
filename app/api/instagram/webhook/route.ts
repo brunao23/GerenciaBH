@@ -302,13 +302,19 @@ async function processDirectEvent(params: {
   const message = safeObject(event.message)
   const sender = safeObject(event.sender)
 
-  if (message?.is_echo === true) {
+  if (message?.is_echo === true || message?.is_echo === "true") {
     params.stats.ignored += 1
     return
   }
 
   const senderId = normalizeDigits(sender.id)
   if (!senderId) {
+    params.stats.ignored += 1
+    return
+  }
+
+  // Filtra mensagens enviadas pela própria conta (echoes sem is_echo=true)
+  if (params.entryId && senderId === params.entryId) {
     params.stats.ignored += 1
     return
   }

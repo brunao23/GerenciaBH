@@ -2050,6 +2050,7 @@ export class NativeAgentOrchestratorService {
       fromMeTriggerContent: isFromMeTrigger ? fromMeTriggerContent : undefined,
       inboundMediaContext: inboundMediaContext || undefined,
       qualificationState,
+      source: input.source,
     })
 
     // ── Semantic Cache: lookup ──────────────────────────────────
@@ -3054,6 +3055,7 @@ export class NativeAgentOrchestratorService {
       fromMeTriggerContent?: string
       inboundMediaContext?: string
       qualificationState?: QualificationState
+      source?: string
     },
   ): string {
     const contactFirstName = firstName(ctx.contactName)
@@ -3226,6 +3228,13 @@ export class NativeAgentOrchestratorService {
       ? `- CONTEXTO MULTIMODAL DO ULTIMO EVENTO: ${inboundMediaContext.slice(0, 900)}. Use esse contexto na resposta sem mencionar que veio de analise interna.`
       : ""
 
+    const isInstagramComment = String(ctx.source || "").toLowerCase().includes("comment")
+    const channelRule = isInstagramComment
+      ? "- CANAL ATUAL: comentario do Instagram. Esta mensagem chegou via comentario publico. Sua resposta sera uma reply publica ao comentario — seja cordial, breve e direcione o lead para o Direct quando precisar de informacoes sensiveis (dados pessoais, agendamento, valores). NAO processe agendamentos diretamente aqui; convide o lead a continuar no Direct."
+      : String(ctx.source || "").toLowerCase().includes("instagram")
+        ? "- CANAL ATUAL: Direct do Instagram (mensagem privada). Trate como atendimento privado normal."
+        : ""
+
     const pieces = [
       resolvedPromptBase,
       "",
@@ -3333,6 +3342,7 @@ export class NativeAgentOrchestratorService {
       googleEventsRule,
       internalFromMeRule,
       inboundMediaRule,
+      channelRule,
       "",
       "LINGUAGEM DE CONVERSAO — USO NATURAL E MODERADO:",
       "Ao longo da conversa, use frases motivacionais e de reforco positivo para incentivar o lead a agendar, de forma natural e sem exagero.",
