@@ -151,14 +151,34 @@ async function findTenantByInstagramAccountId(accountId: string): Promise<Tenant
   }
 
   // Último recurso: verifica via API qual tenant tem acesso a esse account ID.
-  // Isso resolve o caso onde o ID armazenado (app-scoped) difere do entry.id (Business Account ID).
+  // entry.id do webhook é o Business Account ID — deve ser consultado via graph.facebook.com.
   const apiVersion = String(process.env.META_API_VERSION || "v25.0").trim()
-  const igBase = `https://graph.instagram.com/${apiVersion}`
+  const fbBase = `https://graph.facebook.com/${apiVersion}`
   for (const unit of allUnits) {
     const config = safeObject(unit?.metadata?.messaging)
     const token = String(config.metaAccessToken || "").trim()
     if (!token) continue
     try {
+      // Tenta Facebook Graph API primeiro (Business Account ID)
+      const resFb = await fetch(`${fbBase}/${normalizedAccountId}?fields=id&access_token=${token}`)
+      const jsonFb = await resFb.json().catch(() => ({}))
+      const resolvedIdFb = normalizeDigits(jsonFb?.id)
+      if (resFb.ok && resolvedIdFb === normalizedAccountId) {
+        console.log("[IGWebhook] resolved tenant via FB API token verification:", unit.unit_prefix)
+        const tenant = normalizeTenant(String(unit.unit_prefix || ""))
+        if (!tenant) continue
+        const supabaseUpdate = createBiaSupabaseServerClient()
+        const { data: unitRow } = await supabaseUpdate.from("units_registry").select("id, metadata").eq("unit_prefix", unit.unit_prefix).maybeSingle()
+        if (unitRow) {
+          const updatedMetadata = { ...safeObject(unitRow.metadata), messaging: { ...config, metaInstagramAccountId: normalizedAccountId } }
+          await supabaseUpdate.from("units_registry").update({ metadata: updatedMetadata }).eq("id", unitRow.id)
+          console.log("[IGWebhook] updated metaInstagramAccountId to:", normalizedAccountId, "for tenant:", tenant)
+        }
+        const dataTenant = await resolveTenantDataPrefix(tenant)
+        return { tenant, dataTenant, config: { ...config, metaInstagramAccountId: normalizedAccountId } }
+      }
+      // Fallback: Instagram Graph API (app-scoped user ID)
+      const igBase = `https://graph.instagram.com/${apiVersion}`
       const res = await fetch(`${igBase}/${normalizedAccountId}?fields=id&access_token=${token}`)
       const json = await res.json().catch(() => ({}))
       const resolvedId = normalizeDigits(json?.id)
