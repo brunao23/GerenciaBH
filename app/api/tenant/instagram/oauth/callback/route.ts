@@ -166,47 +166,52 @@ async function resolveInstagramAccount(params: {
   accessToken: string
   apiVersion: string
   userId?: string
-}): Promise<{ instagramAccountId: string; usableAccessToken: string }> {
+}): Promise<{ instagramAccountId: string; instagramUserId?: string; usableAccessToken: string }> {
   const igBase = `https://graph.instagram.com/${params.apiVersion}`
   const fbBase = `https://graph.facebook.com/${params.apiVersion}`
 
-  // Método 1: user_id retornado diretamente pela troca de código (mais confiável)
-  if (params.userId) {
-    const uid = readIgId(params.userId)
-    if (uid) return { instagramAccountId: uid, usableAccessToken: params.accessToken }
-  }
+  const tokenUserId = params.userId ? readIgId(params.userId) : ""
 
-  // Método 2: graph.instagram.com/{version}/me com Bearer header
-  const res2 = await fetch(`${igBase}/me?fields=id,username`, {
+  // Método 1: graph.instagram.com/me com Bearer header — retorna o Business Account ID usado pelo webhook
+  const res1 = await fetch(`${igBase}/me?fields=id,username`, {
     method: "GET",
     headers: { Authorization: `Bearer ${params.accessToken}` },
   }).catch(() => null)
+  const json1 = await res1?.json().catch(() => ({}))
+  const id1 = readIgId(json1?.id)
+  if (res1?.ok && id1) {
+    return { instagramAccountId: id1, instagramUserId: tokenUserId || undefined, usableAccessToken: params.accessToken }
+  }
+
+  // Método 2: graph.instagram.com/me com access_token query param
+  const url2 = new URL(`${igBase}/me`)
+  url2.searchParams.set("fields", "id,username")
+  url2.searchParams.set("access_token", params.accessToken)
+  const res2 = await fetch(url2.toString()).catch(() => null)
   const json2 = await res2?.json().catch(() => ({}))
   const id2 = readIgId(json2?.id)
-  if (res2?.ok && id2) return { instagramAccountId: id2, usableAccessToken: params.accessToken }
+  if (res2?.ok && id2) {
+    return { instagramAccountId: id2, instagramUserId: tokenUserId || undefined, usableAccessToken: params.accessToken }
+  }
 
-  // Método 3: graph.instagram.com/{version}/me com access_token query param
-  const url3 = new URL(`${igBase}/me`)
-  url3.searchParams.set("fields", "id,username")
+  // Método 3: graph.facebook.com/me/accounts (Facebook Login com página vinculada ao Instagram)
+  const url3 = new URL(`${fbBase}/me/accounts`)
+  url3.searchParams.set("fields", "id,name,access_token,instagram_business_account{id,username},connected_instagram_account{id,username}")
   url3.searchParams.set("access_token", params.accessToken)
   const res3 = await fetch(url3.toString()).catch(() => null)
   const json3 = await res3?.json().catch(() => ({}))
-  const id3 = readIgId(json3?.id)
-  if (res3?.ok && id3) return { instagramAccountId: id3, usableAccessToken: params.accessToken }
-
-  // Método 4: graph.facebook.com/me/accounts (Facebook Login com página vinculada ao Instagram)
-  const url4 = new URL(`${fbBase}/me/accounts`)
-  url4.searchParams.set("fields", "id,name,access_token,instagram_business_account{id,username},connected_instagram_account{id,username}")
-  url4.searchParams.set("access_token", params.accessToken)
-  const res4 = await fetch(url4.toString()).catch(() => null)
-  const json4 = await res4?.json().catch(() => ({}))
-  if (res4?.ok && Array.isArray(json4?.data)) {
-    for (const page of json4.data) {
+  if (res3?.ok && Array.isArray(json3?.data)) {
+    for (const page of json3.data) {
       const igId = readIgId(page?.instagram_business_account?.id) || readIgId(page?.connected_instagram_account?.id)
       if (!igId) continue
       const pageToken = String(page?.access_token || "").trim()
-      return { instagramAccountId: igId, usableAccessToken: pageToken || params.accessToken }
+      return { instagramAccountId: igId, instagramUserId: tokenUserId || undefined, usableAccessToken: pageToken || params.accessToken }
     }
+  }
+
+  // Método 4: fallback — usar user_id do token (pode não coincidir com entry.id do webhook)
+  if (tokenUserId) {
+    return { instagramAccountId: tokenUserId, usableAccessToken: params.accessToken }
   }
 
   throw new Error("instagram_account_nao_identificada")
@@ -364,6 +369,7 @@ export async function GET(req: NextRequest) {
       provider: current.provider || "meta",
       metaAccessToken: instagram.usableAccessToken,
       metaInstagramAccountId: instagram.instagramAccountId,
+      metaInstagramUserId: instagram.instagramUserId || current.metaInstagramUserId,
       metaVerifyToken: verifyToken,
       metaApiVersion: apiVersion,
       isActive: current.isActive !== false,

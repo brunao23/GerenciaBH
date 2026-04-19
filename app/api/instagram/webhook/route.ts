@@ -91,33 +91,55 @@ async function findTenantByInstagramAccountId(accountId: string): Promise<Tenant
   if (!normalizedAccountId) return null
 
   const supabase = createBiaSupabaseServerClient()
-  const { data, error } = await supabase
+
+  // Tenta pelo metaInstagramAccountId (Business Account ID — usado no entry.id do webhook)
+  const { data: byAccountId } = await supabase
     .from("units_registry")
     .select("unit_prefix, metadata")
     .eq("metadata->messaging->>metaInstagramAccountId", normalizedAccountId)
     .maybeSingle()
 
-  if (!error && data?.unit_prefix) {
-    const tenant = normalizeTenant(String(data.unit_prefix || ""))
-    if (!tenant) return null
-    const dataTenant = await resolveTenantDataPrefix(tenant)
-    const metadata = safeObject(data.metadata)
-    return {
-      tenant,
-      dataTenant,
-      config: metadata.messaging || null,
+  if (byAccountId?.unit_prefix) {
+    const tenant = normalizeTenant(String(byAccountId.unit_prefix || ""))
+    if (tenant) {
+      const dataTenant = await resolveTenantDataPrefix(tenant)
+      const metadata = safeObject(byAccountId.metadata)
+      return { tenant, dataTenant, config: metadata.messaging || null }
     }
   }
 
+  // Tenta pelo metaInstagramUserId (user_id da troca de token — pode ser o antigo ID armazenado)
+  const { data: byUserId } = await supabase
+    .from("units_registry")
+    .select("unit_prefix, metadata")
+    .eq("metadata->messaging->>metaInstagramUserId", normalizedAccountId)
+    .maybeSingle()
+
+  if (byUserId?.unit_prefix) {
+    const tenant = normalizeTenant(String(byUserId.unit_prefix || ""))
+    if (tenant) {
+      const dataTenant = await resolveTenantDataPrefix(tenant)
+      const metadata = safeObject(byUserId.metadata)
+      return { tenant, dataTenant, config: metadata.messaging || null }
+    }
+  }
+
+  // Fallback: scan completo comparando ambos os campos
   const { data: allUnits } = await supabase
     .from("units_registry")
     .select("unit_prefix, metadata")
 
   if (!Array.isArray(allUnits)) return null
-  console.log("[IGWebhook] fallback scan IDs stored:", allUnits.map((r: any) => r?.metadata?.messaging?.metaInstagramAccountId))
+  console.log("[IGWebhook] fallback scan IDs stored:", allUnits.map((r: any) => ({
+    accountId: r?.metadata?.messaging?.metaInstagramAccountId,
+    userId: r?.metadata?.messaging?.metaInstagramUserId,
+  })))
+
   const match = allUnits.find((row: any) => {
-    const candidate = normalizeDigits(row?.metadata?.messaging?.metaInstagramAccountId)
-    return candidate && candidate === normalizedAccountId
+    const candidateAccount = normalizeDigits(row?.metadata?.messaging?.metaInstagramAccountId)
+    const candidateUser = normalizeDigits(row?.metadata?.messaging?.metaInstagramUserId)
+    return (candidateAccount && candidateAccount === normalizedAccountId) ||
+           (candidateUser && candidateUser === normalizedAccountId)
   })
   if (!match?.unit_prefix) return null
 
@@ -125,11 +147,7 @@ async function findTenantByInstagramAccountId(accountId: string): Promise<Tenant
   if (!tenant) return null
   const dataTenant = await resolveTenantDataPrefix(tenant)
   const metadata = safeObject(match.metadata)
-  return {
-    tenant,
-    dataTenant,
-    config: metadata.messaging || null,
-  }
+  return { tenant, dataTenant, config: metadata.messaging || null }
 }
 
 async function resolveTenantByQueryParam(tenantParam: string | null): Promise<TenantResolution | null> {
