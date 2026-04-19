@@ -208,6 +208,7 @@ export class TenantMessagingService {
       const instagram = new MetaInstagramService({
         accessToken: config.metaAccessToken,
         apiVersion: config.metaApiVersion,
+        instagramAccountId: config.metaInstagramAccountId,
       })
 
       const dmRecipientFromSession = this.extractInstagramRecipientIdFromSession(input.sessionId)

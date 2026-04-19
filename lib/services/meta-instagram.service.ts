@@ -1,6 +1,7 @@
 export interface MetaInstagramServiceConfig {
   accessToken: string
   apiVersion?: string
+  instagramAccountId?: string
 }
 
 export interface MetaInstagramSendDirectInput {
@@ -38,14 +39,20 @@ function parseMetaError(payload: any, fallback: string): string {
 export class MetaInstagramService {
   private readonly accessToken: string
   private readonly apiVersion: string
+  private readonly instagramAccountId: string
 
   constructor(config: MetaInstagramServiceConfig) {
     this.accessToken = String(config.accessToken || "").trim()
     this.apiVersion = normalizeApiVersion(config.apiVersion)
+    this.instagramAccountId = String(config.instagramAccountId || "").trim()
   }
 
   private get baseUrl(): string {
     return `https://graph.facebook.com/${this.apiVersion}`
+  }
+
+  private get senderId(): string {
+    return this.instagramAccountId || "me"
   }
 
   async sendDirectMessage(input: MetaInstagramSendDirectInput): Promise<MetaInstagramSendResult> {
@@ -59,7 +66,7 @@ export class MetaInstagramService {
     }
 
     try {
-      const response = await fetch(`${this.baseUrl}/me/messages`, {
+      const response = await fetch(`${this.baseUrl}/${this.senderId}/messages`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${this.accessToken}`,
