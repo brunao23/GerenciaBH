@@ -349,13 +349,16 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const stats: InboundStats = { processed: 0, ignored: 0, duplicates: 0, replied: 0, errors: 0 }
+  const debug: Record<string, any> = {}
 
   try {
     const rawBody = await req.text()
     const payload = rawBody ? JSON.parse(rawBody) : {}
+    debug.object = payload?.object
+    debug.entryIds = Array.isArray(payload.entry) ? payload.entry.map((e: any) => e?.id) : []
 
     if (String(payload?.object || "").toLowerCase() !== "instagram") {
-      return NextResponse.json({ received: true, ignored: true, reason: "object_not_instagram" })
+      return NextResponse.json({ received: true, ignored: true, reason: "object_not_instagram", debug })
     }
 
     const tenantFromQuery = await resolveTenantByQueryParam(req.nextUrl.searchParams.get("tenant"))
@@ -370,6 +373,7 @@ export async function POST(req: NextRequest) {
       const resolution =
         tenantFromQuery ||
         (entryId ? await findTenantByInstagramAccountId(entryId) : null)
+      debug[`resolution_${entryId}`] = resolution ? `tenant=${resolution.tenant}` : "NOT_FOUND"
       if (!resolution) {
         stats.ignored += 1
         continue
@@ -416,7 +420,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ received: true, stats })
+    return NextResponse.json({ received: true, stats, debug })
   } catch (error: any) {
     console.error("[InstagramWebhook] Error:", error)
     return NextResponse.json(
