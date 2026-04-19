@@ -14,11 +14,23 @@ function readText(value: any): string {
 }
 
 function extractPhone(number: any, sessionId: any): string {
-  const numberDigits = normalizePhoneNumber(readText(number))
+  const rawNumber = readText(number)
+  const rawSession = readText(sessionId)
+
+  // Instagram session: preserva prefixo ig: para roteamento correto
+  if (/^ig_/i.test(rawNumber)) {
+    const recipientId = rawNumber.slice(3).replace(/\D/g, "")
+    if (recipientId) return `ig:${recipientId}`
+  }
+  if (/^ig_/i.test(rawSession)) {
+    const recipientId = rawSession.slice(3).replace(/\D/g, "")
+    if (recipientId) return `ig:${recipientId}`
+  }
+
+  const numberDigits = normalizePhoneNumber(rawNumber)
   if (numberDigits) return numberDigits
 
-  const sessionDigits = normalizePhoneNumber(readText(sessionId))
-  return sessionDigits
+  return normalizePhoneNumber(rawSession)
 }
 
 async function pauseAiForLead(tenant: string, phone: string, pausedUntil?: string): Promise<void> {
@@ -96,7 +108,9 @@ export async function POST(req: Request) {
       )
     }
 
-    await pauseAiForLead(tenant, phone, pausedUntil || undefined)
+    if (!/^ig:/i.test(phone)) {
+      await pauseAiForLead(tenant, phone, pausedUntil || undefined)
+    }
     await new AgentTaskQueueService()
       .cancelPendingFollowups({
         tenant,

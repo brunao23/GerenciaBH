@@ -295,6 +295,13 @@ function normalizeRecipientForMessaging(input: {
     if (/@lid$/i.test(candidate) || /@g\.us$/i.test(candidate) || /-group$/i.test(candidate)) {
       return candidate
     }
+    if (/^ig:/i.test(candidate) || /^ig-comment:/i.test(candidate)) {
+      return candidate
+    }
+    if (/^ig_/i.test(candidate)) {
+      const recipientId = candidate.slice(3).replace(/\D/g, "")
+      if (recipientId) return `ig:${recipientId}`
+    }
     const normalized = normalizePhoneNumber(candidate)
     if (normalized) return normalized
   }
