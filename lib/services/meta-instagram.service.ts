@@ -48,7 +48,7 @@ export class MetaInstagramService {
   }
 
   private get baseUrl(): string {
-    return `https://graph.facebook.com/${this.apiVersion}`
+    return `https://graph.instagram.com/${this.apiVersion}`
   }
 
   private get senderId(): string {
