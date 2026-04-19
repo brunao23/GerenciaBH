@@ -1716,6 +1716,22 @@ export class NativeAgentOrchestratorService {
     const bufferAnchorMessageId = String(input.bufferAnchorMessageId || "").trim()
     let localPersistedCreatedAt = ""
 
+    // Log every inbound message arrival so it appears in system-logs
+    await chat.persistMessage({
+      sessionId,
+      role: "system",
+      type: "status",
+      content: "inbound_received",
+      source: "native-agent",
+      additional: {
+        debug_event: "inbound_received",
+        debug_severity: "info",
+        phone: phone || recipient,
+        channel: input.source || "unknown",
+        message_preview: content.slice(0, 100),
+      },
+    }).catch(() => {})
+
     if (!input.messageAlreadyPersisted) {
       if (input.messageId) {
         const alreadyExists = await chat.hasMessageId(input.messageId)
@@ -1899,6 +1915,19 @@ export class NativeAgentOrchestratorService {
     }
 
     if (!config.enabled) {
+      await chat.persistMessage({
+        sessionId,
+        role: "system",
+        type: "status",
+        content: "native_agent_disabled",
+        source: "native-agent",
+        additional: {
+          debug_event: "native_agent_disabled",
+          debug_severity: "warn",
+          phone: phone || recipient,
+          channel: input.source || "unknown",
+        },
+      }).catch(() => {})
       return {
         processed: true,
         replied: false,
@@ -1908,6 +1937,19 @@ export class NativeAgentOrchestratorService {
     }
 
     if (!config.autoReplyEnabled) {
+      await chat.persistMessage({
+        sessionId,
+        role: "system",
+        type: "status",
+        content: "auto_reply_disabled",
+        source: "native-agent",
+        additional: {
+          debug_event: "auto_reply_disabled",
+          debug_severity: "warn",
+          phone: phone || recipient,
+          channel: input.source || "unknown",
+        },
+      }).catch(() => {})
       return {
         processed: true,
         replied: false,
@@ -1917,6 +1959,19 @@ export class NativeAgentOrchestratorService {
     }
 
     if (!config.geminiApiKey) {
+      await chat.persistMessage({
+        sessionId,
+        role: "system",
+        type: "status",
+        content: "missing_gemini_api_key",
+        source: "native-agent",
+        additional: {
+          debug_event: "missing_gemini_api_key",
+          debug_severity: "error",
+          phone: phone || recipient,
+          channel: input.source || "unknown",
+        },
+      }).catch(() => {})
       return {
         processed: true,
         replied: false,
