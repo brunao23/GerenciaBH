@@ -201,12 +201,17 @@ export class TenantMessagingService {
     }
 
     if (instagramTarget) {
-      if (!config.metaAccessToken) {
-        return { success: false, error: "metaAccessToken is required for Instagram messaging", provider: "meta" }
+      const igToken = String(config.metaAccessToken || "").trim()
+      if (!igToken) {
+        return { success: false, error: "Token Instagram não configurado. Reconecte o Instagram nas configurações.", provider: "meta" }
+      }
+      if (igToken.length < 50) {
+        console.error("[TenantMessaging] Instagram token inválido (muito curto):", igToken.slice(0, 20) + "...")
+        return { success: false, error: "Token Instagram inválido. Reconecte o Instagram nas configurações.", provider: "meta" }
       }
 
       const instagram = new MetaInstagramService({
-        accessToken: config.metaAccessToken,
+        accessToken: igToken,
         apiVersion: config.metaApiVersion,
         instagramAccountId: config.metaInstagramAccountId,
       })
