@@ -132,20 +132,16 @@ export async function GET(req: NextRequest) {
     })
     const state = signStatePayload(statePayload)
 
-    // Sempre usar Facebook dialog — Instagram Business requer Facebook Login para obter token correto
-    const authUrl = new URL(`https://www.facebook.com/${apiVersion}/dialog/oauth`)
+    // Instagram Business Login: usa instagram.com (não Facebook dialog) — evita restrições de "Facebook Login"
+    // O Meta Business app (NEXT_PUBLIC_META_APP_ID) suporta Instagram Business Login via instagram.com
+    const authUrl = new URL("https://www.instagram.com/oauth/authorize")
     authUrl.searchParams.set("client_id", appId)
     authUrl.searchParams.set("redirect_uri", callbackUrl)
     authUrl.searchParams.set("response_type", "code")
-    if (facebookBusinessConfigId) {
-      authUrl.searchParams.set("config_id", facebookBusinessConfigId)
-      authUrl.searchParams.set("override_default_response_type", "true")
-    } else {
-      authUrl.searchParams.set("scope", scopes)
-    }
+    authUrl.searchParams.set("scope", scopes)
     authUrl.searchParams.set("state", state)
     if (forceReauth) {
-      authUrl.searchParams.set("auth_type", "reauthenticate")
+      authUrl.searchParams.set("force_reauth", "true")
     }
 
     return NextResponse.json({

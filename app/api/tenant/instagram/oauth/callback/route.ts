@@ -358,30 +358,31 @@ export async function GET(req: NextRequest) {
     let tokenData:
       | { accessToken: string; userId?: string; expiresIn?: number; tokenType?: string }
       | undefined
-    let metaExchangeError = ""
+    // OAuth veio do instagram.com — tentar endpoint Instagram primeiro, Meta como fallback
+    let igExchangeError = ""
     try {
-      tokenData = await exchangeMetaCode({
+      tokenData = await exchangeInstagramCode({
         code,
         appId,
         appSecret,
         redirectUri,
-        apiVersion,
       })
     } catch (error: any) {
-      metaExchangeError = String(error?.message || "falha_code_exchange_meta")
+      igExchangeError = String(error?.message || "falha_code_exchange_instagram")
     }
 
     if (!tokenData?.accessToken) {
       try {
-        tokenData = await exchangeInstagramCode({
+        tokenData = await exchangeMetaCode({
           code,
           appId,
           appSecret,
           redirectUri,
+          apiVersion,
         })
       } catch (error: any) {
-        const instagramExchangeError = String(error?.message || "falha_code_exchange_instagram")
-        throw new Error(`falha_code_exchange: meta=${metaExchangeError}; instagram=${instagramExchangeError}`)
+        const metaExchangeError = String(error?.message || "falha_code_exchange_meta")
+        throw new Error(`falha_code_exchange: instagram=${igExchangeError}; meta=${metaExchangeError}`)
       }
     }
 
