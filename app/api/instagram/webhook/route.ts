@@ -87,6 +87,7 @@ async function findTenantByVerifyToken(token: string): Promise<boolean> {
 
 async function findTenantByInstagramAccountId(accountId: string): Promise<TenantResolution | null> {
   const normalizedAccountId = normalizeDigits(accountId)
+  console.log("[IGWebhook] looking for entry.id:", normalizedAccountId)
   if (!normalizedAccountId) return null
 
   const supabase = createBiaSupabaseServerClient()
@@ -113,6 +114,7 @@ async function findTenantByInstagramAccountId(accountId: string): Promise<Tenant
     .select("unit_prefix, metadata")
 
   if (!Array.isArray(allUnits)) return null
+  console.log("[IGWebhook] fallback scan IDs stored:", allUnits.map((r: any) => r?.metadata?.messaging?.metaInstagramAccountId))
   const match = allUnits.find((row: any) => {
     const candidate = normalizeDigits(row?.metadata?.messaging?.metaInstagramAccountId)
     return candidate && candidate === normalizedAccountId
