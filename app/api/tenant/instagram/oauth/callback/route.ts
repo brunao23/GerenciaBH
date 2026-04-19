@@ -346,9 +346,14 @@ export async function GET(req: NextRequest) {
     }
 
     const oauthProvider = String(statePayload?.oauthProvider || "instagram").trim()
-    // Sempre usar Meta Business app (Facebook Login) — gera token FB válido para instagram_business_account
-    const appId = String(process.env.NEXT_PUBLIC_META_APP_ID || "").trim()
-    const appSecret = String(process.env.META_APP_SECRET || "").trim()
+    const appId =
+      oauthProvider === "instagram"
+        ? String(process.env.INSTAGRAM_APP_ID || process.env.NEXT_PUBLIC_META_APP_ID || "").trim()
+        : String(process.env.NEXT_PUBLIC_META_APP_ID || "").trim()
+    const appSecret =
+      oauthProvider === "instagram"
+        ? String(process.env.INSTAGRAM_APP_SECRET || process.env.META_APP_SECRET || "").trim()
+        : String(process.env.META_APP_SECRET || "").trim()
     if (!appId || !appSecret) {
       return redirectToConfig(req, "error", "meta_app_id_ou_secret_ausente", returnTo)
     }
@@ -358,31 +363,30 @@ export async function GET(req: NextRequest) {
     let tokenData:
       | { accessToken: string; userId?: string; expiresIn?: number; tokenType?: string }
       | undefined
-    // OAuth veio do instagram.com — tentar endpoint Instagram primeiro, Meta como fallback
-    let igExchangeError = ""
+    let metaExchangeError = ""
     try {
-      tokenData = await exchangeInstagramCode({
+      tokenData = await exchangeMetaCode({
         code,
         appId,
         appSecret,
         redirectUri,
+        apiVersion,
       })
     } catch (error: any) {
-      igExchangeError = String(error?.message || "falha_code_exchange_instagram")
+      metaExchangeError = String(error?.message || "falha_code_exchange_meta")
     }
 
     if (!tokenData?.accessToken) {
       try {
-        tokenData = await exchangeMetaCode({
+        tokenData = await exchangeInstagramCode({
           code,
           appId,
           appSecret,
           redirectUri,
-          apiVersion,
         })
       } catch (error: any) {
-        const metaExchangeError = String(error?.message || "falha_code_exchange_meta")
-        throw new Error(`falha_code_exchange: instagram=${igExchangeError}; meta=${metaExchangeError}`)
+        const instagramExchangeError = String(error?.message || "falha_code_exchange_instagram")
+        throw new Error(`falha_code_exchange: meta=${metaExchangeError}; instagram=${instagramExchangeError}`)
       }
     }
 

@@ -98,9 +98,10 @@ export async function GET(req: NextRequest) {
 
     const url = new URL(req.url)
     const oauthProvider = resolveOAuthProvider(url.searchParams.get("provider"))
-    // Sempre usar o Meta Business app — Instagram Business exige Facebook Login (token de usuário FB)
-    // O INSTAGRAM_APP_ID é Basic Display API e não funciona com webhooks de Instagram Business
-    const appId = String(process.env.NEXT_PUBLIC_META_APP_ID || "").trim()
+    const appId =
+      oauthProvider === "instagram"
+        ? String(process.env.INSTAGRAM_APP_ID || process.env.NEXT_PUBLIC_META_APP_ID || "").trim()
+        : String(process.env.NEXT_PUBLIC_META_APP_ID || "").trim()
     if (!appId) {
       return NextResponse.json(
         { error: "App ID da Meta/Instagram nao configurado no ambiente." },
@@ -113,8 +114,7 @@ export async function GET(req: NextRequest) {
     const callbackUrl = `${url.origin}/api/tenant/instagram/oauth/callback`
     const webhookUrl = resolveMetaWebhookPublicUrl(url.origin)
     const verifyToken = resolveMetaWebhookVerifyToken()
-    // Sempre resolver escopos completos (Facebook Login precisa de pages_* + business_management)
-    const scopes = resolveScopes("facebook")
+    const scopes = resolveScopes(oauthProvider)
     const facebookBusinessConfigId = resolveFacebookBusinessConfigId(url.searchParams.get("config_id"))
     const queryForceReauth = parseBooleanInput(url.searchParams.get("force_reauth"))
     const envForceReauth = parseBooleanInput(process.env.META_INSTAGRAM_FORCE_REAUTH)
@@ -132,15 +132,22 @@ export async function GET(req: NextRequest) {
     })
     const state = signStatePayload(statePayload)
 
-    // Instagram Business Login: usa instagram.com (não Facebook dialog) — evita restrições de "Facebook Login"
-    // O Meta Business app (NEXT_PUBLIC_META_APP_ID) suporta Instagram Business Login via instagram.com
-    const authUrl = new URL("https://www.instagram.com/oauth/authorize")
+    const authUrl =
+      oauthProvider === "facebook"
+        ? new URL(`https://www.facebook.com/${apiVersion}/dialog/oauth`)
+        : new URL("https://www.instagram.com/oauth/authorize")
     authUrl.searchParams.set("client_id", appId)
     authUrl.searchParams.set("redirect_uri", callbackUrl)
     authUrl.searchParams.set("response_type", "code")
-    authUrl.searchParams.set("scope", scopes)
+    if (oauthProvider === "facebook" && facebookBusinessConfigId) {
+      // Facebook Login for Business: config_id define permissões no app da Meta.
+      authUrl.searchParams.set("config_id", facebookBusinessConfigId)
+      authUrl.searchParams.set("override_default_response_type", "true")
+    } else {
+      authUrl.searchParams.set("scope", scopes)
+    }
     authUrl.searchParams.set("state", state)
-    if (forceReauth) {
+    if (oauthProvider === "instagram" && forceReauth) {
       authUrl.searchParams.set("force_reauth", "true")
     }
 
