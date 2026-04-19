@@ -301,8 +301,10 @@ async function processDirectEvent(params: {
   const event = safeObject(params.messagingEvent)
   const message = safeObject(event.message)
   const sender = safeObject(event.sender)
+  const recipient = safeObject(event.recipient)
 
-  if (message?.is_echo === true || message?.is_echo === "true") {
+  // Descarta echo pelo flag oficial da Meta
+  if (message?.is_echo === true || message?.is_echo === "true" || message?.is_echo === 1) {
     params.stats.ignored += 1
     return
   }
@@ -313,8 +315,15 @@ async function processDirectEvent(params: {
     return
   }
 
-  // Filtra mensagens enviadas pela própria conta (echoes sem is_echo=true)
+  // Descarta quando remetente É nossa própria conta (echo sem is_echo)
   if (params.entryId && senderId === params.entryId) {
+    params.stats.ignored += 1
+    return
+  }
+
+  // Descarta quando o destinatário NÃO é nossa conta — mensagem foi enviada POR nós, não para nós
+  const recipientId = normalizeDigits(recipient.id)
+  if (params.entryId && recipientId && recipientId !== params.entryId) {
     params.stats.ignored += 1
     return
   }
@@ -397,6 +406,13 @@ async function processCommentOrMentionEvent(params: {
   const value = safeObject(params.changeValue)
   const from = safeObject(value.from)
   const senderId = normalizeDigits(from.id)
+
+  // Descarta comentários postados pela própria conta (echo de reply do agente)
+  if (params.entryId && senderId === params.entryId) {
+    params.stats.ignored += 1
+    return
+  }
+
   const commentId = normalizeDigits(value.id)
   const text = readString(value.text)
 
@@ -437,13 +453,14 @@ async function processCommentOrMentionEvent(params: {
   params.stats.processed += 1
 
   const orchestrator = new NativeAgentOrchestratorService()
+  const inboundSource = params.field === "mentions" ? "instagram-mention" : "instagram-comment"
   const result = await orchestrator.handleInboundMessage({
     tenant: params.resolution.dataTenant,
     message: text,
     phone: `ig-comment:${commentId}:${senderId}`,
     sessionId,
     messageId: inboundMessageId,
-    source: "instagram-comment",
+    source: inboundSource,
     contactName: senderName || undefined,
     senderName: senderName || undefined,
     messageAlreadyPersisted: true,
