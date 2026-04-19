@@ -417,6 +417,7 @@ export async function GET(req: NextRequest) {
       metaInstagramProfilePicture: instagram.instagramProfilePicture || current.metaInstagramProfilePicture,
       metaVerifyToken: verifyToken,
       metaApiVersion: apiVersion,
+      metaAppSecret: appSecret,
       isActive: current.isActive !== false,
     }
     await updateMessagingConfigForTenant(stateTenant, nextConfig)
