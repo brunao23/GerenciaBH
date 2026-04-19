@@ -162,50 +162,74 @@ async function exchangeInstagramCode(params: {
   return { accessToken, userId, expiresIn, tokenType }
 }
 
+type InstagramAccountInfo = {
+  instagramAccountId: string
+  instagramUserId?: string
+  instagramUsername?: string
+  instagramName?: string
+  instagramProfilePicture?: string
+  usableAccessToken: string
+}
+
+function extractProfileFields(json: any): Pick<InstagramAccountInfo, "instagramUsername" | "instagramName" | "instagramProfilePicture"> {
+  return {
+    instagramUsername: String(json?.username || "").trim() || undefined,
+    instagramName: String(json?.name || "").trim() || undefined,
+    instagramProfilePicture: String(json?.profile_picture_url || "").trim() || undefined,
+  }
+}
+
 async function resolveInstagramAccount(params: {
   accessToken: string
   apiVersion: string
   userId?: string
-}): Promise<{ instagramAccountId: string; instagramUserId?: string; usableAccessToken: string }> {
+}): Promise<InstagramAccountInfo> {
   const igBase = `https://graph.instagram.com/${params.apiVersion}`
   const fbBase = `https://graph.facebook.com/${params.apiVersion}`
+  const profileFields = "id,username,name,profile_picture_url"
 
   const tokenUserId = params.userId ? readIgId(params.userId) : ""
 
   // Método 1: graph.instagram.com/me com Bearer header — retorna o Business Account ID usado pelo webhook
-  const res1 = await fetch(`${igBase}/me?fields=id,username`, {
+  const res1 = await fetch(`${igBase}/me?fields=${profileFields}`, {
     method: "GET",
     headers: { Authorization: `Bearer ${params.accessToken}` },
   }).catch(() => null)
   const json1 = await res1?.json().catch(() => ({}))
   const id1 = readIgId(json1?.id)
   if (res1?.ok && id1) {
-    return { instagramAccountId: id1, instagramUserId: tokenUserId || undefined, usableAccessToken: params.accessToken }
+    return { instagramAccountId: id1, instagramUserId: tokenUserId || undefined, ...extractProfileFields(json1), usableAccessToken: params.accessToken }
   }
 
   // Método 2: graph.instagram.com/me com access_token query param
   const url2 = new URL(`${igBase}/me`)
-  url2.searchParams.set("fields", "id,username")
+  url2.searchParams.set("fields", profileFields)
   url2.searchParams.set("access_token", params.accessToken)
   const res2 = await fetch(url2.toString()).catch(() => null)
   const json2 = await res2?.json().catch(() => ({}))
   const id2 = readIgId(json2?.id)
   if (res2?.ok && id2) {
-    return { instagramAccountId: id2, instagramUserId: tokenUserId || undefined, usableAccessToken: params.accessToken }
+    return { instagramAccountId: id2, instagramUserId: tokenUserId || undefined, ...extractProfileFields(json2), usableAccessToken: params.accessToken }
   }
 
   // Método 3: graph.facebook.com/me/accounts (Facebook Login com página vinculada ao Instagram)
   const url3 = new URL(`${fbBase}/me/accounts`)
-  url3.searchParams.set("fields", "id,name,access_token,instagram_business_account{id,username},connected_instagram_account{id,username}")
+  url3.searchParams.set("fields", `id,name,access_token,instagram_business_account{${profileFields}},connected_instagram_account{${profileFields}}`)
   url3.searchParams.set("access_token", params.accessToken)
   const res3 = await fetch(url3.toString()).catch(() => null)
   const json3 = await res3?.json().catch(() => ({}))
   if (res3?.ok && Array.isArray(json3?.data)) {
     for (const page of json3.data) {
-      const igId = readIgId(page?.instagram_business_account?.id) || readIgId(page?.connected_instagram_account?.id)
+      const igAccount = page?.instagram_business_account || page?.connected_instagram_account
+      const igId = readIgId(igAccount?.id)
       if (!igId) continue
       const pageToken = String(page?.access_token || "").trim()
-      return { instagramAccountId: igId, instagramUserId: tokenUserId || undefined, usableAccessToken: pageToken || params.accessToken }
+      return {
+        instagramAccountId: igId,
+        instagramUserId: tokenUserId || undefined,
+        ...extractProfileFields(igAccount),
+        usableAccessToken: pageToken || params.accessToken,
+      }
     }
   }
 
@@ -370,6 +394,9 @@ export async function GET(req: NextRequest) {
       metaAccessToken: instagram.usableAccessToken,
       metaInstagramAccountId: instagram.instagramAccountId,
       metaInstagramUserId: instagram.instagramUserId || current.metaInstagramUserId,
+      metaInstagramUsername: instagram.instagramUsername || current.metaInstagramUsername,
+      metaInstagramName: instagram.instagramName || current.metaInstagramName,
+      metaInstagramProfilePicture: instagram.instagramProfilePicture || current.metaInstagramProfilePicture,
       metaVerifyToken: verifyToken,
       metaApiVersion: apiVersion,
       isActive: current.isActive !== false,

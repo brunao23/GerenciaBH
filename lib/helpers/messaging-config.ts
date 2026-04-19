@@ -16,6 +16,9 @@ export interface MessagingConfig {
   metaWabaId?: string
   metaInstagramAccountId?: string
   metaInstagramUserId?: string
+  metaInstagramUsername?: string
+  metaInstagramName?: string
+  metaInstagramProfilePicture?: string
   metaVerifyToken?: string
   metaAppSecret?: string
   metaApiVersion?: string
