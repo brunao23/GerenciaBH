@@ -656,7 +656,7 @@ export default function ConfiguracaoPage() {
                       Clique para autorizar pelo app Meta e salvar token + conta Instagram automaticamente.
                     </p>
                   </div>
-                  {instagramConnectionReady ? (
+                  {metaInstagramAccountId.trim() ? (
                     <Button
                       type="button"
                       onClick={handleDisconnectInstagram}
