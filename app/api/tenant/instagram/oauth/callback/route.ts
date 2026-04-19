@@ -245,20 +245,31 @@ async function subscribeToInstagramWebhook(params: {
   igAccountId: string
   accessToken: string
   apiVersion: string
-}): Promise<void> {
+}): Promise<{ ok: boolean; detail: string }> {
   const fields = "messages,comments,mentions"
-  // Tenta via graph.instagram.com (Instagram OAuth direto)
+
   const igUrl = new URL(`https://graph.instagram.com/${params.apiVersion}/${params.igAccountId}/subscribed_apps`)
   igUrl.searchParams.set("subscribed_fields", fields)
   igUrl.searchParams.set("access_token", params.accessToken)
-  const igRes = await fetch(igUrl.toString(), { method: "POST" })
-  if (igRes.ok) return
+  const igRes = await fetch(igUrl.toString(), { method: "POST" }).catch((e) => ({ ok: false, _err: e }))
+  const igJson = "json" in igRes ? await (igRes as Response).json().catch(() => ({})) : {}
+  if ((igRes as Response).ok) {
+    console.log("[InstagramOAuth] subscribed via graph.instagram.com:", igJson)
+    return { ok: true, detail: "ig_api" }
+  }
+  console.warn("[InstagramOAuth] graph.instagram.com subscription failed:", igJson)
 
-  // Fallback: graph.facebook.com (Facebook Login)
   const fbUrl = new URL(`https://graph.facebook.com/${params.apiVersion}/${params.igAccountId}/subscribed_apps`)
   fbUrl.searchParams.set("subscribed_fields", fields)
   fbUrl.searchParams.set("access_token", params.accessToken)
-  await fetch(fbUrl.toString(), { method: "POST" })
+  const fbRes = await fetch(fbUrl.toString(), { method: "POST" }).catch((e) => ({ ok: false, _err: e }))
+  const fbJson = "json" in fbRes ? await (fbRes as Response).json().catch(() => ({})) : {}
+  if ((fbRes as Response).ok) {
+    console.log("[InstagramOAuth] subscribed via graph.facebook.com:", fbJson)
+    return { ok: true, detail: "fb_api" }
+  }
+  console.warn("[InstagramOAuth] graph.facebook.com subscription failed:", fbJson)
+  return { ok: false, detail: `ig=${JSON.stringify(igJson)};fb=${JSON.stringify(fbJson)}` }
 }
 
 export async function GET(req: NextRequest) {
@@ -359,12 +370,15 @@ export async function GET(req: NextRequest) {
     }
     await updateMessagingConfigForTenant(stateTenant, nextConfig)
 
-    // Subscreve o app aos eventos do Instagram (messages, comments, mentions)
-    await subscribeToInstagramWebhook({
+    const subscription = await subscribeToInstagramWebhook({
       igAccountId: instagram.instagramAccountId,
       accessToken: instagram.usableAccessToken,
       apiVersion,
-    }).catch(() => {})
+    }).catch((e) => {
+      console.warn("[InstagramOAuth] subscribeToInstagramWebhook threw:", e)
+      return { ok: false, detail: String(e?.message || "unknown") }
+    })
+    console.log("[InstagramOAuth] subscription result:", subscription)
 
     return redirectToConfig(req, "connected", instagram.instagramAccountId, returnTo)
   } catch (error: any) {

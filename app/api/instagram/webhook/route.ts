@@ -373,8 +373,10 @@ export async function POST(req: NextRequest) {
         continue
       }
 
-      const appSecret = String(resolution.config?.metaAppSecret || "").trim() || envSecret
-      if (appSecret && !isValidSignature(appSecret, rawBody, signatureHeader)) {
+      const configSecret = String(resolution.config?.metaAppSecret || "").trim()
+      const igSecret = String(process.env.INSTAGRAM_APP_SECRET || "").trim()
+      const secrets = [configSecret, igSecret, envSecret].filter(Boolean)
+      if (secrets.length > 0 && !secrets.some((s) => isValidSignature(s, rawBody, signatureHeader))) {
         return NextResponse.json({ error: "Invalid signature" }, { status: 401 })
       }
 
