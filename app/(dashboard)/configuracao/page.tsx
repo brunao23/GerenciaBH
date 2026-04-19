@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Settings, RefreshCw, QrCode, Smartphone, Instagram, Copy, ExternalLink } from "lucide-react"
+import { Settings, RefreshCw, QrCode, Smartphone, Instagram, Copy, ExternalLink, LogOut } from "lucide-react"
 import { toast } from "sonner"
 import { useTenant } from "@/lib/contexts/TenantContext"
 
@@ -39,8 +39,12 @@ export default function ConfiguracaoPage() {
   const [metaPricingCurrency, setMetaPricingCurrency] = useState("BRL")
   const [metaPricingMarket, setMetaPricingMarket] = useState("BR")
   const [instagramConnectLoading, setInstagramConnectLoading] = useState(false)
+  const [instagramDisconnectLoading, setInstagramDisconnectLoading] = useState(false)
   const [instagramWebhookUrl, setInstagramWebhookUrl] = useState("")
   const [instagramConnectionReady, setInstagramConnectionReady] = useState(false)
+  const [instagramUsername, setInstagramUsername] = useState("")
+  const [instagramName, setInstagramName] = useState("")
+  const [instagramProfilePicture, setInstagramProfilePicture] = useState("")
 
   const [zapiQrLoading, setZapiQrLoading] = useState(false)
   const [zapiQrImage, setZapiQrImage] = useState("")
@@ -262,6 +266,9 @@ export default function ConfiguracaoPage() {
       setInstagramWebhookUrl(String(data.webhookUrl || "").trim())
       setMetaVerifyToken(String(data.verifyToken || "").trim())
       setInstagramConnectionReady(Boolean(data.connected))
+      setInstagramUsername(String(data.instagramUsername || "").trim())
+      setInstagramName(String(data.instagramName || "").trim())
+      setInstagramProfilePicture(String(data.instagramProfilePicture || "").trim())
 
       const accountId = String(data.instagramAccountId || "").trim()
       if (accountId && !metaInstagramAccountId.trim()) {
@@ -295,6 +302,9 @@ export default function ConfiguracaoPage() {
         setMetaInstagramAccountId(message)
       }
       void handleLoadInstagramStatus()
+    } else if (status === "disconnected") {
+      toast.success("Instagram desconectado.")
+      setInstagramConnectionReady(false)
     } else if (status === "error") {
       toast.error(message || "Falha ao conectar Instagram")
     }
@@ -303,6 +313,27 @@ export default function ConfiguracaoPage() {
     url.searchParams.delete("instagram_message")
     window.history.replaceState({}, "", `${url.pathname}${url.search}`)
   }, [handleLoadInstagramStatus, metaInstagramAccountId])
+
+  const handleDisconnectInstagram = async () => {
+    setInstagramDisconnectLoading(true)
+    try {
+      const res = await fetch("/api/tenant/instagram/oauth/status", { method: "DELETE" })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || data?.success !== true) {
+        throw new Error(data?.error || "Falha ao desconectar Instagram")
+      }
+      setInstagramConnectionReady(false)
+      setMetaInstagramAccountId("")
+      setInstagramUsername("")
+      setInstagramName("")
+      setInstagramProfilePicture("")
+      toast.success("Instagram desconectado.")
+    } catch (error: any) {
+      toast.error(error?.message || "Falha ao desconectar Instagram")
+    } finally {
+      setInstagramDisconnectLoading(false)
+    }
+  }
 
   const handleConnectInstagram = async () => {
     setInstagramConnectLoading(true)
@@ -625,25 +656,73 @@ export default function ConfiguracaoPage() {
                       Clique para autorizar pelo app Meta e salvar token + conta Instagram automaticamente.
                     </p>
                   </div>
-                  <Button
-                    type="button"
-                    onClick={handleConnectInstagram}
-                    disabled={instagramConnectLoading}
-                    className="bg-pink-500 hover:bg-pink-500/85 text-white"
-                  >
-                    {instagramConnectLoading ? (
-                      <>
-                        <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                        Conectando...
-                      </>
-                    ) : (
-                      <>
-                        <ExternalLink className="w-4 h-4 mr-2" />
-                        Conectar Instagram
-                      </>
-                    )}
-                  </Button>
+                  {instagramConnectionReady ? (
+                    <Button
+                      type="button"
+                      onClick={handleDisconnectInstagram}
+                      disabled={instagramDisconnectLoading}
+                      variant="outline"
+                      className="border-red-500/40 text-red-400 hover:bg-red-500/10"
+                    >
+                      {instagramDisconnectLoading ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                          Desconectando...
+                        </>
+                      ) : (
+                        <>
+                          <LogOut className="w-4 h-4 mr-2" />
+                          Desconectar
+                        </>
+                      )}
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      onClick={handleConnectInstagram}
+                      disabled={instagramConnectLoading}
+                      className="bg-pink-500 hover:bg-pink-500/85 text-white"
+                    >
+                      {instagramConnectLoading ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                          Conectando...
+                        </>
+                      ) : (
+                        <>
+                          <ExternalLink className="w-4 h-4 mr-2" />
+                          Conectar Instagram
+                        </>
+                      )}
+                    </Button>
+                  )}
                 </div>
+
+                {instagramConnectionReady && (instagramProfilePicture || instagramName || instagramUsername) && (
+                  <div className="flex items-center gap-3 p-3 rounded-lg bg-pink-500/10 border border-pink-500/20">
+                    {instagramProfilePicture && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={instagramProfilePicture}
+                        alt="Foto de perfil"
+                        className="w-10 h-10 rounded-full object-cover border border-pink-500/30"
+                      />
+                    )}
+                    {!instagramProfilePicture && (
+                      <div className="w-10 h-10 rounded-full bg-pink-500/20 flex items-center justify-center border border-pink-500/30">
+                        <Instagram className="w-5 h-5 text-pink-400" />
+                      </div>
+                    )}
+                    <div>
+                      {instagramName && (
+                        <p className="text-sm font-medium text-pure-white">{instagramName}</p>
+                      )}
+                      {instagramUsername && (
+                        <p className="text-xs text-pink-300">@{instagramUsername}</p>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 <div className="space-y-2">
                   <Label>Webhook URL (Meta)</Label>
