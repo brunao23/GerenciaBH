@@ -367,6 +367,7 @@ function extractNameFromMeta(msg: any): string | null {
   const candidates = [
     msg.pushName,
     msg.senderName,
+    msg.instagram_sender_name,
     msg.contactName,
     msg.name,
     msg.fromName,

@@ -213,6 +213,38 @@ async function resolveTenantByQueryParam(tenantParam: string | null): Promise<Te
   return { tenant, dataTenant, config }
 }
 
+// Cache in-memory para info de usuário do Instagram (1h TTL)
+const igSenderCache = new Map<string, { name: string; username: string; profilePic: string; expiresAt: number }>()
+
+async function fetchInstagramSenderInfo(
+  senderId: string,
+  accessToken: string,
+  apiVersion: string,
+): Promise<{ name: string; username: string; profilePic: string }> {
+  const empty = { name: "", username: "", profilePic: "" }
+  if (!senderId || !accessToken) return empty
+  const cacheKey = `${senderId}:${accessToken.slice(-8)}`
+  const cached = igSenderCache.get(cacheKey)
+  if (cached && cached.expiresAt > Date.now()) return { name: cached.name, username: cached.username, profilePic: cached.profilePic }
+  try {
+    const res = await fetch(
+      `https://graph.instagram.com/${apiVersion}/${senderId}?fields=name,username,profile_pic&access_token=${accessToken}`,
+      { signal: AbortSignal.timeout(3000) },
+    )
+    if (!res.ok) return empty
+    const json = await res.json().catch(() => ({}))
+    const result = {
+      name: String(json.name || "").trim(),
+      username: String(json.username || "").trim(),
+      profilePic: String(json.profile_pic || "").trim(),
+    }
+    igSenderCache.set(cacheKey, { ...result, expiresAt: Date.now() + 3_600_000 })
+    return result
+  } catch {
+    return empty
+  }
+}
+
 async function persistInboundMessage(params: {
   tenant: string
   sessionId: string
@@ -221,6 +253,7 @@ async function persistInboundMessage(params: {
   content: string
   senderId: string
   senderName?: string
+  profilePicUrl?: string
   accountId?: string
   eventType: "direct_message" | "comment" | "mention"
   commentId?: string
@@ -250,6 +283,7 @@ async function persistInboundMessage(params: {
       instagram_event_type: params.eventType,
       instagram_sender_id: params.senderId || null,
       instagram_sender_name: params.senderName || null,
+      profile_pic_url: params.profilePicUrl || null,
       instagram_account_id: params.accountId || null,
       instagram_comment_id: params.commentId || null,
     },
@@ -294,7 +328,19 @@ async function processDirectEvent(params: {
   const timestampMs = Number(event.timestamp)
   const createdAt = Number.isFinite(timestampMs) ? new Date(timestampMs).toISOString() : new Date().toISOString()
   const messageId = readString(message.mid, event.mid)
-  const senderName = readString(sender.name, sender.username)
+  let resolvedName = readString(sender.name, sender.username)
+  let resolvedProfilePic = ""
+
+  // Instagram webhooks normalmente não incluem sender.name — busca via API
+  if (!resolvedName) {
+    const accessToken = String(params.resolution.config?.metaAccessToken || "").trim()
+    const apiVersion = String(process.env.META_API_VERSION || "v25.0").trim()
+    if (accessToken) {
+      const userInfo = await fetchInstagramSenderInfo(senderId, accessToken, apiVersion)
+      resolvedName = readString(userInfo.name, userInfo.username)
+      resolvedProfilePic = userInfo.profilePic
+    }
+  }
 
   const persisted = await persistInboundMessage({
     tenant: params.resolution.dataTenant,
@@ -303,7 +349,8 @@ async function processDirectEvent(params: {
     createdAt,
     content,
     senderId,
-    senderName,
+    senderName: resolvedName || undefined,
+    profilePicUrl: resolvedProfilePic || undefined,
     accountId: params.entryId,
     eventType: "direct_message",
     raw: event,
@@ -323,8 +370,8 @@ async function processDirectEvent(params: {
     sessionId,
     messageId: messageId || undefined,
     source: "instagram",
-    contactName: senderName || undefined,
-    senderName: senderName || undefined,
+    contactName: resolvedName || undefined,
+    senderName: resolvedName || undefined,
     messageAlreadyPersisted: true,
     raw: event,
   })

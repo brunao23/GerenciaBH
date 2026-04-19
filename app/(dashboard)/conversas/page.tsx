@@ -2152,9 +2152,11 @@ export default function ConversasPage() {
                           {session.error && <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />}
                           {session.success && <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />}
                         </div>
-                        <p className="text-xs text-text-gray truncate mb-1">
-                          {highlightText(session.numero || "Sem número", query)}
-                        </p>
+                        {session.channel !== "instagram" && (
+                          <p className="text-xs text-text-gray truncate mb-1">
+                            {highlightText(session.numero || "Sem número", query)}
+                          </p>
+                        )}
                         <p className="text-xs text-text-gray/70 truncate">
                           {highlightText(
                             (session.last_message_preview ||
