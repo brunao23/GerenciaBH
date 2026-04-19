@@ -645,135 +645,136 @@ export default function ConfiguracaoPage() {
                   className="bg-foreground/8 border-border-gray text-pure-white"
                 />
               </div>
-              <div className="md:col-span-2 rounded-lg border border-border-gray/60 bg-foreground/5 p-4 space-y-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm text-pure-white font-medium flex items-center gap-2">
-                      <Instagram className="w-4 h-4 text-pink-400" />
-                      Conexao Instagram em 1 clique
-                    </p>
-                    <p className="text-xs text-text-gray">
-                      Clique para autorizar pelo app Meta e salvar token + conta Instagram automaticamente.
-                    </p>
-                  </div>
-                  {metaInstagramAccountId.trim() ? (
-                    <Button
-                      type="button"
-                      onClick={handleDisconnectInstagram}
-                      disabled={instagramDisconnectLoading}
-                      variant="outline"
-                      className="border-red-500/40 text-red-400 hover:bg-red-500/10"
-                    >
-                      {instagramDisconnectLoading ? (
-                        <>
-                          <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                          Desconectando...
-                        </>
-                      ) : (
-                        <>
-                          <LogOut className="w-4 h-4 mr-2" />
-                          Desconectar
-                        </>
-                      )}
-                    </Button>
-                  ) : (
-                    <Button
-                      type="button"
-                      onClick={handleConnectInstagram}
-                      disabled={instagramConnectLoading}
-                      className="bg-pink-500 hover:bg-pink-500/85 text-white"
-                    >
-                      {instagramConnectLoading ? (
-                        <>
-                          <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                          Conectando...
-                        </>
-                      ) : (
-                        <>
-                          <ExternalLink className="w-4 h-4 mr-2" />
-                          Conectar Instagram
-                        </>
-                      )}
-                    </Button>
-                  )}
-                </div>
+            </div>
+          )}
 
-                {instagramConnectionReady && (instagramProfilePicture || instagramName || instagramUsername) && (
-                  <div className="flex items-center gap-3 p-3 rounded-lg bg-pink-500/10 border border-pink-500/20">
-                    {instagramProfilePicture && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={instagramProfilePicture}
-                        alt="Foto de perfil"
-                        className="w-10 h-10 rounded-full object-cover border border-pink-500/30"
-                      />
-                    )}
-                    {!instagramProfilePicture && (
-                      <div className="w-10 h-10 rounded-full bg-pink-500/20 flex items-center justify-center border border-pink-500/30">
-                        <Instagram className="w-5 h-5 text-pink-400" />
-                      </div>
-                    )}
-                    <div>
-                      {instagramName && (
-                        <p className="text-sm font-medium text-pure-white">{instagramName}</p>
-                      )}
-                      {instagramUsername && (
-                        <p className="text-xs text-pink-300">@{instagramUsername}</p>
-                      )}
-                    </div>
+          <div className="rounded-lg border border-border-gray/60 bg-foreground/5 p-4 space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm text-pure-white font-medium flex items-center gap-2">
+                  <Instagram className="w-4 h-4 text-pink-400" />
+                  Conexao Instagram em 1 clique
+                </p>
+                <p className="text-xs text-text-gray">
+                  Clique para autorizar pelo app Meta e salvar token + conta Instagram automaticamente.
+                </p>
+              </div>
+              {metaInstagramAccountId.trim() ? (
+                <Button
+                  type="button"
+                  onClick={handleDisconnectInstagram}
+                  disabled={instagramDisconnectLoading}
+                  variant="outline"
+                  className="border-red-500/40 text-red-400 hover:bg-red-500/10"
+                >
+                  {instagramDisconnectLoading ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                      Desconectando...
+                    </>
+                  ) : (
+                    <>
+                      <LogOut className="w-4 h-4 mr-2" />
+                      Desconectar
+                    </>
+                  )}
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  onClick={handleConnectInstagram}
+                  disabled={instagramConnectLoading}
+                  className="bg-pink-500 hover:bg-pink-500/85 text-white"
+                >
+                  {instagramConnectLoading ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                      Conectando...
+                    </>
+                  ) : (
+                    <>
+                      <ExternalLink className="w-4 h-4 mr-2" />
+                      Conectar Instagram
+                    </>
+                  )}
+                </Button>
+              )}
+            </div>
+
+            {instagramConnectionReady && (instagramProfilePicture || instagramName || instagramUsername) && (
+              <div className="flex items-center gap-3 p-3 rounded-lg bg-pink-500/10 border border-pink-500/20">
+                {instagramProfilePicture && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={instagramProfilePicture}
+                    alt="Foto de perfil"
+                    className="w-10 h-10 rounded-full object-cover border border-pink-500/30"
+                  />
+                )}
+                {!instagramProfilePicture && (
+                  <div className="w-10 h-10 rounded-full bg-pink-500/20 flex items-center justify-center border border-pink-500/30">
+                    <Instagram className="w-5 h-5 text-pink-400" />
                   </div>
                 )}
-
-                <div className="space-y-2">
-                  <Label>Webhook URL (Meta)</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      value={instagramWebhookUrl}
-                      readOnly
-                      placeholder="Clique em Conectar Instagram para gerar"
-                      className="bg-foreground/8 border-border-gray text-pure-white"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="border-border-gray text-pure-white hover:bg-white/10"
-                      onClick={() => copyToClipboard(instagramWebhookUrl, "Webhook copiado.")}
-                    >
-                      <Copy className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Verify Token (Meta)</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      value={metaVerifyToken}
-                      readOnly
-                      placeholder="Gerado automaticamente"
-                      className="bg-foreground/8 border-border-gray text-pure-white"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="border-border-gray text-pure-white hover:bg-white/10"
-                      onClick={() => copyToClipboard(metaVerifyToken, "Verify token copiado.")}
-                    >
-                      <Copy className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="text-xs">
-                  {instagramConnectionReady ? (
-                    <span className="text-emerald-400">Instagram conectado para esta unidade.</span>
-                  ) : (
-                    <span className="text-amber-400">Instagram ainda nao conectado nesta unidade.</span>
+                <div>
+                  {instagramName && (
+                    <p className="text-sm font-medium text-pure-white">{instagramName}</p>
+                  )}
+                  {instagramUsername && (
+                    <p className="text-xs text-pink-300">@{instagramUsername}</p>
                   )}
                 </div>
               </div>
+            )}
+
+            <div className="space-y-2">
+              <Label>Webhook URL (Meta)</Label>
+              <div className="flex gap-2">
+                <Input
+                  value={instagramWebhookUrl}
+                  readOnly
+                  placeholder="Clique em Conectar Instagram para gerar"
+                  className="bg-foreground/8 border-border-gray text-pure-white"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="border-border-gray text-pure-white hover:bg-white/10"
+                  onClick={() => copyToClipboard(instagramWebhookUrl, "Webhook copiado.")}
+                >
+                  <Copy className="w-4 h-4" />
+                </Button>
+              </div>
             </div>
-          )}
+
+            <div className="space-y-2">
+              <Label>Verify Token (Meta)</Label>
+              <div className="flex gap-2">
+                <Input
+                  value={metaVerifyToken}
+                  readOnly
+                  placeholder="Gerado automaticamente"
+                  className="bg-foreground/8 border-border-gray text-pure-white"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="border-border-gray text-pure-white hover:bg-white/10"
+                  onClick={() => copyToClipboard(metaVerifyToken, "Verify token copiado.")}
+                >
+                  <Copy className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+
+            <div className="text-xs">
+              {instagramConnectionReady ? (
+                <span className="text-emerald-400">Instagram conectado para esta unidade.</span>
+              ) : (
+                <span className="text-amber-400">Instagram ainda nao conectado nesta unidade.</span>
+              )}
+            </div>
+          </div>
 
           <div className="flex flex-wrap gap-3">
             <Button
