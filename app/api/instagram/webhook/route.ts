@@ -141,13 +141,48 @@ async function findTenantByInstagramAccountId(accountId: string): Promise<Tenant
     return (candidateAccount && candidateAccount === normalizedAccountId) ||
            (candidateUser && candidateUser === normalizedAccountId)
   })
-  if (!match?.unit_prefix) return null
+  if (match?.unit_prefix) {
+    const tenant = normalizeTenant(String(match.unit_prefix || ""))
+    if (tenant) {
+      const dataTenant = await resolveTenantDataPrefix(tenant)
+      const metadata = safeObject(match.metadata)
+      return { tenant, dataTenant, config: metadata.messaging || null }
+    }
+  }
 
-  const tenant = normalizeTenant(String(match.unit_prefix || ""))
-  if (!tenant) return null
-  const dataTenant = await resolveTenantDataPrefix(tenant)
-  const metadata = safeObject(match.metadata)
-  return { tenant, dataTenant, config: metadata.messaging || null }
+  // Último recurso: verifica via API qual tenant tem acesso a esse account ID.
+  // Isso resolve o caso onde o ID armazenado (app-scoped) difere do entry.id (Business Account ID).
+  const apiVersion = String(process.env.META_API_VERSION || "v25.0").trim()
+  const igBase = `https://graph.instagram.com/${apiVersion}`
+  for (const unit of allUnits) {
+    const config = safeObject(unit?.metadata?.messaging)
+    const token = String(config.metaAccessToken || "").trim()
+    if (!token) continue
+    try {
+      const res = await fetch(`${igBase}/${normalizedAccountId}?fields=id&access_token=${token}`)
+      const json = await res.json().catch(() => ({}))
+      const resolvedId = normalizeDigits(json?.id)
+      if (res.ok && resolvedId === normalizedAccountId) {
+        console.log("[IGWebhook] resolved tenant via API token verification:", unit.unit_prefix)
+        const tenant = normalizeTenant(String(unit.unit_prefix || ""))
+        if (!tenant) continue
+        // Atualiza o ID armazenado para evitar verificações futuras
+        const supabaseUpdate = createBiaSupabaseServerClient()
+        const { data: unitRow } = await supabaseUpdate.from("units_registry").select("id, metadata").eq("unit_prefix", unit.unit_prefix).maybeSingle()
+        if (unitRow) {
+          const updatedMetadata = { ...safeObject(unitRow.metadata), messaging: { ...config, metaInstagramAccountId: normalizedAccountId } }
+          await supabaseUpdate.from("units_registry").update({ metadata: updatedMetadata }).eq("id", unitRow.id)
+          console.log("[IGWebhook] updated metaInstagramAccountId to:", normalizedAccountId, "for tenant:", tenant)
+        }
+        const dataTenant = await resolveTenantDataPrefix(tenant)
+        return { tenant, dataTenant, config: { ...config, metaInstagramAccountId: normalizedAccountId } }
+      }
+    } catch {
+      // ignora erros individuais de verificação
+    }
+  }
+
+  return null
 }
 
 async function resolveTenantByQueryParam(tenantParam: string | null): Promise<TenantResolution | null> {

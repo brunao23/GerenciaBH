@@ -190,40 +190,57 @@ async function resolveInstagramAccount(params: {
 
   const tokenUserId = params.userId ? readIgId(params.userId) : ""
 
-  // Método 1: graph.instagram.com/me com Bearer header — retorna o Business Account ID usado pelo webhook
-  const res1 = await fetch(`${igBase}/me?fields=${profileFields}`, {
+  // Método 1: graph.facebook.com/me?fields=instagram_business_account — retorna o Business Account ID
+  // que o Meta usa no entry.id dos webhooks (diferente do user_id app-scoped do Instagram Login)
+  const url1fb = new URL(`${fbBase}/me`)
+  url1fb.searchParams.set("fields", `instagram_business_account{${profileFields}}`)
+  url1fb.searchParams.set("access_token", params.accessToken)
+  const res1fb = await fetch(url1fb.toString()).catch(() => null)
+  const json1fb = await res1fb?.json().catch(() => ({}))
+  const fbIgAccount = json1fb?.instagram_business_account
+  const fbIgId = readIgId(fbIgAccount?.id)
+  if (res1fb?.ok && fbIgId) {
+    console.log("[InstagramOAuth] resolved via fb/me instagram_business_account:", fbIgId)
+    return { instagramAccountId: fbIgId, instagramUserId: tokenUserId || undefined, ...extractProfileFields(fbIgAccount), usableAccessToken: params.accessToken }
+  }
+
+  // Método 2: graph.instagram.com/me com Bearer header
+  const res2 = await fetch(`${igBase}/me?fields=${profileFields}`, {
     method: "GET",
     headers: { Authorization: `Bearer ${params.accessToken}` },
   }).catch(() => null)
-  const json1 = await res1?.json().catch(() => ({}))
-  const id1 = readIgId(json1?.id)
-  if (res1?.ok && id1) {
-    return { instagramAccountId: id1, instagramUserId: tokenUserId || undefined, ...extractProfileFields(json1), usableAccessToken: params.accessToken }
-  }
-
-  // Método 2: graph.instagram.com/me com access_token query param
-  const url2 = new URL(`${igBase}/me`)
-  url2.searchParams.set("fields", profileFields)
-  url2.searchParams.set("access_token", params.accessToken)
-  const res2 = await fetch(url2.toString()).catch(() => null)
   const json2 = await res2?.json().catch(() => ({}))
   const id2 = readIgId(json2?.id)
   if (res2?.ok && id2) {
+    console.log("[InstagramOAuth] resolved via ig/me Bearer:", id2)
     return { instagramAccountId: id2, instagramUserId: tokenUserId || undefined, ...extractProfileFields(json2), usableAccessToken: params.accessToken }
   }
 
-  // Método 3: graph.facebook.com/me/accounts (Facebook Login com página vinculada ao Instagram)
-  const url3 = new URL(`${fbBase}/me/accounts`)
-  url3.searchParams.set("fields", `id,name,access_token,instagram_business_account{${profileFields}},connected_instagram_account{${profileFields}}`)
+  // Método 3: graph.instagram.com/me com access_token query param
+  const url3 = new URL(`${igBase}/me`)
+  url3.searchParams.set("fields", profileFields)
   url3.searchParams.set("access_token", params.accessToken)
   const res3 = await fetch(url3.toString()).catch(() => null)
   const json3 = await res3?.json().catch(() => ({}))
-  if (res3?.ok && Array.isArray(json3?.data)) {
-    for (const page of json3.data) {
+  const id3 = readIgId(json3?.id)
+  if (res3?.ok && id3) {
+    console.log("[InstagramOAuth] resolved via ig/me query:", id3)
+    return { instagramAccountId: id3, instagramUserId: tokenUserId || undefined, ...extractProfileFields(json3), usableAccessToken: params.accessToken }
+  }
+
+  // Método 4: graph.facebook.com/me/accounts (Facebook Login com página vinculada ao Instagram)
+  const url4 = new URL(`${fbBase}/me/accounts`)
+  url4.searchParams.set("fields", `id,name,access_token,instagram_business_account{${profileFields}},connected_instagram_account{${profileFields}}`)
+  url4.searchParams.set("access_token", params.accessToken)
+  const res4 = await fetch(url4.toString()).catch(() => null)
+  const json4 = await res4?.json().catch(() => ({}))
+  if (res4?.ok && Array.isArray(json4?.data)) {
+    for (const page of json4.data) {
       const igAccount = page?.instagram_business_account || page?.connected_instagram_account
       const igId = readIgId(igAccount?.id)
       if (!igId) continue
       const pageToken = String(page?.access_token || "").trim()
+      console.log("[InstagramOAuth] resolved via fb/me/accounts page:", igId)
       return {
         instagramAccountId: igId,
         instagramUserId: tokenUserId || undefined,
@@ -233,8 +250,9 @@ async function resolveInstagramAccount(params: {
     }
   }
 
-  // Método 4: fallback — usar user_id do token (pode não coincidir com entry.id do webhook)
+  // Método 5: fallback — usar user_id do token (pode não coincidir com entry.id do webhook)
   if (tokenUserId) {
+    console.log("[InstagramOAuth] fallback to tokenUserId:", tokenUserId)
     return { instagramAccountId: tokenUserId, usableAccessToken: params.accessToken }
   }
 
