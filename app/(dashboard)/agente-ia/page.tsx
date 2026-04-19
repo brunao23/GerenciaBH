@@ -606,6 +606,7 @@ export default function AgenteIAPage() {
   const [connectingGoogle, setConnectingGoogle] = useState(false)
   const [disconnectingGoogle, setDisconnectingGoogle] = useState(false)
   const [instagramConnectLoading, setInstagramConnectLoading] = useState(false)
+  const [instagramDisconnectLoading, setInstagramDisconnectLoading] = useState(false)
   const [instagramConnectionReady, setInstagramConnectionReady] = useState(false)
   const [instagramAccountId, setInstagramAccountId] = useState("")
   const [instagramOauthError, setInstagramOauthError] = useState("")
@@ -752,6 +753,22 @@ export default function AgenteIAPage() {
     } catch (error: any) {
       toast.error(error?.message || "Falha ao conectar Instagram")
       setInstagramConnectLoading(false)
+    }
+  }
+
+  const handleDisconnectInstagram = async () => {
+    setInstagramDisconnectLoading(true)
+    try {
+      const res = await fetch("/api/tenant/instagram/oauth/status", { method: "DELETE" })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || data?.success !== true) throw new Error(data?.error || "Falha ao desconectar Instagram")
+      setInstagramConnectionReady(false)
+      setInstagramAccountId("")
+      toast.success("Instagram desconectado.")
+    } catch (error: any) {
+      toast.error(error?.message || "Falha ao desconectar Instagram")
+    } finally {
+      setInstagramDisconnectLoading(false)
     }
   }
 
@@ -2238,17 +2255,30 @@ export default function AgenteIAPage() {
                   </p>
                 </div>
               </div>
-              <Button
-                type="button"
-                onClick={() => handleConnectInstagram("instagram")}
-                disabled={instagramConnectLoading}
-                variant={instagramConnectionReady ? "outline" : "default"}
-                className={instagramConnectionReady
-                  ? "border border-green-500 text-green-500 hover:bg-green-500/10 shrink-0"
-                  : "border border-primary bg-primary text-black hover:bg-primary/80 hover:border-primary/80 shrink-0"}
-              >
-                {instagramConnectLoading ? "Conectando..." : instagramConnectionReady ? "Reconectar" : "Conectar Instagram"}
-              </Button>
+              <div className="flex gap-2 shrink-0">
+                {instagramConnectionReady && (
+                  <Button
+                    type="button"
+                    onClick={handleDisconnectInstagram}
+                    disabled={instagramDisconnectLoading}
+                    variant="outline"
+                    className="border border-red-500/50 text-red-400 hover:bg-red-500/10"
+                  >
+                    {instagramDisconnectLoading ? "Desconectando..." : "Desconectar"}
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  onClick={() => handleConnectInstagram("instagram")}
+                  disabled={instagramConnectLoading}
+                  variant={instagramConnectionReady ? "outline" : "default"}
+                  className={instagramConnectionReady
+                    ? "border border-green-500 text-green-500 hover:bg-green-500/10"
+                    : "border border-primary bg-primary text-black hover:bg-primary/80 hover:border-primary/80"}
+                >
+                  {instagramConnectLoading ? "Conectando..." : instagramConnectionReady ? "Reconectar" : "Conectar Instagram"}
+                </Button>
+              </div>
             </div>
           </div>
 
