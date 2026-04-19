@@ -752,6 +752,7 @@ export class TenantMessagingService {
     source?: string
     additional?: Record<string, any>
   }) {
+    const isHuman = String(input.source || "").toLowerCase().includes("human")
     try {
       const chat = new TenantChatHistoryService(input.tenant)
       await chat.persistMessage({
@@ -763,14 +764,15 @@ export class TenantMessagingService {
         source: input.source || "native-agent",
         additional: {
           fromMe: true,
-          manual: String(input.source || "").toLowerCase().includes("human"),
-          sender_type: String(input.source || "").toLowerCase().includes("human") ? "human" : "ia",
+          manual: isHuman,
+          sender_type: isHuman ? "human" : "ia",
           from_api: true,
           ...(input.additional || {}),
         },
       })
     } catch (error) {
       console.warn("[TenantMessaging] Failed to persist outgoing message:", error)
+      if (isHuman) throw error
     }
   }
 
