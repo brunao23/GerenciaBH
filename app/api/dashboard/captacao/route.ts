@@ -2,6 +2,13 @@ import { NextResponse } from "next/server"
 import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 
+// Brazil is UTC-3 — all date boundaries must use BRT midnight, not UTC
+const BRT_OFFSET_MS = 3 * 60 * 60 * 1000
+
+function toBrtDate(isoString: string): string {
+  return new Date(new Date(isoString).getTime() - BRT_OFFSET_MS).toISOString().slice(0, 10)
+}
+
 function parsePeriod(searchParams: URLSearchParams): { start: string | null; end: string } {
   const period = searchParams.get("period") || "30d"
   const now = new Date()
@@ -11,14 +18,18 @@ function parsePeriod(searchParams: URLSearchParams): { start: string | null; end
   if (period === "custom") {
     const s = searchParams.get("startDate")
     const e = searchParams.get("endDate")
-    if (s && e) return { start: new Date(s).toISOString(), end: new Date(e).toISOString() }
+    if (s && e) return {
+      start: new Date(`${s}T00:00:00-03:00`).toISOString(),
+      end: new Date(`${e}T23:59:59-03:00`).toISOString(),
+    }
   }
 
   const daysMap: Record<string, number> = { "7d": 7, "15d": 15, "30d": 30, "90d": 90 }
   const days = daysMap[period] || 30
-  const start = new Date(now)
-  start.setDate(start.getDate() - (days - 1))
-  start.setHours(0, 0, 0, 0)
+  // Compute BRT "today" date, then go back (days-1) and set to midnight BRT = 03:00 UTC
+  const nowBrtMs = now.getTime() - BRT_OFFSET_MS
+  const start = new Date(nowBrtMs - (days - 1) * 24 * 60 * 60 * 1000)
+  start.setUTCHours(3, 0, 0, 0) // 03:00 UTC = 00:00 BRT
   return { start: start.toISOString(), end: now.toISOString() }
 }
 
@@ -70,7 +81,7 @@ export async function GET(req: Request) {
 
   const byDay: Record<string, number> = {}
   for (const r of rows) {
-    const day = r.created_at.slice(0, 10)
+    const day = toBrtDate(r.created_at)
     byDay[day] = (byDay[day] || 0) + 1
   }
 
