@@ -8,7 +8,7 @@ const META_GRAPH_API = "https://graph.facebook.com/v20.0"
 
 // Meta webhook verification
 export async function GET(req: NextRequest) {
-  const verifyToken = process.env.META_WEBHOOK_VERIFY_TOKEN || "gerencia_meta_webhook_2026"
+  const verifyToken = (process.env.META_WEBHOOK_VERIFY_TOKEN || "gerencia_meta_webhook_2026").trim()
   const mode = req.nextUrl.searchParams.get("hub.mode")
   const token = req.nextUrl.searchParams.get("hub.verify_token")
   const challenge = req.nextUrl.searchParams.get("hub.challenge")
