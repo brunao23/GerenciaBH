@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
@@ -19,6 +19,14 @@ import { toast } from "sonner"
 type ConversationTone = "consultivo" | "acolhedor" | "direto" | "formal"
 type AudioProvider = "elevenlabs" | "custom_http"
 type MessageMode = "text" | "image" | "video" | "document"
+type InstagramMediaOption = {
+  id: string
+  caption: string
+  mediaType: string
+  permalink: string
+  thumbnailUrl: string
+  mediaUrl: string
+}
 
 type TenantNativeAgentConfig = {
   enabled: boolean
@@ -640,10 +648,55 @@ export default function AdminAgenteIAPage({ params }: { params: Promise<{ id: st
   const [saving, setSaving] = useState(false)
   const [connectingGoogle, setConnectingGoogle] = useState(false)
   const [disconnectingGoogle, setDisconnectingGoogle] = useState(false)
+  const [instagramConnectionReady, setInstagramConnectionReady] = useState(false)
+  const [instagramMediaLoading, setInstagramMediaLoading] = useState(false)
+  const [instagramMediaOptions, setInstagramMediaOptions] = useState<InstagramMediaOption[]>([])
 
   const googleCalendarConnected = useMemo(() => {
     return Boolean(config.googleOAuthConnectedAt) || config.googleOAuthRefreshToken === "***"
   }, [config.googleOAuthConnectedAt, config.googleOAuthRefreshToken])
+
+  const loadInstagramMedia = useCallback(
+    async (options?: { silentErrors?: boolean }) => {
+      setInstagramMediaLoading(true)
+      try {
+        const res = await fetch(`/api/admin/units/${id}/instagram/media?limit=50`, {
+          cache: "no-store",
+        })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          setInstagramConnectionReady(false)
+          throw new Error(data?.error || "Falha ao carregar posts do Instagram")
+        }
+
+        const media = Array.isArray(data?.media) ? data.media : []
+        const normalized: InstagramMediaOption[] = media
+          .map((item: any) => ({
+            id: String(item?.id || "").replace(/\D/g, ""),
+            caption: String(item?.caption || "").trim(),
+            mediaType: String(item?.mediaType || item?.media_type || "").trim().toLowerCase(),
+            permalink: String(item?.permalink || "").trim(),
+            thumbnailUrl: String(item?.thumbnailUrl || item?.thumbnail_url || "").trim(),
+            mediaUrl: String(item?.mediaUrl || item?.media_url || "").trim(),
+          }))
+          .filter((item: InstagramMediaOption) => Boolean(item.id))
+
+        setInstagramConnectionReady(true)
+        setInstagramMediaOptions(normalized)
+        if (!options?.silentErrors && !normalized.length) {
+          toast.info("Nao foram encontrados posts recentes para esta conta.")
+        }
+      } catch (error: any) {
+        setInstagramMediaOptions([])
+        if (!options?.silentErrors) {
+          toast.error(error?.message || "Falha ao carregar posts do Instagram")
+        }
+      } finally {
+        setInstagramMediaLoading(false)
+      }
+    },
+    [id],
+  )
 
   useEffect(() => {
     const load = async () => {
@@ -661,14 +714,15 @@ export default function AdminAgenteIAPage({ params }: { params: Promise<{ id: st
         setToolNotificationTargetsInput((normalized.toolNotificationTargets || []).join("\n"))
         setCalendarBlockedDatesInput((normalized.calendarBlockedDates || []).join("\n"))
         setCalendarBlockedTimeRangesInput((normalized.calendarBlockedTimeRanges || []).join("\n"))
+        await loadInstagramMedia({ silentErrors: true })
       } catch (error: any) {
         toast.error(error?.message || "Erro ao carregar configuracao")
       } finally {
         setLoading(false)
       }
     }
-    load()
-  }, [])
+    void load()
+  }, [id, loadInstagramMedia])
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -1811,7 +1865,7 @@ export default function AdminAgenteIAPage({ params }: { params: Promise<{ id: st
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid md:grid-cols-2 gap-4">
+          <div className="grid md:grid-cols-1 gap-4">
             <div className="space-y-2">
               <Label>Escopo das palavras-chave</Label>
               <Select
@@ -1833,25 +1887,70 @@ export default function AdminAgenteIAPage({ params }: { params: Promise<{ id: st
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label>Posts especificos (IDs, um por linha)</Label>
-              <Textarea
-                value={(config.socialSellerKeywordPostIds || []).join("\n")}
-                onChange={(e) =>
-                  setConfig((prev) => ({
-                    ...prev,
-                    socialSellerKeywordPostIds: e.target.value
-                      .split(/\r?\n|,/g)
-                      .map((v) => String(v || "").replace(/\D/g, "").trim())
-                      .filter(Boolean)
-                      .filter((v, i, arr) => arr.indexOf(v) === i),
-                  }))
-                }
-                className="bg-secondary border-border text-foreground min-h-[96px]"
-                placeholder="17890000111111111"
-                disabled={loading}
-              />
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <Label>Posts monitorados no keyword chat</Label>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void loadInstagramMedia()}
+                disabled={loading || instagramMediaLoading}
+              >
+                {instagramMediaLoading ? "Atualizando..." : "Atualizar posts"}
+              </Button>
             </div>
+            <p className="text-xs text-gray-400">
+              Os posts sao carregados automaticamente. Marque os posts desejados quando o escopo estiver em
+              posts especificos.
+            </p>
+            {instagramMediaOptions.length > 0 && (
+              <div className="max-h-56 overflow-auto rounded-md border border-border p-3 space-y-2">
+                {instagramMediaOptions.map((item) => {
+                  const checked = (config.socialSellerKeywordPostIds || []).includes(item.id)
+                  const summary = item.caption || item.permalink || item.mediaType || item.id
+                  return (
+                    <label key={item.id} className="flex items-start gap-2 text-xs text-gray-300">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) =>
+                          setConfig((prev) => {
+                            const current = new Set(prev.socialSellerKeywordPostIds || [])
+                            if (e.target.checked) current.add(item.id)
+                            else current.delete(item.id)
+                            return { ...prev, socialSellerKeywordPostIds: Array.from(current) }
+                          })
+                        }
+                        disabled={loading}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        <span className="font-mono text-[11px] text-gray-400">{item.id}</span>
+                        <span className="block text-gray-300">{summary.slice(0, 180)}</span>
+                      </span>
+                    </label>
+                  )
+                })}
+              </div>
+            )}
+            {!instagramMediaLoading && instagramConnectionReady && instagramMediaOptions.length === 0 && (
+              <p className="text-xs text-gray-500">
+                Nenhum post recente encontrado. Clique em atualizar para tentar novamente.
+              </p>
+            )}
+            {!instagramMediaLoading && !instagramConnectionReady && (
+              <p className="text-xs text-gray-500">
+                Instagram nao conectado para esta unidade. Configure a integracao em Configuracoes.
+              </p>
+            )}
+            {config.socialSellerKeywordScope === "specific_posts" &&
+              !(config.socialSellerKeywordPostIds || []).length && (
+                <p className="text-xs text-amber-400">
+                  Defina ao menos um post para escopo especifico.
+                </p>
+              )}
           </div>
 
           <div className="grid md:grid-cols-3 gap-4">

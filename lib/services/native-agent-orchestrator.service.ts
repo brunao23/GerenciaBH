@@ -750,6 +750,18 @@ function stripReactionMarkers(text: string): string {
     .trim()
 }
 
+function stripInternalTags(text: string): string {
+  return String(text || "")
+    .replace(/^\s*\[HUMANO[_\s]?EQUIPE\]\s*/gi, "")
+    .replace(/^\s*\[HUMAN[_\s]?TEAM\]\s*/gi, "")
+    .replace(/^\s*\[EQUIPE\]\s*/gi, "")
+    .replace(/^\s*\[IA\]\s*/gi, "")
+    .replace(/^\s*\[LEAD\]\s*/gi, "")
+    .replace(/^\s*\[SISTEMA\]\s*/gi, "")
+    .replace(/^\s*\[SYSTEM\]\s*/gi, "")
+    .trim()
+}
+
 function applyAssistantOutputPolicy(
   value: string,
   options: { allowEmojis: boolean },
@@ -758,6 +770,7 @@ function applyAssistantOutputPolicy(
   if (!text) return ""
 
   let normalized = tryRepairMojibake(text)
+  normalized = stripInternalTags(normalized)
   normalized = stripReactionMarkers(normalized)
   normalized = stripMarkdownFormatting(normalized)
   normalized = stripHyphensAndDashes(normalized)
@@ -3514,6 +3527,13 @@ export class NativeAgentOrchestratorService {
       "5. Guardrails 1 e 2: ativacao imediata na PRIMEIRA ocorrencia.",
       "6. Guardrails 3 e 5: 1 deflexao natural, depois aciona.",
       "7. Guardrail 7: regra permanente — nao ha tolerancia, aplicar em TODA mensagem enviada.",
+      "8. Guardrail 9: regra permanente — NUNCA inclua tags internas em QUALQUER mensagem enviada.",
+      "",
+      "## GUARDRAIL 9 — PROIBICAO ABSOLUTA DE TAGS INTERNAS DE SISTEMA (PRIORIDADE MAXIMA)",
+      "ESTAS TAGS SAO EXCLUSIVAMENTE INTERNAS DO SISTEMA. NUNCA DEVEM APARECER EM MENSAGENS ENVIADAS AO LEAD.",
+      "TAGS PROIBIDAS em QUALQUER MENSAGEM (lista nao exaustiva): [HUMANO_EQUIPE], [HUMANOEQUIPE], [HUMANO EQUIPE], [HUMAN_TEAM], [HUMAN TEAM], [EQUIPE], [IA], [LEAD], [SISTEMA], [SYSTEM].",
+      "CONTEXTO: o historico de conversa pode conter mensagens prefixadas com [HUMANO_EQUIPE] para indicar que uma mensagem foi enviada por um atendente humano — isso e APENAS para seu entendimento interno.",
+      "ACAO: NUNCA reproduza, imite ou inclua essas tags nas suas respostas. Se voce se pegar querendo usar esse formato, OMITA completamente a tag e escreva apenas o conteudo da mensagem.",
       "===========================================================================",
       "",
       "REGRA CRITICA DE IDENTIDADE E NOMES:",

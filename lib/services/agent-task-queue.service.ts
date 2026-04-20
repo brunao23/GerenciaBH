@@ -58,8 +58,21 @@ function excerpt(input: string, max = 140): string {
   return `${text.slice(0, max - 1)}...`
 }
 
+function stripInternalContextTags(text: string): string {
+  return String(text || "")
+    .replace(/^\s*\[HUMANO[_\s]?EQUIPE\]\s*/gi, "")
+    .replace(/^\s*\[HUMAN[_\s]?TEAM\]\s*/gi, "")
+    .replace(/^\s*\[EQUIPE\]\s*/gi, "")
+    .replace(/^\s*\[IA\]\s*/gi, "")
+    .replace(/^\s*\[LEAD\]\s*/gi, "")
+    .replace(/^\s*\[SISTEMA\]\s*/gi, "")
+    .replace(/^\s*\[SYSTEM\]\s*/gi, "")
+    .trim()
+}
+
 function sanitizeFollowupText(input: string, max = 220): string {
-  return excerpt(String(input || "").replace(/\r/g, " ").replace(/\n+/g, " "), max)
+  const stripped = stripInternalContextTags(String(input || ""))
+  return excerpt(stripped.replace(/\r/g, " ").replace(/\n+/g, " "), max)
 }
 
 function normalizeComparableText(input: string): string {

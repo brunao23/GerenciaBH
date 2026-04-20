@@ -279,12 +279,26 @@ function normalizeSenderType(msg: any, role: "user" | "bot", fromMe: boolean): S
   if (explicit === "system") return "system"
 
   const source = String(msg?.source ?? "").trim().toLowerCase()
+  const type = String(msg?.type ?? "").trim().toLowerCase()
+  const rawType = String(msg?.zapi_type ?? msg?.callback_type ?? msg?.callbackType ?? "").trim().toLowerCase()
+  const roleValue = String(msg?.role ?? role ?? "").trim().toLowerCase()
   const manual = msg?.manual === true || source.includes("human-manual")
   const fromApi = parseBoolean(msg?.from_api ?? msg?.fromApi)
 
-  if (role === "user" || fromMe === false) return "lead"
+  if (
+    roleValue === "system" ||
+    type === "system" ||
+    type === "status" ||
+    rawType === "status" ||
+    source.includes("status-callback")
+  ) {
+    return "system"
+  }
   if (manual) return "human"
   if (fromMe === true && fromApi === false && source === "zapi-webhook") return "human"
+  if (fromMe === true) return "ia"
+  if (fromMe === false) return "lead"
+  if (role === "user") return "lead"
   return "ia"
 }
 
@@ -781,7 +795,10 @@ function extractNameFromMessageMeta(msg: any): string | null {
 
   const candidates = [
     msg.pushName,
+    msg.sender_name,
     msg.senderName,
+    msg.instagram_sender_name,
+    msg.contact_name,
     msg.contactName,
     msg.name,
     msg.fromName,
@@ -795,6 +812,12 @@ function extractNameFromMessageMeta(msg: any): string | null {
     msg.contact?.pushName,
     msg.data?.pushName,
     msg.data?.senderName,
+    msg.additional?.sender_name,
+    msg.additional?.contact_name,
+    msg.additional?.senderName,
+    msg.additional?.contactName,
+    msg.zapi_meta?.sender_name,
+    msg.zapi_meta?.contact_name,
   ]
 
   const blocked = new Set([
@@ -826,6 +849,95 @@ function extractNameFromMessageMeta(msg: any): string | null {
   }
 
   return null
+}
+
+function extractProfilePicFromMessageMeta(msg: any): string | null {
+  if (!msg || typeof msg !== "object") return null
+
+  const candidates = [
+    msg.profilePicUrl,
+    msg.profile_pic_url,
+    msg.profile_picture_url,
+    msg.picUrl,
+    msg.sender_photo,
+    msg.senderPhoto,
+    msg.profile_picture,
+    msg.avatar,
+    msg.avatar_url,
+    msg.contactAvatar,
+    msg.instagram_profile_picture,
+    msg.instagram_profile_pic,
+    msg.sender?.profilePicUrl,
+    msg.sender?.profile_picture_url,
+    msg.sender?.profile_pic,
+    msg.sender?.profile_picture,
+    msg.contact?.profilePicUrl,
+    msg.contact?.profile_picture_url,
+    msg.contact?.avatar,
+    msg.contact?.avatar_url,
+    msg.additional?.profile_pic_url,
+    msg.additional?.profile_picture_url,
+    msg.additional?.profile_picture,
+    msg.additional?.avatar,
+    msg.additional?.avatar_url,
+    msg.additional?.contact?.profile_picture_url,
+    msg.additional?.instagram_profile_picture,
+    msg.additional?.instagram_profile_pic,
+    msg.additional?.sender_photo,
+    msg.additional?.senderPhoto,
+    msg.zapi_meta?.profile_pic_url,
+    msg.zapi_meta?.profileUrl,
+  ]
+
+  for (const candidate of candidates) {
+    const value = String(candidate || "").trim()
+    if (!value) continue
+    if (/^https?:\/\//i.test(value)) return value
+  }
+  return null
+}
+
+function extractInstagramUsernameFromMessageMeta(msg: any): string | null {
+  if (!msg || typeof msg !== "object") return null
+  const raw = String(
+    msg.instagram_username ??
+    msg.ig_username ??
+    msg.instagramUsername ??
+    msg.additional?.instagram_username ??
+    msg.additional?.ig_username ??
+    msg.additional?.instagramUsername ??
+    msg.sender?.username ??
+    msg.sender?.instagram_username ??
+    msg.sender?.ig_username ??
+    msg.username ??
+    "",
+  )
+    .trim()
+    .replace(/^@+/, "")
+  if (!raw) return null
+  return /^[a-zA-Z0-9._]{2,50}$/.test(raw) ? raw : null
+}
+
+function extractInstagramBioFromMessageMeta(msg: any): string | null {
+  if (!msg || typeof msg !== "object") return null
+  const explicitBio = String(
+    msg.instagram_bio ??
+    msg.biography ??
+    msg.instagram_biography ??
+    msg.profile_bio ??
+    msg.additional?.instagram_bio ??
+    msg.additional?.biography ??
+    msg.additional?.instagram_biography ??
+    msg.additional?.profile_bio ??
+    "",
+  ).trim()
+  if (explicitBio) return explicitBio.slice(0, 600)
+
+  const profileContext = String(msg.additional?.instagram_profile_context || "").trim()
+  if (!profileContext) return null
+  const match = profileContext.match(/Bio:\s*"([^"]{2,900})"/i)
+  if (!match?.[1]) return null
+  return String(match[1]).trim().slice(0, 600)
 }
 
 function extractNameFromMessage(text: string, role: string): string | null {
@@ -1324,6 +1436,9 @@ export async function GET(req: Request) {
       let hasError = false
       let hasSuccess = false
       let detectedName: string | null = null
+      let detectedProfilePic: string | null = null
+      let detectedInstagramUsername: string | null = null
+      let detectedInstagramBio: string | null = null
       let formData: any = null // Dados do formulÃ¡rio extraÃ­dos
 
       // LEI INVIOLÃVEL: Ordena items por id ASCENDENTE antes de processar
@@ -1354,6 +1469,13 @@ export async function GET(req: Request) {
           const fromMe = extractFromMe(msg, role)
           const senderType = normalizeSenderType(msg, role, fromMe)
           const raw = String(msg.content ?? msg.text ?? "").trim()
+
+          if (msg.action === "update_contact") {
+            const updatedName = String(msg.updated_name || "").trim()
+            const updatedProfilePic = String(msg.updated_profile_pic || "").trim()
+            if (updatedName && !detectedName) detectedName = updatedName
+            if (updatedProfilePic && !detectedProfilePic) detectedProfilePic = updatedProfilePic
+          }
 
           // Se nÃ£o tem conteÃºdo vÃ¡lido, ignora
           if (!raw || raw.length < 1) {
@@ -1389,14 +1511,27 @@ export async function GET(req: Request) {
             }
           }
 
-          if (!detectedName && role === "user") {
+          const isLeadMessage = senderType === "lead"
+
+          if (isLeadMessage && !detectedProfilePic) {
+            const profilePic = extractProfilePicFromMessageMeta(msg)
+            if (profilePic) detectedProfilePic = profilePic
+          }
+          if (isLeadMessage && !detectedInstagramUsername) {
+            const username = extractInstagramUsernameFromMessageMeta(msg)
+            if (username) detectedInstagramUsername = username
+          }
+          if (isLeadMessage && !detectedInstagramBio) {
+            const bio = extractInstagramBioFromMessageMeta(msg)
+            if (bio) detectedInstagramBio = bio
+          }
+          if (isLeadMessage && !detectedName) {
             const metaName = extractNameFromMessageMeta(msg)
             if (metaName) detectedName = metaName
           }
 
-          // Extrai nome de qualquer mensagem (usuÃ¡rio ou IA)
-          if (!detectedName) {
-            const extractedName = extractNameFromMessage(raw, role)
+          if (isLeadMessage && !detectedName) {
+            const extractedName = extractNameFromMessage(raw, "user")
             if (extractedName) {
               detectedName = extractedName
             }
@@ -1762,6 +1897,9 @@ export async function GET(req: Request) {
         session_id,
         numero,
         contact_name,
+        profile_pic: detectedProfilePic || undefined,
+        instagram_username: detectedInstagramUsername || undefined,
+        instagram_bio: detectedInstagramBio || undefined,
         channel,
         messages: finalMessages,
         last_id,

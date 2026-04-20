@@ -1,11 +1,15 @@
 "use client"
 
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
+import { useState } from "react"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Button } from "@/components/ui/button"
-import { Phone, MessageSquare, Calendar, TrendingUp, ExternalLink, Clock, User, Briefcase, Target, Clock3 } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Phone, MessageSquare, Calendar, TrendingUp, ExternalLink, Clock, User, Bot, Briefcase, Target, Clock3, UserPlus, Loader2, MessageCircle, Instagram, Users } from "lucide-react"
+import { toast } from "sonner"
 import Link from "next/link"
 
 interface LeadDetailsProps {
@@ -20,6 +24,7 @@ interface LeadDetailsProps {
         lastInteraction: string
         status: string
         tags: string[]
+        channel?: string
         sentiment: 'positive' | 'neutral' | 'negative'
         totalMessages?: number
         messageHistory?: Array<{
@@ -40,6 +45,55 @@ interface LeadDetailsProps {
 }
 
 export function LeadDetailsModal({ isOpen, onClose, lead }: LeadDetailsProps) {
+    const [contactDialogOpen, setContactDialogOpen] = useState(false)
+    const [contactForm, setContactForm] = useState({ nome: "", telefone: "", email: "", empresa: "", origem: "", observacao: "" })
+    const [submittingContact, setSubmittingContact] = useState(false)
+
+    const openContactDialog = () => {
+        if (!lead) return
+        const isGenericName = /^lead\s*\d+$/i.test(lead.name.trim())
+        const channelLabel = lead.channel === 'instagram' ? 'Instagram' : lead.channel === 'whatsapp_group' ? 'Grupo WhatsApp' : 'WhatsApp'
+        setContactForm({
+            nome: isGenericName ? "" : lead.name,
+            telefone: lead.numero,
+            email: "",
+            empresa: "",
+            origem: channelLabel,
+            observacao: "",
+        })
+        setContactDialogOpen(true)
+    }
+
+    const handleSaveContact = async () => {
+        if (!contactForm.nome.trim() || !contactForm.telefone.trim()) {
+            toast.error("Nome e telefone são obrigatórios")
+            return
+        }
+        setSubmittingContact(true)
+        try {
+            const res = await fetch("/api/contatos", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    nome: contactForm.nome.trim(),
+                    telefone: contactForm.telefone.trim(),
+                    email: contactForm.email.trim() || undefined,
+                    empresa: contactForm.empresa.trim() || undefined,
+                    origem: contactForm.origem.trim() || undefined,
+                    observacao: contactForm.observacao.trim() || undefined,
+                }),
+            })
+            const data = await res.json().catch(() => ({}))
+            if (!res.ok) throw new Error(data.error || "Falha ao salvar contato")
+            toast.success(`${contactForm.nome} adicionado aos contatos!`)
+            setContactDialogOpen(false)
+        } catch (err: any) {
+            toast.error(`Erro: ${err.message}`)
+        } finally {
+            setSubmittingContact(false)
+        }
+    }
+
     if (!lead) return null
 
     const getSentimentBadge = (sentiment: string) => {
@@ -74,11 +128,23 @@ export function LeadDetailsModal({ isOpen, onClose, lead }: LeadDetailsProps) {
         <Dialog open={isOpen} onOpenChange={onClose}>
             <DialogContent className="max-w-2xl bg-background border-border-gray">
                 <DialogHeader>
-                    <DialogTitle className="text-2xl text-pure-white flex items-center gap-3">
+                    <DialogTitle className="text-2xl text-pure-white flex items-center gap-3 flex-wrap">
                         {lead.name}
                         <Badge variant="outline" className={getStatusColor(lead.status)}>
                             {lead.status.replace('_', ' ').toUpperCase()}
                         </Badge>
+                        {lead.channel && (
+                            <Badge variant="outline" className={`text-xs ${
+                                lead.channel === 'instagram'
+                                    ? 'border-pink-500/40 text-pink-400 bg-pink-500/10'
+                                    : lead.channel === 'whatsapp_group'
+                                    ? 'border-emerald-500/40 text-emerald-400 bg-emerald-500/10'
+                                    : 'border-green-500/40 text-green-400 bg-green-500/10'
+                            }`}>
+                                {lead.channel === 'instagram' ? <Instagram className="w-3 h-3 mr-1 inline" /> : lead.channel === 'whatsapp_group' ? <Users className="w-3 h-3 mr-1 inline" /> : <MessageCircle className="w-3 h-3 mr-1 inline" />}
+                                {lead.channel === 'whatsapp_group' ? 'Grupo' : lead.channel === 'instagram' ? 'Instagram' : 'WhatsApp'}
+                            </Badge>
+                        )}
                     </DialogTitle>
                     <DialogDescription className="text-text-gray flex items-center gap-2">
                         <Phone className="w-4 h-4" />
@@ -222,8 +288,8 @@ export function LeadDetailsModal({ isOpen, onClose, lead }: LeadDetailsProps) {
                                     lead.messageHistory.map((msg, i) => (
                                         <div key={i} className={`p-3 rounded-lg ${msg.type === 'human' ? 'bg-accent-green/10 border-l-2 border-accent-green' : 'bg-background border-l-2 border-blue-500'}`}>
                                             <div className="flex justify-between items-start mb-1">
-                                                <span className="text-xs font-medium text-pure-white">
-                                                    {msg.type === 'human' ? '👤 Lead' : '🤖 IA'}
+                                                <span className="text-xs font-medium text-pure-white flex items-center gap-1">
+                                                    {msg.type === 'human' ? <><User className="w-3 h-3" /> Lead</> : <><Bot className="w-3 h-3 text-blue-400" /> IA</>}
                                                 </span>
                                                 <span className="text-xs text-text-gray">
                                                     {new Date(msg.timestamp).toLocaleString('pt-BR')}
@@ -242,12 +308,16 @@ export function LeadDetailsModal({ isOpen, onClose, lead }: LeadDetailsProps) {
                     <Separator className="bg-border-gray" />
 
                     {/* Ações */}
-                    <div className="flex gap-3">
-                        <Button asChild className="flex-1 bg-accent-green hover:bg-accent-green/80">
+                    <div className="flex gap-3 flex-wrap">
+                        <Button asChild className="flex-1 bg-accent-green hover:bg-accent-green/80 min-w-[180px]">
                             <Link href={`/conversas?session=${lead.id}`} target="_blank">
                                 <ExternalLink className="w-4 h-4 mr-2" />
                                 Ver Conversa Completa
                             </Link>
+                        </Button>
+                        <Button onClick={openContactDialog} variant="outline" className="border-sky-500/40 text-sky-400 hover:bg-sky-500/10">
+                            <UserPlus className="w-4 h-4 mr-2" />
+                            Salvar como Contato
                         </Button>
                         <Button onClick={onClose} variant="outline" className="border-border-gray">
                             Fechar
@@ -255,6 +325,52 @@ export function LeadDetailsModal({ isOpen, onClose, lead }: LeadDetailsProps) {
                     </div>
                 </div>
             </DialogContent>
+
+            <Dialog open={contactDialogOpen} onOpenChange={(open) => { if (!open) setContactDialogOpen(false) }}>
+                <DialogContent className="bg-secondary-black border-border-gray sm:max-w-lg">
+                    <DialogHeader>
+                        <DialogTitle className="text-pure-white flex items-center gap-2">
+                            <UserPlus className="w-5 h-5 text-sky-400" /> Salvar como Contato
+                        </DialogTitle>
+                        <DialogDescription className="text-text-gray">
+                            Preencha os dados para salvar este lead na sua base de contatos.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid grid-cols-2 gap-3 py-2">
+                        <div className="col-span-2 space-y-1">
+                            <Label className="text-text-gray text-xs">Nome *</Label>
+                            <Input placeholder="Nome completo" value={contactForm.nome} onChange={(e) => setContactForm((f) => ({ ...f, nome: e.target.value }))} className="bg-primary-black border-border-gray text-pure-white" />
+                        </div>
+                        <div className="space-y-1">
+                            <Label className="text-text-gray text-xs">Telefone *</Label>
+                            <Input placeholder="(11) 99999-9999" value={contactForm.telefone} onChange={(e) => setContactForm((f) => ({ ...f, telefone: e.target.value }))} className="bg-primary-black border-border-gray text-pure-white" />
+                        </div>
+                        <div className="space-y-1">
+                            <Label className="text-text-gray text-xs">E-mail</Label>
+                            <Input placeholder="email@exemplo.com" value={contactForm.email} onChange={(e) => setContactForm((f) => ({ ...f, email: e.target.value }))} className="bg-primary-black border-border-gray text-pure-white" />
+                        </div>
+                        <div className="space-y-1">
+                            <Label className="text-text-gray text-xs">Empresa</Label>
+                            <Input placeholder="Nome da empresa" value={contactForm.empresa} onChange={(e) => setContactForm((f) => ({ ...f, empresa: e.target.value }))} className="bg-primary-black border-border-gray text-pure-white" />
+                        </div>
+                        <div className="space-y-1">
+                            <Label className="text-text-gray text-xs">Origem</Label>
+                            <Input placeholder="Canal de origem" value={contactForm.origem} onChange={(e) => setContactForm((f) => ({ ...f, origem: e.target.value }))} className="bg-primary-black border-border-gray text-pure-white" />
+                        </div>
+                        <div className="col-span-2 space-y-1">
+                            <Label className="text-text-gray text-xs">Observação</Label>
+                            <Input placeholder="Observações adicionais" value={contactForm.observacao} onChange={(e) => setContactForm((f) => ({ ...f, observacao: e.target.value }))} className="bg-primary-black border-border-gray text-pure-white" />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" className="border-border-gray text-text-gray" onClick={() => setContactDialogOpen(false)}>Cancelar</Button>
+                        <Button onClick={handleSaveContact} disabled={submittingContact} className="bg-sky-600 hover:bg-sky-500 text-white">
+                            {submittingContact ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <UserPlus className="w-4 h-4 mr-2" />}
+                            Salvar Contato
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </Dialog>
     )
 }

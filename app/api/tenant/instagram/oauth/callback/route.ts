@@ -167,14 +167,16 @@ type InstagramAccountInfo = {
   instagramUserId?: string
   instagramUsername?: string
   instagramName?: string
+  instagramBio?: string
   instagramProfilePicture?: string
   usableAccessToken: string
 }
 
-function extractProfileFields(json: any): Pick<InstagramAccountInfo, "instagramUsername" | "instagramName" | "instagramProfilePicture"> {
+function extractProfileFields(json: any): Pick<InstagramAccountInfo, "instagramUsername" | "instagramName" | "instagramBio" | "instagramProfilePicture"> {
   return {
     instagramUsername: String(json?.username || "").trim() || undefined,
     instagramName: String(json?.name || "").trim() || undefined,
+    instagramBio: String(json?.biography || "").trim() || undefined,
     instagramProfilePicture: String(json?.profile_picture_url || "").trim() || undefined,
   }
 }
@@ -186,7 +188,7 @@ async function resolveInstagramAccount(params: {
 }): Promise<InstagramAccountInfo> {
   const igBase = `https://graph.instagram.com/${params.apiVersion}`
   const fbBase = `https://graph.facebook.com/${params.apiVersion}`
-  const profileFields = "id,username,name,profile_picture_url"
+  const profileFields = "id,username,name,biography,profile_picture_url"
 
   const tokenUserId = params.userId ? readIgId(params.userId) : ""
 
@@ -414,6 +416,7 @@ export async function GET(req: NextRequest) {
       metaInstagramUserId: instagram.instagramUserId || current.metaInstagramUserId,
       metaInstagramUsername: instagram.instagramUsername || current.metaInstagramUsername,
       metaInstagramName: instagram.instagramName || current.metaInstagramName,
+      metaInstagramBio: instagram.instagramBio || current.metaInstagramBio,
       metaInstagramProfilePicture: instagram.instagramProfilePicture || current.metaInstagramProfilePicture,
       metaVerifyToken: verifyToken,
       metaApiVersion: apiVersion,

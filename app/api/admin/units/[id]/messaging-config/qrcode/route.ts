@@ -100,9 +100,16 @@ export async function GET(req: NextRequest, context: { params: RouteParams }) {
 
     const status = await service.checkInstanceStatus()
     if (status.connected) {
+      const profileResult = await service.getConnectedProfile().catch(() => ({ success: false, profile: undefined }))
+      const profile = profileResult.success ? profileResult.profile : undefined
       return NextResponse.json({
         success: true,
-        status: { connected: true },
+        status: {
+          connected: true,
+          profileName: profile?.name || null,
+          profilePhone: profile?.phone || null,
+          profilePicture: profile?.profilePicture || null,
+        },
         qrCodeImage: null,
       })
     }

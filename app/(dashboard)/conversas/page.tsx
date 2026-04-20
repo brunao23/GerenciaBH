@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/select"
 import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card"
 import { ScrollArea } from "../../../components/ui/scroll-area"
-import { Avatar, AvatarFallback } from "../../../components/ui/avatar"
+import { Avatar, AvatarFallback, AvatarImage } from "../../../components/ui/avatar"
 import { Badge } from "../../../components/ui/badge"
 import { Button } from "../../../components/ui/button"
 import {
@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/dialog"
 import { Search, MessageSquare, Phone, User, Clock, AlertCircle, CheckCircle2, PauseCircle, PlayCircle, Calendar, UserMinus, Loader2, Briefcase, Target, Clock3, Sparkles, Zap, Download, ListChecks, XCircle, Send, Trash2, Edit2, DollarSign, Copy, RefreshCcw } from "lucide-react"
 import { useTenant } from "@/lib/contexts/TenantContext"
+import { resolveAvatarImageSrc } from "@/lib/helpers/avatar-proxy"
 import { toast } from "sonner"
 
 type ChatMessage = {
@@ -52,6 +53,8 @@ type ChatSession = {
   numero?: string | null
   contact_name?: string
   channel?: "whatsapp" | "instagram"
+  instagram_username?: string
+  instagram_bio?: string
   messages: ChatMessage[]
   messages_count?: number
   last_message_preview?: string
@@ -804,9 +807,27 @@ export default function ConversasPage() {
           return arr.map((session) => {
             const existing = prevById.get(session.session_id)
             if (existing && !existing.isSummary) {
+              const summaryName = String(session.contact_name || "").trim()
+              const existingName = String(existing.contact_name || "").trim()
+              const summaryIsGeneric =
+                /^lead(?:\s*#?\d+)?$/i.test(summaryName) ||
+                /^instagram(?:\s*#?\d+)?$/i.test(summaryName)
+              const mergedName = summaryName && !summaryIsGeneric ? summaryName : existingName || summaryName
+
+              const summaryPic = String(session.profile_pic || "").trim()
+              const existingPic = String(existing.profile_pic || "").trim()
+              const mergedPic = (/^https?:\/\//i.test(summaryPic) || /^data:image\//i.test(summaryPic))
+                ? summaryPic
+                : existingPic
+
               return {
-                ...session,
                 ...existing,
+                ...session,
+                contact_name: mergedName || session.contact_name || existing.contact_name,
+                profile_pic: mergedPic || undefined,
+                instagram_username: session.instagram_username || existing.instagram_username,
+                instagram_bio: session.instagram_bio || existing.instagram_bio,
+                messages: existing.messages,
                 messages_count: existing.messages_count ?? existing.messages.length,
                 isSummary: false,
               }
@@ -1073,10 +1094,28 @@ export default function ConversasPage() {
         prev.map((session) => {
           if (session.session_id !== sessionId) return session
           const detailedMessages = Array.isArray(detailed.messages) ? detailed.messages : session.messages
+          const currentName = String(session.contact_name || "").trim()
+          const detailedName = String(detailed.contact_name || "").trim()
+          const currentIsGeneric =
+            /^lead(?:\s*#?\d+)?$/i.test(currentName) ||
+            /^instagram(?:\s*#?\d+)?$/i.test(currentName)
+          const nextName = !currentName
+            ? detailedName
+            : currentIsGeneric && detailedName
+              ? detailedName
+              : currentName
+          const currentPic = String(session.profile_pic || "").trim()
+          const detailedPic = String(detailed.profile_pic || "").trim()
+          const currentPicLooksValid = /^https?:\/\//i.test(currentPic) || /^data:image\//i.test(currentPic)
+          const nextPic = currentPicLooksValid ? currentPic : detailedPic || currentPic
 
           return {
             ...session,
             ...detailed,
+            contact_name: nextName || session.contact_name || detailed.contact_name,
+            profile_pic: nextPic || undefined,
+            instagram_username: session.instagram_username || detailed.instagram_username,
+            instagram_bio: session.instagram_bio || detailed.instagram_bio,
             messages: detailedMessages,
             messages_count: detailedMessages.length,
             isSummary: false,
@@ -2130,13 +2169,16 @@ export default function ConversasPage() {
                         </div>
                       )}
                       <Avatar className="w-10 h-10 border border-border-gray/50 shrink-0">
-                        {session.profile_pic ? (
-                          <img src={session.profile_pic} alt="Foto" className="object-cover w-full h-full" />
-                        ) : (
-                          <AvatarFallback className="bg-secondary-black text-text-gray text-xs">
-                            {session.contact_name?.charAt(0).toUpperCase() || "L"}
-                          </AvatarFallback>
-                        )}
+                        {resolveAvatarImageSrc(session.profile_pic) ? (
+                          <AvatarImage
+                            src={resolveAvatarImageSrc(session.profile_pic)}
+                            alt="Foto"
+                            className="object-cover"
+                          />
+                        ) : null}
+                        <AvatarFallback className="bg-secondary-black text-text-gray text-xs">
+                          {session.contact_name?.charAt(0).toUpperCase() || "L"}
+                        </AvatarFallback>
                       </Avatar>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between gap-2 mb-1">
@@ -2156,6 +2198,20 @@ export default function ConversasPage() {
                           <p className="text-xs text-text-gray truncate mb-1">
                             {highlightText(session.numero || "Sem número", query)}
                           </p>
+                        )}
+                        {session.channel === "instagram" && (session.instagram_username || session.instagram_bio) && (
+                          <div className="mb-1 space-y-0.5">
+                            {session.instagram_username && (
+                              <p className="text-[11px] text-pink-300 truncate">
+                                @{highlightText(session.instagram_username, query)}
+                              </p>
+                            )}
+                            {session.instagram_bio && (
+                              <p className="text-xs text-text-gray/80 line-clamp-2">
+                                {highlightText(session.instagram_bio.substring(0, 120), query)}
+                              </p>
+                            )}
+                          </div>
                         )}
                         <p className="text-xs text-text-gray/70 truncate">
                           {highlightText(
@@ -2221,13 +2277,16 @@ export default function ConversasPage() {
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <Avatar className="w-12 h-12 shrink-0 border border-border-gray/50">
-                    {current.profile_pic ? (
-                       <img src={current.profile_pic} alt="Foto" className="object-cover w-full h-full rounded-full" />
-                    ) : (
-                       <AvatarFallback className="bg-secondary-black text-accent-green font-bold text-lg">
-                         {current.contact_name?.charAt(0).toUpperCase() || "L"}
-                       </AvatarFallback>
-                    )}
+                    {resolveAvatarImageSrc(current.profile_pic) ? (
+                      <AvatarImage
+                        src={resolveAvatarImageSrc(current.profile_pic)}
+                        alt="Foto"
+                        className="object-cover"
+                      />
+                    ) : null}
+                    <AvatarFallback className="bg-secondary-black text-accent-green font-bold text-lg">
+                      {current.contact_name?.charAt(0).toUpperCase() || "L"}
+                    </AvatarFallback>
                   </Avatar>
                   <div>
                     <h3 className="text-lg font-bold text-pure-white flex items-center gap-2">
@@ -2258,6 +2317,16 @@ export default function ConversasPage() {
                         {current.messages_count ?? current.messages.length} mensagens
                       </span>
                     </div>
+                    {current.channel === "instagram" && (current.instagram_username || current.instagram_bio) && (
+                      <div className="mt-1 space-y-0.5">
+                        {current.instagram_username && (
+                          <p className="text-xs text-pink-300">@{current.instagram_username}</p>
+                        )}
+                        {current.instagram_bio && (
+                          <p className="text-xs text-text-gray line-clamp-2">{current.instagram_bio}</p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
 

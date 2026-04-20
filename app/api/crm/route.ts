@@ -49,6 +49,7 @@ interface CRMCard {
         etapaName: string
         etapaInterval: string
     }
+    channel: string
 }
 
 interface CRMColumn {
@@ -91,6 +92,31 @@ const BLOCKED_LEAD_NAMES = new Set([
     "robo",
     "lead",
 ])
+
+function detectChannel(sessionId: string): string {
+    const lower = String(sessionId || "").toLowerCase()
+    if (lower.includes("@g.us")) return "whatsapp_group"
+    if (lower.includes("@s.whatsapp.net") || lower.includes("@c.us")) return "whatsapp"
+    if (lower.includes("@instagram") || lower.includes("@lid")) return "instagram"
+    if (lower.includes("@telegram")) return "telegram"
+    return "whatsapp"
+}
+
+function isN8NCallbackContent(text: string): boolean {
+    if (!text || typeof text !== "string") return true
+    const t = text.trim()
+    if (!t || t.length < 3) return true
+    const patterns = [
+        /^\[ReceivedCallback\]/i,
+        /^\[Evento sem texto\]/i,
+        /^Evento sem texto/i,
+        /^\[N8N\]/i,
+        /^ReceivedCallback/i,
+        /^\{.*"event"\s*:\s*"messages\.upsert"/i,
+        /^\{.*"event"\s*:\s*"send\.message"/i,
+    ]
+    return patterns.some((p) => p.test(t))
+}
 
 function normalizePhone(value: string): string {
     return String(value || "")
@@ -1122,27 +1148,34 @@ export async function GET(req: Request) {
                 })
                 .filter((m): m is { content: string; type: string; timestamp: string } => m !== null)
 
-            let lastMsgFinal = "Mensagem nÃ£o disponÃ­vel"
-            let firstMsgFinal = "Mensagem nÃ£o disponÃ­vel"
+            let lastMsgFinal = "Mensagem não disponível"
+            let firstMsgFinal = "Mensagem não disponível"
 
             try {
-                const lastMsgContent = String(lastMsg.message?.content || lastMsg.message?.text || '')
-                // LEI INVIOLÃVEL: NormalizaÃ§Ã£o robusta
-                const lastMsgType = String(lastMsg.message?.type ?? "").toLowerCase()
-                const lastMsgRoleStr = String(lastMsg.message?.role ?? "").toLowerCase()
-                const lastMsgIsUser = lastMsgType === "human" || lastMsgType === "user" || lastMsgRoleStr === "user" || lastMsgRoleStr === "human"
-                const lastMsgCleaned = lastMsgIsUser ? cleanHumanMessage(lastMsgContent) : cleanAIMessage(lastMsgContent)
-                lastMsgFinal = lastMsgCleaned && lastMsgCleaned.trim().length >= 3 ? lastMsgCleaned : "Mensagem nÃ£o disponÃ­vel"
+                // Busca retroativa: encontra a ultima mensagem com conteudo real
+                for (let i = messages.length - 1; i >= 0; i--) {
+                    const m = messages[i]
+                    if (!m || !m.message) continue
+                    const rawContent = String(m.message?.content || m.message?.text || '')
+                    if (isN8NCallbackContent(rawContent)) continue
+                    const mType = String(m.message?.type ?? "").toLowerCase()
+                    const mRole = String(m.message?.role ?? "").toLowerCase()
+                    const mIsUser = mType === "human" || mType === "user" || mRole === "user" || mRole === "human"
+                    const cleaned = mIsUser ? cleanHumanMessage(rawContent) : cleanAIMessage(rawContent)
+                    if (cleaned && cleaned.trim().length >= 3) {
+                        lastMsgFinal = cleaned
+                        break
+                    }
+                }
             } catch (e) { }
 
             try {
                 const firstMsgContent = String(firstMsg.message?.content || firstMsg.message?.text || '')
-                // LEI INVIOLÃVEL: NormalizaÃ§Ã£o robusta
                 const firstMsgType = String(firstMsg.message?.type ?? "").toLowerCase()
                 const firstMsgRoleStr = String(firstMsg.message?.role ?? "").toLowerCase()
                 const firstMsgIsUser = firstMsgType === "human" || firstMsgType === "user" || firstMsgRoleStr === "user" || firstMsgRoleStr === "human"
                 const firstMsgCleaned = firstMsgIsUser ? cleanHumanMessage(firstMsgContent) : cleanAIMessage(firstMsgContent)
-                firstMsgFinal = firstMsgCleaned && firstMsgCleaned.trim().length >= 3 ? firstMsgCleaned : "Mensagem nÃ£o disponÃ­vel"
+                firstMsgFinal = firstMsgCleaned && firstMsgCleaned.trim().length >= 3 ? firstMsgCleaned : "Mensagem não disponível"
             } catch (e) { }
 
             // Contar mensagens do lead vs IA de forma precisa ANTES de criar o card
@@ -1182,6 +1215,7 @@ export async function GET(req: Request) {
                 status,
                 unreadCount: 0,
                 tags: isSuccess ? ['Convertido'] : [],
+                channel: detectChannel(sessionId),
                 sentiment,
                 totalMessages: messages.length,
                 totalMessagesFromLead: messagesFromLead,
@@ -1337,6 +1371,7 @@ export async function GET(req: Request) {
                         status: statusRow?.status || "entrada",
                         unreadCount: 0,
                         tags: kommoTags.length > 0 ? [...kommoTags, "Kommo"] : ["Kommo"],
+                        channel: "whatsapp",
                         sentiment: "neutral",
                         totalMessages: 0,
                         totalMessagesFromLead: 0,

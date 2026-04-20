@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd"
 import { Badge } from "@/components/ui/badge"
-import { Clock, Phone, Eye, Settings2, Plus, X, PauseCircle, Clock3, Timer, GripVertical, CheckCircle2, UserMinus, DollarSign, Loader2 } from "lucide-react"
+import { Clock, Phone, Eye, Settings2, Plus, X, PauseCircle, Clock3, Timer, GripVertical, CheckCircle2, UserMinus, DollarSign, Loader2, MessageCircle, Instagram, Users, UserPlus } from "lucide-react"
 import { toast } from "sonner"
 import { LeadDetailsModal } from "./lead-details-modal"
 import { Button } from "@/components/ui/button"
@@ -22,6 +22,7 @@ interface CRMCard {
     status: string
     unreadCount: number
     tags: string[]
+    channel?: string
     sentiment: 'positive' | 'neutral' | 'negative'
     totalMessages?: number
     messageHistory?: Array<{
@@ -158,6 +159,54 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
             setSubmittingSale(false)
         }
     }
+    const [addContactCard, setAddContactCard] = useState<CRMCard | null>(null)
+    const [contactForm, setContactForm] = useState({ nome: "", telefone: "", email: "", empresa: "", origem: "", observacao: "" })
+    const [submittingContact, setSubmittingContact] = useState(false)
+
+    const handleOpenAddContact = (card: CRMCard) => {
+        const channelLabel = card.channel === 'instagram' ? 'Instagram' : card.channel === 'whatsapp_group' ? 'Grupo WhatsApp' : 'WhatsApp'
+        const isGenericName = /^lead\s*\d+$/i.test(card.name.trim())
+        setContactForm({
+            nome: isGenericName ? "" : card.name,
+            telefone: card.numero,
+            email: "",
+            empresa: "",
+            origem: channelLabel,
+            observacao: "",
+        })
+        setAddContactCard(card)
+    }
+
+    const handleSaveContact = async () => {
+        if (!contactForm.nome.trim() || !contactForm.telefone.trim()) {
+            toast.error("Nome e telefone são obrigatórios")
+            return
+        }
+        setSubmittingContact(true)
+        try {
+            const res = await fetch("/api/contatos", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    nome: contactForm.nome.trim(),
+                    telefone: contactForm.telefone.trim(),
+                    email: contactForm.email.trim() || undefined,
+                    empresa: contactForm.empresa.trim() || undefined,
+                    origem: contactForm.origem.trim() || undefined,
+                    observacao: contactForm.observacao.trim() || undefined,
+                }),
+            })
+            const data = await res.json().catch(() => ({}))
+            if (!res.ok) throw new Error(data.error || "Falha ao salvar contato")
+            toast.success(`${contactForm.nome} adicionado aos contatos!`)
+            setAddContactCard(null)
+        } catch (err: any) {
+            toast.error(`Erro: ${err.message}`)
+        } finally {
+            setSubmittingContact(false)
+        }
+    }
+
     const [isFunnelModalOpen, setIsFunnelModalOpen] = useState(false)
     const [customColumns, setCustomColumns] = useState<FunnelColumn[]>(() => (
         funnelConfig.length > 0 ? funnelConfig : mapColumnsToFunnel(initialData)
@@ -630,11 +679,31 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                                                                         <Clock className="w-3 h-3" />
                                                                                         {new Date(card.lastInteraction).toLocaleDateString('pt-BR')}
                                                                                     </div>
-                                                                                    {card.tags.length > 0 && (
-                                                                                        <Badge variant="outline" className="text-[10px] h-5 px-1 border-accent-green/30 text-accent-green">
-                                                                                            {card.tags[0]}
-                                                                                        </Badge>
-                                                                                    )}
+                                                                                    <div className="flex items-center gap-1">
+                                                                                        {card.channel && (
+                                                                                            <Badge variant="outline" className={`text-[10px] h-5 px-1.5 ${
+                                                                                                card.channel === 'instagram'
+                                                                                                    ? 'border-pink-500/40 text-pink-400 bg-pink-500/10'
+                                                                                                    : card.channel === 'whatsapp_group'
+                                                                                                    ? 'border-emerald-500/40 text-emerald-400 bg-emerald-500/10'
+                                                                                                    : 'border-green-500/40 text-green-400 bg-green-500/10'
+                                                                                            }`}>
+                                                                                                {card.channel === 'instagram' ? (
+                                                                                                    <Instagram className="w-2.5 h-2.5 mr-0.5" />
+                                                                                                ) : card.channel === 'whatsapp_group' ? (
+                                                                                                    <Users className="w-2.5 h-2.5 mr-0.5" />
+                                                                                                ) : (
+                                                                                                    <MessageCircle className="w-2.5 h-2.5 mr-0.5" />
+                                                                                                )}
+                                                                                                {card.channel === 'whatsapp_group' ? 'Grupo' : card.channel === 'instagram' ? 'Insta' : 'WA'}
+                                                                                            </Badge>
+                                                                                        )}
+                                                                                        {card.tags.length > 0 && (
+                                                                                            <Badge variant="outline" className="text-[10px] h-5 px-1 border-accent-green/30 text-accent-green">
+                                                                                                {card.tags[0]}
+                                                                                            </Badge>
+                                                                                        )}
+                                                                                    </div>
                                                                                 </div>
 
                                                                                 <div className="flex gap-1 mt-2" onClick={(e) => e.stopPropagation()}>
@@ -668,18 +737,32 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                                                                         <DollarSign className="w-3 h-3 mr-1" />Venda
                                                                                     </Button>
                                                                                 </div>
-                                                                                <Button
-                                                                                    size="sm"
-                                                                                    variant="ghost"
-                                                                                    className="w-full mt-1 text-xs opacity-0 group-hover:opacity-100 transition-opacity"
-                                                                                    onClick={(e) => {
-                                                                                        e.stopPropagation()
-                                                                                        handleCardClick(card)
-                                                                                    }}
-                                                                                >
-                                                                                    <Eye className="w-3 h-3 mr-1" />
-                                                                                    Ver Detalhes
-                                                                                </Button>
+                                                                                <div className="flex gap-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+                                                                                    <Button
+                                                                                        size="sm"
+                                                                                        variant="ghost"
+                                                                                        className="flex-1 h-6 text-xs"
+                                                                                        onClick={(e) => {
+                                                                                            e.stopPropagation()
+                                                                                            handleCardClick(card)
+                                                                                        }}
+                                                                                    >
+                                                                                        <Eye className="w-3 h-3 mr-1" />
+                                                                                        Detalhes
+                                                                                    </Button>
+                                                                                    <Button
+                                                                                        size="sm"
+                                                                                        variant="ghost"
+                                                                                        className="flex-1 h-6 text-xs text-sky-400 hover:bg-sky-400/10 hover:text-sky-300"
+                                                                                        onClick={(e) => {
+                                                                                            e.stopPropagation()
+                                                                                            handleOpenAddContact(card)
+                                                                                        }}
+                                                                                    >
+                                                                                        <UserPlus className="w-3 h-3 mr-1" />
+                                                                                        Contato
+                                                                                    </Button>
+                                                                                </div>
                                                                             </div>
                                                                         )}
                                                                     </Draggable>
@@ -705,6 +788,84 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                 onClose={() => setIsModalOpen(false)}
                 lead={selectedLead}
             />
+
+            <Dialog open={!!addContactCard} onOpenChange={(open) => { if (!open) setAddContactCard(null) }}>
+                <DialogContent className="bg-secondary-black border-border-gray sm:max-w-lg">
+                    <DialogHeader>
+                        <DialogTitle className="text-pure-white flex items-center gap-2">
+                            <UserPlus className="w-5 h-5 text-sky-400" /> Adicionar aos Contatos
+                        </DialogTitle>
+                        <DialogDescription className="text-text-gray">
+                            Preencha os dados para salvar este lead na sua base de contatos.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid grid-cols-2 gap-3 py-2">
+                        <div className="col-span-2 space-y-1">
+                            <Label className="text-text-gray text-xs">Nome *</Label>
+                            <Input
+                                placeholder="Nome completo"
+                                value={contactForm.nome}
+                                onChange={(e) => setContactForm((f) => ({ ...f, nome: e.target.value }))}
+                                className="bg-primary-black border-border-gray text-pure-white"
+                            />
+                        </div>
+                        <div className="space-y-1">
+                            <Label className="text-text-gray text-xs">Telefone *</Label>
+                            <Input
+                                placeholder="(11) 99999-9999"
+                                value={contactForm.telefone}
+                                onChange={(e) => setContactForm((f) => ({ ...f, telefone: e.target.value }))}
+                                className="bg-primary-black border-border-gray text-pure-white"
+                            />
+                        </div>
+                        <div className="space-y-1">
+                            <Label className="text-text-gray text-xs">E-mail</Label>
+                            <Input
+                                placeholder="email@exemplo.com"
+                                value={contactForm.email}
+                                onChange={(e) => setContactForm((f) => ({ ...f, email: e.target.value }))}
+                                className="bg-primary-black border-border-gray text-pure-white"
+                            />
+                        </div>
+                        <div className="space-y-1">
+                            <Label className="text-text-gray text-xs">Empresa</Label>
+                            <Input
+                                placeholder="Nome da empresa"
+                                value={contactForm.empresa}
+                                onChange={(e) => setContactForm((f) => ({ ...f, empresa: e.target.value }))}
+                                className="bg-primary-black border-border-gray text-pure-white"
+                            />
+                        </div>
+                        <div className="space-y-1">
+                            <Label className="text-text-gray text-xs">Origem</Label>
+                            <Input
+                                placeholder="Canal de origem"
+                                value={contactForm.origem}
+                                onChange={(e) => setContactForm((f) => ({ ...f, origem: e.target.value }))}
+                                className="bg-primary-black border-border-gray text-pure-white"
+                            />
+                        </div>
+                        <div className="col-span-2 space-y-1">
+                            <Label className="text-text-gray text-xs">Observação</Label>
+                            <Input
+                                placeholder="Observações adicionais"
+                                value={contactForm.observacao}
+                                onChange={(e) => setContactForm((f) => ({ ...f, observacao: e.target.value }))}
+                                className="bg-primary-black border-border-gray text-pure-white"
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" className="border-border-gray text-text-gray" onClick={() => setAddContactCard(null)}>
+                            Cancelar
+                        </Button>
+                        <Button onClick={handleSaveContact} disabled={submittingContact} className="bg-sky-600 hover:bg-sky-500 text-white">
+                            {submittingContact ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <UserPlus className="w-4 h-4 mr-2" />}
+                            Salvar Contato
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             <Dialog open={saleModal.open} onOpenChange={(open) => { if (!open) { setSaleModal({ open: false, card: null }); setSaleForm({ amount: "", day: "", month: "", year: "" }) } }}>
                 <DialogContent className="bg-secondary-black border-border-gray sm:max-w-md">

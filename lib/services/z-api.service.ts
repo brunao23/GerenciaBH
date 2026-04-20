@@ -60,6 +60,12 @@ export interface ZApiResponse {
   data?: any
 }
 
+export interface ZApiConnectedProfile {
+  name?: string
+  phone?: string
+  profilePicture?: string
+}
+
 export class ZApiService {
   private config: ZApiConfig
   private senderUrl: string
@@ -70,6 +76,7 @@ export class ZApiService {
   private senderDocumentUrl: string
   private senderReactionUrl: string
   private statusUrl: string
+  private deviceUrl: string
   private qrCodeBytesUrl: string
   private qrCodeImageUrl: string
   private phoneCodeUrl: string
@@ -88,6 +95,7 @@ export class ZApiService {
       this.senderDocumentUrl = `${baseUrl}/send-document`
       this.senderReactionUrl = `${baseUrl}/send-reaction`
       this.statusUrl = `${baseUrl}/status`
+      this.deviceUrl = `${baseUrl}/device`
       this.qrCodeBytesUrl = `${baseUrl}/qr-code`
       this.qrCodeImageUrl = `${baseUrl}/qr-code/image`
       this.phoneCodeUrl = `${baseUrl}/phone-code`
@@ -105,6 +113,7 @@ export class ZApiService {
     this.senderDocumentUrl = `${root}/send-document`
     this.senderReactionUrl = `${root}/send-reaction`
     this.statusUrl = `${root}/status`
+    this.deviceUrl = `${root}/device`
     this.qrCodeBytesUrl = `${root}/qr-code`
     this.qrCodeImageUrl = `${root}/qr-code/image`
     this.phoneCodeUrl = `${root}/phone-code`
@@ -611,6 +620,66 @@ export class ZApiService {
       console.error("[Z-API] Erro ao verificar status:", error)
       return {
         connected: false,
+        error: error?.message || "Erro de conexao",
+      }
+    }
+  }
+
+  async getConnectedProfile(): Promise<{ success: boolean; profile?: ZApiConnectedProfile; error?: string; data?: any }> {
+    try {
+      const response = await fetch(this.deviceUrl, {
+        method: "GET",
+        headers: this.buildHeaders(),
+      })
+      const data = await this.parseResponse(response)
+
+      if (!response.ok) {
+        return {
+          success: false,
+          error: data?.message || `Erro HTTP ${response.status}`,
+          data,
+        }
+      }
+
+      const profile: ZApiConnectedProfile = {
+        name:
+          String(
+            data?.name ??
+              data?.pushName ??
+              data?.profile?.name ??
+              data?.ownerName ??
+              data?.displayName ??
+              "",
+          ).trim() || undefined,
+        phone:
+          String(
+            data?.phone ??
+              data?.connectedPhone ??
+              data?.profile?.phone ??
+              data?.wid ??
+              data?.number ??
+              "",
+          ).trim() || undefined,
+        profilePicture:
+          String(
+            data?.imgUrl ??
+              data?.profilePicture ??
+              data?.profile_picture_url ??
+              data?.profile?.imgUrl ??
+              data?.profile?.profilePicture ??
+              "",
+          ).trim() || undefined,
+      }
+
+      return {
+        success: true,
+        profile,
+        data,
+      }
+    } catch (error: any) {
+      console.error("[Z-API] Erro ao carregar perfil conectado:", error)
+      return {
+        success: false,
         error: error?.message || "Erro de conexao",
       }
     }

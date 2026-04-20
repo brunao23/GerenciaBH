@@ -16,6 +16,7 @@ import {
 import { CalendarDays, Instagram, MapPin, Save } from "lucide-react"
 import { toast } from "sonner"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { resolveAvatarImageSrc } from "@/lib/helpers/avatar-proxy"
 
 type ConversationTone = "consultivo" | "acolhedor" | "direto" | "formal"
 type AudioProvider = "elevenlabs" | "custom_http"
@@ -758,6 +759,10 @@ export default function AgenteIAPage() {
   const [instagramDisconnectLoading, setInstagramDisconnectLoading] = useState(false)
   const [instagramConnectionReady, setInstagramConnectionReady] = useState(false)
   const [instagramAccountId, setInstagramAccountId] = useState("")
+  const [instagramAccountName, setInstagramAccountName] = useState("")
+  const [instagramAccountUsername, setInstagramAccountUsername] = useState("")
+  const [instagramAccountBio, setInstagramAccountBio] = useState("")
+  const [instagramAccountProfilePicture, setInstagramAccountProfilePicture] = useState("")
   const [instagramOauthError, setInstagramOauthError] = useState("")
   const [instagramMediaLoading, setInstagramMediaLoading] = useState(false)
   const [instagramMediaOptions, setInstagramMediaOptions] = useState<InstagramMediaOption[]>([])
@@ -774,9 +779,17 @@ export default function AgenteIAPage() {
 
       setInstagramConnectionReady(Boolean(data?.connected))
       setInstagramAccountId(String(data?.instagramAccountId || "").trim())
+      setInstagramAccountName(String(data?.instagramName || "").trim())
+      setInstagramAccountUsername(String(data?.instagramUsername || "").trim())
+      setInstagramAccountBio(String(data?.instagramBio || "").trim())
+      setInstagramAccountProfilePicture(String(data?.instagramProfilePicture || "").trim())
     } catch {
       setInstagramConnectionReady(false)
       setInstagramAccountId("")
+      setInstagramAccountName("")
+      setInstagramAccountUsername("")
+      setInstagramAccountBio("")
+      setInstagramAccountProfilePicture("")
     }
   }, [])
 
@@ -837,11 +850,9 @@ export default function AgenteIAPage() {
 
   useEffect(() => {
     if (!instagramConnectionReady) return
-    if (config.socialSellerKeywordScope !== "specific_posts") return
     if (instagramMediaOptions.length > 0) return
     void loadInstagramMedia()
   }, [
-    config.socialSellerKeywordScope,
     instagramConnectionReady,
     instagramMediaOptions.length,
     loadInstagramMedia,
@@ -956,6 +967,10 @@ export default function AgenteIAPage() {
       if (!res.ok || data?.success !== true) throw new Error(data?.error || "Falha ao desconectar Instagram")
       setInstagramConnectionReady(false)
       setInstagramAccountId("")
+      setInstagramAccountName("")
+      setInstagramAccountUsername("")
+      setInstagramAccountBio("")
+      setInstagramAccountProfilePicture("")
       toast.success("Instagram desconectado.")
     } catch (error: any) {
       toast.error(error?.message || "Falha ao desconectar Instagram")
@@ -2557,6 +2572,33 @@ export default function AgenteIAPage() {
                 </Button>
               </div>
             </div>
+            {instagramConnectionReady && (instagramAccountName || instagramAccountUsername || instagramAccountProfilePicture) && (
+              <div className="mt-3 flex items-center gap-3 rounded-lg border border-pink-500/25 bg-pink-500/10 p-3">
+                {resolveAvatarImageSrc(instagramAccountProfilePicture) ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={resolveAvatarImageSrc(instagramAccountProfilePicture)}
+                    alt="Conta conectada"
+                    className="h-11 w-11 rounded-full object-cover border border-pink-500/30"
+                  />
+                ) : (
+                  <div className="h-11 w-11 rounded-full bg-pink-500/15 border border-pink-500/30 flex items-center justify-center">
+                    <Instagram className="h-5 w-5 text-pink-300" />
+                  </div>
+                )}
+                <div className="min-w-0">
+                  {instagramAccountName && (
+                    <p className="text-sm font-medium text-foreground truncate">{instagramAccountName}</p>
+                  )}
+                  {instagramAccountUsername && (
+                    <p className="text-xs text-pink-300 truncate">@{instagramAccountUsername}</p>
+                  )}
+                  {instagramAccountBio && (
+                    <p className="text-xs text-gray-400 line-clamp-2 mt-0.5">{instagramAccountBio}</p>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           {instagramOauthError && (
@@ -2810,25 +2852,13 @@ export default function AgenteIAPage() {
                 onClick={loadInstagramMedia}
                 disabled={loading || !instagramConnectionReady || instagramMediaLoading}
               >
-                {instagramMediaLoading ? "Carregando posts..." : "Carregar posts do Instagram"}
+                {instagramMediaLoading ? "Atualizando..." : "Atualizar posts"}
               </Button>
             </div>
-            <Textarea
-              value={(config.socialSellerKeywordPostIds || []).join("\n")}
-              onChange={(e) =>
-                setConfig((prev) => ({
-                  ...prev,
-                  socialSellerKeywordPostIds: e.target.value
-                    .split(/\r?\n|,/g)
-                    .map((v) => String(v || "").replace(/\D/g, "").trim())
-                    .filter(Boolean)
-                    .filter((v, i, arr) => arr.indexOf(v) === i),
-                }))
-              }
-              className="bg-secondary border-border text-foreground min-h-[96px]"
-              placeholder="ID do post por linha. Necessario quando o escopo estiver em posts especificos."
-              disabled={loading}
-            />
+            <p className="text-xs text-gray-400">
+              Os posts sao carregados automaticamente. Marque os posts desejados quando o escopo estiver em
+              posts especificos.
+            </p>
             {instagramMediaOptions.length > 0 && (
               <div className="max-h-56 overflow-auto rounded-md border border-border p-3 space-y-2">
                 {instagramMediaOptions.map((item) => {
@@ -2858,6 +2888,11 @@ export default function AgenteIAPage() {
                   )
                 })}
               </div>
+            )}
+            {!instagramMediaLoading && instagramConnectionReady && instagramMediaOptions.length === 0 && (
+              <p className="text-xs text-gray-500">
+                Nenhum post recente encontrado. Clique em atualizar para tentar novamente.
+              </p>
             )}
             {config.socialSellerKeywordScope === "specific_posts" && !(config.socialSellerKeywordPostIds || []).length && (
               <p className="text-xs text-amber-400">

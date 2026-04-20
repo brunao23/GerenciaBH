@@ -15,6 +15,15 @@ import {
 import { Settings, RefreshCw, QrCode, Smartphone, Instagram, Copy, ExternalLink, LogOut } from "lucide-react"
 import { toast } from "sonner"
 import { useTenant } from "@/lib/contexts/TenantContext"
+import { resolveAvatarImageSrc } from "@/lib/helpers/avatar-proxy"
+
+type ZapiConnectionStatus = {
+  connected: boolean
+  error?: string
+  profileName?: string
+  profilePhone?: string
+  profilePicture?: string
+}
 
 export default function ConfiguracaoPage() {
   const { tenant } = useTenant()
@@ -44,11 +53,12 @@ export default function ConfiguracaoPage() {
   const [instagramConnectionReady, setInstagramConnectionReady] = useState(false)
   const [instagramUsername, setInstagramUsername] = useState("")
   const [instagramName, setInstagramName] = useState("")
+  const [instagramBio, setInstagramBio] = useState("")
   const [instagramProfilePicture, setInstagramProfilePicture] = useState("")
 
   const [zapiQrLoading, setZapiQrLoading] = useState(false)
   const [zapiQrImage, setZapiQrImage] = useState("")
-  const [zapiConnectionStatus, setZapiConnectionStatus] = useState<{ connected: boolean; error?: string } | null>(null)
+  const [zapiConnectionStatus, setZapiConnectionStatus] = useState<ZapiConnectionStatus | null>(null)
   const [zapiPhoneCodeLoading, setZapiPhoneCodeLoading] = useState(false)
   const [zapiPhoneCodeNumber, setZapiPhoneCodeNumber] = useState("")
   const [zapiPhoneCode, setZapiPhoneCode] = useState("")
@@ -166,7 +176,13 @@ export default function ConfiguracaoPage() {
         const status = data?.status || {}
         const connected = status?.connected === true
         const qrCodeImage = connected ? "" : String(data?.qrCodeImage || "")
-        setZapiConnectionStatus({ connected, error: status?.error || undefined })
+        setZapiConnectionStatus({
+          connected,
+          error: status?.error || undefined,
+          profileName: String(status?.profileName || "").trim() || undefined,
+          profilePhone: String(status?.profilePhone || "").trim() || undefined,
+          profilePicture: String(status?.profilePicture || "").trim() || undefined,
+        })
         setZapiQrImage(qrCodeImage)
 
         if (connected) {
@@ -268,6 +284,7 @@ export default function ConfiguracaoPage() {
       setInstagramConnectionReady(Boolean(data.connected))
       setInstagramUsername(String(data.instagramUsername || "").trim())
       setInstagramName(String(data.instagramName || "").trim())
+      setInstagramBio(String(data.instagramBio || "").trim())
       setInstagramProfilePicture(String(data.instagramProfilePicture || "").trim())
 
       const accountId = String(data.instagramAccountId || "").trim()
@@ -305,6 +322,10 @@ export default function ConfiguracaoPage() {
     } else if (status === "disconnected") {
       toast.success("Instagram desconectado.")
       setInstagramConnectionReady(false)
+      setInstagramUsername("")
+      setInstagramName("")
+      setInstagramBio("")
+      setInstagramProfilePicture("")
     } else if (status === "error") {
       toast.error(message || "Falha ao conectar Instagram")
     }
@@ -326,6 +347,7 @@ export default function ConfiguracaoPage() {
       setMetaInstagramAccountId("")
       setInstagramUsername("")
       setInstagramName("")
+      setInstagramBio("")
       setInstagramProfilePicture("")
       toast.success("Instagram desconectado.")
     } catch (error: any) {
@@ -486,7 +508,28 @@ export default function ConfiguracaoPage() {
                 )}
 
                 {zapiConnectionStatus?.connected && (
-                  <div className="text-xs text-emerald-400">Instancia conectada.</div>
+                  <div className="flex items-center gap-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3">
+                    {resolveAvatarImageSrc(zapiConnectionStatus.profilePicture) ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={resolveAvatarImageSrc(zapiConnectionStatus.profilePicture)}
+                        alt="Canal conectado"
+                        className="w-10 h-10 rounded-full object-cover border border-emerald-500/30"
+                      />
+                    ) : (
+                      <div className="w-10 h-10 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center">
+                        <Smartphone className="w-5 h-5 text-emerald-400" />
+                      </div>
+                    )}
+                    <div>
+                      <p className="text-sm font-medium text-emerald-200">
+                        {zapiConnectionStatus.profileName || "Instancia conectada"}
+                      </p>
+                      {zapiConnectionStatus.profilePhone && (
+                        <p className="text-xs text-emerald-300/90">{zapiConnectionStatus.profilePhone}</p>
+                      )}
+                    </div>
+                  </div>
                 )}
 
                 {!zapiConnectionStatus?.connected && zapiQrImage && (
@@ -706,7 +749,7 @@ export default function ConfiguracaoPage() {
                 {instagramProfilePicture && (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={instagramProfilePicture}
+                    src={resolveAvatarImageSrc(instagramProfilePicture)}
                     alt="Foto de perfil"
                     className="w-10 h-10 rounded-full object-cover border border-pink-500/30"
                   />
@@ -722,6 +765,9 @@ export default function ConfiguracaoPage() {
                   )}
                   {instagramUsername && (
                     <p className="text-xs text-pink-300">@{instagramUsername}</p>
+                  )}
+                  {instagramBio && (
+                    <p className="text-xs text-text-gray line-clamp-2 mt-0.5">{instagramBio}</p>
                   )}
                 </div>
               </div>

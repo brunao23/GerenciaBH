@@ -28,6 +28,8 @@ type SummarySession = {
   isSummary: boolean
   isGroup?: boolean
   profile_pic?: string
+  instagram_username?: string
+  instagram_bio?: string
   score?: number
   strong_match?: boolean
 }
@@ -429,11 +431,111 @@ function extractNameFromMeta(msg: any): string | null {
 
 function isUserMessage(msg: any): boolean {
   if (!msg) return false
+  const senderType = String(
+    msg.sender_type ??
+    msg.senderType ??
+    msg.additional?.sender_type ??
+    "",
+  ).toLowerCase()
+  if (senderType === "lead") return true
+  if (senderType === "human" || senderType === "humano" || senderType === "ia" || senderType === "ai") {
+    return false
+  }
+
   const type = String(msg.type ?? "").toLowerCase()
-  if (type === "human" || type === "user") return true
   const role = String(msg.role ?? "").toLowerCase()
-  if (role === "user" || role === "human") return true
+  const source = String(msg.source ?? "").toLowerCase()
+  const callbackType = String(msg.callback_type ?? msg.callbackType ?? msg.zapi_meta?.callbackType ?? "").toLowerCase()
+  if (
+    role === "system" ||
+    type === "system" ||
+    type === "status" ||
+    callbackType === "status" ||
+    source.includes("status-callback")
+  ) {
+    return false
+  }
+
+  const fromMeRaw = msg.fromMe ?? msg.from_me ?? msg.owner ?? msg.isFromMe ?? msg.key?.fromMe
+  const fromMe = toBoolean(fromMeRaw)
+  if (fromMe === false) return true
+  if (fromMe === true) return false
+
+  if (type === "human") return false
+  if (type === "user") return true
+  if (role === "human") return false
+  if (role === "user") return true
   return false
+}
+
+function extractInstagramUsernameFromMessages(rows: Row[], sessionId: string): string | null {
+  const sessionRows = rows.filter((r) => r.session_id === sessionId)
+  const sortedDesc = [...sessionRows].sort((a, b) => b.id - a.id)
+
+  for (const row of sortedDesc) {
+    const msg = row.message ?? {}
+    const username = String(
+      msg.instagram_username ??
+      msg.ig_username ??
+      msg.instagramUsername ??
+      msg.additional?.instagram_username ??
+      msg.additional?.ig_username ??
+      msg.additional?.instagramUsername ??
+      msg.sender?.username ??
+      msg.sender?.instagram_username ??
+      msg.sender?.ig_username ??
+      msg.username ??
+      "",
+    )
+      .trim()
+      .replace(/^@+/, "")
+    if (username && /^[a-zA-Z0-9._]{2,50}$/.test(username)) {
+      return username
+    }
+  }
+
+  for (const row of sortedDesc) {
+    const context = String(msgFromRow(row)?.additional?.instagram_profile_context || "").trim()
+    if (!context) continue
+    const match = context.match(/Perfil do lead no Instagram:\s*@?([a-zA-Z0-9._]{2,50})/i)
+    if (match?.[1]) return String(match[1]).trim().replace(/^@+/, "")
+  }
+
+  return null
+}
+
+function extractInstagramBioFromMessages(rows: Row[], sessionId: string): string | null {
+  const sessionRows = rows.filter((r) => r.session_id === sessionId)
+  const sortedDesc = [...sessionRows].sort((a, b) => b.id - a.id)
+
+  for (const row of sortedDesc) {
+    const msg = row.message ?? {}
+    const explicitBio = String(
+      msg.instagram_bio ??
+      msg.biography ??
+      msg.instagram_biography ??
+      msg.profile_bio ??
+      msg.additional?.instagram_bio ??
+      msg.additional?.biography ??
+      msg.additional?.instagram_biography ??
+      msg.additional?.profile_bio ??
+      "",
+    ).trim()
+    if (explicitBio) return explicitBio.slice(0, 600)
+  }
+
+  for (const row of sortedDesc) {
+    const context = String(msgFromRow(row)?.additional?.instagram_profile_context || "").trim()
+    if (!context) continue
+    const match = context.match(/Bio:\s*"([^"]{2,900})"/i)
+    if (match?.[1]) return String(match[1]).trim().slice(0, 600)
+  }
+
+  return null
+}
+
+function msgFromRow(row: Row): any {
+  return row?.message && typeof row.message === "object" ? row.message : {}
 }
 
 function extractContactNameFromMessages(rows: Row[], sessionId: string): string | null {
@@ -457,16 +559,10 @@ function extractContactNameFromMessages(rows: Row[], sessionId: string): string 
     }
   }
 
-  // Priority 2: pushName from ANY message
+  // Priority 2: text patterns (greeting, "meu nome é", formData) ONLY from lead messages
   for (const row of sessionRows) {
     const msg = row.message ?? {}
-    const name = extractNameFromMeta(msg)
-    if (name) return name
-  }
-
-  // Priority 3: text patterns (greeting, "meu nome é", formData)
-  for (const row of sessionRows) {
-    const msg = row.message ?? {}
+    if (!isUserMessage(msg)) continue
     const content = String(msg.content ?? msg.text ?? "")
 
     // Check formData
@@ -510,16 +606,38 @@ function extractContactProfilePicFromMessages(rows: Row[], sessionId: string): s
     }
   }
 
-  // Check any message for picUrl or profilePicUrl
+  // Prefer only lead messages. Status callbacks and human/unit messages often carry the unit avatar.
   for (const row of sortedDesc) {
     const msg = row.message ?? {}
+    if (!isUserMessage(msg)) continue
     const pic =
       msg.profilePicUrl ||
       msg.profile_pic_url ||
+      msg.profile_picture_url ||
+      msg.profile_picture ||
+      msg.avatar ||
+      msg.avatar_url ||
+      msg.contactAvatar ||
+      msg.instagram_profile_picture ||
+      msg.instagram_profile_pic ||
       msg.picUrl ||
       msg.sender_photo ||
       msg.senderPhoto ||
+      msg.sender?.profilePicUrl ||
+      msg.sender?.profile_picture_url ||
+      msg.sender?.profile_picture ||
+      msg.sender?.profile_pic ||
+      msg.contact?.profilePicUrl ||
+      msg.contact?.avatar ||
+      msg.contact?.avatar_url ||
       msg.additional?.profile_pic_url ||
+      msg.additional?.profile_picture_url ||
+      msg.additional?.profile_picture ||
+      msg.additional?.avatar ||
+      msg.additional?.avatar_url ||
+      msg.additional?.contact?.profile_picture_url ||
+      msg.additional?.instagram_profile_picture ||
+      msg.additional?.instagram_profile_pic ||
       msg.additional?.sender_photo ||
       msg.additional?.senderPhoto ||
       msg.zapi_meta?.profileUrl ||
@@ -874,6 +992,14 @@ export async function GET(req: Request) {
       const bestProfilePic = extractContactProfilePicFromMessages(rows, sessionId)
       if (bestProfilePic) {
         session.profile_pic = bestProfilePic
+      }
+
+      if (session.channel === "instagram") {
+        const username = extractInstagramUsernameFromMessages(rows, sessionId)
+        if (username) session.instagram_username = username
+
+        const bio = extractInstagramBioFromMessages(rows, sessionId)
+        if (bio) session.instagram_bio = bio
       }
     }
 

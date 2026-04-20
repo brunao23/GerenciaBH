@@ -18,6 +18,7 @@ export interface MessagingConfig {
   metaInstagramUserId?: string
   metaInstagramUsername?: string
   metaInstagramName?: string
+  metaInstagramBio?: string
   metaInstagramProfilePicture?: string
   metaVerifyToken?: string
   metaAppSecret?: string

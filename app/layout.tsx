@@ -4,9 +4,9 @@ import { Manrope, Sora } from "next/font/google"
 import "./globals.css"
 
 export const metadata: Metadata = {
-  title: "GerencIA by Genial Labs AI - Gestao Inteligente Multi-Tenant",
+  title: "GerencIA by Genial Labs AI | Gestão inteligente multi-tenant",
   description:
-    "Plataforma completa de gestao com IA para multiplas unidades. CRM, agendamentos, follow-ups automaticos e relatorios em tempo real. Powered by Genial Labs AI.",
+    "Plataforma completa de gestão com IA para múltiplas unidades. CRM, agendamentos, follow-ups automáticos e relatórios em tempo real.",
   generator: "GerencIA by Genial Labs AI",
 }
 
