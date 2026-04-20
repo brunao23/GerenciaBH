@@ -19,6 +19,7 @@ import {
   ChevronRight,
   CheckCircle,
   Clock,
+  AlertCircle,
 } from "lucide-react"
 import { toast } from "sonner"
 import { useTenant } from "@/lib/contexts/TenantContext"
@@ -74,7 +75,7 @@ const SOURCE_COLORS: Record<string, string> = {
   organic: "text-purple-500 border-purple-500/30",
 }
 
-function LeadRow({ lead }: { lead: Lead }) {
+function LeadRow({ lead, onResend }: { lead: Lead; onResend?: (id: string) => void }) {
   const [open, setOpen] = useState(false)
   const hasForm = lead.form_fields.length > 0
   const date = new Date(lead.created_at).toLocaleDateString("pt-BR", {
@@ -121,6 +122,14 @@ function LeadRow({ lead }: { lead: Lead }) {
         <td className="py-3 px-3">
           {lead.whatsapp_sent ? (
             <CheckCircle className="h-4 w-4 text-emerald-500" />
+          ) : onResend ? (
+            <button
+              onClick={(e) => { e.stopPropagation(); onResend(lead.id) }}
+              className="flex items-center gap-1 text-xs text-amber-500 hover:text-amber-400 transition-colors"
+              title="Reenviar mensagem"
+            >
+              <AlertCircle className="h-4 w-4" />
+            </button>
           ) : (
             <Clock className="h-4 w-4 text-muted-foreground" />
           )}
@@ -161,6 +170,8 @@ export default function CaptacaoPage() {
   const [loading, setLoading] = useState(false)
   const [period, setPeriod] = useState("30d")
   const [error, setError] = useState<string | null>(null)
+  const [filterSent, setFilterSent] = useState<"all" | "sent" | "unsent">("all")
+  const [resending, setResending] = useState<Set<string>>(new Set())
 
   const fetchData = async (p = period) => {
     if (!tenant) return
@@ -186,6 +197,30 @@ export default function CaptacaoPage() {
     setPeriod(p)
     fetchData(p)
   }
+
+  const handleResend = async (leadId: string) => {
+    setResending((s) => new Set(s).add(leadId))
+    try {
+      const res = await fetch(`/api/dashboard/captacao/resend`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leadId }),
+      })
+      if (!res.ok) throw new Error("Erro ao reenviar")
+      toast.success("Mensagem reenviada com sucesso")
+      fetchData()
+    } catch {
+      toast.error("Erro ao reenviar mensagem")
+    } finally {
+      setResending((s) => { const n = new Set(s); n.delete(leadId); return n })
+    }
+  }
+
+  const filteredLeads = data?.leads?.filter((l) => {
+    if (filterSent === "sent") return l.whatsapp_sent
+    if (filterSent === "unsent") return !l.whatsapp_sent
+    return true
+  }) ?? []
 
   const totals = data?.totals
 
@@ -304,25 +339,44 @@ export default function CaptacaoPage() {
       {/* Leads Table */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
+          <CardTitle className="flex flex-wrap items-center gap-2 text-base">
             <Users className="h-4 w-4 text-emerald-500" />
             Leads
             {data?.leads?.length ? (
-              <Badge variant="secondary" className="ml-1">{data.leads.length}</Badge>
+              <Badge variant="secondary" className="ml-1">{filteredLeads.length}</Badge>
             ) : null}
-            <span className="text-xs font-normal text-muted-foreground ml-auto">
-              Clique no lead para ver o formulário
-            </span>
+            <div className="ml-auto flex items-center gap-1">
+              {(["all", "sent", "unsent"] as const).map((f) => (
+                <button
+                  key={f}
+                  onClick={() => setFilterSent(f)}
+                  className={`px-2.5 py-1 text-xs rounded-md border transition-colors font-normal ${
+                    filterSent === f
+                      ? f === "unsent"
+                        ? "bg-amber-500/20 border-amber-500/40 text-amber-500"
+                        : "bg-emerald-500/20 border-emerald-500/40 text-emerald-500"
+                      : "border-border text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {f === "all" ? "Todos" : f === "sent" ? "Contatados" : `Não contatados${data ? ` (${data.leads.filter(l => !l.whatsapp_sent).length})` : ""}`}
+                </button>
+              ))}
+            </div>
           </CardTitle>
+          {filterSent === "unsent" && filteredLeads.length > 0 && (
+            <p className="text-xs text-amber-500/80 mt-1">
+              Clique no ícone <AlertCircle className="inline h-3 w-3" /> para reenviar a mensagem de boas-vindas
+            </p>
+          )}
         </CardHeader>
         <CardContent>
           {loading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
-          ) : !data?.leads?.length ? (
+          ) : !filteredLeads.length ? (
             <p className="text-sm text-muted-foreground text-center py-8">
-              Nenhum lead no período
+              {filterSent === "unsent" ? "Nenhum lead sem contato no período" : "Nenhum lead no período"}
             </p>
           ) : (
             <div className="overflow-x-auto">
@@ -338,8 +392,12 @@ export default function CaptacaoPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.leads.map((lead) => (
-                    <LeadRow key={lead.id} lead={lead} />
+                  {filteredLeads.map((lead) => (
+                    <LeadRow
+                      key={lead.id}
+                      lead={lead}
+                      onResend={!lead.whatsapp_sent ? handleResend : undefined}
+                    />
                   ))}
                 </tbody>
               </table>
