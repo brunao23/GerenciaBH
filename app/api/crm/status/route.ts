@@ -4,6 +4,7 @@ import { notifyGanho } from "@/lib/services/notifications"
 import { isValidTenant } from "@/lib/auth/tenant"
 import { resolveTenant } from "@/lib/helpers/resolve-tenant"
 import { resolveChatHistoriesTable } from "@/lib/helpers/resolve-chat-table"
+import { getTableColumns } from "@/lib/helpers/supabase-table-columns"
 
 const BLOCKED_LEAD_NAMES = new Set([
   "bot",
@@ -96,15 +97,26 @@ function extractLastLeadMessage(payload: any): string | null {
   return content.slice(0, 1000)
 }
 
+function parseOptionalBoolean(value: any): boolean | undefined {
+  if (value === true || value === false) return value
+  const normalized = String(value ?? "").trim().toLowerCase()
+  if (!normalized) return undefined
+  if (normalized === "true" || normalized === "1") return true
+  if (normalized === "false" || normalized === "0") return false
+  return undefined
+}
+
 // PUT - Atualizar status de um lead
 export async function PUT(req: Request) {
   try {
     const body = await req.json()
-    const { leadId, status } = body
+    const leadId = String(body?.leadId || "").trim()
+    const requestedStatus = typeof body?.status === "string" ? body.status.trim() : ""
+    const requestedIsStudent = parseOptionalBoolean(body?.isStudent)
 
-    if (!leadId || !status) {
+    if (!leadId || (!requestedStatus && requestedIsStudent === undefined)) {
       return NextResponse.json(
-        { error: "leadId e status sÃ£o obrigatÃ³rios" },
+        { error: "leadId e pelo menos um campo (status ou isStudent) s\u00E3o obrigat\u00F3rios" },
         { status: 400 }
       )
     }
@@ -125,6 +137,8 @@ export async function PUT(req: Request) {
 
     const supabase = createBiaSupabaseServerClient()
     const statusTable = `${tenant}_crm_lead_status`
+    const statusTableColumns = await getTableColumns(supabase as any, statusTable)
+    const hasIsStudentColumn = statusTableColumns.has("is_student")
     const chatTable = await resolveChatHistoriesTable(supabase as any, tenant)
 
     let cachedLeadProfile: { phoneNumber: string; leadName: string; lastLeadMessage: string | null } | null = null
@@ -247,22 +261,24 @@ export async function PUT(req: Request) {
         .eq("id", existing.id)
         .single()
 
-      const isGanho = status === 'ganhos' || status === 'ganho'
+      const isGanho = requestedStatus === 'ganhos' || requestedStatus === 'ganho'
       const wasGanho = oldStatus?.status === 'ganhos' || oldStatus?.status === 'ganho'
-      const isEmFollowUp = status === 'em_follow_up' || status === 'em-follow-up'
+      const isEmFollowUp = requestedStatus === 'em_follow_up' || requestedStatus === 'em-follow-up'
       const wasEmFollowUp = oldStatus?.status === 'em_follow_up' || oldStatus?.status === 'em-follow-up'
 
-      // Atualizar existente - MARCA COMO MOVIMENTAÃ‡ÃƒO MANUAL
       const now = new Date().toISOString()
+      const updatePayload: Record<string, any> = {
+        updated_at: now,
+        manual_override: true,
+        manual_override_at: now,
+        auto_classified: false,
+      }
+      if (requestedStatus) updatePayload.status = requestedStatus
+      if (hasIsStudentColumn && requestedIsStudent !== undefined) updatePayload.is_student = requestedIsStudent
+
       const { error } = await supabase
         .from(statusTable)
-        .update({
-          status,
-          updated_at: now,
-          manual_override: true, // Marca como movimento manual
-          manual_override_at: now, // Salva timestamp do movimento manual
-          auto_classified: false // Reset flag de classificaÃ§Ã£o automÃ¡tica
-        })
+        .update(updatePayload)
         .eq("id", existing.id)
 
       if (error) {
@@ -292,19 +308,21 @@ export async function PUT(req: Request) {
         }
       }
     } else {
-      // Criar novo - MARCA COMO MOVIMENTAÃ‡ÃƒO MANUAL
       const now = new Date().toISOString()
+      const insertPayload: Record<string, any> = {
+        lead_id: leadId,
+        status: requestedStatus || "entrada",
+        created_at: now,
+        updated_at: now,
+        manual_override: true,
+        manual_override_at: now,
+        auto_classified: false,
+      }
+      if (hasIsStudentColumn && requestedIsStudent !== undefined) insertPayload.is_student = requestedIsStudent
+
       const { error } = await supabase
         .from(statusTable)
-        .insert({
-          lead_id: leadId,
-          status,
-          created_at: now,
-          updated_at: now,
-          manual_override: true, // Marca como movimento manual
-          manual_override_at: now, // Salva timestamp do movimento manual
-          auto_classified: false
-        })
+        .insert(insertPayload)
 
       if (error) {
         console.error("[CRM Status] Erro ao criar status:", error)
@@ -320,7 +338,7 @@ export async function PUT(req: Request) {
         throw error
       }
 
-      const isEmFollowUpNew = status === 'em_follow_up' || status === 'em-follow-up'
+      const isEmFollowUpNew = requestedStatus === 'em_follow_up' || requestedStatus === 'em-follow-up'
       if (isEmFollowUpNew) {
         try {
           await ensureFollowUpScheduleActive()

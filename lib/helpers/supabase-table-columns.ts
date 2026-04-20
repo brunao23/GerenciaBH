@@ -55,6 +55,7 @@ function getProbeColumnsForTable(tableName: string): string[] {
       ...common,
       "lead_id",
       "status",
+      "is_student",
       "manual_override",
       "manual_override_at",
       "auto_classified",
