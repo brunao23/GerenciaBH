@@ -2,50 +2,65 @@
 
 import React, { useState, useEffect, useCallback } from "react"
 import {
-  X,
-  ChevronRight,
-  ChevronLeft,
-  Zap,
-  LayoutGrid,
-  MessageSquare,
-  Users,
-  CalendarDays,
-  Bot,
-  Settings2,
-  BarChart3,
-  Rocket,
+  X, ChevronRight, ChevronLeft, Zap, LayoutGrid,
+  MessageSquare, Users, CalendarDays, Bot, Settings2, BarChart3, Rocket,
 } from "lucide-react"
 
 const ONBOARDING_KEY = "gerencia_onboarding_v2"
 
-interface Step {
-  id: string
-  emoji: string
-  Icon: React.ElementType
-  colorFrom: string
-  colorTo: string
-  colorText: string
-  subtitle: string
-  title: string
-  description: string
-  highlights: { emoji: string; text: string }[]
-  mockup: React.ReactNode
+/* ─── Web Audio Sounds ─────────────────────────────────────────────────────── */
+function playSound(type: "open" | "next" | "prev" | "finish") {
+  try {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
+    if (!AudioCtx) return
+    const ctx = new AudioCtx()
+
+    const play = (freq: number, startAt: number, duration: number, vol = 0.12, type: OscillatorType = "sine") => {
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.type = type
+      osc.frequency.setValueAtTime(freq, ctx.currentTime + startAt)
+      gain.gain.setValueAtTime(vol, ctx.currentTime + startAt)
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + startAt + duration)
+      osc.start(ctx.currentTime + startAt)
+      osc.stop(ctx.currentTime + startAt + duration)
+    }
+
+    if (type === "open") {
+      play(300, 0, 0.15, 0.08)
+      play(500, 0.07, 0.2, 0.1)
+      play(800, 0.16, 0.25, 0.12)
+    } else if (type === "next") {
+      play(600, 0, 0.07, 0.1)
+      play(900, 0.06, 0.1, 0.08)
+    } else if (type === "prev") {
+      play(900, 0, 0.07, 0.08)
+      play(600, 0.06, 0.1, 0.1)
+    } else if (type === "finish") {
+      play(523, 0,    0.4, 0.1)
+      play(659, 0.1,  0.4, 0.1)
+      play(784, 0.2,  0.5, 0.12)
+      play(1046, 0.35, 0.6, 0.12)
+    }
+
+    setTimeout(() => ctx.close().catch(() => {}), 2000)
+  } catch {}
 }
 
+/* ─── Mockups ──────────────────────────────────────────────────────────────── */
 function CrmMockup() {
   return (
-    <div className="w-full h-full flex gap-1.5 p-1">
-      {["Novos", "Qualif.", "Agend."].map((col, ci) => (
-        <div key={col} className="flex-1 flex flex-col gap-1">
-          <div className="text-[8px] font-bold text-white/60 text-center pb-0.5">{col}</div>
-          {[...Array(ci === 0 ? 3 : ci === 1 ? 2 : 1)].map((_, i) => (
-            <div
-              key={i}
-              className="rounded-md p-1.5 bg-white/10 border border-white/20 animate-pulse"
-              style={{ animationDelay: `${(ci * 3 + i) * 200}ms`, animationDuration: "2s" }}
-            >
-              <div className="h-1.5 rounded bg-white/30 mb-1" style={{ width: `${60 + i * 15}%` }} />
-              <div className="h-1 rounded bg-white/20" style={{ width: "40%" }} />
+    <div className="w-full h-full flex gap-1.5 p-1.5">
+      {[["Novos", 3], ["Qualif.", 2], ["Agend.", 1]].map(([col, count], ci) => (
+        <div key={String(col)} className="flex-1 flex flex-col gap-1">
+          <div className="text-[7px] font-bold text-emerald-400/80 text-center pb-0.5 uppercase tracking-wider">{col}</div>
+          {[...Array(Number(count))].map((_, i) => (
+            <div key={i} className="rounded-lg p-1.5 bg-emerald-500/10 border border-emerald-500/20"
+              style={{ animationDelay: `${(ci * 3 + i) * 150}ms` }}>
+              <div className="h-1.5 rounded-full bg-emerald-400/40 mb-1" style={{ width: `${55 + i * 18}%` }} />
+              <div className="h-1 rounded-full bg-white/20" style={{ width: "40%" }} />
             </div>
           ))}
         </div>
@@ -56,25 +71,21 @@ function CrmMockup() {
 
 function ConversasMockup() {
   const msgs = [
-    { me: false, w: "70%" },
-    { me: true, w: "55%" },
-    { me: false, w: "80%" },
-    { me: true, w: "45%" },
+    { me: false, w: "72%" }, { me: true, w: "52%" },
+    { me: false, w: "80%" }, { me: true, w: "44%" },
   ]
   return (
     <div className="w-full h-full flex flex-col justify-end gap-1.5 p-2">
       {msgs.map((m, i) => (
         <div key={i} className={`flex ${m.me ? "justify-end" : "justify-start"}`}>
-          <div
-            className={`h-3 rounded-full ${m.me ? "bg-white/50" : "bg-white/20"}`}
-            style={{ width: m.w, animationDelay: `${i * 150}ms` }}
-          />
+          <div className={`h-2.5 rounded-full ${m.me ? "bg-emerald-400/60" : "bg-white/25"}`}
+            style={{ width: m.w }} />
         </div>
       ))}
-      <div className="mt-1 flex gap-1">
+      <div className="flex gap-1 mt-1">
         <div className="flex-1 h-4 rounded-lg bg-white/10 border border-white/20" />
-        <div className="w-4 h-4 rounded-lg bg-white/30 flex items-center justify-center">
-          <div className="w-2 h-2 rounded-full bg-white/70" />
+        <div className="w-4 h-4 rounded-lg bg-emerald-500/50 flex items-center justify-center">
+          <div className="w-1.5 h-1.5 rounded-full bg-white/80" />
         </div>
       </div>
     </div>
@@ -84,18 +95,17 @@ function ConversasMockup() {
 function ContatosMockup() {
   return (
     <div className="w-full h-full flex flex-col gap-1 p-2">
-      <div className="flex gap-1 mb-1">
-        <div className="flex-1 h-3 rounded-md bg-white/10 border border-white/20" />
-        <div className="w-8 h-3 rounded-md bg-white/20" />
+      <div className="flex gap-1 mb-0.5">
+        <div className="flex-1 h-3 rounded-md bg-white/10 border border-white/15" />
+        <div className="w-8 h-3 rounded-md bg-emerald-500/30" />
       </div>
       {[...Array(3)].map((_, i) => (
-        <div key={i} className="flex items-center gap-2 p-1.5 rounded-lg bg-white/10 border border-white/20">
-          <div className="w-4 h-4 rounded-full bg-white/30 flex-shrink-0" />
+        <div key={i} className="flex items-center gap-1.5 p-1.5 rounded-lg bg-white/10 border border-white/15">
+          <div className="w-3.5 h-3.5 rounded-full bg-emerald-400/40 flex-shrink-0" />
           <div className="flex-1">
-            <div className="h-1.5 rounded bg-white/40 mb-0.5" style={{ width: `${50 + i * 15}%` }} />
-            <div className="h-1 rounded bg-white/20" style={{ width: "35%" }} />
+            <div className="h-1.5 rounded-full bg-white/40 mb-0.5" style={{ width: `${50 + i * 15}%` }} />
+            <div className="h-1 rounded-full bg-white/20" style={{ width: "35%" }} />
           </div>
-          <div className="w-8 h-2 rounded-full bg-white/20 text-[6px] flex items-center justify-center" />
         </div>
       ))}
     </div>
@@ -105,21 +115,25 @@ function ContatosMockup() {
 function AgendamentosMockup() {
   return (
     <div className="w-full h-full flex flex-col gap-1 p-2">
-      {[{ d: "Hoje, 14h", s: "Confirmado", c: "bg-emerald-400/40" }, { d: "Amanhã, 10h", s: "Pendente", c: "bg-amber-400/40" }, { d: "Sex, 16h", s: "Confirmado", c: "bg-emerald-400/40" }].map((a, i) => (
-        <div key={i} className="flex items-center gap-2 p-1.5 rounded-lg bg-white/10 border border-white/20">
-          <div className="w-1 self-stretch rounded-full bg-white/40" />
+      {[
+        { d: "Hoje, 14h", s: "Confirmado", ok: true },
+        { d: "Amanhã, 10h", s: "Pendente", ok: false },
+        { d: "Sex, 16h", s: "Confirmado", ok: true },
+      ].map((a, i) => (
+        <div key={i} className="flex items-center gap-1.5 p-1.5 rounded-lg bg-white/10 border border-white/15">
+          <div className={`w-1 self-stretch rounded-full ${a.ok ? "bg-emerald-400" : "bg-amber-400"}`} />
           <div className="flex-1">
-            <div className="h-1.5 rounded bg-white/40 mb-0.5 w-3/4" />
-            <div className="h-1 rounded bg-white/20 w-1/2" />
+            <div className="h-1.5 rounded-full bg-white/40 mb-0.5 w-3/4" />
+            <div className="h-1 rounded-full bg-white/20 w-1/2" />
           </div>
-          <div className={`px-1.5 py-0.5 rounded-full text-[6px] text-white/70 font-semibold ${a.c}`}>
+          <div className={`px-1.5 py-0.5 rounded-full text-[5.5px] font-bold ${a.ok ? "bg-emerald-400/30 text-emerald-300" : "bg-amber-400/30 text-amber-300"}`}>
             {a.s}
           </div>
         </div>
       ))}
-      <div className="mt-0.5 flex items-center gap-1 p-1 rounded-lg bg-white/5 border border-white/10">
-        <div className="w-2 h-2 rounded-full bg-white/30" />
-        <div className="text-[7px] text-white/40">Follow-up automático ativo</div>
+      <div className="flex items-center gap-1 p-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 mt-0.5">
+        <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+        <div className="text-[6.5px] text-emerald-400/80 font-medium">Follow-up automático ativo</div>
       </div>
     </div>
   )
@@ -127,16 +141,16 @@ function AgendamentosMockup() {
 
 function AgenteMockup() {
   return (
-    <div className="w-full h-full flex flex-col gap-1.5 p-2">
-      {[["Nome", "Bia"], ["Tom", "Consultivo"], ["Modelo", "Gemini Pro"], ["Follow-up", "15min"]].map(([k, v], i) => (
-        <div key={i} className="flex items-center justify-between px-2 py-1 rounded-lg bg-white/10 border border-white/20">
-          <span className="text-[7px] text-white/50">{k}</span>
-          <span className="text-[7px] text-white/80 font-semibold">{v}</span>
+    <div className="w-full h-full flex flex-col gap-1 p-2">
+      {[["Nome", "Bia"], ["Tom", "Consultivo"], ["Modelo", "Gemini Flash"], ["Follow-up", "15min"]].map(([k, v], i) => (
+        <div key={i} className="flex items-center justify-between px-2 py-1 rounded-lg bg-white/10 border border-white/15">
+          <span className="text-[6.5px] text-white/50">{k}</span>
+          <span className="text-[6.5px] text-white/85 font-bold">{v}</span>
         </div>
       ))}
       <div className="flex gap-1 mt-0.5">
-        <div className="flex-1 h-3 rounded-md bg-emerald-400/30 border border-emerald-400/40 flex items-center justify-center">
-          <span className="text-[6px] text-white/70">IA Ativa</span>
+        <div className="flex-1 h-3 rounded-md bg-emerald-500/30 border border-emerald-500/40 flex items-center justify-center">
+          <span className="text-[5.5px] text-emerald-300 font-bold">● IA Ativa</span>
         </div>
       </div>
     </div>
@@ -145,19 +159,19 @@ function AgenteMockup() {
 
 function ConfigMockup() {
   return (
-    <div className="w-full h-full flex flex-col items-center justify-center gap-2 p-2">
-      <div className="w-16 h-16 rounded-xl bg-white/10 border-2 border-white/20 flex items-center justify-center">
+    <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 p-2">
+      <div className="w-12 h-12 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center">
         <div className="grid grid-cols-3 gap-0.5">
           {[...Array(9)].map((_, i) => (
-            <div key={i} className={`w-1.5 h-1.5 rounded-[1px] ${i === 4 ? "bg-white/80" : "bg-white/30"}`} />
+            <div key={i} className={`w-1.5 h-1.5 rounded-[1px] ${i === 4 ? "bg-emerald-400" : "bg-white/30"}`} />
           ))}
         </div>
       </div>
-      <div className="text-[7px] text-white/50">Escaneie o QR Code</div>
+      <div className="text-[6.5px] text-white/50 font-medium">Escaneie o QR Code</div>
       <div className="w-full flex gap-1">
         {["Z-API", "Evolution", "Meta"].map((p) => (
           <div key={p} className="flex-1 h-3 rounded bg-white/10 border border-white/20 flex items-center justify-center">
-            <span className="text-[5.5px] text-white/50">{p}</span>
+            <span className="text-[5px] text-white/50 font-medium">{p}</span>
           </div>
         ))}
       </div>
@@ -171,19 +185,16 @@ function RelatoriosMockup() {
     <div className="w-full h-full flex flex-col gap-1 p-2">
       <div className="grid grid-cols-2 gap-1">
         {[["Leads", "247"], ["Taxa", "68%"]].map(([k, v]) => (
-          <div key={k} className="p-1.5 rounded-lg bg-white/10 border border-white/20">
-            <div className="text-[6px] text-white/40">{k}</div>
-            <div className="text-[11px] font-bold text-white/80">{v}</div>
+          <div key={k} className="p-1.5 rounded-lg bg-white/10 border border-white/15">
+            <div className="text-[5.5px] text-white/40 uppercase tracking-wider">{k}</div>
+            <div className="text-[10px] font-bold text-emerald-300">{v}</div>
           </div>
         ))}
       </div>
-      <div className="flex-1 flex items-end gap-0.5 px-1">
+      <div className="flex-1 flex items-end gap-0.5 px-0.5">
         {bars.map((h, i) => (
-          <div
-            key={i}
-            className="flex-1 rounded-t bg-white/30 transition-all"
-            style={{ height: `${h}%`, animationDelay: `${i * 100}ms` }}
-          />
+          <div key={i} className="flex-1 rounded-t bg-emerald-400/40"
+            style={{ height: `${h}%`, opacity: 0.5 + (i / bars.length) * 0.5 }} />
         ))}
       </div>
     </div>
@@ -192,68 +203,72 @@ function RelatoriosMockup() {
 
 function ReadyMockup() {
   return (
-    <div className="w-full h-full flex flex-col items-center justify-center gap-3 p-2">
+    <div className="w-full h-full flex flex-col items-center justify-center gap-2 p-2">
       <div className="relative">
-        <div
-          className="w-14 h-14 rounded-full bg-white/20 flex items-center justify-center text-3xl"
-          style={{ animation: "bounce 1s infinite" }}
-        >
+        <div className="w-12 h-12 rounded-full bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-2xl"
+          style={{ animation: "onb-bounce 1s ease-in-out infinite" }}>
           🚀
         </div>
         {[...Array(6)].map((_, i) => (
-          <div
-            key={i}
-            className="absolute w-1 h-1 rounded-full bg-white/50"
+          <div key={i} className="absolute w-1 h-1 rounded-full bg-emerald-400/60"
             style={{
-              top: "50%",
-              left: "50%",
-              transform: `rotate(${i * 60}deg) translateY(-28px)`,
-              animation: `ping 1.5s ${i * 250}ms infinite`,
-            }}
-          />
+              top: "50%", left: "50%",
+              transform: `rotate(${i * 60}deg) translateY(-24px)`,
+              animation: `onb-ping 1.5s ${i * 220}ms ease-in-out infinite`,
+            }} />
         ))}
       </div>
-      <div className="text-[8px] text-white/60 text-center">Pronto para decolar!</div>
+      <div className="text-[7px] text-emerald-300/80 font-semibold tracking-wide text-center">Pronto para decolar!</div>
     </div>
   )
 }
 
+function WelcomeMockup() {
+  return (
+    <div className="w-full h-full flex items-center justify-center gap-2">
+      <div className="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center">
+        <Bot className="w-4 h-4 text-emerald-400" />
+      </div>
+      <div className="space-y-1">
+        {[70, 50, 80].map((w, i) => (
+          <div key={i} className="h-1.5 rounded-full bg-emerald-400/30 animate-pulse"
+            style={{ width: `${w}%`, animationDelay: `${i * 300}ms` }} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/* ─── Steps ────────────────────────────────────────────────────────────────── */
+interface Step {
+  id: string
+  emoji: string
+  Icon: React.ElementType
+  subtitle: string
+  title: string
+  description: string
+  highlights: { emoji: string; text: string }[]
+  mockup: React.ReactNode
+}
+
 const STEPS: Step[] = [
   {
-    id: "welcome",
-    emoji: "⚡",
-    Icon: Zap,
-    colorFrom: "#7c3aed",
-    colorTo: "#4f46e5",
-    colorText: "#a78bfa",
+    id: "welcome", emoji: "⚡", Icon: Zap,
     subtitle: "Bem-vindo à plataforma",
     title: "GerencIA — IA para Atendimento",
-    description:
-      "Automação inteligente que transforma conversas no WhatsApp em agendamentos confirmados. Vamos te mostrar tudo em 2 minutos.",
+    description: "Automação inteligente que transforma conversas no WhatsApp em agendamentos confirmados. Vamos te mostrar tudo em 2 minutos.",
     highlights: [
-      { emoji: "🤖", text: "Agente IA que atende 24 horas por dia" },
+      { emoji: "🤖", text: "Agente IA que atende 24h por dia" },
       { emoji: "📲", text: "WhatsApp e Instagram integrados" },
       { emoji: "📊", text: "CRM, follow-up e analytics em tempo real" },
     ],
-    mockup: (
-      <div className="w-full h-full flex items-center justify-center">
-        <div className="text-5xl" style={{ animation: "pulse 2s infinite" }}>
-          ⚡
-        </div>
-      </div>
-    ),
+    mockup: <WelcomeMockup />,
   },
   {
-    id: "crm",
-    emoji: "📋",
-    Icon: LayoutGrid,
-    colorFrom: "#0ea5e9",
-    colorTo: "#0284c7",
-    colorText: "#38bdf8",
+    id: "crm", emoji: "📋", Icon: LayoutGrid,
     subtitle: "Módulo CRM",
     title: "Pipeline de Vendas Visual",
-    description:
-      "Kanban intuitivo com drag-and-drop. Acompanhe cada lead desde o primeiro contato até o agendamento confirmado.",
+    description: "Kanban intuitivo com drag-and-drop. Acompanhe cada lead desde o primeiro contato até o agendamento confirmado.",
     highlights: [
       { emoji: "🎯", text: "Arraste leads entre etapas do funil" },
       { emoji: "⭐", text: "Score automático por IA" },
@@ -262,16 +277,10 @@ const STEPS: Step[] = [
     mockup: <CrmMockup />,
   },
   {
-    id: "conversas",
-    emoji: "💬",
-    Icon: MessageSquare,
-    colorFrom: "#10b981",
-    colorTo: "#059669",
-    colorText: "#34d399",
+    id: "conversas", emoji: "💬", Icon: MessageSquare,
     subtitle: "Módulo Conversas",
     title: "Central de Chats WhatsApp",
-    description:
-      "Todos os atendimentos do agente IA em um só lugar. Monitore em tempo real, intervenha quando quiser e veja o histórico completo.",
+    description: "Todos os atendimentos do agente IA em um só lugar. Monitore em tempo real, intervenha quando quiser e veja o histórico completo.",
     highlights: [
       { emoji: "👀", text: "Monitore a IA em tempo real" },
       { emoji: "✋", text: "Assuma a conversa quando quiser" },
@@ -280,16 +289,10 @@ const STEPS: Step[] = [
     mockup: <ConversasMockup />,
   },
   {
-    id: "contatos",
-    emoji: "👥",
-    Icon: Users,
-    colorFrom: "#f59e0b",
-    colorTo: "#d97706",
-    colorText: "#fbbf24",
+    id: "contatos", emoji: "👥", Icon: Users,
     subtitle: "Módulo Contatos",
     title: "Base de Leads Organizada",
-    description:
-      "Gerencie toda a sua base com filtros por origem, tipo e status. Exporte dados, veja a jornada completa e identifique oportunidades.",
+    description: "Gerencie toda a sua base com filtros por origem, tipo e status. Exporte dados, veja a jornada completa e identifique oportunidades.",
     highlights: [
       { emoji: "🔍", text: "Filtros avançados por status e origem" },
       { emoji: "📤", text: "Exportação de dados em um clique" },
@@ -298,16 +301,10 @@ const STEPS: Step[] = [
     mockup: <ContatosMockup />,
   },
   {
-    id: "agendamentos",
-    emoji: "📅",
-    Icon: CalendarDays,
-    colorFrom: "#ec4899",
-    colorTo: "#db2777",
-    colorText: "#f472b6",
+    id: "agendamentos", emoji: "📅", Icon: CalendarDays,
     subtitle: "Módulo Agendamentos",
     title: "Agendamentos + Follow-up Automático",
-    description:
-      "Gerencie todos os agendamentos e configure lembretes automáticos. O sistema reenvia mensagens para leads que sumiram, sozinho.",
+    description: "Gerencie todos os agendamentos e configure lembretes automáticos. O sistema reenvia mensagens para leads sumidos, sozinho.",
     highlights: [
       { emoji: "🔔", text: "Lembretes 3 dias, 1 dia e 4 horas antes" },
       { emoji: "♻️", text: "Follow-up inteligente para leads sumidos" },
@@ -316,16 +313,10 @@ const STEPS: Step[] = [
     mockup: <AgendamentosMockup />,
   },
   {
-    id: "agente",
-    emoji: "🤖",
-    Icon: Bot,
-    colorFrom: "#8b5cf6",
-    colorTo: "#7c3aed",
-    colorText: "#c4b5fd",
+    id: "agente", emoji: "🤖", Icon: Bot,
     subtitle: "Módulo Agente IA",
     title: "Seu Assistente Virtual Configurável",
-    description:
-      "Configure nome, personalidade, tom de voz, roteiro de qualificação e horários de atendimento. Mais de 150 parâmetros para personalizar.",
+    description: "Configure nome, personalidade, tom de voz, roteiro de qualificação e horários de atendimento. Mais de 150 parâmetros para personalizar.",
     highlights: [
       { emoji: "🎭", text: "Personalidade e tom de voz" },
       { emoji: "📝", text: "Roteiro de qualificação completo" },
@@ -334,16 +325,10 @@ const STEPS: Step[] = [
     mockup: <AgenteMockup />,
   },
   {
-    id: "configuracao",
-    emoji: "⚙️",
-    Icon: Settings2,
-    colorFrom: "#64748b",
-    colorTo: "#475569",
-    colorText: "#94a3b8",
+    id: "configuracao", emoji: "⚙️", Icon: Settings2,
     subtitle: "Módulo Configuração",
     title: "Conecte o WhatsApp em Minutos",
-    description:
-      "Configure o provider de mensagens, escaneie o QR code e conecte o Instagram. Z-API, Evolution API e Meta Cloud API suportados.",
+    description: "Configure o provider de mensagens, escaneie o QR code e conecte o Instagram. Z-API, Evolution API e Meta Cloud API suportados.",
     highlights: [
       { emoji: "📲", text: "QR Code do WhatsApp em segundos" },
       { emoji: "📸", text: "Integração com Instagram" },
@@ -352,16 +337,10 @@ const STEPS: Step[] = [
     mockup: <ConfigMockup />,
   },
   {
-    id: "relatorios",
-    emoji: "📊",
-    Icon: BarChart3,
-    colorFrom: "#ef4444",
-    colorTo: "#dc2626",
-    colorText: "#f87171",
+    id: "relatorios", emoji: "📊", Icon: BarChart3,
     subtitle: "Módulo Relatórios",
     title: "Métricas Que Importam",
-    description:
-      "Taxa de conversão, lead time médio, follow-ups enviados, agendamentos por período. Tome decisões com dados concretos.",
+    description: "Taxa de conversão, lead time médio, follow-ups enviados, agendamentos por período. Tome decisões com dados concretos.",
     highlights: [
       { emoji: "📈", text: "Taxa de conversão de leads" },
       { emoji: "⏱️", text: "Lead time médio por etapa" },
@@ -370,18 +349,12 @@ const STEPS: Step[] = [
     mockup: <RelatoriosMockup />,
   },
   {
-    id: "ready",
-    emoji: "🚀",
-    Icon: Rocket,
-    colorFrom: "#22c55e",
-    colorTo: "#16a34a",
-    colorText: "#4ade80",
+    id: "ready", emoji: "🚀", Icon: Rocket,
     subtitle: "Tudo pronto!",
     title: "Pode Começar Agora",
-    description:
-      "Configure o Agente IA, conecte o WhatsApp e ative o atendimento automático. Em caso de dúvidas, clique no ícone '?' no cabeçalho.",
+    description: "Configure o Agente IA, conecte o WhatsApp e ative o atendimento automático. Em caso de dúvidas, clique no ícone '?' no cabeçalho.",
     highlights: [
-      { emoji: "1️⃣", text: "Configure o Agente IA (menu lateral)" },
+      { emoji: "1️⃣", text: "Configure o Agente IA no menu lateral" },
       { emoji: "2️⃣", text: "Conecte o WhatsApp em Configuração" },
       { emoji: "3️⃣", text: "Ative e monitore em Conversas" },
     ],
@@ -389,6 +362,7 @@ const STEPS: Step[] = [
   },
 ]
 
+/* ─── Component ────────────────────────────────────────────────────────────── */
 interface OnboardingTourProps {
   forceOpen?: boolean
   onClose?: () => void
@@ -399,46 +373,59 @@ export default function OnboardingTour({ forceOpen, onClose }: OnboardingTourPro
   const [step, setStep] = useState(0)
   const [direction, setDirection] = useState<"fwd" | "bwd">("fwd")
   const [contentKey, setContentKey] = useState(0)
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => { setMounted(true) }, [])
 
   useEffect(() => {
+    if (!mounted) return
     if (forceOpen) {
       setStep(0)
+      setContentKey((k) => k + 1)
       setVisible(true)
+      playSound("open")
       return
     }
-    const seen = localStorage.getItem(ONBOARDING_KEY)
-    if (!seen) {
-      const t = setTimeout(() => setVisible(true), 700)
-      return () => clearTimeout(t)
-    }
-  }, [forceOpen])
+    try {
+      const seen = localStorage.getItem(ONBOARDING_KEY)
+      if (!seen) {
+        const t = setTimeout(() => {
+          setVisible(true)
+          playSound("open")
+        }, 800)
+        return () => clearTimeout(t)
+      }
+    } catch {}
+  }, [forceOpen, mounted])
 
-  const goTo = useCallback(
-    (next: number, dir: "fwd" | "bwd") => {
-      setDirection(dir)
-      setStep(next)
-      setContentKey((k) => k + 1)
-    },
-    []
-  )
-
-  const handleNext = useCallback(() => {
-    if (step < STEPS.length - 1) {
-      goTo(step + 1, "fwd")
-    } else {
-      handleClose()
-    }
-  }, [step, goTo])
-
-  const handlePrev = useCallback(() => {
-    if (step > 0) goTo(step - 1, "bwd")
-  }, [step, goTo])
+  const goTo = useCallback((next: number, dir: "fwd" | "bwd") => {
+    setDirection(dir)
+    setStep(next)
+    setContentKey((k) => k + 1)
+  }, [])
 
   const handleClose = useCallback(() => {
-    localStorage.setItem(ONBOARDING_KEY, "true")
+    try { localStorage.setItem(ONBOARDING_KEY, "true") } catch {}
     setVisible(false)
     onClose?.()
   }, [onClose])
+
+  const handleNext = useCallback(() => {
+    if (step < STEPS.length - 1) {
+      playSound("next")
+      goTo(step + 1, "fwd")
+    } else {
+      playSound("finish")
+      handleClose()
+    }
+  }, [step, goTo, handleClose])
+
+  const handlePrev = useCallback(() => {
+    if (step > 0) {
+      playSound("prev")
+      goTo(step - 1, "bwd")
+    }
+  }, [step, goTo])
 
   if (!visible) return null
 
@@ -447,208 +434,244 @@ export default function OnboardingTour({ forceOpen, onClose }: OnboardingTourPro
   const progress = ((step + 1) / STEPS.length) * 100
 
   return (
-    <div
-      className="fixed inset-0 z-[200] flex items-center justify-center p-4"
-      style={{ animation: "fadeIn 0.3s ease" }}
-    >
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/70 backdrop-blur-md"
-        onClick={handleClose}
-        aria-label="Fechar tour"
-      />
-
-      {/* Animated background glow */}
-      <div
-        className="absolute inset-0 pointer-events-none transition-all duration-1000"
-        style={{
-          background: `radial-gradient(ellipse 60% 50% at 50% 50%, ${current.colorFrom}20 0%, transparent 70%)`,
-        }}
-      />
-
-      {/* Floating particles */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        {[...Array(12)].map((_, i) => (
-          <div
-            key={i}
-            className="absolute rounded-full"
-            style={{
-              width: `${4 + (i % 3) * 2}px`,
-              height: `${4 + (i % 3) * 2}px`,
-              background: `${current.colorFrom}40`,
-              left: `${10 + i * 7.5}%`,
-              top: `${15 + ((i * 13) % 70)}%`,
-              animation: `float ${3 + (i % 3)}s ${i * 0.3}s ease-in-out infinite alternate`,
-            }}
-          />
-        ))}
-      </div>
-
-      {/* Card */}
-      <div
-        className="relative z-10 w-full max-w-md rounded-3xl overflow-hidden shadow-2xl border border-white/10"
-        style={{
-          background: "hsl(var(--background))",
-          animation: "slideUp 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)",
-        }}
-      >
-        {/* Progress bar */}
-        <div className="h-1 bg-border/50">
-          <div
-            className="h-full transition-all duration-500 ease-out"
-            style={{
-              width: `${progress}%`,
-              background: `linear-gradient(to right, ${current.colorFrom}, ${current.colorTo})`,
-            }}
-          />
-        </div>
-
-        {/* Top header */}
-        <div className="flex items-center justify-between px-5 pt-4">
-          <span className="text-xs text-muted-foreground font-medium">
-            {step + 1} <span className="opacity-50">/ {STEPS.length}</span>
-          </span>
-          <button
-            onClick={handleClose}
-            className="w-7 h-7 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-all"
-            aria-label="Pular tour"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        {/* Animated content */}
-        <div
-          key={contentKey}
-          className="px-5 pt-3 pb-4"
-          style={{
-            animation: `${direction === "fwd" ? "slideInRight" : "slideInLeft"} 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94)`,
-          }}
-        >
-          {/* Icon + Mockup row */}
-          <div className="flex items-center gap-4 mb-4">
-            {/* Icon box */}
-            <div
-              className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl flex-shrink-0 shadow-lg"
-              style={{
-                background: `linear-gradient(135deg, ${current.colorFrom}, ${current.colorTo})`,
-                boxShadow: `0 8px 24px ${current.colorFrom}50`,
-              }}
-            >
-              {current.emoji}
-            </div>
-
-            {/* Mini mockup */}
-            <div
-              className="flex-1 h-24 rounded-xl overflow-hidden relative"
-              style={{
-                background: `linear-gradient(135deg, ${current.colorFrom}30, ${current.colorTo}20)`,
-                border: `1px solid ${current.colorFrom}30`,
-              }}
-            >
-              {current.mockup}
-            </div>
-          </div>
-
-          {/* Text */}
-          <p
-            className="text-xs font-semibold uppercase tracking-widest mb-1"
-            style={{ color: current.colorText }}
-          >
-            {current.subtitle}
-          </p>
-          <h2 className="text-xl font-bold text-foreground mb-2 leading-tight">
-            {current.title}
-          </h2>
-          <p className="text-sm text-muted-foreground leading-relaxed mb-4">
-            {current.description}
-          </p>
-
-          {/* Highlights */}
-          <div className="space-y-1.5">
-            {current.highlights.map((h, i) => (
-              <div
-                key={i}
-                className="flex items-center gap-3 px-3 py-2 rounded-xl bg-muted/50 border border-border/50"
-                style={{
-                  animation: `slideInRight 0.3s ${i * 60 + 100}ms both`,
-                }}
-              >
-                <span className="text-base leading-none">{h.emoji}</span>
-                <span className="text-sm text-foreground/80 font-medium">{h.text}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="px-5 pb-5 flex items-center justify-between gap-3 border-t border-border/30 pt-3">
-          {/* Step dots */}
-          <div className="flex gap-1.5 items-center">
-            {STEPS.map((_, i) => (
-              <button
-                key={i}
-                onClick={() => goTo(i, i > step ? "fwd" : "bwd")}
-                className="rounded-full transition-all duration-300"
-                style={{
-                  width: i === step ? "18px" : "5px",
-                  height: "5px",
-                  background: i === step ? current.colorFrom : i < step ? `${current.colorFrom}60` : "hsl(var(--border))",
-                }}
-                aria-label={`Ir para passo ${i + 1}`}
-              />
-            ))}
-          </div>
-
-          {/* Buttons */}
-          <div className="flex items-center gap-2">
-            {step > 0 && (
-              <button
-                onClick={handlePrev}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-all"
-              >
-                <ChevronLeft className="w-3.5 h-3.5" />
-                Voltar
-              </button>
-            )}
-            <button
-              onClick={handleNext}
-              className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-95"
-              style={{
-                background: `linear-gradient(to right, ${current.colorFrom}, ${current.colorTo})`,
-                boxShadow: `0 4px 12px ${current.colorFrom}50`,
-              }}
-            >
-              {isLast ? "Começar!" : "Próximo"}
-              {!isLast && <ChevronRight className="w-3.5 h-3.5" />}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* CSS keyframes */}
+    <>
       <style>{`
-        @keyframes fadeIn {
+        @keyframes onb-fadeIn {
           from { opacity: 0; }
-          to { opacity: 1; }
+          to   { opacity: 1; }
         }
-        @keyframes slideUp {
-          from { opacity: 0; transform: translateY(30px) scale(0.95); }
-          to { opacity: 1; transform: translateY(0) scale(1); }
+        @keyframes onb-slideUp {
+          from { opacity: 0; transform: translateY(28px) scale(0.96); }
+          to   { opacity: 1; transform: translateY(0)     scale(1); }
         }
-        @keyframes slideInRight {
-          from { opacity: 0; transform: translateX(20px); }
-          to { opacity: 1; transform: translateX(0); }
+        @keyframes onb-slideInRight {
+          from { opacity: 0; transform: translateX(18px); }
+          to   { opacity: 1; transform: translateX(0); }
         }
-        @keyframes slideInLeft {
-          from { opacity: 0; transform: translateX(-20px); }
-          to { opacity: 1; transform: translateX(0); }
+        @keyframes onb-slideInLeft {
+          from { opacity: 0; transform: translateX(-18px); }
+          to   { opacity: 1; transform: translateX(0); }
         }
-        @keyframes float {
-          from { transform: translateY(0px); }
-          to { transform: translateY(-12px); }
+        @keyframes onb-float {
+          0%   { transform: translateY(0px) scale(1); }
+          100% { transform: translateY(-10px) scale(1.05); }
+        }
+        @keyframes onb-bounce {
+          0%, 100% { transform: translateY(0); }
+          50%       { transform: translateY(-6px); }
+        }
+        @keyframes onb-ping {
+          0%   { transform: rotate(var(--r,0deg)) translateY(-24px) scale(0); opacity: 1; }
+          80%  { transform: rotate(var(--r,0deg)) translateY(-24px) scale(1.5); opacity: 0; }
+          100% { opacity: 0; }
+        }
+        @keyframes onb-pulse-ring {
+          0%   { transform: scale(0.9); opacity: 0.6; }
+          100% { transform: scale(1.4); opacity: 0; }
         }
       `}</style>
-    </div>
+
+      {/* Overlay */}
+      <div
+        className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+        style={{ animation: "onb-fadeIn 0.25s ease both" }}
+      >
+        {/* Backdrop */}
+        <div
+          className="absolute inset-0 bg-black/65 backdrop-blur-sm"
+          onClick={handleClose}
+        />
+
+        {/* Glow pulse behind card */}
+        <div
+          className="absolute pointer-events-none rounded-full"
+          style={{
+            width: 400, height: 400,
+            background: "radial-gradient(circle, rgba(16,185,129,0.18) 0%, transparent 70%)",
+            animation: "onb-pulse-ring 3s ease-in-out infinite",
+          }}
+        />
+
+        {/* Floating particles */}
+        <div className="absolute inset-0 pointer-events-none overflow-hidden">
+          {[...Array(10)].map((_, i) => (
+            <div
+              key={i}
+              className="absolute rounded-full bg-emerald-400/20"
+              style={{
+                width: `${3 + (i % 3) * 2}px`,
+                height: `${3 + (i % 3) * 2}px`,
+                left: `${8 + i * 9}%`,
+                top: `${20 + ((i * 17) % 60)}%`,
+                animation: `onb-float ${2.5 + (i % 3) * 0.8}s ${i * 0.25}s ease-in-out infinite alternate`,
+              }}
+            />
+          ))}
+        </div>
+
+        {/* Card */}
+        <div
+          className="relative z-10 w-full max-w-md overflow-hidden shadow-2xl"
+          style={{
+            background: "var(--card)",
+            border: "1px solid var(--border)",
+            borderRadius: "20px",
+            boxShadow: "0 25px 60px rgba(0,0,0,0.4), 0 0 0 1px rgba(16,185,129,0.08)",
+            animation: "onb-slideUp 0.4s cubic-bezier(0.34, 1.46, 0.64, 1) both",
+          }}
+        >
+          {/* Emerald progress bar */}
+          <div className="h-[3px] w-full" style={{ background: "var(--border)" }}>
+            <div
+              className="h-full transition-all duration-500 ease-out"
+              style={{
+                width: `${progress}%`,
+                background: "linear-gradient(to right, #059669, #10B981, #34D399)",
+              }}
+            />
+          </div>
+
+          {/* Header */}
+          <div className="flex items-center justify-between px-5 pt-4 pb-0">
+            <div className="flex items-center gap-2">
+              <div
+                className="w-6 h-6 rounded-lg flex items-center justify-center"
+                style={{ background: "linear-gradient(135deg, #059669, #10B981)" }}
+              >
+                <current.Icon className="w-3 h-3 text-white" />
+              </div>
+              <span className="text-xs font-semibold text-emerald-500 uppercase tracking-widest">
+                {current.subtitle}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">
+                {step + 1}<span className="opacity-40"> / {STEPS.length}</span>
+              </span>
+              <button
+                onClick={handleClose}
+                className="w-7 h-7 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-all"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Animated content */}
+          <div
+            key={contentKey}
+            className="px-5 pt-4 pb-2"
+            style={{
+              animation: `${direction === "fwd" ? "onb-slideInRight" : "onb-slideInLeft"} 0.28s cubic-bezier(0.25, 0.46, 0.45, 0.94) both`,
+            }}
+          >
+            {/* Mockup area */}
+            <div
+              className="w-full h-24 rounded-2xl mb-4 overflow-hidden relative"
+              style={{
+                background: "linear-gradient(135deg, rgba(16,185,129,0.12) 0%, rgba(5,150,105,0.06) 100%)",
+                border: "1px solid rgba(16,185,129,0.15)",
+              }}
+            >
+              {/* Emoji badge */}
+              <div
+                className="absolute top-2 right-2 w-8 h-8 rounded-xl flex items-center justify-center text-lg z-10 shadow-lg"
+                style={{ background: "linear-gradient(135deg, #059669, #10B981)" }}
+              >
+                {current.emoji}
+              </div>
+              {current.mockup}
+            </div>
+
+            {/* Title */}
+            <h2
+              className="text-xl font-bold mb-1.5 leading-tight font-display"
+              style={{ color: "var(--foreground)" }}
+            >
+              {current.title}
+            </h2>
+            <p className="text-sm leading-relaxed mb-4" style={{ color: "var(--muted-foreground)" }}>
+              {current.description}
+            </p>
+
+            {/* Highlights */}
+            <div className="space-y-1.5">
+              {current.highlights.map((h, i) => (
+                <div
+                  key={i}
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl"
+                  style={{
+                    background: "var(--muted)",
+                    border: "1px solid var(--border)",
+                    animation: `onb-slideInRight 0.3s ${80 + i * 60}ms both`,
+                  }}
+                >
+                  <span className="text-base leading-none">{h.emoji}</span>
+                  <span className="text-sm font-medium" style={{ color: "var(--foreground)" }}>
+                    {h.text}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div
+            className="px-5 py-3 mt-2 flex items-center justify-between gap-3"
+            style={{ borderTop: "1px solid var(--border)" }}
+          >
+            {/* Dot navigation */}
+            <div className="flex gap-1.5 items-center">
+              {STEPS.map((_, i) => (
+                <button
+                  key={i}
+                  onClick={() => { playSound(i > step ? "next" : "prev"); goTo(i, i > step ? "fwd" : "bwd") }}
+                  className="rounded-full transition-all duration-300"
+                  style={{
+                    width: i === step ? "20px" : "5px",
+                    height: "5px",
+                    background: i === step
+                      ? "#10B981"
+                      : i < step
+                        ? "rgba(16,185,129,0.4)"
+                        : "var(--border)",
+                  }}
+                  aria-label={`Passo ${i + 1}`}
+                />
+              ))}
+            </div>
+
+            {/* Buttons */}
+            <div className="flex items-center gap-2">
+              {step > 0 && (
+                <button
+                  onClick={handlePrev}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm transition-all"
+                  style={{ color: "var(--muted-foreground)" }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "var(--muted)" }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent" }}
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                  Voltar
+                </button>
+              )}
+              <button
+                onClick={handleNext}
+                className="flex items-center gap-1.5 px-5 py-2 rounded-xl text-sm font-bold text-white transition-all active:scale-95"
+                style={{
+                  background: "linear-gradient(135deg, #059669, #10B981)",
+                  boxShadow: "0 4px 14px rgba(16,185,129,0.4)",
+                }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.boxShadow = "0 6px 20px rgba(16,185,129,0.55)" }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.boxShadow = "0 4px 14px rgba(16,185,129,0.4)" }}
+              >
+                {isLast ? "Começar! 🚀" : "Próximo"}
+                {!isLast && <ChevronRight className="w-3.5 h-3.5" />}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
   )
 }
