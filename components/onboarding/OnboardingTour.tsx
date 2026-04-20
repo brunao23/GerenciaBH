@@ -394,7 +394,7 @@ interface OnboardingTourProps {
   onClose?: () => void
 }
 
-export function OnboardingTour({ forceOpen, onClose }: OnboardingTourProps) {
+export default function OnboardingTour({ forceOpen, onClose }: OnboardingTourProps) {
   const [visible, setVisible] = useState(false)
   const [step, setStep] = useState(0)
   const [direction, setDirection] = useState<"fwd" | "bwd">("fwd")
