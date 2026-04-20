@@ -21,6 +21,7 @@ import {
   Clock,
   AlertCircle,
   FileText,
+  Download,
 } from "lucide-react"
 import { toast } from "sonner"
 import { useTenant } from "@/lib/contexts/TenantContext"
@@ -178,6 +179,7 @@ export default function CaptacaoPage() {
   const [error, setError] = useState<string | null>(null)
   const [filterSent, setFilterSent] = useState<"all" | "sent" | "unsent">("all")
   const [resending, setResending] = useState<Set<string>>(new Set())
+  const [importing, setImporting] = useState(false)
 
   const fetchData = async (p = period) => {
     if (!tenant) return
@@ -222,6 +224,21 @@ export default function CaptacaoPage() {
     }
   }
 
+  const handleImport = async () => {
+    setImporting(true)
+    try {
+      const res = await fetch("/api/dashboard/captacao/import", { method: "POST" })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || "Erro ao importar")
+      toast.success(`${json.imported} lead(s) importado(s) do Meta`)
+      if (json.imported > 0) fetchData("all")
+    } catch (e: any) {
+      toast.error(e.message || "Erro ao importar leads do Meta")
+    } finally {
+      setImporting(false)
+    }
+  }
+
   const filteredLeads = data?.leads?.filter((l) => {
     if (filterSent === "sent") return l.whatsapp_sent
     if (filterSent === "unsent") return !l.whatsapp_sent
@@ -260,6 +277,16 @@ export default function CaptacaoPage() {
               </button>
             ))}
           </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleImport}
+            disabled={importing || loading}
+            title="Importar leads históricos do Meta Lead Ads"
+          >
+            {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            <span className="ml-1.5 hidden sm:inline">Importar do Meta</span>
+          </Button>
           <Button
             variant="outline"
             size="sm"
