@@ -2,8 +2,11 @@
 
 import React, { useState, useEffect, useCallback } from "react"
 import {
-  X, ChevronRight, ChevronLeft, Zap, LayoutGrid,
-  MessageSquare, Users, CalendarDays, Bot, Settings2, BarChart3, Rocket,
+  X, ChevronRight, ChevronLeft,
+  Zap, LayoutGrid, MessageSquare, Users, CalendarDays, Bot, Settings2, BarChart3, Rocket,
+  Smartphone, Star, Bell, Eye, UserCheck, ClipboardList,
+  Search, Upload, TrendingUp, RefreshCw, CheckCircle2,
+  Palette, FileText, Clock, Camera, Link2, Timer, Target,
 } from "lucide-react"
 
 const ONBOARDING_KEY = "gerencia_onboarding_v2"
@@ -15,12 +18,12 @@ function playSound(type: "open" | "next" | "prev" | "finish") {
     if (!AudioCtx) return
     const ctx = new AudioCtx()
 
-    const play = (freq: number, startAt: number, duration: number, vol = 0.12, type: OscillatorType = "sine") => {
+    const play = (freq: number, startAt: number, duration: number, vol = 0.12, oscType: OscillatorType = "sine") => {
       const osc = ctx.createOscillator()
       const gain = ctx.createGain()
       osc.connect(gain)
       gain.connect(ctx.destination)
-      osc.type = type
+      osc.type = oscType
       osc.frequency.setValueAtTime(freq, ctx.currentTime + startAt)
       gain.gain.setValueAtTime(vol, ctx.currentTime + startAt)
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + startAt + duration)
@@ -29,22 +32,14 @@ function playSound(type: "open" | "next" | "prev" | "finish") {
     }
 
     if (type === "open") {
-      play(300, 0, 0.15, 0.08)
-      play(500, 0.07, 0.2, 0.1)
-      play(800, 0.16, 0.25, 0.12)
+      play(300, 0, 0.15, 0.08); play(500, 0.07, 0.2, 0.1); play(800, 0.16, 0.25, 0.12)
     } else if (type === "next") {
-      play(600, 0, 0.07, 0.1)
-      play(900, 0.06, 0.1, 0.08)
+      play(600, 0, 0.07, 0.1); play(900, 0.06, 0.1, 0.08)
     } else if (type === "prev") {
-      play(900, 0, 0.07, 0.08)
-      play(600, 0.06, 0.1, 0.1)
+      play(900, 0, 0.07, 0.08); play(600, 0.06, 0.1, 0.1)
     } else if (type === "finish") {
-      play(523, 0,    0.4, 0.1)
-      play(659, 0.1,  0.4, 0.1)
-      play(784, 0.2,  0.5, 0.12)
-      play(1046, 0.35, 0.6, 0.12)
+      play(523, 0, 0.4, 0.1); play(659, 0.1, 0.4, 0.1); play(784, 0.2, 0.5, 0.12); play(1046, 0.35, 0.6, 0.12)
     }
-
     setTimeout(() => ctx.close().catch(() => {}), 2000)
   } catch {}
 }
@@ -116,9 +111,9 @@ function AgendamentosMockup() {
   return (
     <div className="w-full h-full flex flex-col gap-1 p-2">
       {[
-        { d: "Hoje, 14h", s: "Confirmado", ok: true },
-        { d: "Amanhã, 10h", s: "Pendente", ok: false },
-        { d: "Sex, 16h", s: "Confirmado", ok: true },
+        { s: "Confirmado", ok: true },
+        { s: "Pendente", ok: false },
+        { s: "Confirmado", ok: true },
       ].map((a, i) => (
         <div key={i} className="flex items-center gap-1.5 p-1.5 rounded-lg bg-white/10 border border-white/15">
           <div className={`w-1 self-stretch rounded-full ${a.ok ? "bg-emerald-400" : "bg-amber-400"}`} />
@@ -205,9 +200,9 @@ function ReadyMockup() {
   return (
     <div className="w-full h-full flex flex-col items-center justify-center gap-2 p-2">
       <div className="relative">
-        <div className="w-12 h-12 rounded-full bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-2xl"
+        <div className="w-12 h-12 rounded-full bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center"
           style={{ animation: "onb-bounce 1s ease-in-out infinite" }}>
-          🚀
+          <Rocket className="w-6 h-6 text-emerald-400" />
         </div>
         {[...Array(6)].map((_, i) => (
           <div key={i} className="absolute w-1 h-1 rounded-full bg-emerald-400/60"
@@ -225,12 +220,13 @@ function ReadyMockup() {
 
 function WelcomeMockup() {
   return (
-    <div className="w-full h-full flex items-center justify-center gap-2">
-      <div className="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center">
-        <Bot className="w-4 h-4 text-emerald-400" />
+    <div className="w-full h-full flex items-center justify-center gap-3 p-2">
+      <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center"
+        style={{ animation: "onb-bounce 2s ease-in-out infinite" }}>
+        <Bot className="w-5 h-5 text-emerald-400" />
       </div>
-      <div className="space-y-1">
-        {[70, 50, 80].map((w, i) => (
+      <div className="space-y-1.5 flex-1">
+        {[75, 55, 85].map((w, i) => (
           <div key={i} className="h-1.5 rounded-full bg-emerald-400/30 animate-pulse"
             style={{ width: `${w}%`, animationDelay: `${i * 300}ms` }} />
         ))}
@@ -240,123 +236,127 @@ function WelcomeMockup() {
 }
 
 /* ─── Steps ────────────────────────────────────────────────────────────────── */
+interface Highlight {
+  Icon: React.ElementType
+  text: string
+}
+
 interface Step {
   id: string
-  emoji: string
   Icon: React.ElementType
   subtitle: string
   title: string
   description: string
-  highlights: { emoji: string; text: string }[]
+  highlights: Highlight[]
   mockup: React.ReactNode
 }
 
 const STEPS: Step[] = [
   {
-    id: "welcome", emoji: "⚡", Icon: Zap,
+    id: "welcome", Icon: Zap,
     subtitle: "Bem-vindo à plataforma",
     title: "GerencIA — IA para Atendimento",
     description: "Automação inteligente que transforma conversas no WhatsApp em agendamentos confirmados. Vamos te mostrar tudo em 2 minutos.",
     highlights: [
-      { emoji: "🤖", text: "Agente IA que atende 24h por dia" },
-      { emoji: "📲", text: "WhatsApp e Instagram integrados" },
-      { emoji: "📊", text: "CRM, follow-up e analytics em tempo real" },
+      { Icon: Bot,        text: "Agente IA que atende 24h por dia" },
+      { Icon: Smartphone, text: "WhatsApp e Instagram integrados" },
+      { Icon: BarChart3,  text: "CRM, follow-up e analytics em tempo real" },
     ],
     mockup: <WelcomeMockup />,
   },
   {
-    id: "crm", emoji: "📋", Icon: LayoutGrid,
+    id: "crm", Icon: LayoutGrid,
     subtitle: "Módulo CRM",
     title: "Pipeline de Vendas Visual",
     description: "Kanban intuitivo com drag-and-drop. Acompanhe cada lead desde o primeiro contato até o agendamento confirmado.",
     highlights: [
-      { emoji: "🎯", text: "Arraste leads entre etapas do funil" },
-      { emoji: "⭐", text: "Score automático por IA" },
-      { emoji: "🔔", text: "Alertas de leads esfriando" },
+      { Icon: Target,  text: "Arraste leads entre etapas do funil" },
+      { Icon: Star,    text: "Score automático por IA" },
+      { Icon: Bell,    text: "Alertas de leads esfriando" },
     ],
     mockup: <CrmMockup />,
   },
   {
-    id: "conversas", emoji: "💬", Icon: MessageSquare,
+    id: "conversas", Icon: MessageSquare,
     subtitle: "Módulo Conversas",
     title: "Central de Chats WhatsApp",
     description: "Todos os atendimentos do agente IA em um só lugar. Monitore em tempo real, intervenha quando quiser e veja o histórico completo.",
     highlights: [
-      { emoji: "👀", text: "Monitore a IA em tempo real" },
-      { emoji: "✋", text: "Assuma a conversa quando quiser" },
-      { emoji: "📋", text: "Histórico completo de cada lead" },
+      { Icon: Eye,           text: "Monitore a IA em tempo real" },
+      { Icon: UserCheck,     text: "Assuma a conversa quando quiser" },
+      { Icon: ClipboardList, text: "Histórico completo de cada lead" },
     ],
     mockup: <ConversasMockup />,
   },
   {
-    id: "contatos", emoji: "👥", Icon: Users,
+    id: "contatos", Icon: Users,
     subtitle: "Módulo Contatos",
     title: "Base de Leads Organizada",
     description: "Gerencie toda a sua base com filtros por origem, tipo e status. Exporte dados, veja a jornada completa e identifique oportunidades.",
     highlights: [
-      { emoji: "🔍", text: "Filtros avançados por status e origem" },
-      { emoji: "📤", text: "Exportação de dados em um clique" },
-      { emoji: "📈", text: "Jornada completa de cada contato" },
+      { Icon: Search,     text: "Filtros avançados por status e origem" },
+      { Icon: Upload,     text: "Exportação de dados em um clique" },
+      { Icon: TrendingUp, text: "Jornada completa de cada contato" },
     ],
     mockup: <ContatosMockup />,
   },
   {
-    id: "agendamentos", emoji: "📅", Icon: CalendarDays,
+    id: "agendamentos", Icon: CalendarDays,
     subtitle: "Módulo Agendamentos",
     title: "Agendamentos + Follow-up Automático",
     description: "Gerencie todos os agendamentos e configure lembretes automáticos. O sistema reenvia mensagens para leads sumidos, sozinho.",
     highlights: [
-      { emoji: "🔔", text: "Lembretes 3 dias, 1 dia e 4 horas antes" },
-      { emoji: "♻️", text: "Follow-up inteligente para leads sumidos" },
-      { emoji: "✅", text: "Confirmação automática de presença" },
+      { Icon: Bell,         text: "Lembretes 3 dias, 1 dia e 4 horas antes" },
+      { Icon: RefreshCw,    text: "Follow-up inteligente para leads sumidos" },
+      { Icon: CheckCircle2, text: "Confirmação automática de presença" },
     ],
     mockup: <AgendamentosMockup />,
   },
   {
-    id: "agente", emoji: "🤖", Icon: Bot,
+    id: "agente", Icon: Bot,
     subtitle: "Módulo Agente IA",
     title: "Seu Assistente Virtual Configurável",
     description: "Configure nome, personalidade, tom de voz, roteiro de qualificação e horários de atendimento. Mais de 150 parâmetros para personalizar.",
     highlights: [
-      { emoji: "🎭", text: "Personalidade e tom de voz" },
-      { emoji: "📝", text: "Roteiro de qualificação completo" },
-      { emoji: "⏰", text: "Horários e regras de negócio" },
+      { Icon: Palette,  text: "Personalidade e tom de voz" },
+      { Icon: FileText, text: "Roteiro de qualificação completo" },
+      { Icon: Clock,    text: "Horários e regras de negócio" },
     ],
     mockup: <AgenteMockup />,
   },
   {
-    id: "configuracao", emoji: "⚙️", Icon: Settings2,
+    id: "configuracao", Icon: Settings2,
     subtitle: "Módulo Configuração",
     title: "Conecte o WhatsApp em Minutos",
     description: "Configure o provider de mensagens, escaneie o QR code e conecte o Instagram. Z-API, Evolution API e Meta Cloud API suportados.",
     highlights: [
-      { emoji: "📲", text: "QR Code do WhatsApp em segundos" },
-      { emoji: "📸", text: "Integração com Instagram" },
-      { emoji: "🔗", text: "Z-API, Evolution e Meta Cloud" },
+      { Icon: Smartphone, text: "QR Code do WhatsApp em segundos" },
+      { Icon: Camera,     text: "Integração com Instagram" },
+      { Icon: Link2,      text: "Z-API, Evolution e Meta Cloud" },
     ],
     mockup: <ConfigMockup />,
   },
   {
-    id: "relatorios", emoji: "📊", Icon: BarChart3,
+    id: "relatorios", Icon: BarChart3,
     subtitle: "Módulo Relatórios",
     title: "Métricas Que Importam",
     description: "Taxa de conversão, lead time médio, follow-ups enviados, agendamentos por período. Tome decisões com dados concretos.",
     highlights: [
-      { emoji: "📈", text: "Taxa de conversão de leads" },
-      { emoji: "⏱️", text: "Lead time médio por etapa" },
-      { emoji: "🗓️", text: "Análise por período" },
+      { Icon: TrendingUp, text: "Taxa de conversão de leads" },
+      { Icon: Timer,      text: "Lead time médio por etapa" },
+      { Icon: CalendarDays, text: "Análise por período" },
     ],
     mockup: <RelatoriosMockup />,
   },
   {
-    id: "ready", emoji: "🚀", Icon: Rocket,
+    id: "ready", Icon: Rocket,
     subtitle: "Tudo pronto!",
     title: "Pode Começar Agora",
     description: "Configure o Agente IA, conecte o WhatsApp e ative o atendimento automático. Em caso de dúvidas, clique no ícone '?' no cabeçalho.",
     highlights: [
-      { emoji: "1️⃣", text: "Configure o Agente IA no menu lateral" },
-      { emoji: "2️⃣", text: "Conecte o WhatsApp em Configuração" },
-      { emoji: "3️⃣", text: "Ative e monitore em Conversas" },
+      { Icon: Bot,         text: "Configure o Agente IA no menu lateral" },
+      { Icon: Smartphone,  text: "Conecte o WhatsApp em Configuração" },
+      { Icon: MessageSquare, text: "Ative e monitore em Conversas" },
     ],
     mockup: <ReadyMockup />,
   },
@@ -389,10 +389,7 @@ export default function OnboardingTour({ forceOpen, onClose }: OnboardingTourPro
     try {
       const seen = localStorage.getItem(ONBOARDING_KEY)
       if (!seen) {
-        const t = setTimeout(() => {
-          setVisible(true)
-          playSound("open")
-        }, 800)
+        const t = setTimeout(() => { setVisible(true); playSound("open") }, 800)
         return () => clearTimeout(t)
       }
     } catch {}
@@ -411,20 +408,12 @@ export default function OnboardingTour({ forceOpen, onClose }: OnboardingTourPro
   }, [onClose])
 
   const handleNext = useCallback(() => {
-    if (step < STEPS.length - 1) {
-      playSound("next")
-      goTo(step + 1, "fwd")
-    } else {
-      playSound("finish")
-      handleClose()
-    }
+    if (step < STEPS.length - 1) { playSound("next"); goTo(step + 1, "fwd") }
+    else { playSound("finish"); handleClose() }
   }, [step, goTo, handleClose])
 
   const handlePrev = useCallback(() => {
-    if (step > 0) {
-      playSound("prev")
-      goTo(step - 1, "bwd")
-    }
+    if (step > 0) { playSound("prev"); goTo(step - 1, "bwd") }
   }, [step, goTo])
 
   if (!visible) return null
@@ -437,12 +426,11 @@ export default function OnboardingTour({ forceOpen, onClose }: OnboardingTourPro
     <>
       <style>{`
         @keyframes onb-fadeIn {
-          from { opacity: 0; }
-          to   { opacity: 1; }
+          from { opacity: 0; } to { opacity: 1; }
         }
         @keyframes onb-slideUp {
           from { opacity: 0; transform: translateY(28px) scale(0.96); }
-          to   { opacity: 1; transform: translateY(0)     scale(1); }
+          to   { opacity: 1; transform: translateY(0) scale(1); }
         }
         @keyframes onb-slideInRight {
           from { opacity: 0; transform: translateX(18px); }
@@ -458,36 +446,32 @@ export default function OnboardingTour({ forceOpen, onClose }: OnboardingTourPro
         }
         @keyframes onb-bounce {
           0%, 100% { transform: translateY(0); }
-          50%       { transform: translateY(-6px); }
+          50%       { transform: translateY(-5px); }
         }
         @keyframes onb-ping {
-          0%   { transform: rotate(var(--r,0deg)) translateY(-24px) scale(0); opacity: 1; }
-          80%  { transform: rotate(var(--r,0deg)) translateY(-24px) scale(1.5); opacity: 0; }
+          0%   { opacity: 1; transform: rotate(var(--r,0deg)) translateY(-24px) scale(0.5); }
+          80%  { opacity: 0; transform: rotate(var(--r,0deg)) translateY(-24px) scale(1.5); }
           100% { opacity: 0; }
         }
         @keyframes onb-pulse-ring {
-          0%   { transform: scale(0.9); opacity: 0.6; }
-          100% { transform: scale(1.4); opacity: 0; }
+          0%   { transform: scale(0.9); opacity: 0.5; }
+          100% { transform: scale(1.5); opacity: 0; }
         }
       `}</style>
 
-      {/* Overlay */}
       <div
         className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
         style={{ animation: "onb-fadeIn 0.25s ease both" }}
       >
         {/* Backdrop */}
-        <div
-          className="absolute inset-0 bg-black/65 backdrop-blur-sm"
-          onClick={handleClose}
-        />
+        <div className="absolute inset-0 bg-black/65 backdrop-blur-sm" onClick={handleClose} />
 
-        {/* Glow pulse behind card */}
+        {/* Glow */}
         <div
           className="absolute pointer-events-none rounded-full"
           style={{
-            width: 400, height: 400,
-            background: "radial-gradient(circle, rgba(16,185,129,0.18) 0%, transparent 70%)",
+            width: 420, height: 420,
+            background: "radial-gradient(circle, rgba(16,185,129,0.15) 0%, transparent 70%)",
             animation: "onb-pulse-ring 3s ease-in-out infinite",
           }}
         />
@@ -495,14 +479,10 @@ export default function OnboardingTour({ forceOpen, onClose }: OnboardingTourPro
         {/* Floating particles */}
         <div className="absolute inset-0 pointer-events-none overflow-hidden">
           {[...Array(10)].map((_, i) => (
-            <div
-              key={i}
-              className="absolute rounded-full bg-emerald-400/20"
+            <div key={i} className="absolute rounded-full bg-emerald-400/20"
               style={{
-                width: `${3 + (i % 3) * 2}px`,
-                height: `${3 + (i % 3) * 2}px`,
-                left: `${8 + i * 9}%`,
-                top: `${20 + ((i * 17) % 60)}%`,
+                width: `${3 + (i % 3) * 2}px`, height: `${3 + (i % 3) * 2}px`,
+                left: `${8 + i * 9}%`, top: `${20 + ((i * 17) % 60)}%`,
                 animation: `onb-float ${2.5 + (i % 3) * 0.8}s ${i * 0.25}s ease-in-out infinite alternate`,
               }}
             />
@@ -511,16 +491,16 @@ export default function OnboardingTour({ forceOpen, onClose }: OnboardingTourPro
 
         {/* Card */}
         <div
-          className="relative z-10 w-full max-w-md overflow-hidden shadow-2xl"
+          className="relative z-10 w-full max-w-md overflow-hidden"
           style={{
             background: "var(--card)",
             border: "1px solid var(--border)",
             borderRadius: "20px",
-            boxShadow: "0 25px 60px rgba(0,0,0,0.4), 0 0 0 1px rgba(16,185,129,0.08)",
+            boxShadow: "0 25px 60px rgba(0,0,0,0.35), 0 0 0 1px rgba(16,185,129,0.08)",
             animation: "onb-slideUp 0.4s cubic-bezier(0.34, 1.46, 0.64, 1) both",
           }}
         >
-          {/* Emerald progress bar */}
+          {/* Progress bar */}
           <div className="h-[3px] w-full" style={{ background: "var(--border)" }}>
             <div
               className="h-full transition-all duration-500 ease-out"
@@ -532,7 +512,7 @@ export default function OnboardingTour({ forceOpen, onClose }: OnboardingTourPro
           </div>
 
           {/* Header */}
-          <div className="flex items-center justify-between px-5 pt-4 pb-0">
+          <div className="flex items-center justify-between px-5 pt-4">
             <div className="flex items-center gap-2">
               <div
                 className="w-6 h-6 rounded-lg flex items-center justify-center"
@@ -545,12 +525,15 @@ export default function OnboardingTour({ forceOpen, onClose }: OnboardingTourPro
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">
+              <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>
                 {step + 1}<span className="opacity-40"> / {STEPS.length}</span>
               </span>
               <button
                 onClick={handleClose}
-                className="w-7 h-7 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-all"
+                className="w-7 h-7 rounded-full flex items-center justify-center transition-all"
+                style={{ color: "var(--muted-foreground)" }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "var(--muted)" }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent" }}
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -565,7 +548,7 @@ export default function OnboardingTour({ forceOpen, onClose }: OnboardingTourPro
               animation: `${direction === "fwd" ? "onb-slideInRight" : "onb-slideInLeft"} 0.28s cubic-bezier(0.25, 0.46, 0.45, 0.94) both`,
             }}
           >
-            {/* Mockup area */}
+            {/* Mockup */}
             <div
               className="w-full h-24 rounded-2xl mb-4 overflow-hidden relative"
               style={{
@@ -573,21 +556,17 @@ export default function OnboardingTour({ forceOpen, onClose }: OnboardingTourPro
                 border: "1px solid rgba(16,185,129,0.15)",
               }}
             >
-              {/* Emoji badge */}
               <div
-                className="absolute top-2 right-2 w-8 h-8 rounded-xl flex items-center justify-center text-lg z-10 shadow-lg"
+                className="absolute top-2 right-2 w-7 h-7 rounded-xl flex items-center justify-center z-10 shadow-lg"
                 style={{ background: "linear-gradient(135deg, #059669, #10B981)" }}
               >
-                {current.emoji}
+                <current.Icon className="w-3.5 h-3.5 text-white" />
               </div>
               {current.mockup}
             </div>
 
-            {/* Title */}
-            <h2
-              className="text-xl font-bold mb-1.5 leading-tight font-display"
-              style={{ color: "var(--foreground)" }}
-            >
+            {/* Text */}
+            <h2 className="text-xl font-bold mb-1.5 leading-tight font-display" style={{ color: "var(--foreground)" }}>
               {current.title}
             </h2>
             <p className="text-sm leading-relaxed mb-4" style={{ color: "var(--muted-foreground)" }}>
@@ -606,7 +585,12 @@ export default function OnboardingTour({ forceOpen, onClose }: OnboardingTourPro
                     animation: `onb-slideInRight 0.3s ${80 + i * 60}ms both`,
                   }}
                 >
-                  <span className="text-base leading-none">{h.emoji}</span>
+                  <div
+                    className="w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0"
+                    style={{ background: "rgba(16,185,129,0.15)", border: "1px solid rgba(16,185,129,0.25)" }}
+                  >
+                    <h.Icon className="w-3 h-3 text-emerald-500" />
+                  </div>
                   <span className="text-sm font-medium" style={{ color: "var(--foreground)" }}>
                     {h.text}
                   </span>
@@ -620,7 +604,7 @@ export default function OnboardingTour({ forceOpen, onClose }: OnboardingTourPro
             className="px-5 py-3 mt-2 flex items-center justify-between gap-3"
             style={{ borderTop: "1px solid var(--border)" }}
           >
-            {/* Dot navigation */}
+            {/* Dots */}
             <div className="flex gap-1.5 items-center">
               {STEPS.map((_, i) => (
                 <button
@@ -630,11 +614,7 @@ export default function OnboardingTour({ forceOpen, onClose }: OnboardingTourPro
                   style={{
                     width: i === step ? "20px" : "5px",
                     height: "5px",
-                    background: i === step
-                      ? "#10B981"
-                      : i < step
-                        ? "rgba(16,185,129,0.4)"
-                        : "var(--border)",
+                    background: i === step ? "#10B981" : i < step ? "rgba(16,185,129,0.4)" : "var(--border)",
                   }}
                   aria-label={`Passo ${i + 1}`}
                 />
@@ -665,8 +645,11 @@ export default function OnboardingTour({ forceOpen, onClose }: OnboardingTourPro
                 onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.boxShadow = "0 6px 20px rgba(16,185,129,0.55)" }}
                 onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.boxShadow = "0 4px 14px rgba(16,185,129,0.4)" }}
               >
-                {isLast ? "Começar! 🚀" : "Próximo"}
-                {!isLast && <ChevronRight className="w-3.5 h-3.5" />}
+                {isLast ? "Começar" : "Próximo"}
+                {isLast
+                  ? <Rocket className="w-3.5 h-3.5 ml-1" />
+                  : <ChevronRight className="w-3.5 h-3.5" />
+                }
               </button>
             </div>
           </div>
