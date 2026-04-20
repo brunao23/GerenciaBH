@@ -2096,8 +2096,7 @@ async function persistZapiEvent(params: {
   const eventContent = buildContent(event)
   const eventRole = buildRole(event)
   const eventType = buildType(event)
-  const shouldCheckContentDuplicate = event.fromMe === true
-  if (shouldCheckContentDuplicate) {
+  if (event.fromMe === true) {
     const hasRecentDuplicate = await chat.hasRecentEquivalentMessage({
       sessionId: resolvedSessionId,
       content: eventContent,
@@ -2107,6 +2106,19 @@ async function persistZapiEvent(params: {
       ignoreMessageId: messageId,
     })
     if (hasRecentDuplicate) {
+      return { persisted: false, duplicate: true, messageId, createdAt }
+    }
+  } else {
+    // Dedup por conteúdo para mensagens recebidas: protege contra retries do Z-API com messageId diferente
+    const hasRecentIncomingDuplicate = await chat.hasRecentEquivalentMessage({
+      sessionId: resolvedSessionId,
+      content: eventContent,
+      role: "user",
+      fromMe: false,
+      withinSeconds: 300,
+      ignoreMessageId: messageId,
+    })
+    if (hasRecentIncomingDuplicate) {
       return { persisted: false, duplicate: true, messageId, createdAt }
     }
   }
@@ -2908,18 +2920,6 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    if (event.callbackType === "received" && event.fromMe !== true) {
-      const phoneForFollowupCancel = canonicalPhone
-      const sessionForFollowupCancel = canonicalSessionId
-      await new AgentTaskQueueService()
-        .cancelPendingFollowups({
-          tenant,
-          sessionId: sessionForFollowupCancel,
-          phone: phoneForFollowupCancel || undefined,
-        })
-        .catch(() => { })
-    }
-
     const persisted = await persistZapiEvent({
       tenant,
       event,
@@ -2934,6 +2934,18 @@ export async function POST(req: NextRequest) {
         tenant,
         persisted,
       })
+    }
+
+    if (event.callbackType === "received" && event.fromMe !== true) {
+      const phoneForFollowupCancel = canonicalPhone
+      const sessionForFollowupCancel = canonicalSessionId
+      await new AgentTaskQueueService()
+        .cancelPendingFollowups({
+          tenant,
+          sessionId: sessionForFollowupCancel,
+          phone: phoneForFollowupCancel || undefined,
+        })
+        .catch(() => { })
     }
 
     const taskInsightPromise = processConversationTaskIntelligence({

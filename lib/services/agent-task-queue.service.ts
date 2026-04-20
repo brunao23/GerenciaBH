@@ -1328,7 +1328,7 @@ export class AgentTaskQueueService {
           this.hasRecentAssistantFollowupMessage({
             tenant,
             sessionId,
-            withinSeconds: 120,
+            withinSeconds: 600,
           }),
         ])
 

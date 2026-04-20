@@ -153,6 +153,7 @@ function buildSystemPrompt(input: {
     "MODO OPERACIONAL: voce esta gerando uma sugestao para um atendente humano enviar agora.",
     "Use o contexto da conversa inteira e responda somente ao que o lead precisa neste momento.",
     "Priorize resposta objetiva, contextual e assertiva, sem inventar fatos.",
+    "LEI INVIOLAVEL: JAMAIS sugira prometer, negociar ou mencionar qualquer informacao que nao esteja explicitamente no contexto fornecido. Nao invente descontos, condicoes, servicos ou qualquer dado nao configurado.",
     "Escreva em portugues do Brasil.",
     "Nao use markdown, lista, bullets, numeracao, prefixos tecnicos nem texto com hifens.",
     "Se nao houver resposta necessaria agora, responda exatamente: [SEM_RESPOSTA]",
