@@ -33,6 +33,7 @@ import {
   ChevronDown,
   ChevronRight,
   CheckCircle2,
+  Download,
 } from "lucide-react"
 import { toast } from "sonner"
 import { REGISTERED_TENANTS } from "@/lib/helpers/tenant"
@@ -97,6 +98,7 @@ export default function MetaLeadPagesPage() {
     Record<string, { selected: boolean; form_id: string | null; form_name: string; unit_prefix: string; campaign_name: string }>
   >({})
   const [importing, setImporting] = useState(false)
+  const [syncing, setSyncing] = useState<string | null>(null)
 
   const fetchPages = async () => {
     setLoading(true)
@@ -193,6 +195,10 @@ export default function MetaLeadPagesPage() {
     setImporting(true)
     let ok = 0
     let fail = 0
+
+    // Monta lista de campanhas importadas com sucesso para recuperar leads históricos
+    const recovered: Array<{ unit_prefix: string; page_id: string; page_access_token: string; form_id: string | null; campaign_name: string }> = []
+
     for (const [key, sel] of entries) {
       const page_id = key.split("::")[0]
       const page = discovered.find((p) => p.page_id === page_id)!
@@ -209,15 +215,54 @@ export default function MetaLeadPagesPage() {
             welcome_message: DEFAULT_WELCOME,
           }),
         })
-        if (res.ok) ok++
-        else fail++
+        if (res.ok) {
+          ok++
+          recovered.push({
+            unit_prefix: sel.unit_prefix,
+            page_id,
+            page_access_token: page.page_access_token,
+            form_id: sel.form_id,
+            campaign_name: sel.campaign_name,
+          })
+        } else fail++
       } catch { fail++ }
     }
-    setImporting(false)
-    if (ok) toast.success(`${ok} campanha(s) importada(s) com sucesso!`)
+
+    if (ok) toast.success(`${ok} campanha(s) importada(s)! Recuperando leads históricos…`)
     if (fail) toast.error(`${fail} campanha(s) falharam`)
     setDiscoverOpen(false)
     fetchPages()
+
+    // Puxar leads históricos do Meta para cada campanha importada com sucesso
+    let recoveredTotal = 0
+    for (const camp of recovered) {
+      try {
+        const res = await fetch("/api/admin/meta-lead-pages/recover", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            unit_prefix: camp.unit_prefix,
+            page_id: camp.page_id,
+            page_access_token: camp.page_access_token,
+            form_id: camp.form_id,
+            campaign_name: camp.campaign_name,
+          }),
+        })
+        if (res.ok) {
+          const r = await res.json()
+          recoveredTotal += r.imported ?? 0
+        }
+      } catch { /* silencioso */ }
+    }
+
+    if (recoveredTotal > 0) {
+      toast.success(`${recoveredTotal} lead(s) histórico(s) importado(s)!`)
+      fetchPages()
+    } else if (recovered.length) {
+      toast.info("Nenhum lead histórico encontrado (formulário novo ou sem submissões).")
+    }
+
+    setImporting(false)
   }
 
   // ── CRUD manual ───────────────────────────────────────────────────────
@@ -262,6 +307,30 @@ export default function MetaLeadPagesPage() {
       toast.error(e.message || "Erro ao salvar")
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleSync = async (p: MetaLeadPage) => {
+    setSyncing(p.id)
+    try {
+      const res = await fetch("/api/admin/meta-lead-pages/recover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          unit_prefix: p.unit_prefix,
+          page_id: p.page_id,
+          page_access_token: p.page_access_token,
+          form_id: p.form_id,
+          campaign_name: p.campaign_name,
+        }),
+      })
+      const r = await res.json()
+      if (!res.ok) throw new Error(r.error)
+      toast.success(`${r.imported} lead(s) importado(s) · ${r.skipped} ignorado(s)`)
+    } catch (e: any) {
+      toast.error(e.message || "Erro ao sincronizar")
+    } finally {
+      setSyncing(null)
     }
   }
 
@@ -361,6 +430,12 @@ export default function MetaLeadPagesPage() {
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-2">
+                          <Button variant="ghost" size="icon" title="Puxar leads históricos"
+                            onClick={() => handleSync(p)} disabled={syncing === p.id}>
+                            {syncing === p.id
+                              ? <Loader2 className="h-4 w-4 animate-spin" />
+                              : <Download className="h-4 w-4 text-blue-500" />}
+                          </Button>
                           <Button variant="ghost" size="icon" onClick={() => openEdit(p)}>
                             <Pencil className="h-4 w-4" />
                           </Button>

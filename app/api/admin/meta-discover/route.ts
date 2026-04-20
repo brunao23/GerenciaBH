@@ -76,11 +76,28 @@ export async function GET() {
     console.warn("[meta-discover] Erro ao buscar tokens de tenants:", err)
   }
 
+  // 3. Cross-referenciar com meta_lead_pages para hint de tenant em páginas já cadastradas
+  try {
+    const { data: existing } = await supabase
+      .from("meta_lead_pages")
+      .select("page_id, unit_prefix")
+      .eq("is_active", true)
+
+    for (const row of existing ?? []) {
+      const entry = pageMap.get(row.page_id)
+      if (entry && !entry.unit_prefix_hint) {
+        entry.unit_prefix_hint = row.unit_prefix
+      }
+    }
+  } catch (err) {
+    console.warn("[meta-discover] Erro ao cross-referenciar meta_lead_pages:", err)
+  }
+
   if (!pageMap.size) {
     return NextResponse.json({ pages: [] })
   }
 
-  // 3. Enriquecer cada página com seus formulários de Lead Ads
+  // 4. Enriquecer cada página com seus formulários de Lead Ads
   const results = await Promise.all(
     Array.from(pageMap.values()).map(async (page) => {
       let forms: any[] = []
