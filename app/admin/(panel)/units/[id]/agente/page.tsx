@@ -43,11 +43,17 @@ type TenantNativeAgentConfig = {
   inboundMessageBufferSeconds: number
   zapiDelayMessageSeconds: number
   zapiDelayTypingSeconds: number
+  samplingTemperature: number
+  samplingTopP: number
+  samplingTopK: number
   splitLongMessagesEnabled: boolean
   messageBlockMaxChars: number
   schedulingEnabled: boolean
   followupEnabled: boolean
   followupIntervalsMinutes: number[]
+  followupSamplingTemperature: number
+  followupSamplingTopP: number
+  followupSamplingTopK: number
   followupBusinessStart: string
   followupBusinessEnd: string
   followupBusinessDays: number[]
@@ -59,6 +65,11 @@ type TenantNativeAgentConfig = {
   notifyOnScheduleSuccess: boolean
   notifyOnScheduleError: boolean
   notifyOnHumanHandoff: boolean
+  socialSellerKeywordScope: "all_posts" | "specific_posts"
+  socialSellerKeywordPostIds: string[]
+  socialSellerSamplingTemperature: number
+  socialSellerSamplingTopP: number
+  socialSellerSamplingTopK: number
   collectEmailForScheduling: boolean
   generateMeetForOnlineAppointments: boolean
   postScheduleAutomationEnabled: boolean
@@ -151,11 +162,17 @@ const defaultConfig: TenantNativeAgentConfig = {
   inboundMessageBufferSeconds: 10,
   zapiDelayMessageSeconds: 1,
   zapiDelayTypingSeconds: 0,
+  samplingTemperature: 0.4,
+  samplingTopP: 0.85,
+  samplingTopK: 32,
   splitLongMessagesEnabled: true,
   messageBlockMaxChars: 400,
   schedulingEnabled: true,
   followupEnabled: true,
   followupIntervalsMinutes: [15, 60, 360, 1440, 2880, 4320, 7200],
+  followupSamplingTemperature: 0.55,
+  followupSamplingTopP: 0.9,
+  followupSamplingTopK: 40,
   followupBusinessStart: "07:00",
   followupBusinessEnd: "23:00",
   followupBusinessDays: [0, 1, 2, 3, 4, 5, 6],
@@ -167,6 +184,11 @@ const defaultConfig: TenantNativeAgentConfig = {
   notifyOnScheduleSuccess: true,
   notifyOnScheduleError: true,
   notifyOnHumanHandoff: true,
+  socialSellerKeywordScope: "all_posts",
+  socialSellerKeywordPostIds: [],
+  socialSellerSamplingTemperature: 0.45,
+  socialSellerSamplingTopP: 0.9,
+  socialSellerSamplingTopK: 40,
   collectEmailForScheduling: true,
   generateMeetForOnlineAppointments: false,
   postScheduleAutomationEnabled: false,
@@ -309,6 +331,15 @@ function normalizeConfig(raw: any): TenantNativeAgentConfig {
     zapiDelayTypingSeconds: Number.isFinite(Number(source.zapiDelayTypingSeconds))
       ? Number(source.zapiDelayTypingSeconds)
       : 3,
+    samplingTemperature: Number.isFinite(Number(source.samplingTemperature))
+      ? Number(source.samplingTemperature)
+      : 0.4,
+    samplingTopP: Number.isFinite(Number(source.samplingTopP))
+      ? Number(source.samplingTopP)
+      : 0.85,
+    samplingTopK: Number.isFinite(Number(source.samplingTopK))
+      ? Number(source.samplingTopK)
+      : 32,
     splitLongMessagesEnabled: source.splitLongMessagesEnabled !== false,
     messageBlockMaxChars: Number.isFinite(Number(source.messageBlockMaxChars))
       ? Number(source.messageBlockMaxChars)
@@ -318,6 +349,15 @@ function normalizeConfig(raw: any): TenantNativeAgentConfig {
     followupIntervalsMinutes: followupIntervalsMinutes.length
       ? followupIntervalsMinutes
       : [15, 60, 360, 1440, 2880, 4320, 7200],
+    followupSamplingTemperature: Number.isFinite(Number(source.followupSamplingTemperature))
+      ? Number(source.followupSamplingTemperature)
+      : 0.55,
+    followupSamplingTopP: Number.isFinite(Number(source.followupSamplingTopP))
+      ? Number(source.followupSamplingTopP)
+      : 0.9,
+    followupSamplingTopK: Number.isFinite(Number(source.followupSamplingTopK))
+      ? Number(source.followupSamplingTopK)
+      : 40,
     followupBusinessStart: String(source.followupBusinessStart || "07:00"),
     followupBusinessEnd: String(source.followupBusinessEnd || "23:00"),
     followupBusinessDays: followupBusinessDays.length ? followupBusinessDays : [0, 1, 2, 3, 4, 5, 6],
@@ -338,6 +378,25 @@ function normalizeConfig(raw: any): TenantNativeAgentConfig {
     notifyOnScheduleSuccess: source.notifyOnScheduleSuccess !== false,
     notifyOnScheduleError: source.notifyOnScheduleError !== false,
     notifyOnHumanHandoff: source.notifyOnHumanHandoff !== false,
+    socialSellerKeywordScope:
+      String(source.socialSellerKeywordScope || "all_posts").trim().toLowerCase() === "specific_posts"
+        ? "specific_posts"
+        : "all_posts",
+    socialSellerKeywordPostIds: Array.isArray(source.socialSellerKeywordPostIds)
+      ? source.socialSellerKeywordPostIds
+        .map((v: any) => String(v || "").replace(/\D/g, "").trim())
+        .filter(Boolean)
+        .filter((v: string, i: number, arr: string[]) => arr.indexOf(v) === i)
+      : [],
+    socialSellerSamplingTemperature: Number.isFinite(Number(source.socialSellerSamplingTemperature))
+      ? Number(source.socialSellerSamplingTemperature)
+      : 0.45,
+    socialSellerSamplingTopP: Number.isFinite(Number(source.socialSellerSamplingTopP))
+      ? Number(source.socialSellerSamplingTopP)
+      : 0.9,
+    socialSellerSamplingTopK: Number.isFinite(Number(source.socialSellerSamplingTopK))
+      ? Number(source.socialSellerSamplingTopK)
+      : 40,
     collectEmailForScheduling: source.collectEmailForScheduling === true,
     generateMeetForOnlineAppointments: source.generateMeetForOnlineAppointments === true,
     postScheduleAutomationEnabled: source.postScheduleAutomationEnabled === true,
@@ -706,11 +765,17 @@ export default function AdminAgenteIAPage({ params }: { params: Promise<{ id: st
         ),
         zapiDelayMessageSeconds: Math.max(1, Math.min(15, Number(config.zapiDelayMessageSeconds || 1))),
         zapiDelayTypingSeconds: Math.max(0, Math.min(15, Number(config.zapiDelayTypingSeconds || 0))),
+        samplingTemperature: Math.max(0, Math.min(2, Number(config.samplingTemperature || 0.4))),
+        samplingTopP: Math.max(0, Math.min(1, Number(config.samplingTopP || 0.85))),
+        samplingTopK: Math.max(1, Math.min(100, Number(config.samplingTopK || 32))),
         splitLongMessagesEnabled: config.splitLongMessagesEnabled,
         messageBlockMaxChars: Math.max(120, Math.min(1200, Number(config.messageBlockMaxChars || 400))),
         schedulingEnabled: config.schedulingEnabled,
         followupEnabled: config.followupEnabled,
         followupIntervalsMinutes: parseFollowupIntervalsInput(followupIntervalsInput),
+        followupSamplingTemperature: Math.max(0, Math.min(2, Number(config.followupSamplingTemperature || 0.55))),
+        followupSamplingTopP: Math.max(0, Math.min(1, Number(config.followupSamplingTopP || 0.9))),
+        followupSamplingTopK: Math.max(1, Math.min(100, Number(config.followupSamplingTopK || 40))),
         followupBusinessStart: toOptionalText(config.followupBusinessStart) || "07:00",
         followupBusinessEnd: toOptionalText(config.followupBusinessEnd) || "23:00",
         followupBusinessDays: parseFollowupBusinessDaysInput(followupBusinessDaysInput),
@@ -722,6 +787,14 @@ export default function AdminAgenteIAPage({ params }: { params: Promise<{ id: st
         notifyOnScheduleSuccess: config.notifyOnScheduleSuccess,
         notifyOnScheduleError: config.notifyOnScheduleError,
         notifyOnHumanHandoff: config.notifyOnHumanHandoff,
+        socialSellerKeywordScope: config.socialSellerKeywordScope,
+        socialSellerKeywordPostIds: (config.socialSellerKeywordPostIds || [])
+          .map((v) => String(v || "").replace(/\D/g, "").trim())
+          .filter(Boolean)
+          .filter((v, i, arr) => arr.indexOf(v) === i),
+        socialSellerSamplingTemperature: Math.max(0, Math.min(2, Number(config.socialSellerSamplingTemperature || 0.45))),
+        socialSellerSamplingTopP: Math.max(0, Math.min(1, Number(config.socialSellerSamplingTopP || 0.9))),
+        socialSellerSamplingTopK: Math.max(1, Math.min(100, Number(config.socialSellerSamplingTopK || 40))),
         collectEmailForScheduling: config.collectEmailForScheduling,
         generateMeetForOnlineAppointments: config.generateMeetForOnlineAppointments,
         postScheduleAutomationEnabled: config.postScheduleAutomationEnabled,
@@ -911,6 +984,54 @@ export default function AdminAgenteIAPage({ params }: { params: Promise<{ id: st
                   <SelectItem value="formal">Formal</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label>Temperatura LLM</Label>
+              <Input
+                type="number"
+                min={0}
+                max={2}
+                step={0.05}
+                value={config.samplingTemperature}
+                onChange={(e) =>
+                  setConfig((prev) => ({ ...prev, samplingTemperature: Number(e.target.value || 0.4) }))
+                }
+                className="bg-secondary border-border text-foreground"
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Top P</Label>
+              <Input
+                type="number"
+                min={0}
+                max={1}
+                step={0.01}
+                value={config.samplingTopP}
+                onChange={(e) =>
+                  setConfig((prev) => ({ ...prev, samplingTopP: Number(e.target.value || 0.85) }))
+                }
+                className="bg-secondary border-border text-foreground"
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Top K</Label>
+              <Input
+                type="number"
+                min={1}
+                max={100}
+                step={1}
+                value={config.samplingTopK}
+                onChange={(e) =>
+                  setConfig((prev) => ({ ...prev, samplingTopK: Number(e.target.value || 32) }))
+                }
+                className="bg-secondary border-border text-foreground"
+                disabled={loading}
+              />
             </div>
           </div>
 
@@ -1588,6 +1709,63 @@ export default function AdminAgenteIAPage({ params }: { params: Promise<{ id: st
 
           <div className="grid md:grid-cols-3 gap-4">
             <div className="space-y-2">
+              <Label>Temperatura Follow-up</Label>
+              <Input
+                type="number"
+                min={0}
+                max={2}
+                step={0.05}
+                value={config.followupSamplingTemperature}
+                onChange={(e) =>
+                  setConfig((prev) => ({
+                    ...prev,
+                    followupSamplingTemperature: Number(e.target.value || 0.55),
+                  }))
+                }
+                className="bg-secondary border-border text-foreground"
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Top P</Label>
+              <Input
+                type="number"
+                min={0}
+                max={1}
+                step={0.01}
+                value={config.followupSamplingTopP}
+                onChange={(e) =>
+                  setConfig((prev) => ({
+                    ...prev,
+                    followupSamplingTopP: Number(e.target.value || 0.9),
+                  }))
+                }
+                className="bg-secondary border-border text-foreground"
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Top K</Label>
+              <Input
+                type="number"
+                min={1}
+                max={100}
+                step={1}
+                value={config.followupSamplingTopK}
+                onChange={(e) =>
+                  setConfig((prev) => ({
+                    ...prev,
+                    followupSamplingTopK: Number(e.target.value || 40),
+                  }))
+                }
+                className="bg-secondary border-border text-foreground"
+                disabled={loading}
+              />
+            </div>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-4">
+            <div className="space-y-2">
               <Label>Horario inicial follow-up</Label>
               <Input
                 type="time"
@@ -1618,6 +1796,116 @@ export default function AdminAgenteIAPage({ params }: { params: Promise<{ id: st
                 onChange={(e) => setFollowupBusinessDaysInput(e.target.value)}
                 className="bg-secondary border-border text-foreground"
                 placeholder="0,1,2,3,4,5,6"
+                disabled={loading}
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-card border-border text-foreground">
+        <CardHeader>
+          <CardTitle>Agente Social Seller</CardTitle>
+          <CardDescription className="text-gray-400">
+            Configure o escopo das palavras-chave e a amostragem do agente de Instagram.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Escopo das palavras-chave</Label>
+              <Select
+                value={config.socialSellerKeywordScope}
+                onValueChange={(v) =>
+                  setConfig((prev) => ({
+                    ...prev,
+                    socialSellerKeywordScope: v === "specific_posts" ? "specific_posts" : "all_posts",
+                  }))
+                }
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-secondary border-border">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-secondary border-border text-foreground">
+                  <SelectItem value="all_posts">Todos os posts</SelectItem>
+                  <SelectItem value="specific_posts">Somente posts especificos</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Posts especificos (IDs, um por linha)</Label>
+              <Textarea
+                value={(config.socialSellerKeywordPostIds || []).join("\n")}
+                onChange={(e) =>
+                  setConfig((prev) => ({
+                    ...prev,
+                    socialSellerKeywordPostIds: e.target.value
+                      .split(/\r?\n|,/g)
+                      .map((v) => String(v || "").replace(/\D/g, "").trim())
+                      .filter(Boolean)
+                      .filter((v, i, arr) => arr.indexOf(v) === i),
+                  }))
+                }
+                className="bg-secondary border-border text-foreground min-h-[96px]"
+                placeholder="17890000111111111"
+                disabled={loading}
+              />
+            </div>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label>Temperatura Social Seller</Label>
+              <Input
+                type="number"
+                min={0}
+                max={2}
+                step={0.05}
+                value={config.socialSellerSamplingTemperature}
+                onChange={(e) =>
+                  setConfig((prev) => ({
+                    ...prev,
+                    socialSellerSamplingTemperature: Number(e.target.value || 0.45),
+                  }))
+                }
+                className="bg-secondary border-border text-foreground"
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Top P</Label>
+              <Input
+                type="number"
+                min={0}
+                max={1}
+                step={0.01}
+                value={config.socialSellerSamplingTopP}
+                onChange={(e) =>
+                  setConfig((prev) => ({
+                    ...prev,
+                    socialSellerSamplingTopP: Number(e.target.value || 0.9),
+                  }))
+                }
+                className="bg-secondary border-border text-foreground"
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Top K</Label>
+              <Input
+                type="number"
+                min={1}
+                max={100}
+                step={1}
+                value={config.socialSellerSamplingTopK}
+                onChange={(e) =>
+                  setConfig((prev) => ({
+                    ...prev,
+                    socialSellerSamplingTopK: Number(e.target.value || 40),
+                  }))
+                }
+                className="bg-secondary border-border text-foreground"
                 disabled={loading}
               />
             </div>

@@ -34,6 +34,14 @@ function toNumber(value: any, fallback: number, min: number, max: number): numbe
   return Math.floor(numeric)
 }
 
+function toDecimal(value: any, fallback: number, min: number, max: number): number {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return fallback
+  if (numeric < min) return min
+  if (numeric > max) return max
+  return numeric
+}
+
 function toBusinessDays(value: any, fallback: number[]): number[] {
   if (Array.isArray(value)) {
     const days = value
@@ -206,6 +214,24 @@ function toFollowupPlan(
   return parsed.length ? parsed : fallback
 }
 
+function toKeywordScope(
+  value: any,
+  fallback: "all_posts" | "specific_posts",
+): "all_posts" | "specific_posts" {
+  const text = String(value ?? "").trim().toLowerCase()
+  if (text === "specific_posts") return "specific_posts"
+  if (text === "all_posts") return "all_posts"
+  return fallback
+}
+
+function toKeywordPostIds(value: any, fallback: string[]): string[] {
+  const list = toTextList(value, fallback)
+  const normalized = list
+    .map((entry) => String(entry || "").replace(/\D/g, ""))
+    .filter((entry) => entry.length >= 4)
+  return Array.from(new Set(normalized)).slice(0, 200)
+}
+
 function normalizeNotificationTarget(value: any): string | null {
   const text = String(value || "").trim()
   if (!text) return null
@@ -308,6 +334,21 @@ function toUrlList(value: any, fallback: string[]): string[] {
     .map((v) => String(v || "").trim())
     .filter(Boolean)
   return Array.from(new Set(list)).slice(0, 20)
+}
+
+function toTextList(value: any, fallback: string[]): string[] {
+  if (value === undefined || value === null) return fallback
+  const rawList = Array.isArray(value)
+    ? value
+    : String(value || "")
+      .split(/[\n,;]+/g)
+      .map((v) => v.trim())
+
+  const values = rawList
+    .map((entry) => String(entry || "").trim())
+    .filter(Boolean)
+
+  return values.length ? Array.from(new Set(values)).slice(0, 50) : fallback
 }
 
 function mergeSecret(current: string | undefined, incoming: any): string | undefined {
@@ -457,6 +498,9 @@ export async function PATCH(req: NextRequest, context: { params: RouteParams }) 
         autoReplyEnabled: true,
         replyEnabled: true,
         reactionsEnabled: true,
+        samplingTemperature: 0.4,
+        samplingTopP: 0.9,
+        samplingTopK: 40,
         aiProvider: "google" as const,
         geminiModel: "gemini-2.5-flash",
         openaiModel: "gpt-5.4",
@@ -508,6 +552,40 @@ export async function PATCH(req: NextRequest, context: { params: RouteParams }) 
         socialSellerInstagramMentionsEnabled: true,
         socialSellerPrompt:
           "Atue como social seller no Instagram da unidade, com respostas curtas, contextuais e foco em conversao para atendimento.",
+        socialSellerSharedMemoryEnabled: true,
+        socialSellerWhatsappBridgeEnabled: false,
+        socialSellerWhatsappBridgeTemplate:
+          "Oi {{lead_name}}! Vi seu contato no Instagram e te chamei por aqui para continuarmos com contexto. No Instagram, voce comentou: \"{{last_context}}\". Se preferir, seguimos por WhatsApp a partir deste ponto.",
+        socialSellerKeywordAgentEnabled: false,
+        socialSellerKeywordScope: "all_posts" as const,
+        socialSellerKeywordPostIds: [],
+        socialSellerKeywordList: [
+          "preco",
+          "valor",
+          "quanto custa",
+          "quero",
+          "tenho interesse",
+          "me chama",
+          "chama no direct",
+        ],
+        socialSellerKeywordCommentTemplates: [
+          "Perfeito, {{lead_name}}. Te respondi no Direct para te explicar com contexto.",
+          "Boa, {{lead_name}}. Acabei de te chamar na DM para seguirmos por la.",
+          "Obrigado pelo comentario, {{lead_name}}. Te mandei uma mensagem no Direct com os detalhes.",
+        ],
+        socialSellerKeywordDmTemplates: [
+          "Oi {{lead_name}}! Vi seu comentario sobre \"{{keyword}}\" e te chamei aqui para te responder com contexto.",
+          "Oi {{lead_name}}! Recebi seu comentario e seguimos por aqui no Direct. Seu ponto foi: \"{{comment_excerpt}}\".",
+        ],
+        socialSellerSamplingTemperature: 0.45,
+        socialSellerSamplingTopP: 0.9,
+        socialSellerSamplingTopK: 40,
+        instagramDmPrompt:
+          "Atue no Direct do Instagram com atendimento consultivo, curto e orientado a conversao.",
+        instagramCommentPrompt:
+          "Atue em comentarios do Instagram com resposta publica breve e convite para continuar no Direct quando houver detalhes.",
+        instagramMentionPrompt:
+          "Atue em mencoes do Instagram com resposta publica cordial e objetiva, direcionando para Direct quando necessario.",
         reengagementAgentEnabled: true,
         reengagementDelayMinutes: 180,
         reengagementTemplate:
@@ -578,6 +656,9 @@ export async function PATCH(req: NextRequest, context: { params: RouteParams }) 
           { enabled: true, minutes: 4320 },
           { enabled: true, minutes: 7200 },
         ],
+        followupSamplingTemperature: 0.55,
+        followupSamplingTopP: 0.9,
+        followupSamplingTopK: 40,
         semanticCacheEnabled: true,
         semanticCacheSimilarityThreshold: 0.92,
         semanticCacheTtlHours: 168,
@@ -593,6 +674,9 @@ export async function PATCH(req: NextRequest, context: { params: RouteParams }) 
       autoReplyEnabled: toBool(body?.autoReplyEnabled, current.autoReplyEnabled),
       replyEnabled: toBool(body?.replyEnabled, current.replyEnabled),
       reactionsEnabled: toBool(body?.reactionsEnabled, current.reactionsEnabled),
+      samplingTemperature: toDecimal(body?.samplingTemperature, current.samplingTemperature, 0, 2),
+      samplingTopP: toDecimal(body?.samplingTopP, current.samplingTopP, 0, 1),
+      samplingTopK: toNumber(body?.samplingTopK, current.samplingTopK, 1, 100),
       aiProvider: (toOptionalText(body?.aiProvider) as NativeAgentConfig["aiProvider"]) || current.aiProvider || "google",
       geminiApiKey: mergeSecret(current.geminiApiKey, body?.geminiApiKey),
       geminiModel: toOptionalText(body?.geminiModel) || current.geminiModel || "gemini-2.5-flash",
@@ -729,6 +813,75 @@ export async function PATCH(req: NextRequest, context: { params: RouteParams }) 
         body?.socialSellerPrompt !== undefined
           ? toOptionalText(body.socialSellerPrompt)
           : current.socialSellerPrompt,
+      socialSellerSharedMemoryEnabled: toBool(
+        body?.socialSellerSharedMemoryEnabled,
+        current.socialSellerSharedMemoryEnabled,
+      ),
+      socialSellerWhatsappBridgeEnabled: toBool(
+        body?.socialSellerWhatsappBridgeEnabled,
+        current.socialSellerWhatsappBridgeEnabled,
+      ),
+      socialSellerWhatsappBridgeTemplate:
+        body?.socialSellerWhatsappBridgeTemplate !== undefined
+          ? toOptionalText(body.socialSellerWhatsappBridgeTemplate)
+          : current.socialSellerWhatsappBridgeTemplate,
+      socialSellerKeywordAgentEnabled: toBool(
+        body?.socialSellerKeywordAgentEnabled,
+        current.socialSellerKeywordAgentEnabled,
+      ),
+      socialSellerKeywordScope: toKeywordScope(
+        body?.socialSellerKeywordScope,
+        current.socialSellerKeywordScope,
+      ),
+      socialSellerKeywordPostIds:
+        body?.socialSellerKeywordPostIds !== undefined
+          ? toKeywordPostIds(body.socialSellerKeywordPostIds, current.socialSellerKeywordPostIds || [])
+          : current.socialSellerKeywordPostIds,
+      socialSellerKeywordList:
+        body?.socialSellerKeywordList !== undefined
+          ? toTextList(body.socialSellerKeywordList, current.socialSellerKeywordList || [])
+          : current.socialSellerKeywordList,
+      socialSellerKeywordCommentTemplates:
+        body?.socialSellerKeywordCommentTemplates !== undefined
+          ? toTextList(
+            body.socialSellerKeywordCommentTemplates,
+            current.socialSellerKeywordCommentTemplates || [],
+          )
+          : current.socialSellerKeywordCommentTemplates,
+      socialSellerKeywordDmTemplates:
+        body?.socialSellerKeywordDmTemplates !== undefined
+          ? toTextList(body.socialSellerKeywordDmTemplates, current.socialSellerKeywordDmTemplates || [])
+          : current.socialSellerKeywordDmTemplates,
+      socialSellerSamplingTemperature: toDecimal(
+        body?.socialSellerSamplingTemperature,
+        current.socialSellerSamplingTemperature,
+        0,
+        2,
+      ),
+      socialSellerSamplingTopP: toDecimal(
+        body?.socialSellerSamplingTopP,
+        current.socialSellerSamplingTopP,
+        0,
+        1,
+      ),
+      socialSellerSamplingTopK: toNumber(
+        body?.socialSellerSamplingTopK,
+        current.socialSellerSamplingTopK,
+        1,
+        100,
+      ),
+      instagramDmPrompt:
+        body?.instagramDmPrompt !== undefined
+          ? toOptionalText(body.instagramDmPrompt)
+          : current.instagramDmPrompt,
+      instagramCommentPrompt:
+        body?.instagramCommentPrompt !== undefined
+          ? toOptionalText(body.instagramCommentPrompt)
+          : current.instagramCommentPrompt,
+      instagramMentionPrompt:
+        body?.instagramMentionPrompt !== undefined
+          ? toOptionalText(body.instagramMentionPrompt)
+          : current.instagramMentionPrompt,
       reengagementAgentEnabled: toBool(
         body?.reengagementAgentEnabled,
         current.reengagementAgentEnabled,
@@ -1022,6 +1175,24 @@ export async function PATCH(req: NextRequest, context: { params: RouteParams }) 
               })),
           )
           : current.followupPlan,
+      followupSamplingTemperature: toDecimal(
+        body?.followupSamplingTemperature,
+        current.followupSamplingTemperature,
+        0,
+        2,
+      ),
+      followupSamplingTopP: toDecimal(
+        body?.followupSamplingTopP,
+        current.followupSamplingTopP,
+        0,
+        1,
+      ),
+      followupSamplingTopK: toNumber(
+        body?.followupSamplingTopK,
+        current.followupSamplingTopK,
+        1,
+        100,
+      ),
       semanticCacheEnabled: toBool(body?.semanticCacheEnabled, current.semanticCacheEnabled),
       semanticCacheSimilarityThreshold: toNumber(
         body?.semanticCacheSimilarityThreshold,

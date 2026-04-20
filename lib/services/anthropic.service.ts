@@ -1,4 +1,4 @@
-import { LLMService } from "./llm.interface";
+import { LLMService, LLMSamplingConfig } from "./llm.interface";
 import {
     GeminiConversationMessage,
     GeminiAgentDecision,
@@ -17,6 +17,14 @@ export class AnthropicService implements LLMService {
     constructor(apiKey: string, model = "claude-sonnet-4-20250514") {
         this.apiKey = String(apiKey || "").trim();
         this.model = String(model || "").trim() || "claude-sonnet-4-20250514";
+    }
+
+    private resolveSamplingValue(value: any, fallback: number, min: number, max: number): number {
+        const numeric = Number(value)
+        if (!Number.isFinite(numeric)) return fallback
+        if (numeric < min) return min
+        if (numeric > max) return max
+        return numeric
     }
 
     private async requestAnthropic(payload: Record<string, any>): Promise<any> {
@@ -82,6 +90,7 @@ export class AnthropicService implements LLMService {
         systemPrompt: string;
         conversation: GeminiConversationMessage[];
         nowIso?: string;
+        sampling?: LLMSamplingConfig;
     }): Promise<GeminiAgentDecision> {
         let messages = input.conversation.map(m => ({
             role: m.role === "assistant" ? "assistant" as const : "user" as const,
@@ -100,6 +109,9 @@ export class AnthropicService implements LLMService {
             max_tokens: 4096,
             system: input.systemPrompt,
             messages,
+            temperature: this.resolveSamplingValue(input.sampling?.temperature, 0.4, 0, 1),
+            top_p: this.resolveSamplingValue(input.sampling?.topP, 0.9, 0, 1),
+            top_k: Math.floor(this.resolveSamplingValue(input.sampling?.topK, 40, 1, 100)),
         };
 
         const data = await this.requestAnthropic(payload);
@@ -144,6 +156,7 @@ export class AnthropicService implements LLMService {
         functionDeclarations: GeminiFunctionDeclaration[];
         onToolCall: (toolCall: GeminiToolCall) => Promise<GeminiToolHandlerResult>;
         maxSteps?: number;
+        sampling?: LLMSamplingConfig;
     }): Promise<GeminiToolDecision> {
         const tools = input.functionDeclarations.map(fd => ({
             name: fd.name,
@@ -174,6 +187,9 @@ export class AnthropicService implements LLMService {
                 max_tokens: 4096,
                 system: input.systemPrompt,
                 messages,
+                temperature: this.resolveSamplingValue(input.sampling?.temperature, 0.4, 0, 1),
+                top_p: this.resolveSamplingValue(input.sampling?.topP, 0.9, 0, 1),
+                top_k: Math.floor(this.resolveSamplingValue(input.sampling?.topK, 40, 1, 100)),
             };
 
             if (tools.length > 0) {

@@ -19,6 +19,7 @@ import { NativeAgentLearningService } from "@/lib/services/native-agent-learning
 import { AgentTaskQueueService } from "@/lib/services/agent-task-queue.service"
 import { GeminiService } from "@/lib/services/gemini.service"
 import { TenantMessagingService } from "@/lib/services/tenant-messaging.service"
+import { GroupNotificationDispatcherService } from "@/lib/services/group-notification-dispatcher.service"
 
 export const runtime = "nodejs"
 
@@ -44,6 +45,8 @@ type ZapiMessageEvent = {
   text?: string
   contactName?: string
   senderName?: string
+  senderPhoto?: string
+  profilePicUrl?: string
   chatName?: string
   chatLid?: string
   instanceId?: string
@@ -1140,20 +1143,16 @@ async function processConversationTaskIntelligence(params: {
       templateMessage ||
       fallbackMessage
 
-    const messaging = new TenantMessagingService()
-    for (const target of groupTargets) {
-      const sent = await messaging.sendText({
-        tenant: params.tenant,
-        phone: target,
-        sessionId: target,
-        message: notificationMessage,
-        source: "conversation-listener-task",
-        persistInHistory: false,
-      })
-      if (sent.success) {
-        notified += 1
-      }
-    }
+    const dispatch = await new GroupNotificationDispatcherService().dispatch({
+      tenant: params.tenant,
+      anchorSessionId: params.sessionId,
+      source: "conversation-listener-task",
+      message: notificationMessage,
+      targets: groupTargets,
+      dedupeKey: `conversation_task:${params.sessionId}:${decision.reason || "reason"}`,
+      dedupeWindowSeconds: 1800,
+    })
+    notified = dispatch.sent
   }
 
   return {
@@ -1227,6 +1226,26 @@ function extractContactName(payload: any): string {
     payload?.chatName,
     payload?.message?.senderName,
     payload?.data?.senderName,
+  )
+}
+
+function extractProfilePicture(payload: any): string {
+  return readString(
+    payload?.senderPhoto,
+    payload?.sender_photo,
+    payload?.profilePicUrl,
+    payload?.profile_pic_url,
+    payload?.profilePicture,
+    payload?.profile_picture,
+    payload?.photo,
+    payload?.avatar,
+    payload?.contact?.profilePicUrl,
+    payload?.contact?.profile_picture_url,
+    payload?.message?.senderPhoto,
+    payload?.message?.profilePicUrl,
+    payload?.data?.senderPhoto,
+    payload?.data?.profilePicUrl,
+    payload?.data?.profile_pic_url,
   )
 }
 
@@ -1329,6 +1348,7 @@ function parseZapiEvent(raw: any): ZapiMessageEvent {
   const replyContext = extractReplyContext(event)
   const audioPayload = extractAudioPayload(event)
   const mediaPayload = extractMediaPayload(event)
+  const profilePicture = extractProfilePicture(event)
 
   const ids = asArray<any>(event.ids)
     .map((id) => String(id || "").trim())
@@ -1344,6 +1364,7 @@ function parseZapiEvent(raw: any): ZapiMessageEvent {
     connectedPhone: connectedPhone || null,
     chatName: readString(event.chatName) || null,
     senderName: readString(event.senderName) || null,
+    profilePicUrl: profilePicture || null,
     senderPhoto: readString(event.senderPhoto) || null,
     photo: readString(event.photo) || null,
     participantPhone: participantPhone || null,
@@ -1390,6 +1411,8 @@ function parseZapiEvent(raw: any): ZapiMessageEvent {
     text: extractText(event) || undefined,
     contactName: extractContactName(event) || undefined,
     senderName: readString(event.senderName) || undefined,
+    senderPhoto: readString(event.senderPhoto, profilePicture) || undefined,
+    profilePicUrl: profilePicture || undefined,
     chatName: readString(event.chatName) || undefined,
     chatLid: chatLid || undefined,
     instanceId: readString(event.instanceId, body.instanceId, data.instanceId) || undefined,
@@ -1964,6 +1987,29 @@ async function pauseAiForLead(
   if (upsert.error) {
     console.warn("[zapi-webhook] failed to auto-pause AI for human intervention:", upsert.error)
   }
+
+  const reason = String(options?.reason || "").trim().toLowerCase()
+  const pausedStatus = reason
+    ? `paused_${reason.replace(/[^a-z0-9_]/g, "_").slice(0, 64)}`
+    : "paused_manual"
+  const phoneVariants = Array.from(
+    new Set([
+      normalized,
+      normalized.startsWith("55") ? normalized.slice(2) : "",
+      !normalized.startsWith("55") ? `55${normalized}` : "",
+    ].filter(Boolean)),
+  )
+  await supabase
+    .from("followup_schedule")
+    .update({
+      is_active: false,
+      lead_status: pausedStatus,
+      updated_at: nowIso,
+    })
+    .in("phone_number", phoneVariants)
+    .eq("is_active", true)
+    .then(() => {})
+    .catch(() => {})
 }
 
 async function unpauseAiForLead(tenant: string, phone: string): Promise<void> {
@@ -2082,6 +2128,8 @@ async function persistZapiEvent(params: {
       chat_id: String(event.raw?.data?.chatId || event.raw?.chatId || "").trim() || null,
       contact_name: event.contactName || null,
       sender_name: event.senderName || null,
+      sender_photo: event.senderPhoto || null,
+      profile_pic_url: event.profilePicUrl || event.senderPhoto || null,
       chat_name: event.chatName || null,
       chat_lid: event.chatLid || null,
       phone: resolvedPhone || event.phone || null,
@@ -2792,12 +2840,17 @@ export async function POST(req: NextRequest) {
           `Contato: wa.me/${phoneToPause}`,
           `Automação pausada por 10 minutos — desbloqueio automático em seguida.`,
         ].join("\n")
-        const messaging = new TenantMessagingService()
-        for (const target of groupTargets) {
-          await messaging
-            .sendText({ tenant, phone: target, sessionId: target, message: notificationMsg, source: "call-event-auto-pause", persistInHistory: false })
-            .catch(() => { })
-        }
+        await new GroupNotificationDispatcherService()
+          .dispatch({
+            tenant,
+            anchorSessionId: canonicalSessionId,
+            source: "call-event-auto-pause",
+            message: notificationMsg,
+            targets: groupTargets,
+            dedupeKey: `call_event:${canonicalSessionId}:${phoneToPause}:10`,
+            dedupeWindowSeconds: 900,
+          })
+          .catch(() => {})
       }
       return NextResponse.json({
         received: true,

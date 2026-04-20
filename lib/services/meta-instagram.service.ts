@@ -18,6 +18,12 @@ export interface MetaInstagramLikeCommentInput {
   commentId: string
 }
 
+export interface MetaInstagramReactToMessageInput {
+  recipientId: string
+  messageId: string
+  reaction: string
+}
+
 export interface MetaInstagramSendResult {
   success: boolean
   messageId?: string
@@ -223,6 +229,46 @@ export class MetaInstagramService {
       return {
         success: false,
         error: String(error?.message || "Instagram like comment request failed"),
+      }
+    }
+  }
+
+  async reactToMessage(input: MetaInstagramReactToMessageInput): Promise<MetaInstagramSendResult> {
+    const recipientId = String(input.recipientId || "").trim()
+    const messageId = String(input.messageId || "").trim()
+    const reaction = String(input.reaction || "").trim()
+    if (!recipientId || !messageId || !reaction) {
+      return { success: false, error: "recipientId, messageId and reaction are required" }
+    }
+    if (!this.accessToken) {
+      return { success: false, error: "Missing Meta access token" }
+    }
+
+    try {
+      const response = await fetch(`${this.baseUrl}/${this.senderId}/messages`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          recipient: { id: recipientId },
+          sender_action: "react",
+          payload: { message_id: messageId, reaction },
+        }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        return {
+          success: false,
+          error: parseMetaError(payload, `Instagram react to message failed (${response.status})`),
+        }
+      }
+      return { success: true }
+    } catch (error: any) {
+      return {
+        success: false,
+        error: String(error?.message || "Instagram react to message request failed"),
       }
     }
   }

@@ -26,7 +26,29 @@ type LearningSample = {
   user: string
   assistant?: string
   reward: number
+  outcome?: LearningOutcome
   created_at: string
+}
+
+type LearningOutcome =
+  | "conversion"
+  | "handoff"
+  | "negative"
+  | "send_failed"
+  | "neutral"
+
+type StrategyScore = {
+  wins: number
+  losses: number
+}
+
+type AdaptivePromptSnapshot = {
+  generatedAt: string
+  sourceInteractions: number
+  highPerformanceCount: number
+  lowPerformanceCount: number
+  reinforcedRules: string[]
+  avoidRules: string[]
 }
 
 type LearningState = {
@@ -35,6 +57,8 @@ type LearningState = {
   stats: LearningStats
   samples: LearningSample[]
   signals: LearningSignalSample[]
+  strategyScores: Record<string, StrategyScore>
+  adaptivePrompt: AdaptivePromptSnapshot
 }
 
 type LearningSignalSample = {
@@ -81,6 +105,49 @@ const SCHEDULE_HINTS = [
   "data",
 ]
 
+const STRATEGY_KEYS = [
+  "discovery_first",
+  "single_question",
+  "single_cta",
+  "concise_response",
+  "empathy_connector",
+  "premature_pricing",
+  "pressure_tone",
+] as const
+
+type StrategyKey = (typeof STRATEGY_KEYS)[number]
+
+const STRATEGY_RULES: Record<StrategyKey, { reinforce: string; avoid: string }> = {
+  discovery_first: {
+    reinforce: "Antes de propor agenda ou detalhe comercial, faça descoberta curta e objetiva do contexto do lead.",
+    avoid: "Nao pular direto para horario sem validar contexto e dor principal.",
+  },
+  single_question: {
+    reinforce: "Use uma pergunta principal por turno para manter fluidez e reduzir friccao.",
+    avoid: "Evitar duas ou mais perguntas no mesmo turno.",
+  },
+  single_cta: {
+    reinforce: "Finalize com CTA unico e claro orientado ao proximo passo.",
+    avoid: "Nao encerrar com CTA duplicado ou ambiguo.",
+  },
+  concise_response: {
+    reinforce: "Mantenha respostas curtas e diretas, com blocos objetivos.",
+    avoid: "Evitar respostas longas ou repetitivas sem ganho de contexto.",
+  },
+  empathy_connector: {
+    reinforce: "Use conectores de empatia de forma natural para validar o contexto do lead.",
+    avoid: "Nao ignorar sinais emocionais do lead quando houver resistencia.",
+  },
+  premature_pricing: {
+    reinforce: "Quando houver pedido de preco, responder sem fugir, mas amarrar ao contexto ja coletado.",
+    avoid: "Nao abrir com preco sem qualificacao minima quando a conversa ainda esta fria.",
+  },
+  pressure_tone: {
+    reinforce: "Adote tom consultivo e sem pressao, focando clareza e seguranca.",
+    avoid: "Evitar urgencia artificial, pressao comercial e gatilhos agressivos.",
+  },
+}
+
 function safeObject(value: any): Record<string, any> {
   if (value && typeof value === "object" && !Array.isArray(value)) return value
   return {}
@@ -116,6 +183,57 @@ function clampAverage(prevAvg: number, prevCount: number, value: number): number
   return (prevAvg * count + value) / (count + 1)
 }
 
+function defaultStrategyScores(): Record<string, StrategyScore> {
+  return STRATEGY_KEYS.reduce<Record<string, StrategyScore>>((acc, key) => {
+    acc[key] = { wins: 0, losses: 0 }
+    return acc
+  }, {})
+}
+
+function defaultAdaptivePrompt(): AdaptivePromptSnapshot {
+  return {
+    generatedAt: "",
+    sourceInteractions: 0,
+    highPerformanceCount: 0,
+    lowPerformanceCount: 0,
+    reinforcedRules: [],
+    avoidRules: [],
+  }
+}
+
+function countQuestionMarks(text: string): number {
+  if (!text) return 0
+  return (text.match(/\?/g) || []).length
+}
+
+function detectAssistantStrategies(assistantMessage: string): Partial<Record<StrategyKey, boolean>> {
+  const text = String(assistantMessage || "").trim()
+  const normalized = normalizeText(text)
+  if (!text) return {}
+
+  return {
+    discovery_first:
+      /\b(area|desafio|atuacao|atuacao|contexto|me conta|me conte)\b/.test(normalized),
+    single_question: countQuestionMarks(text) <= 1,
+    single_cta:
+      /\b(funciona melhor|qual (periodo|horario|dia)|pode ser|prefere)\b/.test(normalized) &&
+      countQuestionMarks(text) <= 1,
+    concise_response: text.length > 0 && text.length <= 320,
+    empathy_connector: /\b(compreendo|entendo|faz sentido|imagino|perfeito)\b/.test(normalized),
+    premature_pricing: /\br\$\s*\d/.test(normalized),
+    pressure_tone:
+      /\b(ultima vaga|so hoje|somente hoje|agora ou nunca|nao perca)\b/.test(normalized),
+  }
+}
+
+function classifyPerformance(outcome: LearningOutcome | undefined, reward: number): "win" | "loss" | "neutral" {
+  if (outcome === "conversion") return "win"
+  if (outcome === "negative" || outcome === "handoff" || outcome === "send_failed") return "loss"
+  if (reward >= 1.25) return "win"
+  if (reward <= -1) return "loss"
+  return "neutral"
+}
+
 function defaultState(): LearningState {
   return {
     enabled: true,
@@ -141,6 +259,8 @@ function defaultState(): LearningState {
     },
     samples: [],
     signals: [],
+    strategyScores: defaultStrategyScores(),
+    adaptivePrompt: defaultAdaptivePrompt(),
   }
 }
 
@@ -169,33 +289,46 @@ export class NativeAgentLearningService {
     const stats = safeObject(raw.stats)
     const samplesRaw = Array.isArray(raw.samples) ? raw.samples : []
     const signalsRaw = Array.isArray(raw.signals) ? raw.signals : []
+    const strategyRaw = safeObject(raw.strategyScores)
+    const adaptiveRaw = safeObject(raw.adaptivePrompt)
+    const base = defaultState()
+    const parsedStrategyScores = defaultStrategyScores()
+    for (const key of STRATEGY_KEYS) {
+      const entry = safeObject(strategyRaw[key])
+      parsedStrategyScores[key] = {
+        wins: Number(entry.wins || 0),
+        losses: Number(entry.losses || 0),
+      }
+    }
+
     return {
       enabled: raw.enabled !== false,
       updatedAt: String(raw.updatedAt || raw.updated_at || ""),
       stats: {
-        interactions: Number(stats.interactions || 0),
-        positiveSignals: Number(stats.positiveSignals || 0),
-        negativeSignals: Number(stats.negativeSignals || 0),
-        neutralSignals: Number(stats.neutralSignals || 0),
-        scheduleSignals: Number(stats.scheduleSignals || 0),
-        humanInterventions: Number(stats.humanInterventions || 0),
-        sendFailures: Number(stats.sendFailures || 0),
-        avgUserMessageLength: Number(stats.avgUserMessageLength || 0),
-        avgAssistantMessageLength: Number(stats.avgAssistantMessageLength || 0),
-        leadMessages: Number(stats.leadMessages || 0),
-        humanMessages: Number(stats.humanMessages || 0),
-        iaMessages: Number(stats.iaMessages || 0),
-        mediaMessages: Number(stats.mediaMessages || 0),
-        imageMessages: Number(stats.imageMessages || 0),
-        videoMessages: Number(stats.videoMessages || 0),
-        documentMessages: Number(stats.documentMessages || 0),
-        taskCommitmentSignals: Number(stats.taskCommitmentSignals || 0),
+        interactions: Number(stats.interactions || base.stats.interactions),
+        positiveSignals: Number(stats.positiveSignals || base.stats.positiveSignals),
+        negativeSignals: Number(stats.negativeSignals || base.stats.negativeSignals),
+        neutralSignals: Number(stats.neutralSignals || base.stats.neutralSignals),
+        scheduleSignals: Number(stats.scheduleSignals || base.stats.scheduleSignals),
+        humanInterventions: Number(stats.humanInterventions || base.stats.humanInterventions),
+        sendFailures: Number(stats.sendFailures || base.stats.sendFailures),
+        avgUserMessageLength: Number(stats.avgUserMessageLength || base.stats.avgUserMessageLength),
+        avgAssistantMessageLength: Number(stats.avgAssistantMessageLength || base.stats.avgAssistantMessageLength),
+        leadMessages: Number(stats.leadMessages || base.stats.leadMessages),
+        humanMessages: Number(stats.humanMessages || base.stats.humanMessages),
+        iaMessages: Number(stats.iaMessages || base.stats.iaMessages),
+        mediaMessages: Number(stats.mediaMessages || base.stats.mediaMessages),
+        imageMessages: Number(stats.imageMessages || base.stats.imageMessages),
+        videoMessages: Number(stats.videoMessages || base.stats.videoMessages),
+        documentMessages: Number(stats.documentMessages || base.stats.documentMessages),
+        taskCommitmentSignals: Number(stats.taskCommitmentSignals || base.stats.taskCommitmentSignals),
       },
       samples: samplesRaw
         .map((item: any) => ({
           user: String(item?.user || "").slice(0, 350),
           assistant: String(item?.assistant || "").slice(0, 350) || undefined,
           reward: Number(item?.reward || 0),
+          outcome: String(item?.outcome || "").trim().toLowerCase() as LearningOutcome,
           created_at: String(item?.created_at || new Date().toISOString()),
         }))
         .filter((item: LearningSample) => item.user || item.assistant),
@@ -208,6 +341,19 @@ export class NativeAgentLearningService {
           created_at: String(item?.created_at || new Date().toISOString()),
         }))
         .filter((item: LearningSignalSample) => item.message),
+      strategyScores: parsedStrategyScores,
+      adaptivePrompt: {
+        generatedAt: String(adaptiveRaw.generatedAt || ""),
+        sourceInteractions: Number(adaptiveRaw.sourceInteractions || 0),
+        highPerformanceCount: Number(adaptiveRaw.highPerformanceCount || 0),
+        lowPerformanceCount: Number(adaptiveRaw.lowPerformanceCount || 0),
+        reinforcedRules: Array.isArray(adaptiveRaw.reinforcedRules)
+          ? adaptiveRaw.reinforcedRules.map((item: any) => String(item || "").trim()).filter(Boolean).slice(0, 8)
+          : [],
+        avoidRules: Array.isArray(adaptiveRaw.avoidRules)
+          ? adaptiveRaw.avoidRules.map((item: any) => String(item || "").trim()).filter(Boolean).slice(0, 8)
+          : [],
+      },
     }
   }
 
@@ -224,10 +370,81 @@ export class NativeAgentLearningService {
         stats: state.stats,
         samples: state.samples.slice(-40),
         signals: state.signals.slice(-80),
+        strategyScores: state.strategyScores,
+        adaptivePrompt: state.adaptivePrompt,
       },
     }
 
     await this.supabase.from("units_registry").update({ metadata: nextMetadata }).eq("id", unitId)
+  }
+
+  private rebuildAdaptivePromptSnapshot(state: LearningState): AdaptivePromptSnapshot {
+    const highPerformance = state.samples.filter(
+      (sample) => sample.outcome === "conversion" || sample.reward >= 1.25,
+    ).length
+    const lowPerformance = state.samples.filter(
+      (sample) =>
+        sample.outcome === "negative" ||
+        sample.outcome === "handoff" ||
+        sample.outcome === "send_failed" ||
+        sample.reward <= -1,
+    ).length
+
+    const scored = STRATEGY_KEYS.map((key) => {
+      const score = state.strategyScores[key] || { wins: 0, losses: 0 }
+      const total = score.wins + score.losses
+      const winRate = total > 0 ? score.wins / total : 0
+      const lossRate = total > 0 ? score.losses / total : 0
+      return { key, total, winRate, lossRate }
+    })
+
+    const reinforcedRules = scored
+      .filter((item) => item.total >= 3)
+      .sort((a, b) => b.winRate - a.winRate)
+      .slice(0, 4)
+      .map((item) => STRATEGY_RULES[item.key].reinforce)
+
+    const avoidRules = scored
+      .filter((item) => item.total >= 3)
+      .sort((a, b) => b.lossRate - a.lossRate)
+      .slice(0, 3)
+      .map((item) => STRATEGY_RULES[item.key].avoid)
+
+    return {
+      generatedAt: new Date().toISOString(),
+      sourceInteractions: Math.max(0, state.stats.interactions),
+      highPerformanceCount: highPerformance,
+      lowPerformanceCount: lowPerformance,
+      reinforcedRules,
+      avoidRules,
+    }
+  }
+
+  private buildAdaptivePromptLines(state: LearningState): string[] {
+    const snapshot = state.adaptivePrompt
+    const lines: string[] = []
+
+    lines.push("AUTO_AJUSTE_PROMPT:")
+    lines.push("- Preserve 100% do prompt base e das regras fixas da unidade.")
+    lines.push("- As regras abaixo apenas refinam o estilo com base em interacoes de alta performance.")
+
+    if (snapshot.sourceInteractions > 0) {
+      lines.push(
+        `- Base de aprendizado: ${snapshot.sourceInteractions} interacoes, ${snapshot.highPerformanceCount} sinais de alta performance e ${snapshot.lowPerformanceCount} sinais de baixa performance.`,
+      )
+    }
+
+    if (snapshot.reinforcedRules.length > 0) {
+      lines.push("- Reforcar:")
+      snapshot.reinforcedRules.slice(0, 4).forEach((rule) => lines.push(`  * ${rule}`))
+    }
+
+    if (snapshot.avoidRules.length > 0) {
+      lines.push("- Evitar:")
+      snapshot.avoidRules.slice(0, 4).forEach((rule) => lines.push(`  * ${rule}`))
+    }
+
+    return lines
   }
 
   async buildLearningPrompt(tenant: string): Promise<string> {
@@ -237,10 +454,14 @@ export class NativeAgentLearningService {
     if (state.enabled === false) return ""
 
     const interactions = Math.max(0, state.stats.interactions)
+    if (!state.adaptivePrompt.generatedAt) {
+      state.adaptivePrompt = this.rebuildAdaptivePromptSnapshot(state)
+    }
     if (interactions === 0 && state.signals.length === 0) {
       return [
         "APRENDIZADO_AUTOMATICO:",
         "- Sem historico suficiente ainda; mantenha respostas objetivas e contextualizadas.",
+        "- Preserve as regras fixas da unidade sem alteracoes.",
       ].join("\n")
     }
 
@@ -282,6 +503,8 @@ export class NativeAgentLearningService {
         : "- Sem compromissos de retorno relevantes detectados.",
     ]
 
+    lines.push(...this.buildAdaptivePromptLines(state))
+
     if (recentHumanSignals.length > 0) {
       lines.push(
         `- Ultimos sinais de contexto humano: ${recentHumanSignals.map((item) => `"${item}"`).join(" | ")}`,
@@ -297,6 +520,7 @@ export class NativeAgentLearningService {
     assistantMessage?: string
     sendSuccess: boolean
     humanIntervention?: boolean
+    outcome?: LearningOutcome
   }): Promise<void> {
     const row = await this.loadUnitRow(input.tenant)
     if (!row) return
@@ -305,6 +529,7 @@ export class NativeAgentLearningService {
 
     const userMessage = String(input.userMessage || "").trim()
     const assistantMessage = String(input.assistantMessage || "").trim()
+    const outcome = String(input.outcome || "").trim().toLowerCase() as LearningOutcome
 
     const positive = hasAny(userMessage, POSITIVE_HINTS)
     const negative = hasAny(userMessage, NEGATIVE_HINTS)
@@ -316,6 +541,8 @@ export class NativeAgentLearningService {
     if (negative) reward -= 1
     if (!input.sendSuccess) reward -= 1
     if (input.humanIntervention) reward -= 1
+    if (outcome === "conversion") reward += 2
+    if (outcome === "negative" || outcome === "handoff" || outcome === "send_failed") reward -= 1.5
 
     const prevInteractions = Math.max(0, state.stats.interactions)
     state.stats.interactions = prevInteractions + 1
@@ -340,12 +567,24 @@ export class NativeAgentLearningService {
     )
     state.updatedAt = new Date().toISOString()
 
+    const performance = classifyPerformance(outcome, reward)
+    const strategyDetected = detectAssistantStrategies(assistantMessage)
+    for (const key of STRATEGY_KEYS) {
+      if (!strategyDetected[key]) continue
+      const bucket = state.strategyScores[key] || { wins: 0, losses: 0 }
+      if (performance === "win") bucket.wins += 1
+      if (performance === "loss") bucket.losses += 1
+      state.strategyScores[key] = bucket
+    }
+
     state.samples.push({
       user: userMessage.slice(0, 350),
       assistant: assistantMessage ? assistantMessage.slice(0, 350) : undefined,
       reward,
+      outcome: outcome || undefined,
       created_at: state.updatedAt,
     })
+    state.adaptivePrompt = this.rebuildAdaptivePromptSnapshot(state)
 
     await this.saveState(row.id, row.metadata, state)
   }

@@ -5,6 +5,8 @@ import { normalizeTenant } from "@/lib/helpers/normalize-tenant"
 import { resolveTenantDataPrefix } from "@/lib/helpers/tenant-resolution"
 import { getMessagingConfigForTenant, type MessagingConfig } from "@/lib/helpers/messaging-config"
 import { getNativeAgentConfigForTenant } from "@/lib/helpers/native-agent-config"
+import { getTablesForTenant } from "@/lib/helpers/tenant"
+import { MetaInstagramService } from "@/lib/services/meta-instagram.service"
 import { resolveMetaWebhookVerifyToken } from "@/lib/helpers/meta-webhook"
 import { GeminiService } from "@/lib/services/gemini.service"
 import { NativeAgentOrchestratorService } from "@/lib/services/native-agent-orchestrator.service"
@@ -341,6 +343,25 @@ function buildDirectFallbackMessage(params: {
   return snippet
     ? `${greeting} Te chamei no Direct para continuarmos a partir do seu comentario: "${snippet}".`
     : `${greeting} Te chamei no Direct para continuarmos por aqui.`
+}
+
+function buildCommentDmInviteMessage(params: { intent: InstagramCommentIntent; senderName: string }): string {
+  const leadName = String(params.senderName || "").trim()
+  const name = leadName ? `, ${leadName}` : ""
+
+  if (params.intent === "vendas") {
+    return `Oi${name}! Me manda uma mensagem aqui no Direct pra eu te passar os detalhes com calma 😊`
+  }
+  if (params.intent === "tecnico") {
+    return `Oi${name}! Vai ser mais fácil eu te explicar pelo Direct, me chama lá 👋`
+  }
+  if (params.intent === "reclamacao") {
+    return `Oi${name}! Me manda uma mensagem no Direct que eu cuido disso pra você rapidinho 🙏`
+  }
+  if (params.intent === "duvida") {
+    return `Oi${name}! Manda sua dúvida no Direct que eu te respondo direitinho 😊`
+  }
+  return `Oi${name}! Me manda uma mensagem no Direct pra continuarmos por lá 👋`
 }
 
 function normalizeBrazilPhone(value: string): string {
@@ -1639,6 +1660,74 @@ async function processDirectEvent(params: {
     return
   }
 
+  // ── Contatos pessoais ──────────────────────────────────────────────────────
+  // Resolve username do remetente (pode não vir no webhook)
+  let resolvedUsername = readString(sender.username)
+  if (!resolvedUsername && accessToken) {
+    const usernameInfo = await fetchInstagramSenderInfo(senderId, accessToken, apiVersion)
+    resolvedUsername = usernameInfo.username || ""
+    if (!resolvedName) {
+      resolvedName = readString(usernameInfo.name, usernameInfo.username)
+      resolvedProfilePic = usernameInfo.profilePic
+    }
+  }
+  const normalizedUsername = resolvedUsername.toLowerCase().replace(/^@/, "").trim()
+
+  // 1. Contatos bloqueados (família) — ignora completamente
+  const blockedContacts = (nativeConfig?.socialSellerBlockedContactUsernames ?? [])
+    .map((u: string) => u.toLowerCase().replace(/^@/, "").trim())
+    .filter(Boolean)
+  if (normalizedUsername && blockedContacts.includes(normalizedUsername)) {
+    params.stats.ignored += 1
+    return
+  }
+
+  // 2. Cônjuge — reage com ❤️ antes de processar normalmente
+  const spouseUsername = String(nativeConfig?.socialSellerSpouseUsername || "")
+    .toLowerCase().replace(/^@/, "").trim()
+  const isSpouse = Boolean(spouseUsername && normalizedUsername && normalizedUsername === spouseUsername)
+  if (isSpouse && messageId && accessToken) {
+    const metaSvc = new MetaInstagramService({
+      accessToken,
+      apiVersion,
+      instagramAccountId: params.entryId,
+    })
+    await metaSvc.reactToMessage({ recipientId: senderId, messageId, reaction: "❤️" }).catch(() => {})
+  }
+
+  // 3. Disclosure: verifica pausa ativa antes de chamar orquestrador
+  const disclosureEnabled = nativeConfig?.socialSellerPersonalDisclosureEnabled === true
+  if (disclosureEnabled && !isSpouse) {
+    const supabase = createBiaSupabaseServerClient()
+    const tables = getTablesForTenant(params.resolution.dataTenant)
+    const { data: pauseRow } = await supabase
+      .from(tables.pausar)
+      .select("pausar, paused_until")
+      .eq("numero", senderId)
+      .maybeSingle()
+      .catch(() => ({ data: null, error: null }))
+    const isPausedNow =
+      pauseRow?.pausar === true || String(pauseRow?.pausar || "").toLowerCase() === "true"
+    if (isPausedNow) {
+      const pausedUntilStr = String(pauseRow?.paused_until || "").trim()
+      const pausedUntilDate = pausedUntilStr ? new Date(pausedUntilStr) : null
+      const isStillPaused =
+        !pausedUntilDate ||
+        (Number.isFinite(pausedUntilDate.getTime()) && pausedUntilDate.getTime() > Date.now())
+      if (isStillPaused) {
+        params.stats.ignored += 1
+        return
+      }
+      // Pausa expirada — limpa
+      await supabase
+        .from(tables.pausar)
+        .update({ pausar: false, paused_until: null, updated_at: new Date().toISOString() })
+        .eq("numero", senderId)
+        .catch(() => {})
+    }
+  }
+  // ── Fim contatos pessoais ─────────────────────────────────────────────────
+
   const orchestrator = new NativeAgentOrchestratorService()
   const result = await orchestrator.handleInboundMessage({
     tenant: params.resolution.dataTenant,
@@ -1693,6 +1782,29 @@ async function processDirectEvent(params: {
 
   if (result?.replied) {
     params.stats.replied += 1
+  }
+
+  // 4. Disclosure pós-resposta: pausa 30 min se a IA detectou conhecido pessoal
+  if (disclosureEnabled && !isSpouse && result?.replied) {
+    const ACQUAINTANCE_SIGNAL = "assistente de IA que cuida das mensagens"
+    if (result?.responseText?.includes(ACQUAINTANCE_SIGNAL)) {
+      const supabaseDisc = createBiaSupabaseServerClient()
+      const tablesDisc = getTablesForTenant(params.resolution.dataTenant)
+      const pausedUntil = new Date(Date.now() + 30 * 60 * 1000).toISOString()
+      await supabaseDisc
+        .from(tablesDisc.pausar)
+        .upsert(
+          {
+            numero: senderId,
+            pausar: true,
+            paused_until: pausedUntil,
+            updated_at: new Date().toISOString(),
+            pause_reason: "personal_disclosure_auto_pause",
+          },
+          { onConflict: "numero" },
+        )
+        .catch(() => {})
+    }
   }
 
   await runInstagramWhatsappBridge({
@@ -1965,6 +2077,17 @@ async function processCommentOrMentionEvent(params: {
           params.stats.replied += 1
           params.stats.dmHandoffs += 1
         } else {
+          const commentFallbackMsg = buildCommentDmInviteMessage({ intent: commentIntent, senderName })
+          const messagingFallback = new TenantMessagingService()
+          await messagingFallback
+            .sendText({
+              tenant: params.resolution.dataTenant,
+              phone: `ig-comment:${commentId}:${senderId}`,
+              message: commentFallbackMsg,
+              sessionId,
+              source: "instagram-comment-dm-invite",
+            })
+            .catch(() => {})
           await chat
             .persistMessage({
               sessionId,

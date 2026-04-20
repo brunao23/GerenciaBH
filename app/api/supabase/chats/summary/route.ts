@@ -367,8 +367,10 @@ function extractNameFromMeta(msg: any): string | null {
   const candidates = [
     msg.pushName,
     msg.senderName,
+    msg.sender_name,
     msg.instagram_sender_name,
     msg.contactName,
+    msg.contact_name,
     msg.name,
     msg.fromName,
     msg.notifyName,
@@ -381,6 +383,12 @@ function extractNameFromMeta(msg: any): string | null {
     msg.contact?.pushName,
     msg.data?.pushName,
     msg.data?.senderName,
+    msg.additional?.sender_name,
+    msg.additional?.contact_name,
+    msg.additional?.senderName,
+    msg.additional?.contactName,
+    msg.zapi_meta?.sender_name,
+    msg.zapi_meta?.contact_name,
   ]
 
   const blocked = new Set([
@@ -505,7 +513,17 @@ function extractContactProfilePicFromMessages(rows: Row[], sessionId: string): s
   // Check any message for picUrl or profilePicUrl
   for (const row of sortedDesc) {
     const msg = row.message ?? {}
-    const pic = msg.profilePicUrl || msg.profile_pic_url || msg.picUrl || msg.zapi_meta?.profileUrl
+    const pic =
+      msg.profilePicUrl ||
+      msg.profile_pic_url ||
+      msg.picUrl ||
+      msg.sender_photo ||
+      msg.senderPhoto ||
+      msg.additional?.profile_pic_url ||
+      msg.additional?.sender_photo ||
+      msg.additional?.senderPhoto ||
+      msg.zapi_meta?.profileUrl ||
+      msg.zapi_meta?.profile_pic_url
     if (pic) return pic
   }
   return null

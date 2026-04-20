@@ -366,6 +366,9 @@ export class AgentTaskQueueService {
       businessHours?: TenantBusinessHours
       geminiApiKey?: string
       geminiModel?: string
+      followupSamplingTemperature: number
+      followupSamplingTopP: number
+      followupSamplingTopK: number
       zapiDelayMessageSeconds: number
       zapiDelayTypingSeconds: number
       followupMessageMode: TaskMessageMode
@@ -387,6 +390,9 @@ export class AgentTaskQueueService {
     businessHours?: TenantBusinessHours
     geminiApiKey?: string
     geminiModel?: string
+    followupSamplingTemperature: number
+    followupSamplingTopP: number
+    followupSamplingTopK: number
     zapiDelayMessageSeconds: number
     zapiDelayTypingSeconds: number
     followupMessageMode: TaskMessageMode
@@ -409,6 +415,9 @@ export class AgentTaskQueueService {
         businessHours: cached.businessHours,
         geminiApiKey: cached.geminiApiKey,
         geminiModel: cached.geminiModel,
+        followupSamplingTemperature: cached.followupSamplingTemperature,
+        followupSamplingTopP: cached.followupSamplingTopP,
+        followupSamplingTopK: cached.followupSamplingTopK,
         zapiDelayMessageSeconds: cached.zapiDelayMessageSeconds,
         zapiDelayTypingSeconds: cached.zapiDelayTypingSeconds,
         followupMessageMode: cached.followupMessageMode,
@@ -436,6 +445,18 @@ export class AgentTaskQueueService {
       businessHours,
       geminiApiKey: config?.geminiApiKey,
       geminiModel: config?.geminiModel,
+      followupSamplingTemperature:
+        Number.isFinite(Number(config?.followupSamplingTemperature))
+          ? Number(config?.followupSamplingTemperature)
+          : 0.55,
+      followupSamplingTopP:
+        Number.isFinite(Number(config?.followupSamplingTopP))
+          ? Number(config?.followupSamplingTopP)
+          : 0.9,
+      followupSamplingTopK:
+        Number.isFinite(Number(config?.followupSamplingTopK))
+          ? Math.floor(Number(config?.followupSamplingTopK))
+          : 40,
       zapiDelayMessageSeconds:
         Number.isFinite(Number(config?.zapiDelayMessageSeconds)) && Number(config?.zapiDelayMessageSeconds) >= 1
           ? Math.floor(Number(config?.zapiDelayMessageSeconds))
@@ -633,6 +654,11 @@ export class AgentTaskQueueService {
           "JAMAIS abrevie ou encurte o nome do lead. Use sempre o nome EXATO como informado, sem criar apelidos (ex: Cah, Fer, Gabi, Rafa, Lu sao proibidos).",
         ].join(" "),
         conversation: [{ role: "user", content: prompt }],
+        sampling: {
+          temperature: runtime.followupSamplingTemperature,
+          topP: runtime.followupSamplingTopP,
+          topK: runtime.followupSamplingTopK,
+        },
       })
       const candidate = sanitizeFollowupText(String(decision.reply || ""), 280)
       if (!candidate) return null

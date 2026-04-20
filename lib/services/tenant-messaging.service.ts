@@ -387,13 +387,42 @@ export class TenantMessagingService {
     if (!tenant) return { success: false, error: "Invalid tenant" }
 
     const phone = this.normalizeRecipient(input.phone)
+    const instagramTarget = this.parseInstagramTarget(phone)
     const messageId = String(input.messageId || "").trim()
-    if (!phone || !messageId) return { success: false, error: "phone e messageId sao obrigatorios" }
+    if (!phone) return { success: false, error: "phone e obrigatorio" }
+    if (!instagramTarget && !messageId) return { success: false, error: "messageId e obrigatorio" }
 
     const config = await getMessagingConfigForTenant(tenant)
-    if (!config || config.isActive === false || config.provider !== "zapi") {
-      // Silently skip para provedores que nao suportam reacao
-      return { success: false, error: "Reacao suportada apenas no provedor Z-API" }
+    if (!config || config.isActive === false) {
+      return { success: false, error: "Config de mensageria ausente ou desativada" }
+    }
+
+    if (instagramTarget) {
+      const igToken = String(config.metaAccessToken || "").trim()
+      if (!igToken) {
+        return { success: false, error: "Token Instagram nao configurado" }
+      }
+
+      if (instagramTarget.mode !== "comment") {
+        return { success: false, error: "Reacao no Direct do Instagram nao e suportada pela API atual" }
+      }
+
+      try {
+        const instagram = new MetaInstagramService({
+          accessToken: igToken,
+          apiVersion: config.metaApiVersion,
+          instagramAccountId: config.metaInstagramAccountId,
+        })
+        const liked = await instagram.likeComment({ commentId: instagramTarget.commentId })
+        return { success: liked.success === true, error: liked.success ? undefined : liked.error }
+      } catch (error: any) {
+        return { success: false, error: error?.message || "Erro ao curtir comentario no Instagram" }
+      }
+    }
+
+    if (config.provider !== "zapi") {
+      // Silently skip para provedores que nao suportam reacao em WhatsApp
+      return { success: false, error: "Reacao suportada apenas no provedor Z-API para WhatsApp" }
     }
 
     try {

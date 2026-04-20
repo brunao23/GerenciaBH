@@ -72,6 +72,25 @@ export interface GeminiMediaAnalysisInput {
   prompt?: string
 }
 
+type GeminiSamplingConfig = {
+  temperature?: number
+  topP?: number
+  topK?: number
+}
+
+function resolveSamplingValue(
+  value: any,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return fallback
+  if (numeric < min) return min
+  if (numeric > max) return max
+  return numeric
+}
+
 function extractJsonObject(input: string): string | null {
   const text = String(input || "").trim()
   if (!text) return null
@@ -561,6 +580,7 @@ export class GeminiService {
     systemPrompt: string
     conversation: GeminiConversationMessage[]
     nowIso?: string
+    sampling?: GeminiSamplingConfig
   }): Promise<GeminiAgentDecision> {
     if (!this.apiKey) {
       throw new Error("GEMINI_API_KEY not configured")
@@ -599,8 +619,9 @@ export class GeminiService {
     const payload = {
       contents: [{ role: "user", parts: [{ text: finalPrompt }] }],
       generationConfig: {
-        temperature: 0.4,
-        topP: 0.9,
+        temperature: resolveSamplingValue(input.sampling?.temperature, 0.4, 0, 2),
+        topP: resolveSamplingValue(input.sampling?.topP, 0.9, 0, 1),
+        topK: Math.floor(resolveSamplingValue(input.sampling?.topK, 40, 1, 100)),
         responseMimeType: "application/json",
       },
     }
@@ -627,6 +648,7 @@ export class GeminiService {
     functionDeclarations: GeminiFunctionDeclaration[]
     onToolCall: (toolCall: GeminiToolCall) => Promise<GeminiToolHandlerResult>
     maxSteps?: number
+    sampling?: GeminiSamplingConfig
   }): Promise<GeminiToolDecision> {
     if (!this.apiKey) {
       throw new Error("GEMINI_API_KEY not configured")
@@ -655,8 +677,9 @@ export class GeminiService {
           parts: [{ text: String(input.systemPrompt || "").trim() }],
         },
         generationConfig: {
-          temperature: 0.4,
-          topP: 0.9,
+          temperature: resolveSamplingValue(input.sampling?.temperature, 0.4, 0, 2),
+          topP: resolveSamplingValue(input.sampling?.topP, 0.9, 0, 1),
+          topK: Math.floor(resolveSamplingValue(input.sampling?.topK, 40, 1, 100)),
         },
       }
 

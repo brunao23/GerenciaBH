@@ -1,4 +1,4 @@
-import { LLMService } from "./llm.interface";
+import { LLMService, LLMSamplingConfig } from "./llm.interface";
 import {
     GeminiConversationMessage,
     GeminiAgentDecision,
@@ -17,6 +17,14 @@ export class GroqService implements LLMService {
     constructor(apiKey: string, model = "llama3-70b-8192") {
         this.apiKey = String(apiKey || "").trim();
         this.model = String(model || "").trim() || "llama3-70b-8192";
+    }
+
+    private resolveSamplingValue(value: any, fallback: number, min: number, max: number): number {
+        const numeric = Number(value)
+        if (!Number.isFinite(numeric)) return fallback
+        if (numeric < min) return min
+        if (numeric > max) return max
+        return numeric
     }
 
     private async requestGroq(payload: Record<string, any>): Promise<any> {
@@ -54,6 +62,7 @@ export class GroqService implements LLMService {
         systemPrompt: string;
         conversation: GeminiConversationMessage[];
         nowIso?: string;
+        sampling?: LLMSamplingConfig;
     }): Promise<GeminiAgentDecision> {
         const messages: any[] = [
             { role: "system", content: input.systemPrompt },
@@ -66,7 +75,8 @@ export class GroqService implements LLMService {
         const payload = {
             model: this.model,
             messages,
-            temperature: 0.4,
+            temperature: this.resolveSamplingValue(input.sampling?.temperature, 0.4, 0, 2),
+            top_p: this.resolveSamplingValue(input.sampling?.topP, 0.9, 0, 1),
             max_tokens: 4096,
         };
 
@@ -110,6 +120,7 @@ export class GroqService implements LLMService {
         functionDeclarations: GeminiFunctionDeclaration[];
         onToolCall: (toolCall: GeminiToolCall) => Promise<GeminiToolHandlerResult>;
         maxSteps?: number;
+        sampling?: LLMSamplingConfig;
     }): Promise<GeminiToolDecision> {
         const tools = input.functionDeclarations.map(fd => ({
             type: "function" as const,
@@ -137,7 +148,8 @@ export class GroqService implements LLMService {
             const payload: Record<string, any> = {
                 model: this.model,
                 messages,
-                temperature: 0.4,
+                temperature: this.resolveSamplingValue(input.sampling?.temperature, 0.4, 0, 2),
+                top_p: this.resolveSamplingValue(input.sampling?.topP, 0.9, 0, 1),
                 max_tokens: 4096,
             };
 

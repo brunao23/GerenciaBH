@@ -57,6 +57,22 @@ function toDate(value: any): Date | null {
     return null
 }
 
+function normalizeFollowupLeadStatus(value: any): string {
+    return String(value || '').trim().toLowerCase()
+}
+
+function isFollowupHardBlockedStatus(status: string): boolean {
+    if (!status) return false
+    if (status.startsWith('paused_')) return true
+    if (status.includes('opt_out')) return true
+    if (status.includes('dissatisfaction')) return true
+    if (status.includes('handoff')) return true
+    if (status.includes('no_contact')) return true
+    if (status.includes('unsubscribe')) return true
+    if (status.includes('blocked')) return true
+    return false
+}
+
 export class FollowUpScannerService {
     private supabase
     private tenant: string
@@ -194,11 +210,15 @@ export class FollowUpScannerService {
                     const pausarTable = `${this.tenant}_pausar`
                     const { data: pauseData } = await this.supabase
                         .from(pausarTable)
-                        .select('pausar')
+                        .select('pausar,pause_reason')
                         .eq('numero', phoneNumber)
                         .maybeSingle()
 
                     if (pauseData?.pausar) {
+                        const pauseReason = String((pauseData as any)?.pause_reason || '').trim().toLowerCase()
+                        const pausedStatus = pauseReason
+                            ? `paused_${pauseReason.replace(/[^a-z0-9_]/g, '_').slice(0, 64)}`
+                            : 'paused_manual'
                         // Se estiver pausado, garante que não tem schedule ativo
                         const { data: existing } = await this.supabase
                             .from("followup_schedule")
@@ -208,7 +228,7 @@ export class FollowUpScannerService {
 
                         if (existing?.is_active) {
                             await this.supabase.from("followup_schedule")
-                                .update({ is_active: false, lead_status: 'paused_manual' })
+                                .update({ is_active: false, lead_status: pausedStatus })
                                 .eq("id", existing.id)
                         }
                         continue
@@ -244,6 +264,11 @@ export class FollowUpScannerService {
                         .select("*")
                         .eq("session_id", sessionId)
                         .maybeSingle()
+
+                    const existingLeadStatus = normalizeFollowupLeadStatus(existingFollowUp?.lead_status)
+                    if (existingFollowUp && isFollowupHardBlockedStatus(existingLeadStatus)) {
+                        continue
+                    }
 
                     // CENÁRIO A: Usuário respondeu -> Cancelar
                     if (lastIsUser) {

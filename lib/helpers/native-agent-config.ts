@@ -7,6 +7,9 @@ export interface NativeAgentConfig {
   autoReplyEnabled: boolean
   replyEnabled: boolean
   reactionsEnabled: boolean
+  samplingTemperature: number
+  samplingTopP: number
+  samplingTopK: number
   aiProvider?: "google" | "openai" | "anthropic" | "groq" | "openrouter"
   geminiApiKey?: string
   geminiModel?: string
@@ -19,6 +22,9 @@ export interface NativeAgentConfig {
   openRouterApiKey?: string
   openRouterModel?: string
   promptBase?: string
+  instagramDmPrompt?: string
+  instagramCommentPrompt?: string
+  instagramMentionPrompt?: string
   timezone?: string
   useFirstNamePersonalization: boolean
   autoLearningEnabled: boolean
@@ -55,6 +61,21 @@ export interface NativeAgentConfig {
   socialSellerInstagramCommentsEnabled: boolean
   socialSellerInstagramMentionsEnabled: boolean
   socialSellerPrompt?: string
+  socialSellerSharedMemoryEnabled: boolean
+  socialSellerWhatsappBridgeEnabled: boolean
+  socialSellerWhatsappBridgeTemplate?: string
+  socialSellerKeywordAgentEnabled: boolean
+  socialSellerKeywordScope: "all_posts" | "specific_posts"
+  socialSellerKeywordPostIds: string[]
+  socialSellerKeywordList: string[]
+  socialSellerKeywordCommentTemplates: string[]
+  socialSellerKeywordDmTemplates: string[]
+  socialSellerBlockedContactUsernames: string[]
+  socialSellerSpouseUsername: string
+  socialSellerPersonalDisclosureEnabled: boolean
+  socialSellerSamplingTemperature: number
+  socialSellerSamplingTopP: number
+  socialSellerSamplingTopK: number
   reengagementAgentEnabled: boolean
   reengagementDelayMinutes: number
   reengagementTemplate?: string
@@ -147,6 +168,9 @@ export interface NativeAgentConfig {
   followupBusinessEnd: string    // HH:MM - default "23:00"
   followupBusinessDays: number[] // 0=Dom, 1=Seg...6=Sab - default [0,1,2,3,4,5,6]
   followupPlan?: Array<{ enabled: boolean; minutes: number }>
+  followupSamplingTemperature: number
+  followupSamplingTopP: number
+  followupSamplingTopK: number
 
   // Semantic cache (ML)
   semanticCacheEnabled: boolean
@@ -206,6 +230,34 @@ const DEFAULT_SOCIAL_SELLER_INSTAGRAM_COMMENTS_ENABLED = true
 const DEFAULT_SOCIAL_SELLER_INSTAGRAM_MENTIONS_ENABLED = true
 const DEFAULT_SOCIAL_SELLER_PROMPT =
   "Atue como social seller no Instagram da unidade, com respostas curtas, contextuais e foco em conversao para atendimento."
+const DEFAULT_SOCIAL_SELLER_SHARED_MEMORY_ENABLED = true
+const DEFAULT_SOCIAL_SELLER_WHATSAPP_BRIDGE_ENABLED = false
+const DEFAULT_SOCIAL_SELLER_WHATSAPP_BRIDGE_TEMPLATE =
+  "Oi {{lead_name}}! Vi seu contato no Instagram e te chamei por aqui para continuarmos com contexto. No Instagram, voce comentou: \"{{last_context}}\". Se preferir, seguimos por WhatsApp a partir deste ponto."
+const DEFAULT_SOCIAL_SELLER_KEYWORD_AGENT_ENABLED = false
+const DEFAULT_SOCIAL_SELLER_KEYWORD_SCOPE: "all_posts" | "specific_posts" = "all_posts"
+const DEFAULT_SOCIAL_SELLER_KEYWORD_POST_IDS: string[] = []
+const DEFAULT_SOCIAL_SELLER_KEYWORD_LIST = [
+  "preco",
+  "valor",
+  "quanto custa",
+  "quero",
+  "tenho interesse",
+  "me chama",
+  "chama no direct",
+]
+const DEFAULT_SOCIAL_SELLER_KEYWORD_COMMENT_TEMPLATES = [
+  "Perfeito, {{lead_name}}. Te respondi no Direct para te explicar com contexto.",
+  "Boa, {{lead_name}}. Acabei de te chamar na DM para seguirmos por la.",
+  "Obrigado pelo comentario, {{lead_name}}. Te mandei uma mensagem no Direct com os detalhes.",
+]
+const DEFAULT_SOCIAL_SELLER_KEYWORD_DM_TEMPLATES = [
+  "Oi {{lead_name}}! Vi seu comentario sobre \"{{keyword}}\" e te chamei aqui para te responder com contexto.",
+  "Oi {{lead_name}}! Recebi seu comentario e seguimos por aqui no Direct. Seu ponto foi: \"{{comment_excerpt}}\".",
+]
+const DEFAULT_SOCIAL_SELLER_BLOCKED_CONTACT_USERNAMES: string[] = []
+const DEFAULT_SOCIAL_SELLER_SPOUSE_USERNAME = ""
+const DEFAULT_SOCIAL_SELLER_PERSONAL_DISCLOSURE_ENABLED = false
 const DEFAULT_REENGAGEMENT_AGENT_ENABLED = true
 const DEFAULT_REENGAGEMENT_DELAY_MINUTES = 180
 const DEFAULT_REENGAGEMENT_TEMPLATE =
@@ -225,6 +277,15 @@ const DEFAULT_FOLLOWUP_MESSAGE_MODE: NativeAgentMessageMode = "text"
 const DEFAULT_REMINDER_MESSAGE_MODE: NativeAgentMessageMode = "text"
 const DEFAULT_REPLY_ENABLED = true
 const DEFAULT_REACTIONS_ENABLED = true
+const DEFAULT_SAMPLING_TEMPERATURE = 0.4
+const DEFAULT_SAMPLING_TOP_P = 0.9
+const DEFAULT_SAMPLING_TOP_K = 40
+const DEFAULT_SOCIAL_SELLER_SAMPLING_TEMPERATURE = 0.45
+const DEFAULT_SOCIAL_SELLER_SAMPLING_TOP_P = 0.9
+const DEFAULT_SOCIAL_SELLER_SAMPLING_TOP_K = 40
+const DEFAULT_FOLLOWUP_SAMPLING_TEMPERATURE = 0.55
+const DEFAULT_FOLLOWUP_SAMPLING_TOP_P = 0.9
+const DEFAULT_FOLLOWUP_SAMPLING_TOP_K = 40
 const DEFAULT_AUDIO_REPLIES_ENABLED = false
 const DEFAULT_AUDIO_PROVIDER: NonNullable<NativeAgentConfig["audioProvider"]> = "elevenlabs"
 const DEFAULT_AUDIO_MODEL_ID = "eleven_multilingual_v2"
@@ -322,6 +383,14 @@ function readNumber(input: any, fallback: number, min: number, max: number): num
   if (value < min) return min
   if (value > max) return max
   return Math.floor(value)
+}
+
+function readDecimal(input: any, fallback: number, min: number, max: number): number {
+  const value = Number(input)
+  if (!Number.isFinite(value)) return fallback
+  if (value < min) return min
+  if (value > max) return max
+  return value
 }
 
 function readFloat(input: any): number | undefined {
@@ -455,6 +524,42 @@ function readUrlList(input: any): string[] {
         .filter(Boolean),
     ),
   ).slice(0, 20)
+}
+
+function readTextList(input: any, fallback: string[]): string[] {
+  if (Array.isArray(input)) {
+    const values = input
+      .map((value) => String(value || "").trim())
+      .filter(Boolean)
+    return values.length ? Array.from(new Set(values)).slice(0, 50) : fallback
+  }
+
+  const text = String(input || "").trim()
+  if (!text) return fallback
+
+  const values = text
+    .split(/[\n,;]+/g)
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+  return values.length ? Array.from(new Set(values)).slice(0, 50) : fallback
+}
+
+function readSocialSellerKeywordScope(
+  input: any,
+  fallback: NativeAgentConfig["socialSellerKeywordScope"],
+): NativeAgentConfig["socialSellerKeywordScope"] {
+  const value = String(input || "").trim().toLowerCase()
+  if (value === "specific_posts") return "specific_posts"
+  if (value === "all_posts") return "all_posts"
+  return fallback
+}
+
+function readSocialSellerKeywordPostIds(input: any): string[] {
+  const list = readTextList(input, [])
+  const normalized = list
+    .map((value) => String(value || "").replace(/\D/g, ""))
+    .filter((value) => value.length >= 4)
+  return Array.from(new Set(normalized)).slice(0, 200)
 }
 
 function readIsoDateList(input: any): string[] {
@@ -605,6 +710,14 @@ function normalizeConfig(input: any): NativeAgentConfig {
     autoReplyEnabled: readBoolean(raw.autoReplyEnabled, true),
     replyEnabled: readBoolean(raw.replyEnabled, DEFAULT_REPLY_ENABLED),
     reactionsEnabled: readBoolean(raw.reactionsEnabled, DEFAULT_REACTIONS_ENABLED),
+    samplingTemperature: readDecimal(
+      raw.samplingTemperature,
+      DEFAULT_SAMPLING_TEMPERATURE,
+      0,
+      2,
+    ),
+    samplingTopP: readDecimal(raw.samplingTopP, DEFAULT_SAMPLING_TOP_P, 0, 1),
+    samplingTopK: readNumber(raw.samplingTopK, DEFAULT_SAMPLING_TOP_K, 1, 100),
     aiProvider: readProvider(raw.aiProvider, "google"),
     geminiApiKey: readString(raw.geminiApiKey),
     geminiModel: readString(raw.geminiModel) || DEFAULT_GEMINI_MODEL,
@@ -617,6 +730,9 @@ function normalizeConfig(input: any): NativeAgentConfig {
     openRouterApiKey: readString(raw.openRouterApiKey),
     openRouterModel: readString(raw.openRouterModel),
     promptBase: readString(raw.promptBase),
+    instagramDmPrompt: readString(raw.instagramDmPrompt),
+    instagramCommentPrompt: readString(raw.instagramCommentPrompt),
+    instagramMentionPrompt: readString(raw.instagramMentionPrompt),
     timezone: readString(raw.timezone) || DEFAULT_TIMEZONE,
     useFirstNamePersonalization: readBoolean(
       raw.useFirstNamePersonalization,
@@ -731,6 +847,68 @@ function normalizeConfig(input: any): NativeAgentConfig {
     ),
     socialSellerPrompt:
       readString(raw.socialSellerPrompt) || DEFAULT_SOCIAL_SELLER_PROMPT,
+    socialSellerSharedMemoryEnabled: readBoolean(
+      raw.socialSellerSharedMemoryEnabled,
+      DEFAULT_SOCIAL_SELLER_SHARED_MEMORY_ENABLED,
+    ),
+    socialSellerWhatsappBridgeEnabled: readBoolean(
+      raw.socialSellerWhatsappBridgeEnabled,
+      DEFAULT_SOCIAL_SELLER_WHATSAPP_BRIDGE_ENABLED,
+    ),
+    socialSellerWhatsappBridgeTemplate:
+      readString(raw.socialSellerWhatsappBridgeTemplate) ||
+      DEFAULT_SOCIAL_SELLER_WHATSAPP_BRIDGE_TEMPLATE,
+    socialSellerKeywordAgentEnabled: readBoolean(
+      raw.socialSellerKeywordAgentEnabled,
+      DEFAULT_SOCIAL_SELLER_KEYWORD_AGENT_ENABLED,
+    ),
+    socialSellerKeywordScope: readSocialSellerKeywordScope(
+      raw.socialSellerKeywordScope,
+      DEFAULT_SOCIAL_SELLER_KEYWORD_SCOPE,
+    ),
+    socialSellerKeywordPostIds: readSocialSellerKeywordPostIds(
+      raw.socialSellerKeywordPostIds,
+    ),
+    socialSellerKeywordList: readTextList(
+      raw.socialSellerKeywordList,
+      DEFAULT_SOCIAL_SELLER_KEYWORD_LIST,
+    ),
+    socialSellerKeywordCommentTemplates: readTextList(
+      raw.socialSellerKeywordCommentTemplates,
+      DEFAULT_SOCIAL_SELLER_KEYWORD_COMMENT_TEMPLATES,
+    ),
+    socialSellerKeywordDmTemplates: readTextList(
+      raw.socialSellerKeywordDmTemplates,
+      DEFAULT_SOCIAL_SELLER_KEYWORD_DM_TEMPLATES,
+    ),
+    socialSellerBlockedContactUsernames: readTextList(
+      raw.socialSellerBlockedContactUsernames,
+      DEFAULT_SOCIAL_SELLER_BLOCKED_CONTACT_USERNAMES,
+    ),
+    socialSellerSpouseUsername:
+      readString(raw.socialSellerSpouseUsername) || DEFAULT_SOCIAL_SELLER_SPOUSE_USERNAME,
+    socialSellerPersonalDisclosureEnabled: readBoolean(
+      raw.socialSellerPersonalDisclosureEnabled,
+      DEFAULT_SOCIAL_SELLER_PERSONAL_DISCLOSURE_ENABLED,
+    ),
+    socialSellerSamplingTemperature: readDecimal(
+      raw.socialSellerSamplingTemperature,
+      DEFAULT_SOCIAL_SELLER_SAMPLING_TEMPERATURE,
+      0,
+      2,
+    ),
+    socialSellerSamplingTopP: readDecimal(
+      raw.socialSellerSamplingTopP,
+      DEFAULT_SOCIAL_SELLER_SAMPLING_TOP_P,
+      0,
+      1,
+    ),
+    socialSellerSamplingTopK: readNumber(
+      raw.socialSellerSamplingTopK,
+      DEFAULT_SOCIAL_SELLER_SAMPLING_TOP_K,
+      1,
+      100,
+    ),
     reengagementAgentEnabled: readBoolean(
       raw.reengagementAgentEnabled,
       DEFAULT_REENGAGEMENT_AGENT_ENABLED,
@@ -882,6 +1060,24 @@ function normalizeConfig(input: any): NativeAgentConfig {
     followupBusinessEnd: readBusinessTime(raw.followupBusinessEnd, DEFAULT_FOLLOWUP_BUSINESS_END),
     followupBusinessDays: readFollowupBusinessDays(raw.followupBusinessDays),
     followupPlan: readFollowupPlan(raw.followupPlan, normalizedFollowupIntervals),
+    followupSamplingTemperature: readDecimal(
+      raw.followupSamplingTemperature,
+      DEFAULT_FOLLOWUP_SAMPLING_TEMPERATURE,
+      0,
+      2,
+    ),
+    followupSamplingTopP: readDecimal(
+      raw.followupSamplingTopP,
+      DEFAULT_FOLLOWUP_SAMPLING_TOP_P,
+      0,
+      1,
+    ),
+    followupSamplingTopK: readNumber(
+      raw.followupSamplingTopK,
+      DEFAULT_FOLLOWUP_SAMPLING_TOP_K,
+      1,
+      100,
+    ),
 
     // Semantic cache
     semanticCacheEnabled: readBoolean(raw.semanticCacheEnabled, DEFAULT_SEMANTIC_CACHE_ENABLED),
@@ -1048,6 +1244,42 @@ export function validateNativeAgentConfig(config: NativeAgentConfig): string | n
     return "at least one Instagram channel must be enabled when socialSellerAgentEnabled is true"
   }
 
+  if (config.socialSellerKeywordAgentEnabled && config.socialSellerKeywordList.length === 0) {
+    return "socialSellerKeywordList must have at least one keyword when socialSellerKeywordAgentEnabled is true"
+  }
+
+  if (config.socialSellerKeywordScope === "specific_posts" && config.socialSellerKeywordPostIds.length === 0) {
+    return "socialSellerKeywordPostIds must have at least one post id when socialSellerKeywordScope is specific_posts"
+  }
+
+  if (config.samplingTemperature < 0 || config.samplingTemperature > 2) {
+    return "samplingTemperature must be between 0 and 2"
+  }
+  if (config.samplingTopP < 0 || config.samplingTopP > 1) {
+    return "samplingTopP must be between 0 and 1"
+  }
+  if (config.samplingTopK < 1 || config.samplingTopK > 100) {
+    return "samplingTopK must be between 1 and 100"
+  }
+  if (config.socialSellerSamplingTemperature < 0 || config.socialSellerSamplingTemperature > 2) {
+    return "socialSellerSamplingTemperature must be between 0 and 2"
+  }
+  if (config.socialSellerSamplingTopP < 0 || config.socialSellerSamplingTopP > 1) {
+    return "socialSellerSamplingTopP must be between 0 and 1"
+  }
+  if (config.socialSellerSamplingTopK < 1 || config.socialSellerSamplingTopK > 100) {
+    return "socialSellerSamplingTopK must be between 1 and 100"
+  }
+  if (config.followupSamplingTemperature < 0 || config.followupSamplingTemperature > 2) {
+    return "followupSamplingTemperature must be between 0 and 2"
+  }
+  if (config.followupSamplingTopP < 0 || config.followupSamplingTopP > 1) {
+    return "followupSamplingTopP must be between 0 and 1"
+  }
+  if (config.followupSamplingTopK < 1 || config.followupSamplingTopK > 100) {
+    return "followupSamplingTopK must be between 1 and 100"
+  }
+
   if (config.postScheduleAutomationEnabled && config.postScheduleMessageMode !== "text") {
     if (!config.postScheduleMediaUrl) {
       return "postScheduleMediaUrl is required when postScheduleMessageMode is media"
@@ -1200,6 +1432,9 @@ export async function updateNativeAgentConfigForTenant(
       autoReplyEnabled: config.autoReplyEnabled,
       replyEnabled: config.replyEnabled,
       reactionsEnabled: config.reactionsEnabled,
+      samplingTemperature: config.samplingTemperature,
+      samplingTopP: config.samplingTopP,
+      samplingTopK: config.samplingTopK,
       aiProvider: config.aiProvider || "google",
       geminiApiKey: config.geminiApiKey,
       geminiModel: config.geminiModel || DEFAULT_GEMINI_MODEL,
@@ -1212,6 +1447,9 @@ export async function updateNativeAgentConfigForTenant(
       openRouterApiKey: config.openRouterApiKey,
       openRouterModel: config.openRouterModel,
       promptBase: config.promptBase,
+      instagramDmPrompt: config.instagramDmPrompt,
+      instagramCommentPrompt: config.instagramCommentPrompt,
+      instagramMentionPrompt: config.instagramMentionPrompt,
       timezone: config.timezone || DEFAULT_TIMEZONE,
       useFirstNamePersonalization: config.useFirstNamePersonalization,
       autoLearningEnabled: config.autoLearningEnabled,
@@ -1248,6 +1486,21 @@ export async function updateNativeAgentConfigForTenant(
       socialSellerInstagramCommentsEnabled: config.socialSellerInstagramCommentsEnabled,
       socialSellerInstagramMentionsEnabled: config.socialSellerInstagramMentionsEnabled,
       socialSellerPrompt: config.socialSellerPrompt,
+      socialSellerSharedMemoryEnabled: config.socialSellerSharedMemoryEnabled,
+      socialSellerWhatsappBridgeEnabled: config.socialSellerWhatsappBridgeEnabled,
+      socialSellerWhatsappBridgeTemplate: config.socialSellerWhatsappBridgeTemplate,
+      socialSellerKeywordAgentEnabled: config.socialSellerKeywordAgentEnabled,
+      socialSellerKeywordScope: config.socialSellerKeywordScope,
+      socialSellerKeywordPostIds: config.socialSellerKeywordPostIds,
+      socialSellerKeywordList: config.socialSellerKeywordList,
+      socialSellerKeywordCommentTemplates: config.socialSellerKeywordCommentTemplates,
+      socialSellerKeywordDmTemplates: config.socialSellerKeywordDmTemplates,
+      socialSellerBlockedContactUsernames: config.socialSellerBlockedContactUsernames,
+      socialSellerSpouseUsername: config.socialSellerSpouseUsername,
+      socialSellerPersonalDisclosureEnabled: config.socialSellerPersonalDisclosureEnabled,
+      socialSellerSamplingTemperature: config.socialSellerSamplingTemperature,
+      socialSellerSamplingTopP: config.socialSellerSamplingTopP,
+      socialSellerSamplingTopK: config.socialSellerSamplingTopK,
       reengagementAgentEnabled: config.reengagementAgentEnabled,
       reengagementDelayMinutes: config.reengagementDelayMinutes,
       reengagementTemplate: config.reengagementTemplate,
@@ -1326,6 +1579,9 @@ export async function updateNativeAgentConfigForTenant(
       followupBusinessEnd: config.followupBusinessEnd,
       followupBusinessDays: config.followupBusinessDays,
       followupPlan: Array.isArray(config.followupPlan) ? config.followupPlan : existingFollowupPlan,
+      followupSamplingTemperature: config.followupSamplingTemperature,
+      followupSamplingTopP: config.followupSamplingTopP,
+      followupSamplingTopK: config.followupSamplingTopK,
 
       // Semantic cache
       semanticCacheEnabled: config.semanticCacheEnabled,

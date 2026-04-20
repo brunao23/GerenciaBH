@@ -20,6 +20,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 type ConversationTone = "consultivo" | "acolhedor" | "direto" | "formal"
 type AudioProvider = "elevenlabs" | "custom_http"
 type MessageMode = "text" | "image" | "video" | "document"
+type InstagramMediaOption = {
+  id: string
+  caption: string
+  mediaType: string
+  permalink: string
+  thumbnailUrl: string
+  mediaUrl: string
+}
 
 type TenantNativeAgentConfig = {
   enabled: boolean
@@ -44,11 +52,17 @@ type TenantNativeAgentConfig = {
   inboundMessageBufferSeconds: number
   zapiDelayMessageSeconds: number
   zapiDelayTypingSeconds: number
+  samplingTemperature: number
+  samplingTopP: number
+  samplingTopK: number
   splitLongMessagesEnabled: boolean
   messageBlockMaxChars: number
   schedulingEnabled: boolean
   followupEnabled: boolean
   followupIntervalsMinutes: number[]
+  followupSamplingTemperature: number
+  followupSamplingTopP: number
+  followupSamplingTopK: number
   followupBusinessStart: string
   followupBusinessEnd: string
   followupBusinessDays: number[]
@@ -65,6 +79,21 @@ type TenantNativeAgentConfig = {
   socialSellerInstagramCommentsEnabled: boolean
   socialSellerInstagramMentionsEnabled: boolean
   socialSellerPrompt: string
+  socialSellerSharedMemoryEnabled: boolean
+  socialSellerWhatsappBridgeEnabled: boolean
+  socialSellerWhatsappBridgeTemplate: string
+  socialSellerKeywordAgentEnabled: boolean
+  socialSellerKeywordList: string[]
+  socialSellerKeywordScope: "all_posts" | "specific_posts"
+  socialSellerKeywordPostIds: string[]
+  socialSellerKeywordCommentTemplates: string[]
+  socialSellerKeywordDmTemplates: string[]
+  socialSellerSamplingTemperature: number
+  socialSellerSamplingTopP: number
+  socialSellerSamplingTopK: number
+  instagramDmPrompt: string
+  instagramCommentPrompt: string
+  instagramMentionPrompt: string
   reengagementAgentEnabled: boolean
   reengagementDelayMinutes: number
   reengagementTemplate: string
@@ -152,11 +181,17 @@ const defaultConfig: TenantNativeAgentConfig = {
   inboundMessageBufferSeconds: 10,
   zapiDelayMessageSeconds: 1,
   zapiDelayTypingSeconds: 0,
+  samplingTemperature: 0.4,
+  samplingTopP: 0.85,
+  samplingTopK: 32,
   splitLongMessagesEnabled: true,
   messageBlockMaxChars: 400,
   schedulingEnabled: true,
   followupEnabled: true,
   followupIntervalsMinutes: [15, 60, 360, 1440, 2880, 4320, 7200],
+  followupSamplingTemperature: 0.55,
+  followupSamplingTopP: 0.9,
+  followupSamplingTopK: 40,
   followupBusinessStart: "07:00",
   followupBusinessEnd: "23:00",
   followupBusinessDays: [0, 1, 2, 3, 4, 5, 6],
@@ -174,6 +209,40 @@ const defaultConfig: TenantNativeAgentConfig = {
   socialSellerInstagramMentionsEnabled: true,
   socialSellerPrompt:
     "Atue como social seller no Instagram da unidade, com respostas curtas, contextuais e foco em conversao para atendimento.",
+  socialSellerSharedMemoryEnabled: true,
+  socialSellerWhatsappBridgeEnabled: false,
+  socialSellerWhatsappBridgeTemplate:
+    "Oi {{lead_name}}! Vi seu contato no Instagram e te chamei por aqui para continuarmos com contexto. No Instagram, voce comentou: \"{{last_context}}\". Se preferir, seguimos por WhatsApp a partir deste ponto.",
+  socialSellerKeywordAgentEnabled: false,
+  socialSellerKeywordList: [
+    "preco",
+    "valor",
+    "quanto custa",
+    "quero",
+    "tenho interesse",
+    "me chama",
+    "chama no direct",
+  ],
+  socialSellerKeywordScope: "all_posts",
+  socialSellerKeywordPostIds: [],
+  socialSellerKeywordCommentTemplates: [
+    "Perfeito, {{lead_name}}. Te respondi no Direct para te explicar com contexto.",
+    "Boa, {{lead_name}}. Acabei de te chamar na DM para seguirmos por la.",
+    "Obrigado pelo comentario, {{lead_name}}. Te mandei uma mensagem no Direct com os detalhes.",
+  ],
+  socialSellerKeywordDmTemplates: [
+    "Oi {{lead_name}}! Vi seu comentario sobre \"{{keyword}}\" e te chamei aqui para te responder com contexto.",
+    "Oi {{lead_name}}! Recebi seu comentario e seguimos por aqui no Direct. Seu ponto foi: \"{{comment_excerpt}}\".",
+  ],
+  socialSellerSamplingTemperature: 0.45,
+  socialSellerSamplingTopP: 0.9,
+  socialSellerSamplingTopK: 40,
+  instagramDmPrompt:
+    "Atue no Direct do Instagram com atendimento consultivo, curto e orientado a conversao.",
+  instagramCommentPrompt:
+    "Atue em comentarios do Instagram com resposta publica breve e convite para continuar no Direct quando houver detalhes.",
+  instagramMentionPrompt:
+    "Atue em mencoes do Instagram com resposta publica cordial e objetiva, direcionando para Direct quando necessario.",
   reengagementAgentEnabled: true,
   reengagementDelayMinutes: 180,
   reengagementTemplate:
@@ -324,6 +393,15 @@ function normalizeConfig(raw: any): TenantNativeAgentConfig {
     zapiDelayTypingSeconds: Number.isFinite(Number(source.zapiDelayTypingSeconds))
       ? Number(source.zapiDelayTypingSeconds)
       : 3,
+    samplingTemperature: Number.isFinite(Number(source.samplingTemperature))
+      ? Number(source.samplingTemperature)
+      : 0.4,
+    samplingTopP: Number.isFinite(Number(source.samplingTopP))
+      ? Number(source.samplingTopP)
+      : 0.85,
+    samplingTopK: Number.isFinite(Number(source.samplingTopK))
+      ? Number(source.samplingTopK)
+      : 32,
     splitLongMessagesEnabled: source.splitLongMessagesEnabled !== false,
     messageBlockMaxChars: Number.isFinite(Number(source.messageBlockMaxChars))
       ? Number(source.messageBlockMaxChars)
@@ -333,6 +411,15 @@ function normalizeConfig(raw: any): TenantNativeAgentConfig {
     followupIntervalsMinutes: followupIntervalsMinutes.length
       ? followupIntervalsMinutes
       : [15, 60, 360, 1440, 2880, 4320, 7200],
+    followupSamplingTemperature: Number.isFinite(Number(source.followupSamplingTemperature))
+      ? Number(source.followupSamplingTemperature)
+      : 0.55,
+    followupSamplingTopP: Number.isFinite(Number(source.followupSamplingTopP))
+      ? Number(source.followupSamplingTopP)
+      : 0.9,
+    followupSamplingTopK: Number.isFinite(Number(source.followupSamplingTopK))
+      ? Number(source.followupSamplingTopK)
+      : 40,
     followupBusinessStart: String(source.followupBusinessStart || "07:00"),
     followupBusinessEnd: String(source.followupBusinessEnd || "23:00"),
     followupBusinessDays: followupBusinessDays.length ? followupBusinessDays : [0, 1, 2, 3, 4, 5, 6],
@@ -360,6 +447,68 @@ function normalizeConfig(raw: any): TenantNativeAgentConfig {
     socialSellerPrompt: String(
       source.socialSellerPrompt ||
       "Atue como social seller no Instagram da unidade, com respostas curtas, contextuais e foco em conversao para atendimento.",
+    ),
+    socialSellerSharedMemoryEnabled: source.socialSellerSharedMemoryEnabled !== false,
+    socialSellerWhatsappBridgeEnabled: source.socialSellerWhatsappBridgeEnabled === true,
+    socialSellerWhatsappBridgeTemplate: String(
+      source.socialSellerWhatsappBridgeTemplate ||
+      "Oi {{lead_name}}! Vi seu contato no Instagram e te chamei por aqui para continuarmos com contexto. No Instagram, voce comentou: \"{{last_context}}\". Se preferir, seguimos por WhatsApp a partir deste ponto.",
+    ),
+    socialSellerKeywordAgentEnabled: source.socialSellerKeywordAgentEnabled === true,
+    socialSellerKeywordList: Array.isArray(source.socialSellerKeywordList)
+      ? source.socialSellerKeywordList.map((v: any) => String(v || "").trim()).filter(Boolean)
+      : [
+        "preco",
+        "valor",
+        "quanto custa",
+        "quero",
+        "tenho interesse",
+        "me chama",
+        "chama no direct",
+      ],
+    socialSellerKeywordScope:
+      String(source.socialSellerKeywordScope || "all_posts").trim().toLowerCase() === "specific_posts"
+        ? "specific_posts"
+        : "all_posts",
+    socialSellerKeywordPostIds: Array.isArray(source.socialSellerKeywordPostIds)
+      ? source.socialSellerKeywordPostIds
+        .map((v: any) => String(v || "").replace(/\D/g, "").trim())
+        .filter(Boolean)
+        .filter((v: string, i: number, arr: string[]) => arr.indexOf(v) === i)
+      : [],
+    socialSellerKeywordCommentTemplates: Array.isArray(source.socialSellerKeywordCommentTemplates)
+      ? source.socialSellerKeywordCommentTemplates.map((v: any) => String(v || "").trim()).filter(Boolean)
+      : [
+        "Perfeito, {{lead_name}}. Te respondi no Direct para te explicar com contexto.",
+        "Boa, {{lead_name}}. Acabei de te chamar na DM para seguirmos por la.",
+        "Obrigado pelo comentario, {{lead_name}}. Te mandei uma mensagem no Direct com os detalhes.",
+      ],
+    socialSellerKeywordDmTemplates: Array.isArray(source.socialSellerKeywordDmTemplates)
+      ? source.socialSellerKeywordDmTemplates.map((v: any) => String(v || "").trim()).filter(Boolean)
+      : [
+        "Oi {{lead_name}}! Vi seu comentario sobre \"{{keyword}}\" e te chamei aqui para te responder com contexto.",
+        "Oi {{lead_name}}! Recebi seu comentario e seguimos por aqui no Direct. Seu ponto foi: \"{{comment_excerpt}}\".",
+      ],
+    socialSellerSamplingTemperature: Number.isFinite(Number(source.socialSellerSamplingTemperature))
+      ? Number(source.socialSellerSamplingTemperature)
+      : 0.45,
+    socialSellerSamplingTopP: Number.isFinite(Number(source.socialSellerSamplingTopP))
+      ? Number(source.socialSellerSamplingTopP)
+      : 0.9,
+    socialSellerSamplingTopK: Number.isFinite(Number(source.socialSellerSamplingTopK))
+      ? Number(source.socialSellerSamplingTopK)
+      : 40,
+    instagramDmPrompt: String(
+      source.instagramDmPrompt ||
+      "Atue no Direct do Instagram com atendimento consultivo, curto e orientado a conversao.",
+    ),
+    instagramCommentPrompt: String(
+      source.instagramCommentPrompt ||
+      "Atue em comentarios do Instagram com resposta publica breve e convite para continuar no Direct quando houver detalhes.",
+    ),
+    instagramMentionPrompt: String(
+      source.instagramMentionPrompt ||
+      "Atue em mencoes do Instagram com resposta publica cordial e objetiva, direcionando para Direct quando necessario.",
     ),
     reengagementAgentEnabled: source.reengagementAgentEnabled !== false,
     reengagementDelayMinutes: Number.isFinite(Number(source.reengagementDelayMinutes))
@@ -610,6 +759,8 @@ export default function AgenteIAPage() {
   const [instagramConnectionReady, setInstagramConnectionReady] = useState(false)
   const [instagramAccountId, setInstagramAccountId] = useState("")
   const [instagramOauthError, setInstagramOauthError] = useState("")
+  const [instagramMediaLoading, setInstagramMediaLoading] = useState(false)
+  const [instagramMediaOptions, setInstagramMediaOptions] = useState<InstagramMediaOption[]>([])
 
   const googleCalendarConnected = useMemo(() => {
     return Boolean(config.googleOAuthConnectedAt) || config.googleOAuthRefreshToken === "***"
@@ -626,6 +777,35 @@ export default function AgenteIAPage() {
     } catch {
       setInstagramConnectionReady(false)
       setInstagramAccountId("")
+    }
+  }, [])
+
+  const loadInstagramMedia = useCallback(async () => {
+    setInstagramMediaLoading(true)
+    try {
+      const res = await fetch("/api/tenant/instagram/media?limit=50", { cache: "no-store" })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || "Falha ao carregar posts do Instagram")
+      const media = Array.isArray(data?.media) ? data.media : []
+      const normalized: InstagramMediaOption[] = media
+        .map((item: any) => ({
+          id: String(item?.id || "").replace(/\D/g, ""),
+          caption: String(item?.caption || "").trim(),
+          mediaType: String(item?.mediaType || item?.media_type || "").trim().toLowerCase(),
+          permalink: String(item?.permalink || "").trim(),
+          thumbnailUrl: String(item?.thumbnailUrl || item?.thumbnail_url || "").trim(),
+          mediaUrl: String(item?.mediaUrl || item?.media_url || "").trim(),
+        }))
+        .filter((item: InstagramMediaOption) => Boolean(item.id))
+      setInstagramMediaOptions(normalized)
+      if (!normalized.length) {
+        toast.info("Nao foram encontrados posts recentes para esta conta.")
+      }
+    } catch (error: any) {
+      toast.error(error?.message || "Falha ao carregar posts do Instagram")
+      setInstagramMediaOptions([])
+    } finally {
+      setInstagramMediaLoading(false)
     }
   }, [])
 
@@ -654,6 +834,18 @@ export default function AgenteIAPage() {
     }
     void load()
   }, [loadInstagramStatus])
+
+  useEffect(() => {
+    if (!instagramConnectionReady) return
+    if (config.socialSellerKeywordScope !== "specific_posts") return
+    if (instagramMediaOptions.length > 0) return
+    void loadInstagramMedia()
+  }, [
+    config.socialSellerKeywordScope,
+    instagramConnectionReady,
+    instagramMediaOptions.length,
+    loadInstagramMedia,
+  ])
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -849,11 +1041,17 @@ export default function AgenteIAPage() {
         ),
         zapiDelayMessageSeconds: Math.max(1, Math.min(15, Number(config.zapiDelayMessageSeconds || 1))),
         zapiDelayTypingSeconds: Math.max(0, Math.min(15, Number(config.zapiDelayTypingSeconds || 0))),
+        samplingTemperature: Math.max(0, Math.min(2, Number(config.samplingTemperature || 0.4))),
+        samplingTopP: Math.max(0, Math.min(1, Number(config.samplingTopP || 0.85))),
+        samplingTopK: Math.max(1, Math.min(100, Number(config.samplingTopK || 32))),
         splitLongMessagesEnabled: config.splitLongMessagesEnabled,
         messageBlockMaxChars: Math.max(120, Math.min(1200, Number(config.messageBlockMaxChars || 400))),
         schedulingEnabled: config.schedulingEnabled,
         followupEnabled: config.followupEnabled,
         followupIntervalsMinutes: parseFollowupIntervalsInput(followupIntervalsInput),
+        followupSamplingTemperature: Math.max(0, Math.min(2, Number(config.followupSamplingTemperature || 0.55))),
+        followupSamplingTopP: Math.max(0, Math.min(1, Number(config.followupSamplingTopP || 0.9))),
+        followupSamplingTopK: Math.max(1, Math.min(100, Number(config.followupSamplingTopK || 40))),
         followupBusinessStart: toOptionalText(config.followupBusinessStart) || "07:00",
         followupBusinessEnd: toOptionalText(config.followupBusinessEnd) || "23:00",
         followupBusinessDays: parseFollowupBusinessDaysInput(followupBusinessDaysInput),
@@ -870,6 +1068,28 @@ export default function AgenteIAPage() {
         socialSellerInstagramCommentsEnabled: config.socialSellerInstagramCommentsEnabled,
         socialSellerInstagramMentionsEnabled: config.socialSellerInstagramMentionsEnabled,
         socialSellerPrompt: toOptionalText(config.socialSellerPrompt),
+        socialSellerSharedMemoryEnabled: config.socialSellerSharedMemoryEnabled,
+        socialSellerWhatsappBridgeEnabled: config.socialSellerWhatsappBridgeEnabled,
+        socialSellerWhatsappBridgeTemplate: toOptionalText(config.socialSellerWhatsappBridgeTemplate),
+        socialSellerKeywordAgentEnabled: config.socialSellerKeywordAgentEnabled,
+        socialSellerKeywordList: (config.socialSellerKeywordList || []).map((v) => String(v || "").trim()).filter(Boolean),
+        socialSellerKeywordScope: config.socialSellerKeywordScope,
+        socialSellerKeywordPostIds: (config.socialSellerKeywordPostIds || [])
+          .map((v) => String(v || "").replace(/\D/g, "").trim())
+          .filter(Boolean)
+          .filter((v, i, arr) => arr.indexOf(v) === i),
+        socialSellerKeywordCommentTemplates: (config.socialSellerKeywordCommentTemplates || [])
+          .map((v) => String(v || "").trim())
+          .filter(Boolean),
+        socialSellerKeywordDmTemplates: (config.socialSellerKeywordDmTemplates || [])
+          .map((v) => String(v || "").trim())
+          .filter(Boolean),
+        socialSellerSamplingTemperature: Math.max(0, Math.min(2, Number(config.socialSellerSamplingTemperature || 0.45))),
+        socialSellerSamplingTopP: Math.max(0, Math.min(1, Number(config.socialSellerSamplingTopP || 0.9))),
+        socialSellerSamplingTopK: Math.max(1, Math.min(100, Number(config.socialSellerSamplingTopK || 40))),
+        instagramDmPrompt: toOptionalText(config.instagramDmPrompt),
+        instagramCommentPrompt: toOptionalText(config.instagramCommentPrompt),
+        instagramMentionPrompt: toOptionalText(config.instagramMentionPrompt),
         reengagementAgentEnabled: config.reengagementAgentEnabled,
         reengagementDelayMinutes: Math.max(
           1,
@@ -1098,6 +1318,63 @@ export default function AgenteIAPage() {
                   <SelectItem value="off">Desativado</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label>Temperatura LLM</Label>
+              <Input
+                type="number"
+                min={0}
+                max={2}
+                step={0.05}
+                value={config.samplingTemperature}
+                onChange={(e) =>
+                  setConfig((prev) => ({
+                    ...prev,
+                    samplingTemperature: Number(e.target.value || 0.4),
+                  }))
+                }
+                className="bg-secondary border-border text-foreground"
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Top P</Label>
+              <Input
+                type="number"
+                min={0}
+                max={1}
+                step={0.01}
+                value={config.samplingTopP}
+                onChange={(e) =>
+                  setConfig((prev) => ({
+                    ...prev,
+                    samplingTopP: Number(e.target.value || 0.85),
+                  }))
+                }
+                className="bg-secondary border-border text-foreground"
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Top K</Label>
+              <Input
+                type="number"
+                min={1}
+                max={100}
+                step={1}
+                value={config.samplingTopK}
+                onChange={(e) =>
+                  setConfig((prev) => ({
+                    ...prev,
+                    samplingTopK: Number(e.target.value || 32),
+                  }))
+                }
+                className="bg-secondary border-border text-foreground"
+                disabled={loading}
+              />
             </div>
           </div>
 
@@ -2360,17 +2637,328 @@ export default function AgenteIAPage() {
             </div>
           </div>
 
+          <div className="grid md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label>Memoria compartilhada IG e WhatsApp</Label>
+              <Select
+                value={config.socialSellerSharedMemoryEnabled ? "on" : "off"}
+                onValueChange={(v) => setConfig((prev) => ({ ...prev, socialSellerSharedMemoryEnabled: v === "on" }))}
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-secondary border-border">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="on">Ativo</SelectItem>
+                  <SelectItem value="off">Inativo</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Auto chamar no WhatsApp</Label>
+              <Select
+                value={config.socialSellerWhatsappBridgeEnabled ? "on" : "off"}
+                onValueChange={(v) => setConfig((prev) => ({ ...prev, socialSellerWhatsappBridgeEnabled: v === "on" }))}
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-secondary border-border">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="on">Ativo</SelectItem>
+                  <SelectItem value="off">Inativo</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Keyword chat em comentarios</Label>
+              <Select
+                value={config.socialSellerKeywordAgentEnabled ? "on" : "off"}
+                onValueChange={(v) => setConfig((prev) => ({ ...prev, socialSellerKeywordAgentEnabled: v === "on" }))}
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-secondary border-border">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="on">Ativo</SelectItem>
+                  <SelectItem value="off">Inativo</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label>Escopo das palavras-chave</Label>
+              <Select
+                value={config.socialSellerKeywordScope}
+                onValueChange={(v) =>
+                  setConfig((prev) => ({
+                    ...prev,
+                    socialSellerKeywordScope: v === "specific_posts" ? "specific_posts" : "all_posts",
+                  }))
+                }
+                disabled={loading}
+              >
+                <SelectTrigger className="bg-secondary border-border">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all_posts">Todos os posts</SelectItem>
+                  <SelectItem value="specific_posts">Somente posts especificos</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Temperatura Social Seller</Label>
+              <Input
+                type="number"
+                min={0}
+                max={2}
+                step={0.05}
+                value={config.socialSellerSamplingTemperature}
+                onChange={(e) =>
+                  setConfig((prev) => ({
+                    ...prev,
+                    socialSellerSamplingTemperature: Number(e.target.value || 0.45),
+                  }))
+                }
+                className="bg-secondary border-border text-foreground"
+                disabled={loading}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-2">
+                <Label>Top P</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={config.socialSellerSamplingTopP}
+                  onChange={(e) =>
+                    setConfig((prev) => ({
+                      ...prev,
+                      socialSellerSamplingTopP: Number(e.target.value || 0.9),
+                    }))
+                  }
+                  className="bg-secondary border-border text-foreground"
+                  disabled={loading}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Top K</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={100}
+                  step={1}
+                  value={config.socialSellerSamplingTopK}
+                  onChange={(e) =>
+                    setConfig((prev) => ({
+                      ...prev,
+                      socialSellerSamplingTopK: Number(e.target.value || 40),
+                    }))
+                  }
+                  className="bg-secondary border-border text-foreground"
+                  disabled={loading}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Palavras chave do keyword chat</Label>
+              <Textarea
+                value={(config.socialSellerKeywordList || []).join("\n")}
+                onChange={(e) =>
+                  setConfig((prev) => ({
+                    ...prev,
+                    socialSellerKeywordList: e.target.value
+                      .split(/\r?\n|,/g)
+                      .map((v) => v.trim())
+                      .filter(Boolean),
+                  }))
+                }
+                className="bg-secondary border-border text-foreground min-h-[120px]"
+                placeholder="Uma palavra chave por linha. Ex: preco, valor, quero..."
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Template de chamada no WhatsApp</Label>
+              <Textarea
+                value={config.socialSellerWhatsappBridgeTemplate}
+                onChange={(e) =>
+                  setConfig((prev) => ({ ...prev, socialSellerWhatsappBridgeTemplate: e.target.value }))
+                }
+                className="bg-secondary border-border text-foreground min-h-[120px]"
+                placeholder='Use variaveis {{lead_name}}, {{last_context}}, {{keyword}}.'
+                disabled={loading}
+              />
+            </div>
+          </div>
+
           <div className="space-y-2">
-            <Label>Prompt do Social Seller</Label>
+            <div className="flex items-center justify-between gap-3">
+              <Label>Posts monitorados no keyword chat</Label>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={loadInstagramMedia}
+                disabled={loading || !instagramConnectionReady || instagramMediaLoading}
+              >
+                {instagramMediaLoading ? "Carregando posts..." : "Carregar posts do Instagram"}
+              </Button>
+            </div>
+            <Textarea
+              value={(config.socialSellerKeywordPostIds || []).join("\n")}
+              onChange={(e) =>
+                setConfig((prev) => ({
+                  ...prev,
+                  socialSellerKeywordPostIds: e.target.value
+                    .split(/\r?\n|,/g)
+                    .map((v) => String(v || "").replace(/\D/g, "").trim())
+                    .filter(Boolean)
+                    .filter((v, i, arr) => arr.indexOf(v) === i),
+                }))
+              }
+              className="bg-secondary border-border text-foreground min-h-[96px]"
+              placeholder="ID do post por linha. Necessario quando o escopo estiver em posts especificos."
+              disabled={loading}
+            />
+            {instagramMediaOptions.length > 0 && (
+              <div className="max-h-56 overflow-auto rounded-md border border-border p-3 space-y-2">
+                {instagramMediaOptions.map((item) => {
+                  const checked = (config.socialSellerKeywordPostIds || []).includes(item.id)
+                  const summary = item.caption || item.permalink || item.mediaType || item.id
+                  return (
+                    <label key={item.id} className="flex items-start gap-2 text-xs text-gray-300">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) =>
+                          setConfig((prev) => {
+                            const current = new Set(prev.socialSellerKeywordPostIds || [])
+                            if (e.target.checked) current.add(item.id)
+                            else current.delete(item.id)
+                            return { ...prev, socialSellerKeywordPostIds: Array.from(current) }
+                          })
+                        }
+                        disabled={loading}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        <span className="font-mono text-[11px] text-gray-400">{item.id}</span>
+                        <span className="block text-gray-300">{summary.slice(0, 180)}</span>
+                      </span>
+                    </label>
+                  )
+                })}
+              </div>
+            )}
+            {config.socialSellerKeywordScope === "specific_posts" && !(config.socialSellerKeywordPostIds || []).length && (
+              <p className="text-xs text-amber-400">
+                Defina ao menos um post para escopo especifico.
+              </p>
+            )}
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Templates de resposta publica no comentario</Label>
+              <Textarea
+                value={(config.socialSellerKeywordCommentTemplates || []).join("\n")}
+                onChange={(e) =>
+                  setConfig((prev) => ({
+                    ...prev,
+                    socialSellerKeywordCommentTemplates: e.target.value
+                      .split(/\r?\n/g)
+                      .map((v) => v.trim())
+                      .filter(Boolean),
+                  }))
+                }
+                className="bg-secondary border-border text-foreground min-h-[130px]"
+                placeholder='Uma variacao por linha. Ex: "Te chamei na DM com contexto."'
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Templates de DM apos keyword</Label>
+              <Textarea
+                value={(config.socialSellerKeywordDmTemplates || []).join("\n")}
+                onChange={(e) =>
+                  setConfig((prev) => ({
+                    ...prev,
+                    socialSellerKeywordDmTemplates: e.target.value
+                      .split(/\r?\n/g)
+                      .map((v) => v.trim())
+                      .filter(Boolean),
+                  }))
+                }
+                className="bg-secondary border-border text-foreground min-h-[130px]"
+                placeholder='Uma variacao por linha. Variaveis: {{lead_name}}, {{keyword}}, {{comment_excerpt}}.'
+                disabled={loading}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Prompt base do Social Seller (fallback)</Label>
             <Textarea
               value={config.socialSellerPrompt}
               onChange={(e) => setConfig((prev) => ({ ...prev, socialSellerPrompt: e.target.value }))}
               className="bg-secondary border-border text-foreground min-h-[110px]"
-              placeholder="Defina como o agente deve atuar no Instagram..."
+              placeholder="Prompt base para Instagram, usado como fallback quando os prompts por canal estiverem vazios..."
               disabled={loading}
             />
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label>Prompt Instagram Direct</Label>
+              <Textarea
+                value={config.instagramDmPrompt}
+                onChange={(e) => setConfig((prev) => ({ ...prev, instagramDmPrompt: e.target.value }))}
+                className="bg-secondary border-border text-foreground min-h-[140px]"
+                placeholder="Prompt exclusivo para mensagens de Direct..."
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Prompt Instagram Comentarios</Label>
+              <Textarea
+                value={config.instagramCommentPrompt}
+                onChange={(e) =>
+                  setConfig((prev) => ({ ...prev, instagramCommentPrompt: e.target.value }))
+                }
+                className="bg-secondary border-border text-foreground min-h-[140px]"
+                placeholder="Prompt exclusivo para comentarios publicos..."
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Prompt Instagram Mencoes</Label>
+              <Textarea
+                value={config.instagramMentionPrompt}
+                onChange={(e) =>
+                  setConfig((prev) => ({ ...prev, instagramMentionPrompt: e.target.value }))
+                }
+                className="bg-secondary border-border text-foreground min-h-[140px]"
+                placeholder="Prompt exclusivo para mencoes..."
+                disabled={loading}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1">
             <p className="text-xs text-gray-500">
-              Dica: conecte o Instagram em Configuracao para receber e responder eventos de Direct e comentarios.
+              O WhatsApp continua usando o prompt principal da unidade. Esta secao afeta somente o Instagram.
+            </p>
+            <p className="text-xs text-gray-500">
+              Ordem de fallback: prompt do canal {"->"} prompt base do Social Seller {"->"} prompt principal da unidade.
             </p>
           </div>
         </CardContent>
@@ -2453,6 +3041,63 @@ export default function AgenteIAPage() {
               placeholder="15,60,360,1440,2880,4320,7200"
               disabled={loading}
             />
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label>Temperatura Follow-up</Label>
+              <Input
+                type="number"
+                min={0}
+                max={2}
+                step={0.05}
+                value={config.followupSamplingTemperature}
+                onChange={(e) =>
+                  setConfig((prev) => ({
+                    ...prev,
+                    followupSamplingTemperature: Number(e.target.value || 0.55),
+                  }))
+                }
+                className="bg-secondary border-border text-foreground"
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Top P</Label>
+              <Input
+                type="number"
+                min={0}
+                max={1}
+                step={0.01}
+                value={config.followupSamplingTopP}
+                onChange={(e) =>
+                  setConfig((prev) => ({
+                    ...prev,
+                    followupSamplingTopP: Number(e.target.value || 0.9),
+                  }))
+                }
+                className="bg-secondary border-border text-foreground"
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Top K</Label>
+              <Input
+                type="number"
+                min={1}
+                max={100}
+                step={1}
+                value={config.followupSamplingTopK}
+                onChange={(e) =>
+                  setConfig((prev) => ({
+                    ...prev,
+                    followupSamplingTopK: Number(e.target.value || 40),
+                  }))
+                }
+                className="bg-secondary border-border text-foreground"
+                disabled={loading}
+              />
+            </div>
           </div>
 
           <div className="grid md:grid-cols-3 gap-4">
