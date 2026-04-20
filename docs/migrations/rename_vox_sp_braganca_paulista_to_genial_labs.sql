@@ -51,10 +51,11 @@ ALTER TABLE IF EXISTS vox_sp_braganca_paulista_users
 ALTER TABLE IF EXISTS vox_sp_braganca_paulista_shared_reports
   RENAME TO genial_labs_shared_reports;
 
--- UNITS REGISTRY (atualiza prefixo e nome da unidade)
+-- UNITS REGISTRY (atualiza prefixo, nome de login e metadata)
 UPDATE units_registry
 SET
   unit_prefix = 'genial_labs',
+  unit_name   = 'genial_labs',
   metadata = jsonb_set(
     COALESCE(metadata, '{}'::jsonb),
     '{unitName}',
