@@ -2150,6 +2150,23 @@ export class NativeAgentOrchestratorService {
     }
 
     const llm: LLMService = LLMFactory.getService(config)
+    const llmSampling = isInstagramChannel
+      ? {
+          temperature: Number.isFinite(Number(config.socialSellerSamplingTemperature))
+            ? Number(config.socialSellerSamplingTemperature)
+            : Number(config.samplingTemperature),
+          topP: Number.isFinite(Number(config.socialSellerSamplingTopP))
+            ? Number(config.socialSellerSamplingTopP)
+            : Number(config.samplingTopP),
+          topK: Number.isFinite(Number(config.socialSellerSamplingTopK))
+            ? Number(config.socialSellerSamplingTopK)
+            : Number(config.samplingTopK),
+        }
+      : {
+          temperature: Number(config.samplingTemperature),
+          topP: Number(config.samplingTopP),
+          topK: Number(config.samplingTopK),
+        }
     const learningPrompt = config.autoLearningEnabled
       ? await this.learning.buildLearningPrompt(tenant).catch(() => "")
       : ""
@@ -2227,6 +2244,7 @@ export class NativeAgentOrchestratorService {
         decision = await llm.decideNextTurnWithTools({
           systemPrompt: basePrompt,
           conversation,
+          sampling: llmSampling,
           functionDeclarations: this.buildFunctionDeclarations(config, { source: input.source }),
           onToolCall: (toolCall) =>
             this.executeToolCall({
@@ -2247,6 +2265,7 @@ export class NativeAgentOrchestratorService {
           const legacyDecision = await llm.decideNextTurn({
             systemPrompt: basePrompt,
             conversation,
+            sampling: llmSampling,
           })
           decision = {
             ...legacyDecision,
@@ -2498,9 +2517,11 @@ export class NativeAgentOrchestratorService {
 
     const blocks = hasSuccessfulSchedulingAction
       ? [responseText]
-      : config.splitLongMessagesEnabled
-        ? splitLongMessageIntoBlocks(responseText, config.messageBlockMaxChars)
-        : [responseText]
+      : isInstagramCommentChannel
+        ? [responseText]
+        : config.splitLongMessagesEnabled
+          ? splitLongMessageIntoBlocks(responseText, config.messageBlockMaxChars)
+          : [responseText]
     const contextualReplyDecision = decideContextualReplyUsage({
       enabled: config.replyEnabled !== false,
       replyToMessageId: input.replyToMessageId,
@@ -5813,4 +5834,3 @@ export class NativeAgentOrchestratorService {
     await Promise.all(tasks)
   }
 }
-

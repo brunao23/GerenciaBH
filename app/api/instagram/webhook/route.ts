@@ -4,8 +4,11 @@ import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { normalizeTenant } from "@/lib/helpers/normalize-tenant"
 import { resolveTenantDataPrefix } from "@/lib/helpers/tenant-resolution"
 import { getMessagingConfigForTenant, type MessagingConfig } from "@/lib/helpers/messaging-config"
+import { getNativeAgentConfigForTenant } from "@/lib/helpers/native-agent-config"
 import { resolveMetaWebhookVerifyToken } from "@/lib/helpers/meta-webhook"
+import { GeminiService } from "@/lib/services/gemini.service"
 import { NativeAgentOrchestratorService } from "@/lib/services/native-agent-orchestrator.service"
+import { TenantMessagingService } from "@/lib/services/tenant-messaging.service"
 import { TenantChatHistoryService, normalizeSessionId } from "@/lib/services/tenant-chat-history.service"
 
 export const runtime = "nodejs"
@@ -21,8 +24,96 @@ type InboundStats = {
   ignored: number
   duplicates: number
   replied: number
+  dmHandoffs: number
   errors: number
 }
+
+type InstagramCommentIntent =
+  | "elogio"
+  | "tecnico"
+  | "vendas"
+  | "duvida"
+  | "reclamacao"
+  | "embate"
+  | "geral"
+
+type InstagramCommentContext = {
+  mediaId: string
+  mediaType: string
+  caption: string
+  description: string
+  permalink: string
+  mediaUrl: string
+  thumbnailUrl: string
+  timestamp: string
+}
+
+type InstagramDirectInboundMedia = {
+  text: string
+  hasMedia: boolean
+  mediaType?: "image" | "video" | "audio" | "document"
+  mediaMimeType?: string
+  mediaUrl?: string
+  mediaCaption?: string
+  mediaFileName?: string
+  mediaId?: string
+  attachmentsCount?: number
+  rawAttachmentType?: string
+  payloadKeys?: string[]
+}
+
+type InstagramLeadProfile = {
+  senderId: string
+  name: string
+  username: string
+  profilePic: string
+  biography: string
+  website: string
+  followersCount: number | null
+  followsCount: number | null
+  mediaCount: number | null
+}
+
+type InstagramLeadPost = {
+  id: string
+  caption: string
+  mediaType: string
+  timestamp: string
+  permalink: string
+  mediaUrl: string
+  thumbnailUrl: string
+}
+
+type InstagramLeadMemorySnapshot = {
+  summary: string
+  profile: InstagramLeadProfile
+  recentPosts: InstagramLeadPost[]
+  createdAt: number
+  expiresAt: number
+}
+
+type InstagramWhatsappBridgeMemory = {
+  phone: string
+  lastContext: string
+  updatedAt: number
+  expiresAt: number
+}
+
+const DEFAULT_SOCIAL_SELLER_WHATSAPP_BRIDGE_TEMPLATE =
+  "Oi {{lead_name}}! Vi seu contato no Instagram e te chamei por aqui para continuarmos com contexto. No Instagram, voce comentou: \"{{last_context}}\". Se preferir, seguimos por WhatsApp a partir deste ponto."
+
+const DEFAULT_SOCIAL_SELLER_KEYWORD_COMMENT_TEMPLATES = [
+  "Perfeito, {{lead_name}}. Te respondi no Direct para te explicar com contexto.",
+  "Boa, {{lead_name}}. Acabei de te chamar na DM para seguirmos por la.",
+  "Obrigado pelo comentario, {{lead_name}}. Te mandei uma mensagem no Direct com os detalhes.",
+]
+
+const DEFAULT_SOCIAL_SELLER_KEYWORD_DM_TEMPLATES = [
+  "Oi {{lead_name}}! Vi seu comentario sobre \"{{keyword}}\" e te chamei aqui para te responder com contexto.",
+  "Oi {{lead_name}}! Recebi seu comentario e seguimos por aqui no Direct. Seu ponto foi: \"{{comment_excerpt}}\".",
+]
+
+const igToWhatsappMemoryCache = new Map<string, InstagramWhatsappBridgeMemory>()
 
 function safeObject(value: any): Record<string, any> {
   if (value && typeof value === "object" && !Array.isArray(value)) return value
@@ -46,19 +137,520 @@ function normalizeSession(senderId: string): string {
   return normalizeSessionId(normalized ? `ig_${normalized}` : "")
 }
 
-function buildDirectMessageText(messagePayload: any): string {
-  const message = safeObject(messagePayload)
-  const text = readString(message.text)
-  if (text) return text
+function normalizeForIntent(value: string): string {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim()
+}
 
-  const attachments = Array.isArray(message.attachments) ? message.attachments : []
-  if (attachments.length > 0) {
-    const first = safeObject(attachments[0])
-    const kind = readString(first.type, first.payload?.type).toLowerCase() || "midia"
-    return `[${kind}]`
+function classifyInstagramCommentIntent(text: string): InstagramCommentIntent {
+  const normalized = normalizeForIntent(text)
+  if (!normalized) return "geral"
+
+  if (
+    /\b(idiota|burro|lixo|ridicul|golpe|mentira|fake|hater|nao presta|horrivel|pessim|vergonha|engana)\b/.test(
+      normalized,
+    )
+  ) {
+    return "embate"
   }
 
+  if (
+    /\b(reclam|insatisfeit|problema|erro|falha|nao funcion|cancel|caro demais|nao gostei|atras)\b/.test(
+      normalized,
+    )
+  ) {
+    return "reclamacao"
+  }
+
+  if (
+    /\b(preco|valor|quanto|plano|mensal|promoc|desconto|matricula|inscric|agenda|agendar|horario|vaga|quero|interesse|fechar)\b/.test(
+      normalized,
+    )
+  ) {
+    return "vendas"
+  }
+
+  if (
+    /\b(metodologia|como funciona|carga horaria|duracao|certificado|aula|modulo|conteudo|nivel|iniciante|avancado|didatica|tecnico)\b/.test(
+      normalized,
+    )
+  ) {
+    return "tecnico"
+  }
+
+  if (
+    /\b(parabens|amei|adorei|excelente|incrivel|sensacional|show|perfeito|maravilh|curti|gostei|top)\b/.test(
+      normalized,
+    )
+  ) {
+    return "elogio"
+  }
+
+  if (/[?]/.test(text) || /\b(como|qual|quando|onde|porque|por que|duvida)\b/.test(normalized)) {
+    return "duvida"
+  }
+
+  return "geral"
+}
+
+function shouldMoveCommentToDirect(intent: InstagramCommentIntent): boolean {
+  return intent !== "embate"
+}
+
+function mapInstagramMediaType(value: string): "image" | "video" | "audio" | "document" | undefined {
+  const mediaType = String(value || "").toLowerCase()
+  if (!mediaType) return undefined
+  if (mediaType.includes("video") || mediaType.includes("reel")) return "video"
+  if (mediaType.includes("audio") || mediaType.includes("voice") || mediaType.includes("ptt")) return "audio"
+  if (mediaType.includes("image") || mediaType.includes("carousel")) return "image"
+  if (mediaType.includes("document")) return "document"
+  return undefined
+}
+
+function readMediaUrlCandidate(payload: Record<string, any>): string {
+  const direct = readString(
+    payload.url,
+    payload.media_url,
+    payload.attachment_url,
+    payload.file_url,
+    payload.src,
+    payload.link,
+    payload.download_url,
+    payload.audio_url,
+    payload.voice_url,
+  )
+  if (direct) return direct
+
+  return readString(
+    payload?.image_data?.url,
+    payload?.video_data?.url,
+    payload?.audio_data?.url,
+    payload?.document?.url,
+    payload?.file?.url,
+    payload?.media?.url,
+    payload?.asset?.url,
+    payload?.data?.url,
+    payload?.payload?.url,
+    Array.isArray(payload?.urls) ? payload.urls[0] : "",
+  )
+}
+
+function readMediaIdCandidate(payload: Record<string, any>): string {
+  return readString(
+    payload.id,
+    payload.media_id,
+    payload.attachment_id,
+    payload.asset_id,
+    payload.file_id,
+    payload?.media?.id,
+    payload?.data?.id,
+  )
+}
+
+function buildInstagramContextSummary(params: {
+  field: string
+  text: string
+  intent: InstagramCommentIntent
+  moveToDirect: boolean
+  context: InstagramCommentContext
+  postMediaInsight?: string
+  forDm?: boolean
+}): string {
+  const lines: string[] = []
+  let objetivo: string
+  if (!params.moveToDirect) {
+    objetivo = "manter publico por embate e conduzir com cuidado; use NO MAXIMO 1 frase curta (ate 180 caracteres)"
+  } else if (params.forDm) {
+    objetivo = "continuar o atendimento em privado retomando o comentario do lead; esta e a mensagem de Direct, inicie naturalmente sem repetir o que disse no comentario"
+  } else {
+    objetivo = "responder brevemente no comentario publico e avisar que vai entrar em contato pelo Direct — use variacoes naturais como 'te mando uma DM!', 'vou te chamar no Direct', 'manda mensagem no Direct pra gente', 'te envio um Direct agora', etc.; NAO diga que ja enviou, pois o envio sera feito logo apos; use NO MAXIMO 1 frase curta (ate 180 caracteres)"
+  }
+  lines.push(
+    `Evento Instagram: ${params.field === "mentions" ? "mencao" : "comentario"} publico.`,
+    `Classificacao do comentario: ${params.intent}.`,
+    `Objetivo do atendimento: ${objetivo}.`,
+    `Comentario do lead: "${params.text.slice(0, 260)}".`,
+  )
+
+  if (params.context.mediaType) {
+    lines.push(`Tipo da midia do post: ${params.context.mediaType}.`)
+  }
+  if (params.context.caption) {
+    lines.push(`Legenda do post: "${params.context.caption.slice(0, 320)}".`)
+  }
+  if (params.context.description) {
+    lines.push(`Descricao do post: "${params.context.description.slice(0, 320)}".`)
+  }
+  if (params.context.permalink) {
+    lines.push(`Link do post: ${params.context.permalink}.`)
+  }
+  const postMediaInsight = String(params.postMediaInsight || "").trim()
+  if (postMediaInsight) {
+    lines.push(`Analise da midia do post: "${postMediaInsight.slice(0, 420)}".`)
+  }
+
+  return lines.join(" ")
+}
+
+function buildDirectTriggerFromComment(params: {
+  intent: InstagramCommentIntent
+  text: string
+  senderName: string
+  contextSummary: string
+}): string {
+  const leadName = String(params.senderName || "").trim() || "lead"
+  return [
+    `gatilho_instagram_comentario_para_direct`,
+    `lead=${leadName}`,
+    `tipo=${params.intent}`,
+    `comentario="${params.text.slice(0, 280)}"`,
+    `contexto="${params.contextSummary.slice(0, 900)}"`,
+    `orientacao=envie DM contextual retomando exatamente do comentario e conduzindo o atendimento em privado`,
+  ].join(" | ")
+}
+
+function buildDirectFallbackMessage(params: {
+  intent: InstagramCommentIntent
+  senderName: string
+  text: string
+}): string {
+  const leadName = String(params.senderName || "").trim()
+  const greeting = leadName ? `Oi, ${leadName}.` : "Oi."
+
+  if (params.intent === "vendas") {
+    return `${greeting} Vi seu comentario e te chamei aqui no Direct para te explicar os detalhes com calma. Me conta o que voce quer priorizar agora.`
+  }
+  if (params.intent === "tecnico") {
+    return `${greeting} Te chamei no Direct para te responder com mais profundidade sobre o que voce comentou. Qual ponto tecnico voce quer ver primeiro.`
+  }
+  if (params.intent === "duvida") {
+    return `${greeting} Te chamei aqui no Direct para te responder de forma objetiva. Pode me mandar sua duvida completa que eu te ajudo.`
+  }
+  if (params.intent === "reclamacao") {
+    return `${greeting} Te chamei no Direct para cuidar disso com prioridade e resolver da melhor forma. Me conta o que aconteceu.`
+  }
+  if (params.intent === "elogio") {
+    return `${greeting} Obrigado pelo comentario. Te chamei no Direct para continuar com voce por aqui.`
+  }
+
+  const snippet = String(params.text || "").trim().slice(0, 120)
+  return snippet
+    ? `${greeting} Te chamei no Direct para continuarmos a partir do seu comentario: "${snippet}".`
+    : `${greeting} Te chamei no Direct para continuarmos por aqui.`
+}
+
+function normalizeBrazilPhone(value: string): string {
+  const digits = String(value || "").replace(/\D/g, "")
+  if (!digits) return ""
+  if (digits.length < 10 || digits.length > 15) return ""
+  if (digits.startsWith("55")) return digits
+  if (digits.length >= 10 && digits.length <= 13) return `55${digits}`
   return ""
+}
+
+function extractBrazilPhonesFromText(text: string): string[] {
+  const source = String(text || "")
+  if (!source.trim()) return []
+
+  const candidates = new Set<string>()
+  const broadMatches = source.match(/(?:\+?55[\s\-()]*)?(?:\d[\s\-()]*){10,13}/g) || []
+  for (const raw of broadMatches) {
+    const normalized = normalizeBrazilPhone(raw)
+    if (normalized) candidates.add(normalized)
+  }
+
+  const compactMatches = source.match(/\d{10,15}/g) || []
+  for (const raw of compactMatches) {
+    const normalized = normalizeBrazilPhone(raw)
+    if (normalized) candidates.add(normalized)
+  }
+
+  return Array.from(candidates)
+}
+
+function isZapiReady(config: MessagingConfig | null): boolean {
+  if (!config || config.provider !== "zapi") return false
+  const hasClientToken = Boolean(String(config.clientToken || "").trim())
+  const hasFullUrl = Boolean(String(config.sendTextUrl || "").trim())
+  const hasParts =
+    Boolean(String(config.apiUrl || "").trim()) &&
+    Boolean(String(config.instanceId || "").trim()) &&
+    Boolean(String(config.token || "").trim())
+  return hasClientToken && (hasFullUrl || hasParts)
+}
+
+function normalizeTextList(value: unknown, fallback: string[]): string[] {
+  if (Array.isArray(value)) {
+    const list = value.map((entry) => String(entry || "").trim()).filter(Boolean)
+    return list.length ? Array.from(new Set(list)).slice(0, 50) : fallback
+  }
+
+  const text = String(value || "").trim()
+  if (!text) return fallback
+  const list = text
+    .split(/[\n,;]+/g)
+    .map((entry) => String(entry || "").trim())
+    .filter(Boolean)
+  return list.length ? Array.from(new Set(list)).slice(0, 50) : fallback
+}
+
+function pickRandomItem<T>(items: T[]): T | undefined {
+  if (!Array.isArray(items) || items.length === 0) return undefined
+  return items[Math.floor(Math.random() * items.length)]
+}
+
+function replaceTemplateVars(
+  template: string,
+  vars: Record<string, string>,
+): string {
+  let rendered = String(template || "")
+  for (const [key, value] of Object.entries(vars)) {
+    rendered = rendered.replaceAll(`{{${key}}}`, String(value || ""))
+  }
+  return rendered.replace(/\s+/g, " ").trim()
+}
+
+function findKeywordMatch(text: string, keywords: string[]): string {
+  const normalizedText = normalizeForIntent(text)
+  if (!normalizedText) return ""
+  for (const keyword of keywords) {
+    const normalizedKeyword = normalizeForIntent(keyword)
+    if (!normalizedKeyword) continue
+    if (normalizedText.includes(normalizedKeyword)) {
+      return keyword
+    }
+  }
+  return ""
+}
+
+async function fetchGraphJson(url: string): Promise<any | null> {
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(3500) })
+    if (!response.ok) return null
+    return await response.json().catch(() => null)
+  } catch {
+    return null
+  }
+}
+
+function buildInstagramGraphUrl(params: {
+  apiVersion: string
+  nodeId: string
+  fields: string
+  accessToken: string
+}): string {
+  const base = `https://graph.instagram.com/${params.apiVersion}/${encodeURIComponent(params.nodeId)}`
+  const query = new URLSearchParams({
+    fields: params.fields,
+    access_token: params.accessToken,
+  })
+  return `${base}?${query.toString()}`
+}
+
+async function fetchInstagramCommentContext(params: {
+  value: any
+  commentId: string
+  accessToken: string
+  apiVersion: string
+}): Promise<InstagramCommentContext> {
+  const media = safeObject(params.value?.media)
+  const fallback: InstagramCommentContext = {
+    mediaId: normalizeDigits(media.id || params.value?.media_id || params.value?.post_id),
+    mediaType: readString(media.media_type, media.media_product_type, params.value?.media_type),
+    caption: readString(media.caption, params.value?.caption),
+    description: readString(params.value?.description, params.value?.message),
+    permalink: readString(media.permalink, params.value?.permalink),
+    mediaUrl: readString(media.media_url),
+    thumbnailUrl: readString(media.thumbnail_url),
+    timestamp: readString(media.timestamp, params.value?.timestamp),
+  }
+
+  if (!params.accessToken) return fallback
+
+  const commentFields =
+    "id,text,timestamp,media{id,caption,media_type,media_product_type,permalink,media_url,thumbnail_url,timestamp}"
+  const commentUrl = buildInstagramGraphUrl({
+    apiVersion: params.apiVersion,
+    nodeId: params.commentId,
+    fields: commentFields,
+    accessToken: params.accessToken,
+  })
+  const commentJson = await fetchGraphJson(commentUrl)
+  const commentMedia = safeObject(commentJson?.media)
+
+  const merged: InstagramCommentContext = {
+    mediaId: normalizeDigits(commentMedia.id || fallback.mediaId),
+    mediaType: readString(commentMedia.media_type, commentMedia.media_product_type, fallback.mediaType),
+    caption: readString(commentMedia.caption, fallback.caption),
+    description: readString(fallback.description),
+    permalink: readString(commentMedia.permalink, fallback.permalink),
+    mediaUrl: readString(commentMedia.media_url, fallback.mediaUrl),
+    thumbnailUrl: readString(commentMedia.thumbnail_url, fallback.thumbnailUrl),
+    timestamp: readString(commentMedia.timestamp, fallback.timestamp),
+  }
+
+  if (!merged.mediaId) return merged
+
+  const mediaUrl = buildInstagramGraphUrl({
+    apiVersion: params.apiVersion,
+    nodeId: merged.mediaId,
+    fields: "id,caption,media_type,media_product_type,permalink,media_url,thumbnail_url,timestamp",
+    accessToken: params.accessToken,
+  })
+  const mediaJson = await fetchGraphJson(mediaUrl)
+  const mediaNode = safeObject(mediaJson)
+
+  return {
+    mediaId: normalizeDigits(mediaNode.id || merged.mediaId),
+    mediaType: readString(mediaNode.media_type, mediaNode.media_product_type, merged.mediaType),
+    caption: readString(mediaNode.caption, merged.caption),
+    description: readString(merged.description),
+    permalink: readString(mediaNode.permalink, merged.permalink),
+    mediaUrl: readString(mediaNode.media_url, merged.mediaUrl),
+    thumbnailUrl: readString(mediaNode.thumbnail_url, merged.thumbnailUrl),
+    timestamp: readString(mediaNode.timestamp, merged.timestamp),
+  }
+}
+
+function extractInstagramDirectInboundMedia(messagePayload: any): InstagramDirectInboundMedia {
+  const message = safeObject(messagePayload)
+  const text = readString(message.text, message.caption)
+  const attachments = Array.isArray(message.attachments) ? message.attachments : []
+  const messageAudio = safeObject(message.audio)
+  const messageVoice = safeObject(message.voice)
+  const messageMedia = safeObject(message.media)
+
+  const candidates = [
+    ...attachments.map((item: any) => {
+      const att = safeObject(item)
+      const payload = { ...safeObject(att.payload) }
+      const attachmentUrl = readString(att.url, att.attachment_url, att.file_url, att.media_url, att.src)
+      if (attachmentUrl && !payload.url) payload.url = attachmentUrl
+      const attachmentId = readString(att.id, att.attachment_id, att.media_id)
+      if (attachmentId && !payload.id) payload.id = attachmentId
+      return {
+        rawAttachmentType: readString(att.type),
+        payload,
+        rawType: readString(att.type, payload.type, payload.mime_type, payload.mimetype, payload.media_type),
+      }
+    }),
+  ]
+
+  if (Object.keys(messageAudio).length > 0) {
+    candidates.push({
+      rawAttachmentType: "audio",
+      payload: messageAudio,
+      rawType: readString(messageAudio.type, messageAudio.mime_type, messageAudio.mimetype, messageAudio.media_type),
+    })
+  }
+
+  if (Object.keys(messageVoice).length > 0) {
+    candidates.push({
+      rawAttachmentType: "voice",
+      payload: messageVoice,
+      rawType: readString(messageVoice.type, messageVoice.mime_type, messageVoice.mimetype, messageVoice.media_type),
+    })
+  }
+
+  if (Object.keys(messageMedia).length > 0) {
+    candidates.push({
+      rawAttachmentType: "media",
+      payload: messageMedia,
+      rawType: readString(messageMedia.type, messageMedia.mime_type, messageMedia.mimetype, messageMedia.media_type),
+    })
+  }
+
+  const selected = candidates.find((candidate) => {
+    const payload = safeObject(candidate.payload)
+    const mediaType = mapInstagramMediaType(candidate.rawType)
+    const hasUrl = Boolean(readMediaUrlCandidate(payload))
+    const hasId = Boolean(readMediaIdCandidate(payload))
+    const hasPayload = Object.keys(payload).length > 0
+    return Boolean(mediaType || hasUrl || hasId) && hasPayload
+  })
+
+  if (!selected) {
+    return { text, hasMedia: false, attachmentsCount: attachments.length }
+  }
+
+  const payload = safeObject(selected.payload)
+  const rawType = readString(
+    selected.rawType,
+    payload.type,
+    payload.mime_type,
+    payload.mimetype,
+    payload.media_type,
+  )
+  const mediaType = mapInstagramMediaType(rawType)
+  const mediaUrl = readMediaUrlCandidate(payload)
+  const mediaCaption = readString(payload.caption, payload.text, payload.description)
+  const mediaFileName = readString(payload.file_name, payload.filename, payload.title, payload.name)
+  const mediaMimeType = readString(payload.mime_type, payload.mimetype, payload.content_type)
+  const mediaId = readMediaIdCandidate(payload)
+
+  return {
+    text,
+    hasMedia: true,
+    mediaType,
+    mediaMimeType: mediaMimeType || undefined,
+    mediaUrl: mediaUrl || undefined,
+    mediaCaption: mediaCaption || undefined,
+    mediaFileName: mediaFileName || undefined,
+    mediaId: mediaId || undefined,
+    attachmentsCount: attachments.length,
+    rawAttachmentType: selected.rawAttachmentType || undefined,
+    payloadKeys: Object.keys(payload || {}).slice(0, 40),
+  }
+}
+
+function buildDirectFallbackText(media?: InstagramDirectInboundMedia): string {
+  if (!media?.hasMedia) return ""
+  const mediaLabel =
+    media.mediaType === "audio"
+      ? "audio"
+      : media.mediaType === "video"
+        ? "video"
+        : media.mediaType === "image"
+          ? "imagem"
+          : media.mediaType === "document"
+            ? "documento"
+            : "midia"
+  return `[${mediaLabel}_recebido_no_direct]`
+}
+
+function buildDirectMediaAnalysisContext(params: {
+  media?: InstagramDirectInboundMedia
+  analysis?: string
+  transcription?: string
+}): string {
+  const media = params.media
+  if (!media?.hasMedia) return ""
+  const mediaLabel =
+    media.mediaType === "audio"
+      ? "audio"
+      : media.mediaType === "video"
+        ? "video"
+        : media.mediaType === "image"
+          ? "imagem"
+          : media.mediaType === "document"
+            ? "documento"
+            : "midia"
+  const analysis = String(params.analysis || "").trim()
+  const transcription = String(params.transcription || "").trim()
+  const caption = String(media.mediaCaption || "").trim()
+  const fileName = String(media.mediaFileName || "").trim()
+  if (media.mediaType === "audio" && transcription) {
+    return `Lead enviou audio no Direct. Transcricao: "${transcription.slice(0, 1800)}"`
+  }
+  const source = transcription || analysis || caption || (fileName ? `arquivo ${fileName}` : "")
+  if (!source) {
+    return `Lead enviou ${mediaLabel} no Direct sem conteudo legivel.`
+  }
+  return `Lead enviou ${mediaLabel} no Direct. Contexto identificado: ${source}`
 }
 
 function isValidSignature(secret: string, body: string, signatureHeader: string | null): boolean {
@@ -92,7 +684,7 @@ async function findTenantByInstagramAccountId(accountId: string): Promise<Tenant
 
   const supabase = createBiaSupabaseServerClient()
 
-  // Tenta pelo metaInstagramAccountId (Business Account ID — usado no entry.id do webhook)
+  // Tenta pelo metaInstagramAccountId (Business Account ID â€” usado no entry.id do webhook)
   const { data: byAccountId } = await supabase
     .from("units_registry")
     .select("unit_prefix, metadata")
@@ -108,7 +700,7 @@ async function findTenantByInstagramAccountId(accountId: string): Promise<Tenant
     }
   }
 
-  // Tenta pelo metaInstagramUserId (user_id da troca de token — pode ser o antigo ID armazenado)
+  // Tenta pelo metaInstagramUserId (user_id da troca de token â€” pode ser o antigo ID armazenado)
   const { data: byUserId } = await supabase
     .from("units_registry")
     .select("unit_prefix, metadata")
@@ -150,8 +742,8 @@ async function findTenantByInstagramAccountId(accountId: string): Promise<Tenant
     }
   }
 
-  // Último recurso: verifica via API qual tenant tem acesso a esse account ID.
-  // entry.id do webhook é o Business Account ID — deve ser consultado via graph.facebook.com.
+  // Ãšltimo recurso: verifica via API qual tenant tem acesso a esse account ID.
+  // entry.id do webhook Ã© o Business Account ID â€” deve ser consultado via graph.facebook.com.
   const apiVersion = String(process.env.META_API_VERSION || "v25.0").trim()
   const fbBase = `https://graph.facebook.com/${apiVersion}`
   for (const unit of allUnits) {
@@ -186,7 +778,7 @@ async function findTenantByInstagramAccountId(accountId: string): Promise<Tenant
         console.log("[IGWebhook] resolved tenant via API token verification:", unit.unit_prefix)
         const tenant = normalizeTenant(String(unit.unit_prefix || ""))
         if (!tenant) continue
-        // Atualiza o ID armazenado para evitar verificações futuras
+        // Atualiza o ID armazenado para evitar verificaÃ§Ãµes futuras
         const supabaseUpdate = createBiaSupabaseServerClient()
         const { data: unitRow } = await supabaseUpdate.from("units_registry").select("id, metadata").eq("unit_prefix", unit.unit_prefix).maybeSingle()
         if (unitRow) {
@@ -198,7 +790,7 @@ async function findTenantByInstagramAccountId(accountId: string): Promise<Tenant
         return { tenant, dataTenant, config: { ...config, metaInstagramAccountId: normalizedAccountId } }
       }
     } catch {
-      // ignora erros individuais de verificação
+      // ignora erros individuais de verificaÃ§Ã£o
     }
   }
 
@@ -213,8 +805,9 @@ async function resolveTenantByQueryParam(tenantParam: string | null): Promise<Te
   return { tenant, dataTenant, config }
 }
 
-// Cache in-memory para info de usuário do Instagram (1h TTL)
+// Cache in-memory para info de usuÃ¡rio do Instagram (1h TTL)
 const igSenderCache = new Map<string, { name: string; username: string; profilePic: string; expiresAt: number }>()
+const igLeadMemoryCache = new Map<string, InstagramLeadMemorySnapshot>()
 
 async function fetchInstagramSenderInfo(
   senderId: string,
@@ -245,6 +838,529 @@ async function fetchInstagramSenderInfo(
   }
 }
 
+function normalizeMediaMimeType(value: string, mediaType?: string): string {
+  const text = String(value || "").toLowerCase().trim()
+  if (mediaType === "audio") {
+    if (text.includes("audio/ogg")) return "audio/ogg"
+    if (text.includes("audio/mpeg") || text.includes("audio/mp3")) return "audio/mpeg"
+    if (text.includes("audio/mp4") || text.includes("video/mp4")) return "audio/mp4"
+    if (text.includes("audio")) return "audio/ogg"
+    if (text.includes("mpeg")) return "audio/mpeg"
+    if (text.includes("mp4")) return "audio/mp4"
+    return "audio/ogg"
+  }
+  if (text) {
+    if (text.includes("image")) return "image/jpeg"
+    if (text.includes("video")) return "video/mp4"
+    if (text.includes("audio")) return "audio/ogg"
+    if (text.includes("pdf")) return "application/pdf"
+    return text
+  }
+  if (mediaType === "audio") return "audio/ogg"
+  if (mediaType === "image") return "image/jpeg"
+  if (mediaType === "video") return "video/mp4"
+  return "application/octet-stream"
+}
+
+async function fetchMediaAsBase64(params: {
+  url: string
+  mediaType?: "image" | "video" | "audio" | "document"
+}): Promise<{ base64: string; mimeType: string }> {
+  const response = await fetch(params.url, {
+    method: "GET",
+    headers: { "User-Agent": "GerenciaBH/instagram-profile-enricher" },
+    signal: AbortSignal.timeout(6000),
+  })
+  if (!response.ok) {
+    throw new Error(`media_download_failed_${response.status}`)
+  }
+  const contentLength = Number(response.headers.get("content-length") || 0)
+  if (Number.isFinite(contentLength) && contentLength > 12 * 1024 * 1024) {
+    throw new Error("media_too_large")
+  }
+  const buffer = Buffer.from(await response.arrayBuffer())
+  if (!buffer.length) throw new Error("media_download_empty")
+  if (buffer.length > 12 * 1024 * 1024) {
+    throw new Error("media_too_large")
+  }
+  return {
+    base64: buffer.toString("base64"),
+    mimeType: normalizeMediaMimeType(String(response.headers.get("content-type") || ""), params.mediaType),
+  }
+}
+
+function parseNumeric(value: any): number | null {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
+function summarizePostsForPrompt(posts: InstagramLeadPost[]): string {
+  if (!posts.length) return "Sem posts recentes disponiveis via API."
+  return posts
+    .slice(0, 5)
+    .map((post, index) => {
+      const caption = String(post.caption || "").replace(/\s+/g, " ").trim().slice(0, 180)
+      const when = String(post.timestamp || "").trim()
+      const mediaType = String(post.mediaType || "").trim() || "desconhecido"
+      return `${index + 1}) tipo=${mediaType}; data=${when || "nao informada"}; legenda="${caption || "sem legenda"}"`
+    })
+    .join(" | ")
+}
+
+async function analyzeInstagramMediaWithGemini(params: {
+  tenant: string
+  mediaUrl?: string
+  mediaType?: "image" | "video" | "audio" | "document"
+  prompt: string
+}): Promise<string> {
+  const mediaUrl = String(params.mediaUrl || "").trim()
+  if (!mediaUrl) return ""
+
+  const config = await getNativeAgentConfigForTenant(params.tenant).catch(() => null)
+  const apiKey = String(config?.geminiApiKey || "").trim()
+  if (!apiKey) return ""
+  const model = String(config?.geminiModel || "gemini-2.5-flash").trim() || "gemini-2.5-flash"
+
+  try {
+    const downloaded = await fetchMediaAsBase64({ url: mediaUrl, mediaType: params.mediaType })
+    const gemini = new GeminiService(apiKey, model)
+    const normalizedMediaType: "image" | "video" | "document" =
+      params.mediaType === "video" ? "video" : params.mediaType === "image" ? "image" : "document"
+    const analysis = await gemini.analyzeMedia({
+      mediaBase64: downloaded.base64,
+      mimeType: downloaded.mimeType,
+      mediaType: normalizedMediaType,
+      prompt: params.prompt,
+    })
+    return String(analysis || "").trim()
+  } catch {
+    return ""
+  }
+}
+
+async function transcribeInstagramAudioWithGemini(params: {
+  tenant: string
+  mediaUrl?: string
+  mimeType?: string
+  prompt?: string
+}): Promise<string> {
+  const mediaUrl = String(params.mediaUrl || "").trim()
+  if (!mediaUrl) return ""
+
+  const config = await getNativeAgentConfigForTenant(params.tenant).catch(() => null)
+  const apiKey = String(config?.geminiApiKey || "").trim()
+  if (!apiKey) return ""
+  const model = String(config?.geminiModel || "gemini-2.5-flash").trim() || "gemini-2.5-flash"
+
+  const downloaded = await fetchMediaAsBase64({ url: mediaUrl, mediaType: "audio" })
+  const gemini = new GeminiService(apiKey, model)
+  const prompt =
+    params.prompt ||
+    "Transcreva fielmente este audio em portugues do Brasil. Retorne somente a transcricao em texto, sem comentarios adicionais."
+
+  const mimeCandidates = Array.from(
+    new Set(
+      [
+        normalizeMediaMimeType(String(params.mimeType || ""), "audio"),
+        normalizeMediaMimeType(String(downloaded.mimeType || ""), "audio"),
+        "audio/mp4",
+        "audio/mpeg",
+        "audio/ogg",
+      ].filter(Boolean),
+    ),
+  )
+
+  let lastError = ""
+  for (const mime of mimeCandidates) {
+    try {
+      const transcription = await gemini.transcribeAudio({
+        audioBase64: downloaded.base64,
+        mimeType: mime,
+        prompt,
+      })
+      const text = String(transcription || "").trim()
+      if (text) return text
+    } catch (error: any) {
+      lastError = String(error?.message || "audio_transcription_failed")
+    }
+  }
+
+  if (lastError) {
+    throw new Error(lastError)
+  }
+  throw new Error("audio_transcription_empty")
+}
+
+async function analyzeCommentPostMediaWithGemini(params: {
+  tenant: string
+  context: InstagramCommentContext
+}): Promise<string> {
+  const mediaType = mapInstagramMediaType(params.context.mediaType)
+  if (!mediaType) return ""
+  const mediaUrl = String(params.context.mediaUrl || "").trim()
+  const thumbnailUrl = String(params.context.thumbnailUrl || "").trim()
+  const analysisUrl = mediaType === "video" && thumbnailUrl ? thumbnailUrl : mediaUrl || thumbnailUrl
+  const analysisType = mediaType === "video" && thumbnailUrl ? "image" : mediaType
+  if (!analysisUrl) return ""
+
+  return analyzeInstagramMediaWithGemini({
+    tenant: params.tenant,
+    mediaUrl: analysisUrl,
+    mediaType: analysisType,
+    prompt:
+      "Analise esta midia de post do Instagram e descreva objetivamente o tema visual principal para orientar a resposta comercial contextual. Sem inventar dados nao observaveis.",
+  })
+}
+
+async function fetchInstagramSenderProfileDetails(params: {
+  senderId: string
+  accessToken: string
+  apiVersion: string
+  senderName?: string
+}): Promise<InstagramLeadProfile> {
+  const fallbackSender = await fetchInstagramSenderInfo(
+    params.senderId,
+    params.accessToken,
+    params.apiVersion,
+  ).catch(() => ({ name: "", username: "", profilePic: "" }))
+
+  const fallback: InstagramLeadProfile = {
+    senderId: params.senderId,
+    name: readString(fallbackSender.name, params.senderName),
+    username: fallbackSender.username || "",
+    profilePic: fallbackSender.profilePic || "",
+    biography: "",
+    website: "",
+    followersCount: null,
+    followsCount: null,
+    mediaCount: null,
+  }
+
+  if (!params.accessToken) return fallback
+
+  const fields =
+    "id,name,username,profile_pic,biography,website,followers_count,follows_count,media_count"
+  const url = `https://graph.instagram.com/${params.apiVersion}/${params.senderId}?fields=${encodeURIComponent(fields)}&access_token=${encodeURIComponent(params.accessToken)}`
+  const json = await fetchGraphJson(url)
+  if (!json) return fallback
+
+  return {
+    senderId: normalizeDigits(json.id || params.senderId),
+    name: readString(json.name, fallback.name),
+    username: readString(json.username, fallback.username),
+    profilePic: readString(json.profile_pic, fallback.profilePic),
+    biography: readString(json.biography),
+    website: readString(json.website),
+    followersCount: parseNumeric(json.followers_count),
+    followsCount: parseNumeric(json.follows_count),
+    mediaCount: parseNumeric(json.media_count),
+  }
+}
+
+async function fetchInstagramRecentPosts(params: {
+  senderId: string
+  accessToken: string
+  apiVersion: string
+}): Promise<InstagramLeadPost[]> {
+  if (!params.senderId || !params.accessToken) return []
+  const fields =
+    "id,caption,media_type,media_product_type,timestamp,permalink,media_url,thumbnail_url"
+  const url = `https://graph.instagram.com/${params.apiVersion}/${params.senderId}/media?fields=${encodeURIComponent(fields)}&limit=5&access_token=${encodeURIComponent(params.accessToken)}`
+  const data = await fetchGraphJson(url)
+  const rows = Array.isArray(data?.data) ? data.data : []
+  return rows
+    .map((row: any) => ({
+      id: normalizeDigits(row?.id),
+      caption: readString(row?.caption),
+      mediaType: readString(row?.media_type, row?.media_product_type),
+      timestamp: readString(row?.timestamp),
+      permalink: readString(row?.permalink),
+      mediaUrl: readString(row?.media_url),
+      thumbnailUrl: readString(row?.thumbnail_url),
+    }))
+    .filter((post: InstagramLeadPost) => Boolean(post.id || post.caption || post.permalink))
+}
+
+function buildLeadProfileMemorySummary(params: {
+  profile: InstagramLeadProfile
+  posts: InstagramLeadPost[]
+  profilePicInsight: string
+  postsInsight: string
+}): string {
+  const profile = params.profile
+  const parts: string[] = []
+  const username = profile.username ? `@${profile.username}` : ""
+  parts.push(`Perfil do lead no Instagram: ${username || "username nao informado"}.`)
+  if (profile.name) parts.push(`Nome exibido: ${profile.name}.`)
+  if (profile.biography) parts.push(`Bio: "${profile.biography.slice(0, 420)}".`)
+  if (profile.website) parts.push(`Website na bio: ${profile.website}.`)
+  if (profile.followersCount !== null) parts.push(`Seguidores: ${profile.followersCount}.`)
+  if (profile.followsCount !== null) parts.push(`Seguindo: ${profile.followsCount}.`)
+  if (profile.mediaCount !== null) parts.push(`Total de posts: ${profile.mediaCount}.`)
+  if (params.profilePicInsight) parts.push(`Leitura da foto de perfil: ${params.profilePicInsight.slice(0, 360)}.`)
+  if (params.posts.length) parts.push(`Ultimos posts (ate 5): ${summarizePostsForPrompt(params.posts)}.`)
+  if (params.postsInsight) parts.push(`Leitura dos posts recentes: ${params.postsInsight.slice(0, 500)}.`)
+  parts.push("Use isso apenas como contexto interno para personalizar a conversa sem parecer invasivo.")
+  return parts.join(" ")
+}
+
+async function getLeadProfileMemory(params: {
+  tenant: string
+  senderId: string
+  senderName?: string
+  accessToken: string
+  apiVersion: string
+  sessionId: string
+  chat: TenantChatHistoryService
+}): Promise<string> {
+  const cacheKey = `${params.tenant}:${params.senderId}`
+  const cached = igLeadMemoryCache.get(cacheKey)
+  if (cached && cached.expiresAt > Date.now()) return cached.summary
+
+  const profile = await fetchInstagramSenderProfileDetails({
+    senderId: params.senderId,
+    accessToken: params.accessToken,
+    apiVersion: params.apiVersion,
+    senderName: params.senderName,
+  })
+  const posts = await fetchInstagramRecentPosts({
+    senderId: params.senderId,
+    accessToken: params.accessToken,
+    apiVersion: params.apiVersion,
+  })
+
+  const profilePicInsight = await analyzeInstagramMediaWithGemini({
+    tenant: params.tenant,
+    mediaUrl: profile.profilePic,
+    mediaType: "image",
+    prompt:
+      "Analise esta foto de perfil do Instagram e descreva de forma objetiva sinais de contexto pessoal/profissional que ajudem no atendimento comercial humanizado. Sem julgamentos e sem suposicoes sensiveis.",
+  })
+
+  const firstPostWithMedia = posts.find((post) => Boolean(post.mediaUrl || post.thumbnailUrl))
+  const postsInsight = firstPostWithMedia
+    ? await analyzeInstagramMediaWithGemini({
+        tenant: params.tenant,
+        mediaUrl: firstPostWithMedia.mediaUrl || firstPostWithMedia.thumbnailUrl,
+        mediaType: mapInstagramMediaType(firstPostWithMedia.mediaType) || "image",
+        prompt:
+          "Analise este post recente do Instagram e descreva o tema principal para ajudar a personalizar o atendimento comercial.",
+      })
+    : ""
+
+  const summary = buildLeadProfileMemorySummary({
+    profile,
+    posts,
+    profilePicInsight,
+    postsInsight,
+  })
+
+  igLeadMemoryCache.set(cacheKey, {
+    summary,
+    profile,
+    recentPosts: posts,
+    createdAt: Date.now(),
+    expiresAt: Date.now() + 1000 * 60 * 60 * 6,
+  })
+
+  await params.chat
+    .persistMessage({
+      sessionId: params.sessionId,
+      role: "system",
+      type: "status",
+      content: "instagram_profile_memory_updated",
+      source: "instagram-profile-memory",
+      additional: {
+        channel: "instagram",
+        sender_type: "system",
+        instagram_sender_id: params.senderId,
+        instagram_username: profile.username || null,
+        instagram_profile_context: summary.slice(0, 2000),
+      },
+    })
+    .catch(() => {})
+
+  return summary
+}
+
+async function runInstagramKeywordAutomation(params: {
+  resolution: TenantResolution
+  nativeConfig: any
+  field: string
+  senderId: string
+  senderName?: string
+  sessionId: string
+  commentId: string
+  postMediaId?: string
+  commentText: string
+  contextSummary: string
+}): Promise<{ handled: boolean; commentSent: boolean; dmSent: boolean; matchedKeyword: string }> {
+  const enabled = params.nativeConfig?.socialSellerKeywordAgentEnabled === true
+  if (!enabled) return { handled: false, commentSent: false, dmSent: false, matchedKeyword: "" }
+
+  const keywordScope = String(params.nativeConfig?.socialSellerKeywordScope || "all_posts").trim().toLowerCase()
+  const configuredPostIds = normalizeTextList(params.nativeConfig?.socialSellerKeywordPostIds, [])
+    .map((value) => String(value || "").replace(/\D/g, ""))
+    .filter(Boolean)
+  if (keywordScope === "specific_posts") {
+    const mediaId = String(params.postMediaId || "").replace(/\D/g, "")
+    if (!mediaId || !configuredPostIds.includes(mediaId)) {
+      return { handled: false, commentSent: false, dmSent: false, matchedKeyword: "" }
+    }
+  }
+
+  const keywords = normalizeTextList(params.nativeConfig?.socialSellerKeywordList, [])
+  const matchedKeyword = findKeywordMatch(params.commentText, keywords)
+  if (!matchedKeyword) {
+    return { handled: false, commentSent: false, dmSent: false, matchedKeyword: "" }
+  }
+
+  const leadName = String(params.senderName || "").trim() || "voce"
+  const vars = {
+    lead_name: leadName,
+    keyword: matchedKeyword,
+    comment_excerpt: String(params.commentText || "").trim().slice(0, 160),
+    last_context: String(params.contextSummary || "").trim().slice(0, 200),
+  }
+
+  const commentTemplates = normalizeTextList(
+    params.nativeConfig?.socialSellerKeywordCommentTemplates,
+    DEFAULT_SOCIAL_SELLER_KEYWORD_COMMENT_TEMPLATES,
+  )
+  const dmTemplates = normalizeTextList(
+    params.nativeConfig?.socialSellerKeywordDmTemplates,
+    DEFAULT_SOCIAL_SELLER_KEYWORD_DM_TEMPLATES,
+  )
+
+  const selectedCommentTemplate =
+    pickRandomItem(commentTemplates) || DEFAULT_SOCIAL_SELLER_KEYWORD_COMMENT_TEMPLATES[0]
+  const selectedDmTemplate = pickRandomItem(dmTemplates) || DEFAULT_SOCIAL_SELLER_KEYWORD_DM_TEMPLATES[0]
+
+  const publicReply = replaceTemplateVars(selectedCommentTemplate, vars)
+  const dmReply = replaceTemplateVars(selectedDmTemplate, vars)
+
+  const messaging = new TenantMessagingService()
+  const commentSend = await messaging.sendText({
+    tenant: params.resolution.dataTenant,
+    phone: `ig-comment:${params.commentId}:${params.senderId}`,
+    message: publicReply,
+    sessionId: params.sessionId,
+    source: "instagram-keyword-comment",
+  })
+
+  const dmSend = await messaging.sendText({
+    tenant: params.resolution.dataTenant,
+    phone: `ig:${params.senderId}`,
+    message: dmReply,
+    sessionId: params.sessionId,
+    source: "instagram-keyword-dm",
+  })
+
+  return {
+    handled: true,
+    commentSent: commentSend.success === true,
+    dmSent: dmSend.success === true,
+    matchedKeyword,
+  }
+}
+
+async function runInstagramWhatsappBridge(params: {
+  resolution: TenantResolution
+  nativeConfig: any
+  senderId: string
+  senderName?: string
+  sourceSessionId: string
+  contextText: string
+  matchedKeyword?: string
+}): Promise<{ bridged: boolean; phone?: string; reason?: string }> {
+  if (params.nativeConfig?.socialSellerWhatsappBridgeEnabled !== true) {
+    return { bridged: false, reason: "bridge_disabled" }
+  }
+
+  if (!isZapiReady(params.resolution.config)) {
+    return { bridged: false, reason: "zapi_not_configured" }
+  }
+
+  const cacheKey = `${params.resolution.dataTenant}:${params.senderId}`
+  const now = Date.now()
+  const cached = igToWhatsappMemoryCache.get(cacheKey)
+  const cacheValid = cached && cached.expiresAt > now
+
+  const extractedPhones = extractBrazilPhonesFromText(params.contextText)
+  const targetPhone = extractedPhones[0] || (cacheValid ? cached?.phone : "") || ""
+  if (!targetPhone) {
+    return { bridged: false, reason: "phone_not_found" }
+  }
+
+  const lastContext = String(params.contextText || "").trim().slice(0, 260) || (cacheValid ? cached?.lastContext || "" : "")
+  const template = String(
+    params.nativeConfig?.socialSellerWhatsappBridgeTemplate || DEFAULT_SOCIAL_SELLER_WHATSAPP_BRIDGE_TEMPLATE,
+  )
+  const message = replaceTemplateVars(template, {
+    lead_name: String(params.senderName || "").trim() || "voce",
+    last_context: lastContext || "conversa no Instagram",
+    keyword: String(params.matchedKeyword || "").trim(),
+  })
+
+  if (!message) {
+    return { bridged: false, reason: "empty_bridge_message" }
+  }
+
+  const targetSessionId = normalizeSessionId(targetPhone)
+  const chat = new TenantChatHistoryService(params.resolution.dataTenant)
+  const alreadySent = await chat.hasRecentEquivalentMessage({
+    sessionId: targetSessionId,
+    content: message,
+    role: "assistant",
+    fromMe: true,
+    withinSeconds: 60 * 60 * 6,
+  })
+  if (alreadySent) {
+    return { bridged: false, reason: "duplicate_recent_bridge", phone: targetPhone }
+  }
+
+  const messaging = new TenantMessagingService()
+  const sent = await messaging.sendText({
+    tenant: params.resolution.dataTenant,
+    phone: targetPhone,
+    message,
+    sessionId: targetSessionId,
+    source: "instagram-whatsapp-bridge",
+  })
+
+  if (!sent.success) {
+    return { bridged: false, reason: sent.error || "bridge_send_failed", phone: targetPhone }
+  }
+
+  if (params.nativeConfig?.socialSellerSharedMemoryEnabled !== false) {
+    igToWhatsappMemoryCache.set(cacheKey, {
+      phone: targetPhone,
+      lastContext,
+      updatedAt: now,
+      expiresAt: now + 1000 * 60 * 60 * 24 * 7,
+    })
+
+    await chat
+      .persistMessage({
+        sessionId: params.sourceSessionId,
+        role: "system",
+        type: "status",
+        content: "instagram_whatsapp_bridge_sent",
+        source: "instagram-webhook",
+        additional: {
+          channel: "instagram",
+          sender_type: "system",
+          instagram_sender_id: params.senderId,
+          whatsapp_phone: targetPhone,
+          bridge_context: lastContext.slice(0, 500),
+        },
+      })
+      .catch(() => {})
+  }
+
+  return { bridged: true, phone: targetPhone }
+}
+
 async function persistInboundMessage(params: {
   tenant: string
   sessionId: string
@@ -257,6 +1373,24 @@ async function persistInboundMessage(params: {
   accountId?: string
   eventType: "direct_message" | "comment" | "mention"
   commentId?: string
+  commentIntent?: InstagramCommentIntent
+  postContextSummary?: string
+  mediaPayload?: {
+    hasMedia?: boolean
+    mediaType?: string
+    mediaMimeType?: string
+    mediaUrl?: string
+    mediaCaption?: string
+    mediaFileName?: string
+    mediaId?: string
+    rawAttachmentType?: string
+    attachmentsCount?: number
+    payloadKeys?: string[]
+    audioTranscription?: string
+    mediaAnalysis?: string
+    mediaAnalysisError?: string
+  }
+  profileMemorySummary?: string
   raw: any
 }): Promise<"persisted" | "duplicate"> {
   const chat = new TenantChatHistoryService(params.tenant)
@@ -286,6 +1420,23 @@ async function persistInboundMessage(params: {
       profile_pic_url: params.profilePicUrl || null,
       instagram_account_id: params.accountId || null,
       instagram_comment_id: params.commentId || null,
+      instagram_comment_intent: params.commentIntent || null,
+      instagram_post_context: params.postContextSummary || null,
+      instagram_has_media: params.mediaPayload?.hasMedia === true,
+      instagram_media_type: params.mediaPayload?.mediaType || null,
+      instagram_media_mime_type: params.mediaPayload?.mediaMimeType || null,
+      instagram_media_url: params.mediaPayload?.mediaUrl || null,
+      instagram_media_caption: params.mediaPayload?.mediaCaption || null,
+      instagram_media_file_name: params.mediaPayload?.mediaFileName || null,
+      instagram_media_id: params.mediaPayload?.mediaId || null,
+      instagram_media_raw_attachment_type: params.mediaPayload?.rawAttachmentType || null,
+      instagram_media_attachments_count: params.mediaPayload?.attachmentsCount ?? null,
+      instagram_media_payload_keys: params.mediaPayload?.payloadKeys || null,
+      instagram_audio_transcription: params.mediaPayload?.audioTranscription || null,
+      instagram_media_analysis: params.mediaPayload?.mediaAnalysis || null,
+      instagram_media_analysis_error: params.mediaPayload?.mediaAnalysisError || null,
+      instagram_profile_context_applied: Boolean(String(params.profileMemorySummary || "").trim()),
+      instagram_profile_context_length: String(params.profileMemorySummary || "").trim().length || 0,
     },
   })
 
@@ -297,8 +1448,14 @@ async function processDirectEvent(params: {
   entryId: string
   messagingEvent: any
   stats: InboundStats
+  debug?: Record<string, any>
 }) {
   const event = safeObject(params.messagingEvent)
+  const hasMessageObject = Boolean(event.message && typeof event.message === "object" && !Array.isArray(event.message))
+  if (!hasMessageObject) {
+    params.stats.ignored += 1
+    return
+  }
   const message = safeObject(event.message)
   const sender = safeObject(event.sender)
   const recipient = safeObject(event.recipient)
@@ -315,21 +1472,33 @@ async function processDirectEvent(params: {
     return
   }
 
-  // Descarta quando remetente É nossa própria conta (echo sem is_echo)
+  // Descarta quando remetente Ã‰ nossa prÃ³pria conta (echo sem is_echo)
   if (params.entryId && senderId === params.entryId) {
     params.stats.ignored += 1
     return
   }
 
-  // Descarta quando o destinatário NÃO é nossa conta — mensagem foi enviada POR nós, não para nós
+  // Descarta quando o destinatÃ¡rio NÃƒO Ã© nossa conta â€” mensagem foi enviada POR nÃ³s, nÃ£o para nÃ³s
   const recipientId = normalizeDigits(recipient.id)
   if (params.entryId && recipientId && recipientId !== params.entryId) {
     params.stats.ignored += 1
     return
   }
 
-  const content = buildDirectMessageText(message)
-  if (!content) {
+  // Exige entryId valido. Se recipient vier, ele precisa apontar para nossa conta.
+  // Quando recipient nao vier no payload, seguimos apenas se o sender nao for nossa conta.
+  if (!params.entryId) {
+    params.stats.ignored += 1
+    return
+  }
+  if (recipientId && recipientId !== params.entryId) {
+    params.stats.ignored += 1
+    return
+  }
+
+  const directInbound = extractInstagramDirectInboundMedia(message)
+  let content = String(directInbound.text || "").trim()
+  if (!content && !directInbound.hasMedia) {
     params.stats.ignored += 1
     return
   }
@@ -345,16 +1514,86 @@ async function processDirectEvent(params: {
   const messageId = readString(message.mid, event.mid)
   let resolvedName = readString(sender.name, sender.username)
   let resolvedProfilePic = ""
+  const accessToken = String(params.resolution.config?.metaAccessToken || "").trim()
+  const apiVersion = String(params.resolution.config?.metaApiVersion || process.env.META_API_VERSION || "v25.0").trim()
+  const nativeConfig = await getNativeAgentConfigForTenant(params.resolution.dataTenant).catch(() => null)
+  const hasGeminiApiKey = Boolean(String(nativeConfig?.geminiApiKey || "").trim())
+  const chat = new TenantChatHistoryService(params.resolution.dataTenant)
 
-  // Instagram webhooks normalmente não incluem sender.name — busca via API
+  // Instagram webhooks normalmente nao incluem sender.name - busca via API
   if (!resolvedName) {
-    const accessToken = String(params.resolution.config?.metaAccessToken || "").trim()
-    const apiVersion = String(process.env.META_API_VERSION || "v25.0").trim()
     if (accessToken) {
       const userInfo = await fetchInstagramSenderInfo(senderId, accessToken, apiVersion)
       resolvedName = readString(userInfo.name, userInfo.username)
       resolvedProfilePic = userInfo.profilePic
     }
+  }
+
+  const leadProfileMemory = accessToken
+    ? await getLeadProfileMemory({
+        tenant: params.resolution.dataTenant,
+        senderId,
+        senderName: resolvedName || undefined,
+        accessToken,
+        apiVersion,
+        sessionId,
+        chat,
+      }).catch(() => "")
+    : ""
+
+  let mediaAnalysis = ""
+  let mediaAnalysisError = ""
+  let audioTranscription = ""
+
+  if (directInbound.hasMedia && !accessToken) {
+    mediaAnalysisError = "meta_access_token_not_configured"
+  }
+  if (directInbound.hasMedia && !directInbound.mediaUrl) {
+    mediaAnalysisError = mediaAnalysisError || "instagram_media_url_missing_in_payload"
+  }
+  if (directInbound.hasMedia && !hasGeminiApiKey) {
+    mediaAnalysisError = mediaAnalysisError || "gemini_api_key_not_configured_for_tenant"
+  }
+
+  if (directInbound.hasMedia && accessToken && hasGeminiApiKey && directInbound.mediaUrl) {
+    try {
+      if (directInbound.mediaType === "audio") {
+        audioTranscription = await transcribeInstagramAudioWithGemini({
+          tenant: params.resolution.dataTenant,
+          mediaUrl: directInbound.mediaUrl,
+          mimeType: directInbound.mediaMimeType,
+        })
+        if (!audioTranscription) {
+          mediaAnalysisError = "audio_transcription_unavailable"
+        }
+      } else {
+        mediaAnalysis = await analyzeInstagramMediaWithGemini({
+          tenant: params.resolution.dataTenant,
+          mediaUrl: directInbound.mediaUrl,
+          mediaType: directInbound.mediaType,
+          prompt:
+            "Analise esta midia recebida no Direct do Instagram e gere um resumo curto em portugues do Brasil para orientar resposta comercial contextual. Use somente o que for observavel.",
+        })
+        if (!mediaAnalysis) {
+          mediaAnalysisError = "instagram_media_analysis_unavailable"
+        }
+      }
+    } catch (error: any) {
+      mediaAnalysisError = String(error?.message || "instagram_media_analysis_failed")
+    }
+  }
+
+  const mediaContext = buildDirectMediaAnalysisContext({
+    media: directInbound,
+    analysis: mediaAnalysis,
+    transcription: audioTranscription,
+  })
+
+  if (!content) {
+    content = buildDirectFallbackText(directInbound)
+  }
+  if (mediaContext && !content.includes(mediaContext)) {
+    content = content ? `${content}\n${mediaContext}` : mediaContext
   }
 
   const persisted = await persistInboundMessage({
@@ -368,6 +1607,22 @@ async function processDirectEvent(params: {
     profilePicUrl: resolvedProfilePic || undefined,
     accountId: params.entryId,
     eventType: "direct_message",
+    mediaPayload: {
+      hasMedia: directInbound.hasMedia,
+      mediaType: directInbound.mediaType,
+      mediaMimeType: directInbound.mediaMimeType,
+      mediaUrl: directInbound.mediaUrl,
+      mediaCaption: directInbound.mediaCaption,
+      mediaFileName: directInbound.mediaFileName,
+      mediaId: directInbound.mediaId,
+      rawAttachmentType: directInbound.rawAttachmentType,
+      attachmentsCount: directInbound.attachmentsCount,
+      payloadKeys: directInbound.payloadKeys,
+      audioTranscription: audioTranscription || undefined,
+      mediaAnalysis: mediaAnalysis || undefined,
+      mediaAnalysisError: mediaAnalysisError || undefined,
+    },
+    profileMemorySummary: leadProfileMemory || undefined,
     raw: event,
   })
   if (persisted === "duplicate") {
@@ -376,6 +1631,13 @@ async function processDirectEvent(params: {
   }
 
   params.stats.processed += 1
+
+  const socialSellerDmEnabled =
+    nativeConfig?.socialSellerAgentEnabled === true &&
+    nativeConfig?.socialSellerInstagramDmEnabled !== false
+  if (!socialSellerDmEnabled) {
+    return
+  }
 
   const orchestrator = new NativeAgentOrchestratorService()
   const result = await orchestrator.handleInboundMessage({
@@ -387,13 +1649,60 @@ async function processDirectEvent(params: {
     source: "instagram",
     contactName: resolvedName || undefined,
     senderName: resolvedName || undefined,
+    contextHint: leadProfileMemory || undefined,
+    hasMedia: directInbound.hasMedia,
+    mediaType: directInbound.mediaType,
+    mediaMimeType: directInbound.mediaMimeType,
+    mediaUrl: directInbound.mediaUrl,
+    mediaCaption: directInbound.mediaCaption,
+    mediaFileName: directInbound.mediaFileName,
+    mediaAnalysis: mediaContext || undefined,
+    mediaAnalysisError: mediaAnalysisError || undefined,
     messageAlreadyPersisted: true,
     raw: event,
   })
 
+  if (params.debug) {
+    const directEvents = Array.isArray(params.debug.directEvents) ? params.debug.directEvents : []
+    if (directEvents.length < 30) {
+      directEvents.push({
+        sessionId,
+        senderId,
+        senderName: resolvedName || null,
+        messageId: messageId || null,
+        hasMedia: directInbound.hasMedia,
+        mediaType: directInbound.mediaType || null,
+        mediaMimeType: directInbound.mediaMimeType || null,
+        mediaUrlPresent: Boolean(directInbound.mediaUrl),
+        mediaFileName: directInbound.mediaFileName || null,
+        mediaId: directInbound.mediaId || null,
+        rawAttachmentType: directInbound.rawAttachmentType || null,
+        attachmentsCount: directInbound.attachmentsCount ?? null,
+        payloadKeys: directInbound.payloadKeys || null,
+        hasMetaAccessToken: Boolean(accessToken),
+        hasGeminiApiKey,
+        profileContextChars: leadProfileMemory.length,
+        audioTranscriptionChars: audioTranscription.length,
+        mediaAnalysisChars: mediaAnalysis.length,
+        mediaAnalysisError: mediaAnalysisError || null,
+        orchestratorReplied: Boolean(result?.replied),
+      })
+      params.debug.directEvents = directEvents
+    }
+  }
+
   if (result?.replied) {
     params.stats.replied += 1
   }
+
+  await runInstagramWhatsappBridge({
+    resolution: params.resolution,
+    nativeConfig,
+    senderId,
+    senderName: resolvedName || undefined,
+    sourceSessionId: sessionId,
+    contextText: content,
+  }).catch(() => {})
 }
 
 async function processCommentOrMentionEvent(params: {
@@ -402,12 +1711,13 @@ async function processCommentOrMentionEvent(params: {
   field: string
   changeValue: any
   stats: InboundStats
+  debug?: Record<string, any>
 }) {
   const value = safeObject(params.changeValue)
   const from = safeObject(value.from)
   const senderId = normalizeDigits(from.id)
 
-  // Descarta comentários postados pela própria conta (echo de reply do agente)
+  // Descarta comentÃ¡rios postados pela prÃ³pria conta (echo de reply do agente)
   if (params.entryId && senderId === params.entryId) {
     params.stats.ignored += 1
     return
@@ -431,6 +1741,60 @@ async function processCommentOrMentionEvent(params: {
   const createdAt = new Date().toISOString()
   const inboundMessageId = `${params.field}:${commentId}`
   const eventType = params.field === "mentions" ? "mention" : "comment"
+  const commentIntent = classifyInstagramCommentIntent(text)
+  const moveToDirect = shouldMoveCommentToDirect(commentIntent)
+  const nativeConfig = await getNativeAgentConfigForTenant(params.resolution.dataTenant).catch(() => null)
+  const socialSellerEnabled = nativeConfig?.socialSellerAgentEnabled === true
+  const socialSellerChannelEnabled = params.field === "mentions"
+    ? nativeConfig?.socialSellerInstagramMentionsEnabled !== false
+    : nativeConfig?.socialSellerInstagramCommentsEnabled !== false
+  const accessToken = String(params.resolution.config?.metaAccessToken || "").trim()
+  const apiVersion = String(params.resolution.config?.metaApiVersion || process.env.META_API_VERSION || "v25.0").trim()
+  const chat = new TenantChatHistoryService(params.resolution.dataTenant)
+  const leadProfileMemory = accessToken
+    ? await getLeadProfileMemory({
+        tenant: params.resolution.dataTenant,
+        senderId,
+        senderName: senderName || undefined,
+        accessToken,
+        apiVersion,
+        sessionId,
+        chat,
+      }).catch(() => "")
+    : ""
+  const postContext = await fetchInstagramCommentContext({
+    value,
+    commentId,
+    accessToken,
+    apiVersion,
+  })
+  const postMediaInsight = accessToken
+    ? await analyzeCommentPostMediaWithGemini({
+        tenant: params.resolution.dataTenant,
+        context: postContext,
+      }).catch(() => "")
+    : ""
+  const contextSummary = buildInstagramContextSummary({
+    field: params.field,
+    text,
+    intent: commentIntent,
+    moveToDirect,
+    context: postContext,
+    postMediaInsight,
+  })
+  const dmContextSummary = moveToDirect
+    ? buildInstagramContextSummary({
+        field: params.field,
+        text,
+        intent: commentIntent,
+        moveToDirect: true,
+        context: postContext,
+        postMediaInsight,
+        forDm: true,
+      })
+    : contextSummary
+  const mediaType = mapInstagramMediaType(postContext.mediaType)
+  const mediaCaption = readString(postContext.caption, postContext.description)
 
   const persisted = await persistInboundMessage({
     tenant: params.resolution.dataTenant,
@@ -443,6 +1807,8 @@ async function processCommentOrMentionEvent(params: {
     accountId: params.entryId,
     eventType,
     commentId,
+    commentIntent,
+    postContextSummary: contextSummary,
     raw: value,
   })
   if (persisted === "duplicate") {
@@ -451,6 +1817,45 @@ async function processCommentOrMentionEvent(params: {
   }
 
   params.stats.processed += 1
+
+  if (!socialSellerEnabled || !socialSellerChannelEnabled) {
+    return
+  }
+
+  const keywordAutomation = await runInstagramKeywordAutomation({
+    resolution: params.resolution,
+    nativeConfig,
+    field: params.field,
+    senderId,
+    senderName: senderName || undefined,
+    sessionId,
+    commentId,
+    postMediaId: postContext.mediaId,
+    commentText: text,
+    contextSummary,
+  })
+
+  if (keywordAutomation.handled) {
+    if (keywordAutomation.commentSent) params.stats.replied += 1
+    if (keywordAutomation.dmSent) {
+      params.stats.replied += 1
+      params.stats.dmHandoffs += 1
+    }
+
+    await runInstagramWhatsappBridge({
+      resolution: params.resolution,
+      nativeConfig,
+      senderId,
+      senderName: senderName || undefined,
+      sourceSessionId: sessionId,
+      contextText: `${text}\n${contextSummary}`,
+      matchedKeyword: keywordAutomation.matchedKeyword,
+    }).catch(() => {})
+
+    if (keywordAutomation.commentSent || keywordAutomation.dmSent) {
+      return
+    }
+  }
 
   const orchestrator = new NativeAgentOrchestratorService()
   const inboundSource = params.field === "mentions" ? "instagram-mention" : "instagram-comment"
@@ -463,13 +1868,132 @@ async function processCommentOrMentionEvent(params: {
     source: inboundSource,
     contactName: senderName || undefined,
     senderName: senderName || undefined,
+    contextHint: leadProfileMemory || undefined,
+    hasMedia: Boolean(mediaType || mediaCaption || postContext.permalink),
+    mediaType,
+    mediaCaption: mediaCaption || undefined,
+    mediaAnalysis: contextSummary,
     messageAlreadyPersisted: true,
-    raw: value,
+    raw: { ...value, __instagram_comment_intent: commentIntent, __move_to_direct: moveToDirect },
   })
 
   if (result?.replied) {
     params.stats.replied += 1
   }
+
+  if (params.debug) {
+    const commentEvents = Array.isArray(params.debug.commentEvents) ? params.debug.commentEvents : []
+    if (commentEvents.length < 30) {
+      commentEvents.push({
+        sessionId,
+        senderId,
+        senderName: senderName || null,
+        commentId,
+        field: params.field,
+        commentIntent,
+        moveToDirect,
+        profileContextChars: leadProfileMemory.length,
+        postContextChars: contextSummary.length,
+        orchestratorReplied: Boolean(result?.replied),
+      })
+      params.debug.commentEvents = commentEvents
+    }
+  }
+
+  if (moveToDirect) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 10_000))
+
+    const dmTrigger = buildDirectTriggerFromComment({
+      intent: commentIntent,
+      text,
+      senderName,
+      contextSummary,
+    })
+
+    const dmResult = await orchestrator.handleInboundMessage({
+      tenant: params.resolution.dataTenant,
+      message: dmTrigger,
+      phone: `ig:${senderId}`,
+      sessionId,
+      messageId: `${inboundMessageId}:dm-handoff`,
+      source: "instagram",
+      contactName: senderName || undefined,
+      senderName: senderName || undefined,
+      contextHint: leadProfileMemory || undefined,
+      fromMeTrigger: true,
+      fromMeTriggerContent: dmTrigger,
+      hasMedia: Boolean(mediaType || mediaCaption || postContext.permalink),
+      mediaType,
+      mediaCaption: mediaCaption || undefined,
+      mediaAnalysis: dmContextSummary,
+      messageAlreadyPersisted: true,
+      raw: {
+        ...value,
+        __instagram_comment_intent: commentIntent,
+        __instagram_handoff_to_dm: true,
+      },
+    })
+
+    if (dmResult?.replied) {
+      params.stats.replied += 1
+      params.stats.dmHandoffs += 1
+    } else {
+      const fallbackMessage = buildDirectFallbackMessage({
+        intent: commentIntent,
+        senderName,
+        text,
+      })
+      const alreadySentFallback = await chat.hasRecentEquivalentMessage({
+        sessionId,
+        content: fallbackMessage,
+        role: "assistant",
+        fromMe: true,
+        withinSeconds: 600,
+      })
+
+      if (!alreadySentFallback) {
+        const messaging = new TenantMessagingService()
+        const fallbackSend = await messaging.sendText({
+          tenant: params.resolution.dataTenant,
+          phone: `ig:${senderId}`,
+          message: fallbackMessage,
+          sessionId,
+          source: "instagram-handoff-fallback",
+        })
+
+        if (fallbackSend.success) {
+          params.stats.replied += 1
+          params.stats.dmHandoffs += 1
+        } else {
+          await chat
+            .persistMessage({
+              sessionId,
+              role: "system",
+              type: "status",
+              content: "instagram_dm_handoff_fallback_failed",
+              source: "instagram-webhook",
+              additional: {
+                debug_event: "instagram_dm_handoff_fallback_failed",
+                debug_severity: "warning",
+                error: fallbackSend.error || "send_failed",
+                intent: commentIntent,
+                sender_id: senderId,
+              },
+            })
+            .catch(() => {})
+        }
+      }
+    }
+  }
+
+  await runInstagramWhatsappBridge({
+    resolution: params.resolution,
+    nativeConfig,
+    senderId,
+    senderName: senderName || undefined,
+    sourceSessionId: sessionId,
+    contextText: `${text}\n${contextSummary}`,
+  }).catch(() => {})
 }
 
 export async function GET(req: NextRequest) {
@@ -491,7 +2015,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const stats: InboundStats = { processed: 0, ignored: 0, duplicates: 0, replied: 0, errors: 0 }
+  const stats: InboundStats = { processed: 0, ignored: 0, duplicates: 0, replied: 0, dmHandoffs: 0, errors: 0 }
   const debug: Record<string, any> = {}
 
   try {
@@ -532,7 +2056,7 @@ export async function POST(req: NextRequest) {
       const messagingEvents = Array.isArray(entry.messaging) ? entry.messaging : []
       for (const messagingEvent of messagingEvents) {
         try {
-          await processDirectEvent({ resolution, entryId, messagingEvent, stats })
+          await processDirectEvent({ resolution, entryId, messagingEvent, stats, debug })
         } catch (error) {
           console.error("[InstagramWebhook] direct event failed:", error)
           stats.errors += 1
@@ -555,6 +2079,7 @@ export async function POST(req: NextRequest) {
             field,
             changeValue: change.value,
             stats,
+            debug,
           })
         } catch (error) {
           console.error("[InstagramWebhook] change event failed:", error)
@@ -576,3 +2101,4 @@ export async function POST(req: NextRequest) {
     )
   }
 }
+
