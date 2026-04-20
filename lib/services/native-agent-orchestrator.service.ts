@@ -3070,21 +3070,21 @@ export class NativeAgentOrchestratorService {
     const mode = input.action.appointment_mode === "online" ? "Online" : "Presencial"
     const meetLink = String(input.result?.meetLink || "").trim()
     const calLink = String(input.result?.htmlLink || "").trim()
-    const header = input.isEdit ? "*AGENDAMENTO REMARCADO*" : "*AGENDAMENTO CONFIRMADO*"
+    const header = input.isEdit ? "📅 *AGENDAMENTO REMARCADO* ✅" : "🎉 *AGENDAMENTO CONFIRMADO* ✅"
 
     const lines = [
       header,
       "",
-      `*Cliente:* ${name}`,
-      `*Contato:* ${contact}`,
-      `*Data:* ${day}`,
-      `*Horario:* ${time}`,
-      `*Modalidade:* ${mode}`,
+      `👤 *Cliente:* ${name}`,
+      `📞 *Contato:* ${contact}`,
+      `📅 *Data:* ${day}`,
+      `🕐 *Horario:* ${time}`,
+      `📍 *Modalidade:* ${mode}`,
     ]
 
-    if (notes) lines.push(`*Obs:* ${notes}`)
-    if (meetLink) lines.push(`*Google Meet:* ${meetLink}`)
-    if (calLink) lines.push(`*Calendario:* ${calLink}`)
+    if (notes) lines.push(`📝 *Obs:* ${notes}`)
+    if (meetLink) lines.push(`🔗 *Google Meet:* ${meetLink}`)
+    if (calLink) lines.push(`📆 *Calendario:* ${calLink}`)
 
     return lines.join("\n")
   }
@@ -3102,17 +3102,17 @@ export class NativeAgentOrchestratorService {
     const notes = String(input.action.note || "").trim()
 
     const lines = [
-      "*FALHA NO AGENDAMENTO*",
+      "❌ *FALHA NO AGENDAMENTO*",
       "",
-      `*Cliente:* ${name}`,
-      `*Contato:* ${contact}`,
-      `*Data solicitada:* ${day}`,
-      `*Horario solicitado:* ${time}`,
-      `*Erro:* ${input.error}`,
+      `👤 *Cliente:* ${name}`,
+      `📞 *Contato:* ${contact}`,
+      `📅 *Data solicitada:* ${day}`,
+      `🕐 *Horario solicitado:* ${time}`,
+      `⚠️ *Erro:* ${input.error}`,
     ]
 
-    if (notes) lines.push(`*Obs:* ${notes}`)
-    lines.push("", "_Verifique o motivo e reagende manualmente se necessario._")
+    if (notes) lines.push(`📝 *Obs:* ${notes}`)
+    lines.push("", "⚠️ _Verifique o motivo e reagende manualmente se necessario._")
 
     return lines.join("\n")
   }
@@ -3127,13 +3127,13 @@ export class NativeAgentOrchestratorService {
     const notes = String(input.reason || "Lead solicitou apoio humano.").trim()
 
     return [
-      "*LEAD PRECISA DE ATENDIMENTO HUMANO*",
+      "🆘 *LEAD PRECISA DE ATENDIMENTO HUMANO*",
       "",
-      `*Cliente:* ${name}`,
-      `*Contato:* ${contact}`,
-      `*Motivo:* ${notes}`,
+      `👤 *Cliente:* ${name}`,
+      `📞 *Contato:* ${contact}`,
+      `💬 *Motivo:* ${notes}`,
       "",
-      "_A automacao foi pausada. Responda o quanto antes._",
+      "⚠️ _A automacao foi pausada. Responda o quanto antes._",
     ].join("\n")
   }
 

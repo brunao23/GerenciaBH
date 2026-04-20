@@ -1168,10 +1168,11 @@ export class AgentTaskQueueService {
     const lineMessage = input.message ? `Mensagem: ${sanitizeFollowupText(input.message, 180)}` : ""
 
     const body = [
-      "FOLLOW-UP ENVIADO",
-      `Contato: wa.me/${leadRef || input.phone}`,
-      `Etapa: ${stage}`,
-      lineMessage,
+      "🟡 *FOLLOW-UP ENVIADO*",
+      "",
+      `✅ *ETAPA:* ${stage}`,
+      `✅ *NUMERO:* ${leadRef || input.phone}`,
+      lineMessage ? `✅ *MENSAGEM ENVIADA:* ${sanitizeFollowupText(input.message || "", 180)}` : "",
     ]
       .filter(Boolean)
       .join("\n")
