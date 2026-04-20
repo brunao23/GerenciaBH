@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Settings, RefreshCw, QrCode, Smartphone, Instagram, Copy, ExternalLink, LogOut } from "lucide-react"
+import { Settings, RefreshCw, QrCode, Smartphone, Instagram, Copy, ExternalLink, LogOut, Lock } from "lucide-react"
 import { toast } from "sonner"
 import { useTenant } from "@/lib/contexts/TenantContext"
 import { resolveAvatarImageSrc } from "@/lib/helpers/avatar-proxy"
@@ -59,6 +59,11 @@ export default function ConfiguracaoPage() {
   const [zapiQrLoading, setZapiQrLoading] = useState(false)
   const [zapiQrImage, setZapiQrImage] = useState("")
   const [zapiConnectionStatus, setZapiConnectionStatus] = useState<ZapiConnectionStatus | null>(null)
+
+  const [currentPassword, setCurrentPassword] = useState("")
+  const [newPassword, setNewPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
+  const [savingPassword, setSavingPassword] = useState(false)
   const [zapiPhoneCodeLoading, setZapiPhoneCodeLoading] = useState(false)
   const [zapiPhoneCodeNumber, setZapiPhoneCodeNumber] = useState("")
   const [zapiPhoneCode, setZapiPhoneCode] = useState("")
@@ -117,6 +122,39 @@ export default function ConfiguracaoPage() {
       : provider === "evolution"
         ? "Informe API URL, Instance Name e Token da Evolution."
         : "Informe Access Token e ao menos um identificador Meta: Phone Number ID (WhatsApp) ou Instagram Account ID."
+
+  const handleChangePassword = async () => {
+    if (!newPassword || !currentPassword) {
+      toast.error("Preencha todos os campos")
+      return
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error("A nova senha e a confirmacao nao coincidem")
+      return
+    }
+    if (newPassword.length < 6) {
+      toast.error("A nova senha deve ter no minimo 6 caracteres")
+      return
+    }
+    setSavingPassword(true)
+    try {
+      const res = await fetch("/api/auth/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || "Erro ao trocar senha")
+      toast.success("Senha alterada com sucesso")
+      setCurrentPassword("")
+      setNewPassword("")
+      setConfirmPassword("")
+    } catch (error: any) {
+      toast.error(error?.message || "Erro ao trocar senha")
+    } finally {
+      setSavingPassword(false)
+    }
+  }
 
   const handleSaveConfig = async () => {
     setSavingConfig(true)
@@ -837,6 +875,55 @@ export default function ConfiguracaoPage() {
               {providerWarning}
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Trocar Senha */}
+      <Card className="border-border bg-card">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-pure-white">
+            <Lock className="w-5 h-5 text-accent-green" />
+            Trocar Senha
+          </CardTitle>
+          <CardDescription>Altere a senha de acesso desta unidade.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 max-w-md">
+            <div className="space-y-1">
+              <Label>Senha atual</Label>
+              <Input
+                type="password"
+                placeholder="••••••••"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Nova senha</Label>
+              <Input
+                type="password"
+                placeholder="••••••••"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Confirmar nova senha</Label>
+              <Input
+                type="password"
+                placeholder="••••••••"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+              />
+            </div>
+            <Button
+              onClick={handleChangePassword}
+              disabled={savingPassword}
+              className="bg-[var(--accent-green)] text-[var(--primary-black)] hover:bg-green-600 w-fit"
+            >
+              {savingPassword ? "Salvando..." : "Alterar senha"}
+            </Button>
+          </div>
         </CardContent>
       </Card>
     </div>
