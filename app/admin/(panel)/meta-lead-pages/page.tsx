@@ -60,6 +60,7 @@ interface DiscoveredPage {
   page_name: string
   page_access_token: string
   category: string
+  unit_prefix_hint: string | null
   forms: DiscoveredForm[]
 }
 
@@ -147,7 +148,7 @@ export default function MetaLeadPagesPage() {
           selected: true,
           form_id: null,
           form_name: "Todos os formulários",
-          unit_prefix: "",
+          unit_prefix: page.unit_prefix_hint ?? "",
           campaign_name: page.page_name,
         }
       }
@@ -167,7 +168,7 @@ export default function MetaLeadPagesPage() {
           selected: true,
           form_id: form.form_id,
           form_name: form.form_name,
-          unit_prefix: "",
+          unit_prefix: page.unit_prefix_hint ?? "",
           campaign_name: form.form_name,
         }
       }
@@ -432,7 +433,14 @@ export default function MetaLeadPagesPage() {
                         {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                       </button>
                       <div className="flex-1 min-w-0">
-                        <div className="font-medium text-sm text-foreground">{page.page_name}</div>
+                        <div className="font-medium text-sm text-foreground flex items-center gap-2">
+                          {page.page_name}
+                          {page.unit_prefix_hint && (
+                            <Badge variant="outline" className="font-mono text-xs text-blue-600 border-blue-300">
+                              {page.unit_prefix_hint}
+                            </Badge>
+                          )}
+                        </div>
                         <div className="text-xs text-muted-foreground font-mono">{page.page_id} · {page.category}</div>
                       </div>
                       <Badge variant="secondary" className="text-xs">
