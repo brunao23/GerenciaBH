@@ -12,6 +12,7 @@ import { GeminiService } from "@/lib/services/gemini.service"
 import { normalizePhoneNumber, normalizeSessionId, TenantChatHistoryService } from "./tenant-chat-history.service"
 import { TenantMessagingService } from "./tenant-messaging.service"
 import { GroupNotificationDispatcherService } from "./group-notification-dispatcher.service"
+import { sendErrorWebhook } from "@/lib/helpers/error-webhook"
 
 export interface EnqueueReminderInput {
   tenant: string
@@ -1161,9 +1162,7 @@ export class AgentTaskQueueService {
     message?: string
     error?: string
   }): Promise<void> {
-    const WEBHOOK_URL = "https://webhook.iagoflow.com/webhook/ERRO"
-
-    const payload = {
+    await sendErrorWebhook({
       event: input.kind === "cancelled" ? "followup_cancelled" : "followup_failed",
       timestamp: new Date().toISOString(),
       tenant: input.tenant,
@@ -1180,13 +1179,6 @@ export class AgentTaskQueueService {
         preview: input.message ? sanitizeFollowupText(input.message, 200) : null,
       },
       error_detail: input.error ? String(input.error).slice(0, 300) : null,
-    }
-
-    await fetch(WEBHOOK_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(8000),
     })
   }
 
