@@ -20,6 +20,7 @@ import {
   CheckCircle,
   Clock,
   AlertCircle,
+  FileText,
 } from "lucide-react"
 import { toast } from "sonner"
 import { useTenant } from "@/lib/contexts/TenantContext"
@@ -78,7 +79,7 @@ const SOURCE_COLORS: Record<string, string> = {
 
 function LeadRow({ lead, onResend }: { lead: Lead; onResend?: (id: string) => void }) {
   const [open, setOpen] = useState(false)
-  const hasForm = lead.form_fields.length > 0
+  const hasForm = lead.form_fields.length > 0 || !!lead.email
   const date = new Date(lead.created_at).toLocaleDateString("pt-BR", {
     day: "2-digit",
     month: "2-digit",
@@ -88,25 +89,11 @@ function LeadRow({ lead, onResend }: { lead: Lead; onResend?: (id: string) => vo
 
   return (
     <>
-      <tr
-        className={`border-b border-border/50 transition-colors ${hasForm ? "cursor-pointer hover:bg-muted/30" : ""}`}
-        onClick={() => hasForm && setOpen((v) => !v)}
-      >
+      <tr className="border-b border-border/50 transition-colors hover:bg-muted/20">
         <td className="py-3 px-3">
-          <div className="flex items-center gap-1.5">
-            {hasForm ? (
-              open ? (
-                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-              ) : (
-                <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-              )
-            ) : (
-              <span className="w-3.5" />
-            )}
-            <span className="font-medium text-foreground text-sm">
-              {lead.name || <span className="text-muted-foreground italic">Sem nome</span>}
-            </span>
-          </div>
+          <span className="font-medium text-foreground text-sm">
+            {lead.name || <span className="text-muted-foreground italic">Sem nome</span>}
+          </span>
         </td>
         <td className="py-3 px-3 text-sm text-muted-foreground">{lead.phone || "—"}</td>
         <td className="py-3 px-3">
@@ -136,10 +123,28 @@ function LeadRow({ lead, onResend }: { lead: Lead; onResend?: (id: string) => vo
           )}
         </td>
         <td className="py-3 px-3 text-xs text-muted-foreground whitespace-nowrap">{date}</td>
+        <td className="py-3 px-3">
+          {hasForm ? (
+            <button
+              onClick={() => setOpen((v) => !v)}
+              className={`flex items-center gap-1 text-xs px-2 py-1 rounded border transition-colors ${
+                open
+                  ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-500"
+                  : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/30"
+              }`}
+              title="Ver campos do formulário"
+            >
+              <FileText className="h-3.5 w-3.5" />
+              {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+            </button>
+          ) : (
+            <span className="w-8 inline-block" />
+          )}
+        </td>
       </tr>
       {open && hasForm && (
         <tr className="border-b border-border/50 bg-muted/20">
-          <td colSpan={6} className="px-8 py-3">
+          <td colSpan={7} className="px-8 py-3">
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {lead.email && (
                 <div className="flex flex-col gap-0.5">
@@ -390,6 +395,7 @@ export default function CaptacaoPage() {
                     <th className="text-left py-3 px-3 font-medium text-muted-foreground">Campanha</th>
                     <th className="text-left py-3 px-3 font-medium text-muted-foreground">WA</th>
                     <th className="text-left py-3 px-3 font-medium text-muted-foreground">Data</th>
+                    <th className="text-left py-3 px-3 font-medium text-muted-foreground">Form</th>
                   </tr>
                 </thead>
                 <tbody>
