@@ -1744,7 +1744,7 @@ export async function GET(req: Request) {
         }
       }
 
-      let contact_name = detectedName || null
+      let contact_name: string | null = detectedName || null
       if (!contact_name) {
         if (channel === "instagram") {
           const igDigits = session_id.replace(/\D/g, "")

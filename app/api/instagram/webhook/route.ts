@@ -788,7 +788,7 @@ async function findTenantByInstagramAccountId(accountId: string): Promise<Tenant
           console.log("[IGWebhook] updated metaInstagramAccountId to:", normalizedAccountId, "for tenant:", tenant)
         }
         const dataTenant = await resolveTenantDataPrefix(tenant)
-        return { tenant, dataTenant, config: { ...config, metaInstagramAccountId: normalizedAccountId } }
+        return { tenant, dataTenant, config: { provider: "meta" as const, ...config, metaInstagramAccountId: normalizedAccountId } }
       }
       // Fallback: Instagram Graph API (app-scoped user ID)
       const igBase = `https://graph.instagram.com/${apiVersion}`
@@ -808,7 +808,7 @@ async function findTenantByInstagramAccountId(accountId: string): Promise<Tenant
           console.log("[IGWebhook] updated metaInstagramAccountId to:", normalizedAccountId, "for tenant:", tenant)
         }
         const dataTenant = await resolveTenantDataPrefix(tenant)
-        return { tenant, dataTenant, config: { ...config, metaInstagramAccountId: normalizedAccountId } }
+        return { tenant, dataTenant, config: { provider: "meta" as const, ...config, metaInstagramAccountId: normalizedAccountId } }
       }
     } catch {
       // ignora erros individuais de verificaÃ§Ã£o
@@ -1700,12 +1700,15 @@ async function processDirectEvent(params: {
   if (disclosureEnabled && !isSpouse) {
     const supabase = createBiaSupabaseServerClient()
     const tables = getTablesForTenant(params.resolution.dataTenant)
-    const { data: pauseRow } = await supabase
-      .from(tables.pausar)
-      .select("pausar, paused_until")
-      .eq("numero", senderId)
-      .maybeSingle()
-      .catch(() => ({ data: null, error: null }))
+    let pauseRow: { pausar: any; paused_until: any } | null = null
+    try {
+      const { data } = await supabase
+        .from(tables.pausar)
+        .select("pausar, paused_until")
+        .eq("numero", senderId)
+        .maybeSingle()
+      pauseRow = data
+    } catch {}
     const isPausedNow =
       pauseRow?.pausar === true || String(pauseRow?.pausar || "").toLowerCase() === "true"
     if (isPausedNow) {
@@ -1723,7 +1726,7 @@ async function processDirectEvent(params: {
         .from(tables.pausar)
         .update({ pausar: false, paused_until: null, updated_at: new Date().toISOString() })
         .eq("numero", senderId)
-        .catch(() => {})
+        .then(null, () => {})
     }
   }
   // ── Fim contatos pessoais ─────────────────────────────────────────────────
@@ -1803,7 +1806,7 @@ async function processDirectEvent(params: {
           },
           { onConflict: "numero" },
         )
-        .catch(() => {})
+        .then(null, () => {})
     }
   }
 

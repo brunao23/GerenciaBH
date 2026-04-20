@@ -5684,20 +5684,24 @@ export class NativeAgentOrchestratorService {
     const sessionId = normalizeSessionId(input.sessionId)
     if (sessionId) {
       updates.push(
-        this.supabase
-          .from("followup_schedule")
-          .update(payload)
-          .eq("session_id", sessionId)
-          .eq("is_active", true),
+        Promise.resolve(
+          this.supabase
+            .from("followup_schedule")
+            .update(payload)
+            .eq("session_id", sessionId)
+            .eq("is_active", true),
+        ).then(() => {}),
       )
     }
     if (phoneVariants.length > 0) {
       updates.push(
-        this.supabase
-          .from("followup_schedule")
-          .update(payload)
-          .in("phone_number", phoneVariants)
-          .eq("is_active", true),
+        Promise.resolve(
+          this.supabase
+            .from("followup_schedule")
+            .update(payload)
+            .in("phone_number", phoneVariants)
+            .eq("is_active", true),
+        ).then(() => {}),
       )
     }
 

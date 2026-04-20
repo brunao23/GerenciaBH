@@ -2008,8 +2008,7 @@ async function pauseAiForLead(
     })
     .in("phone_number", phoneVariants)
     .eq("is_active", true)
-    .then(() => {})
-    .catch(() => {})
+    .then(null, () => {})
 }
 
 async function unpauseAiForLead(tenant: string, phone: string): Promise<void> {

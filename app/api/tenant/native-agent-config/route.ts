@@ -398,7 +398,7 @@ export async function POST(req: Request) {
     const isAdminUpdate = Boolean(tenantInfo?.session?.isAdmin)
     const body = await req.json()
 
-    const current = (await getNativeAgentConfigForTenant(tenant)) || {
+    const current = ((await getNativeAgentConfigForTenant(tenant)) || {
       enabled: false,
       autoReplyEnabled: true,
       replyEnabled: true,
@@ -563,7 +563,7 @@ export async function POST(req: Request) {
       semanticCacheEnabled: true,
       semanticCacheSimilarityThreshold: 0.92,
       semanticCacheTtlHours: 168,
-    }
+    }) as NativeAgentConfig
 
     const nextCalendarBusinessDays =
       body?.calendarBusinessDays !== undefined
@@ -761,6 +761,17 @@ export async function POST(req: Request) {
         current.socialSellerSamplingTopK,
         1,
         100,
+      ),
+      socialSellerBlockedContactUsernames: Array.isArray(body?.socialSellerBlockedContactUsernames)
+        ? body.socialSellerBlockedContactUsernames.map(String).filter(Boolean)
+        : current.socialSellerBlockedContactUsernames ?? [],
+      socialSellerSpouseUsername:
+        body?.socialSellerSpouseUsername !== undefined
+          ? (toOptionalText(body.socialSellerSpouseUsername) ?? "")
+          : (current.socialSellerSpouseUsername ?? ""),
+      socialSellerPersonalDisclosureEnabled: toBool(
+        body?.socialSellerPersonalDisclosureEnabled,
+        current.socialSellerPersonalDisclosureEnabled,
       ),
       instagramDmPrompt:
         body?.instagramDmPrompt !== undefined

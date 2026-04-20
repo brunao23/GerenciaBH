@@ -493,7 +493,7 @@ export async function PATCH(req: NextRequest, context: { params: RouteParams }) 
 
     const body = (await req.json()) as Partial<NativeAgentConfig>
     const current =
-      (await getNativeAgentConfigForTenant(data.unit_prefix)) || {
+      ((await getNativeAgentConfigForTenant(data.unit_prefix)) || {
         enabled: false,
         autoReplyEnabled: true,
         replyEnabled: true,
@@ -662,7 +662,7 @@ export async function PATCH(req: NextRequest, context: { params: RouteParams }) 
         semanticCacheEnabled: true,
         semanticCacheSimilarityThreshold: 0.92,
         semanticCacheTtlHours: 168,
-      }
+      }) as NativeAgentConfig
 
     const nextCalendarBusinessDays =
       body?.calendarBusinessDays !== undefined
@@ -869,6 +869,17 @@ export async function PATCH(req: NextRequest, context: { params: RouteParams }) 
         current.socialSellerSamplingTopK,
         1,
         100,
+      ),
+      socialSellerBlockedContactUsernames: Array.isArray(body?.socialSellerBlockedContactUsernames)
+        ? body.socialSellerBlockedContactUsernames.map(String).filter(Boolean)
+        : current.socialSellerBlockedContactUsernames ?? [],
+      socialSellerSpouseUsername:
+        body?.socialSellerSpouseUsername !== undefined
+          ? (toOptionalText(body.socialSellerSpouseUsername) ?? "")
+          : (current.socialSellerSpouseUsername ?? ""),
+      socialSellerPersonalDisclosureEnabled: toBool(
+        body?.socialSellerPersonalDisclosureEnabled,
+        current.socialSellerPersonalDisclosureEnabled,
       ),
       instagramDmPrompt:
         body?.instagramDmPrompt !== undefined
