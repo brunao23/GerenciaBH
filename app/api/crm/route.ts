@@ -5,6 +5,7 @@ import { resolveTenant } from "@/lib/helpers/resolve-tenant"
 import { resolveChatHistoriesTable } from "@/lib/helpers/resolve-chat-table"
 import { getKommoConfigForTenant } from "@/lib/helpers/kommo-config"
 import { resolveTenantRegistryPrefix } from "@/lib/helpers/tenant-resolution"
+import { getTableColumns } from "@/lib/helpers/supabase-table-columns"
 
 interface CRMCard {
     id: string
@@ -50,6 +51,7 @@ interface CRMCard {
         etapaInterval: string
     }
     channel: string
+    isStudent?: boolean | null
 }
 
 interface CRMColumn {
@@ -927,9 +929,13 @@ export async function GET(req: Request) {
             console.warn('[CRM] Erro ao buscar follow-ups para status (continuando sem):', followUpErr.message)
         }
 
+        const statusColumns = await getTableColumns(supabase as any, statusTable)
+        const hasIsStudentColumn = statusColumns.has("is_student")
+
         // Buscar status salvos em lote para evitar N+1 queries (principal gargalo)
         const statusMap = new Map<string, {
             status: string | null
+            isStudent: boolean | null
         }>()
         let statusTableAvailable = true
 
@@ -937,9 +943,10 @@ export async function GET(req: Request) {
             const chunkSize = 200
             for (const chunk of chunkArray(sessionIds, chunkSize)) {
                 try {
+                    const selectColumns = hasIsStudentColumn ? "lead_id, status, is_student" : "lead_id, status"
                     const { data: statusRows, error: statusError } = await supabase
                         .from(statusTable)
-                        .select("lead_id, status")
+                        .select(selectColumns)
                         .in("lead_id", chunk)
 
                     if (statusError) {
@@ -955,6 +962,7 @@ export async function GET(req: Request) {
                     for (const row of statusRows || []) {
                         statusMap.set(row.lead_id, {
                             status: row.status || null,
+                            isStudent: hasIsStudentColumn && typeof row.is_student === "boolean" ? row.is_student : null,
                         })
                     }
                 } catch (e: any) {
@@ -1045,10 +1053,14 @@ export async function GET(req: Request) {
                 .substring(0, 8000)
             // Buscar status salvo do lead (se existir)
             let savedStatus: string | null = null
+            let isStudent: boolean | null = null
             if (statusTableAvailable) {
                 const statusEntry = statusMap.get(sessionId)
                 if (statusEntry?.status) {
                     savedStatus = String(statusEntry.status).trim() || null
+                }
+                if (typeof statusEntry?.isStudent === "boolean") {
+                    isStudent = statusEntry.isStudent
                 }
             }
 
@@ -1221,7 +1233,8 @@ export async function GET(req: Request) {
                 totalMessagesFromLead: messagesFromLead,
                 totalMessagesFromAI: messagesFromAI,
                 messageHistory,
-                formData: formData || undefined
+                formData: formData || undefined,
+                isStudent,
             })
 
             debugCount++
@@ -1377,6 +1390,7 @@ export async function GET(req: Request) {
                         totalMessagesFromLead: 0,
                         totalMessagesFromAI: 0,
                         messageHistory: [],
+                        isStudent: null,
                     }
 
                     deduplicatedCards.push(kommoCard)

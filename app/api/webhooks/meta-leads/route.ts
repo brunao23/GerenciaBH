@@ -83,7 +83,7 @@ async function processLead({
   const config =
     (form_id ? configs.find((c) => c.form_id === form_id) : null) ?? configs[0]
 
-  const { unit_prefix, page_access_token, campaign_name, welcome_message } = config
+  const { unit_prefix, page_access_token, campaign_name, welcome_message, delay_minutes } = config
 
   // 2. Fetch full lead data from Meta Graph API
   const leadData = await fetchMetaLead(leadgen_id, page_access_token)
@@ -139,7 +139,35 @@ async function processLead({
     { onConflict: "lead_id", ignoreDuplicates: true }
   )
 
-  // 6. Send Zapi welcome message
+  // 6. Generate welcome message
+  const message = await generatePersonalizedWelcome({
+    name: name || null,
+    campaignName: campaign_name || null,
+    formFields: (leadData.field_data ?? []) as Array<{ name: string; values: string[] }>,
+  })
+
+  const delayMins = Number(delay_minutes) || 0
+
+  // 7a. Delay configurado → enfileirar para envio posterior
+  if (delayMins > 0) {
+    const sendAt = new Date(Date.now() + delayMins * 60 * 1000).toISOString()
+    const { error: queueError } = await supabase.from("meta_welcome_queue").insert({
+      unit_prefix,
+      phone: formattedPhone,
+      message,
+      campaign_table: campaignTable,
+      lead_record_id: leadRecord?.id ?? null,
+      send_at: sendAt,
+    })
+    if (queueError) {
+      console.error(`[meta-leads] Erro ao enfileirar mensagem:`, queueError)
+    } else {
+      console.log(`[meta-leads] ⏰ ${unit_prefix} | ${formattedPhone} | delay=${delayMins}min | sendAt=${sendAt}`)
+    }
+    return
+  }
+
+  // 7b. Sem delay → enviar imediatamente
   const messagingConfig = await getMessagingConfigForTenant(unit_prefix)
   const { service, error: zapiError } = createZApiServiceFromMessagingConfig(messagingConfig)
 
@@ -148,12 +176,6 @@ async function processLead({
     return
   }
 
-  const message = await generatePersonalizedWelcome({
-    name: name || null,
-    campaignName: campaign_name || null,
-    formFields: (leadData.field_data ?? []) as Array<{ name: string; values: string[] }>,
-  })
-
   const zapiResult = await service.sendTextMessage({
     phone: formattedPhone,
     message,
@@ -161,7 +183,6 @@ async function processLead({
     delayTyping: 2,
   })
 
-  // 7. Update sent status and persist to chat history
   if (zapiResult.success) {
     if (leadRecord?.id) {
       await supabase

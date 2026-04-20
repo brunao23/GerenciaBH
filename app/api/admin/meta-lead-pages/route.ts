@@ -31,7 +31,7 @@ export async function POST(req: Request) {
   if (!session) return NextResponse.json({ error: "Não autorizado" }, { status: 401 })
 
   const body = await req.json().catch(() => ({}))
-  const { unit_prefix, page_id, page_access_token, form_id, campaign_name, welcome_message } = body
+  const { unit_prefix, page_id, page_access_token, form_id, campaign_name, welcome_message, delay_minutes } = body
 
   if (!unit_prefix || !page_id || !page_access_token || !campaign_name) {
     return NextResponse.json({ error: "Campos obrigatórios: unit_prefix, page_id, page_access_token, campaign_name" }, { status: 400 })
@@ -49,6 +49,7 @@ export async function POST(req: Request) {
       welcome_message: welcome_message
         ? String(welcome_message).trim()
         : "Oi {nome}! Vi que você se interessou em {campanha}. Como posso te ajudar?",
+      delay_minutes: Math.max(0, Math.floor(Number(delay_minutes) || 0)),
       is_active: true,
     })
     .select("id")
@@ -67,7 +68,7 @@ export async function PATCH(req: Request) {
 
   if (!id) return NextResponse.json({ error: "id obrigatório" }, { status: 400 })
 
-  const allowed = ["campaign_name", "welcome_message", "page_access_token", "form_id", "is_active"]
+  const allowed = ["campaign_name", "welcome_message", "page_access_token", "form_id", "is_active", "delay_minutes"]
   const update: Record<string, any> = {}
   for (const key of allowed) {
     if (key in fields) update[key] = fields[key]

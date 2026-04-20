@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS robson_vox_crm_lead_status (
     id BIGSERIAL PRIMARY KEY,
     lead_id TEXT NOT NULL UNIQUE,
     status TEXT NOT NULL,
+    is_student BOOLEAN,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );

@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic"
 import { useEffect, useState } from "react"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card"
-import { MessageSquare, CalendarClock, Workflow, AlertTriangle, TrendingUp, Users, Target, Clock, X } from "lucide-react"
+import { MessageSquare, CalendarClock, Workflow, AlertTriangle, TrendingUp, Users, Target, Clock, X, Megaphone, Send, Instagram, ExternalLink } from "lucide-react"
 import { OverviewChart } from "@/components/dashboard/overview-chart"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -27,6 +27,15 @@ type Overview = {
   avgFirstResponseTime?: number
   chartData?: any[]
   recentActivity?: any[]
+}
+
+type CaptacaoTotals = {
+  leads: number
+  meta: number
+  whatsapp: number
+  organic: number
+  whatsappSent: number
+  sendRate: number
 }
 
 type BusinessMetrics = {
@@ -79,6 +88,7 @@ export default function DashboardPage() {
   const [customRangeVersion, setCustomRangeVersion] = useState(0)
   const [businessMetrics, setBusinessMetrics] = useState<BusinessMetrics>(defaultBusinessMetrics)
   const [recentBusinessEvents, setRecentBusinessEvents] = useState<BusinessEvent[]>([])
+  const [captacaoTotals, setCaptacaoTotals] = useState<CaptacaoTotals | null>(null)
 
   const buildPeriodParams = () => {
     const params = new URLSearchParams()
@@ -103,8 +113,9 @@ export default function DashboardPage() {
     Promise.all([
       fetch(`/api/supabase/overview?${params.toString()}`),
       fetch(`/api/dashboard/business-events?${params.toString()}`),
+      fetch(`/api/dashboard/captacao?${params.toString()}`),
     ])
-      .then(async ([overviewRes, businessRes]) => {
+      .then(async ([overviewRes, businessRes, captacaoRes]) => {
         if (!overviewRes.ok) {
           const err = await overviewRes.json().catch(() => null)
           throw new Error(err?.error || `Erro ao carregar dados (${overviewRes.status})`)
@@ -120,6 +131,13 @@ export default function DashboardPage() {
         } else {
           setBusinessMetrics(defaultBusinessMetrics)
           setRecentBusinessEvents([])
+        }
+
+        if (captacaoRes.ok) {
+          const captacaoData = await captacaoRes.json().catch(() => null)
+          setCaptacaoTotals(captacaoData?.totals ?? null)
+        } else {
+          setCaptacaoTotals(null)
         }
 
         setLoading(false)
@@ -462,6 +480,50 @@ export default function DashboardPage() {
           )
         })}
       </div>
+
+      <Card className="genial-card genial-elevate">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
+          <CardTitle className="text-pure-white flex items-center gap-2">
+            <Megaphone className="h-5 w-5 text-pink-400" />
+            Captação de Leads
+          </CardTitle>
+          <Link
+            href="/captacao"
+            className="flex items-center gap-1 text-xs text-text-gray hover:text-pure-white transition-colors"
+          >
+            Ver detalhes <ExternalLink className="h-3 w-3" />
+          </Link>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="rounded-lg bg-pink-500/10 border border-pink-500/20 p-3">
+              <p className="text-xs text-text-gray mb-1">Total Leads</p>
+              <p className="text-2xl font-bold text-pink-400">{captacaoTotals?.leads ?? 0}</p>
+            </div>
+            <div className="rounded-lg bg-blue-500/10 border border-blue-500/20 p-3">
+              <p className="text-xs text-text-gray mb-1 flex items-center gap-1">
+                <Instagram className="h-3 w-3" /> Meta Ads
+              </p>
+              <p className="text-2xl font-bold text-blue-400">{captacaoTotals?.meta ?? 0}</p>
+            </div>
+            <div className="rounded-lg bg-accent-green/10 border border-accent-green/20 p-3">
+              <p className="text-xs text-text-gray mb-1">WhatsApp Direto</p>
+              <p className="text-2xl font-bold text-accent-green">{captacaoTotals?.whatsapp ?? 0}</p>
+            </div>
+            <div className="rounded-lg bg-orange-500/10 border border-orange-500/20 p-3">
+              <p className="text-xs text-text-gray mb-1 flex items-center gap-1">
+                <Send className="h-3 w-3" /> Taxa Envio
+              </p>
+              <p className="text-2xl font-bold text-orange-400">{captacaoTotals?.sendRate ?? 0}%</p>
+            </div>
+          </div>
+          {captacaoTotals && captacaoTotals.leads > 0 && (
+            <div className="mt-3 flex items-center gap-2 text-xs text-text-gray">
+              <span>{captacaoTotals.whatsappSent} mensagens enviadas de {captacaoTotals.leads} leads captados</span>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card className="genial-card genial-elevate border-red-500/20 bg-red-500/5">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">

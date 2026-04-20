@@ -79,6 +79,7 @@ type ZapiMessageEvent = {
   mediaFileName?: string
   mediaAnalysis?: string
   mediaAnalysisError?: string
+  channelSource?: string
   metadata: Record<string, any>
   raw: any
 }
@@ -1354,6 +1355,27 @@ function parseZapiEvent(raw: any): ZapiMessageEvent {
     .map((id) => String(id || "").trim())
     .filter(Boolean)
 
+  // Channel source detection (Facebook, Instagram, etc.) from ZApi referral/channel fields
+  const channelSource = (() => {
+    const raw = readString(
+      event.referralType,
+      event.channelType,
+      event.referral?.type,
+      event.referral?.source_type,
+      event.referral?.source_url,
+      data.referralType,
+      data.channelType,
+      data.source_type,
+    ).toLowerCase()
+    if (raw.includes("instagram") || raw.includes("ig")) return "instagram"
+    if (raw.includes("facebook") || raw.includes("fb")) return "facebook"
+    if (raw.includes("messenger")) return "messenger"
+    if (raw) return raw
+    // fallback: @lid contacts are typically Instagram
+    if (chatLid && !phone) return "instagram"
+    return ""
+  })()
+
   const metadata: Record<string, any> = {
     callbackType,
     type: readString(event.type, body.type) || null,
@@ -1397,6 +1419,7 @@ function parseZapiEvent(raw: any): ZapiMessageEvent {
     replyToMessageId: replyContext.replyToMessageId || null,
     replyPreview: replyContext.replyPreview || null,
     source: "zapi",
+    channelSource: channelSource || null,
   }
 
   return {
@@ -1441,6 +1464,7 @@ function parseZapiEvent(raw: any): ZapiMessageEvent {
     mediaFileName: mediaPayload.fileName,
     replyToMessageId: replyContext.replyToMessageId,
     replyPreview: replyContext.replyPreview,
+    channelSource: channelSource || undefined,
     metadata,
     raw: raw,
   }
@@ -3008,6 +3032,42 @@ export async function POST(req: NextRequest) {
       })
     }
 
+    // Detect @lid-only contact (no resolvable WhatsApp phone)
+    const isLidOnlyContact = /@lid$/i.test(replyPhone) && !canonicalPhone
+    if (isLidOnlyContact) {
+      const groupTargets = normalizeNotificationGroupTargets(config.toolNotificationTargets)
+      if (groupTargets.length > 0) {
+        const leadName = extractLeadDisplayName(event)
+        const channelLabel = event.channelSource
+          ? event.channelSource.charAt(0).toUpperCase() + event.channelSource.slice(1)
+          : "Instagram/Meta"
+        const notificationMsg = [
+          `📱 *Contato @lid sem telefone identificável*`,
+          `Unidade: ${tenant}`,
+          `Canal: ${channelLabel}`,
+          `LID: ${event.chatLid || replyPhone}`,
+          `Nome: ${leadName}`,
+          `Mensagem: "${String(event.text || "[mídia]").slice(0, 200)}"`,
+          `⚠️ Não foi possível resolver o número de telefone. O sistema tentará responder via @lid, mas atenção manual pode ser necessária.`,
+        ].join("\n")
+        await new GroupNotificationDispatcherService()
+          .dispatch({
+            tenant,
+            anchorSessionId: canonicalSessionId,
+            source: "lid-contact-no-phone",
+            message: notificationMsg,
+            targets: groupTargets,
+            dedupeKey: `lid_no_phone:${canonicalSessionId}`,
+            dedupeWindowSeconds: 300,
+          })
+          .catch(() => {})
+      }
+      console.log(
+        `[zapi-webhook] ⚠️ @lid contact sem telefone: tenant=${tenant} lid=${event.chatLid || replyPhone} canal=${event.channelSource || "?"} session=${canonicalSessionId}`,
+      )
+      // Continua o fluxo — AI tenta responder via @lid (safety behavior)
+    }
+
     if (config?.testModeEnabled === true && canonicalPhone) {
       if (!isPhoneAllowedInTestMode(config, canonicalPhone)) {
         const taskInsight = await taskInsightPromise
@@ -3136,7 +3196,6 @@ export async function POST(req: NextRequest) {
         if (leadRow.name) parts.push(`Nome: ${leadRow.name}`)
         if (leadRow.email) parts.push(`Email: ${leadRow.email}`)
         if (leadRow.campaign_name) parts.push(`Campanha: ${leadRow.campaign_name}`)
-        if (leadRow.source) parts.push(`Origem: ${leadRow.source}`)
         const fieldData: Array<{ name: string; values: string[] }> =
           leadRow.form_data?.field_data ?? []
         for (const f of fieldData) {

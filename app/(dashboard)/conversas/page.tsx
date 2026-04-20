@@ -30,7 +30,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Search, MessageSquare, Phone, User, Clock, AlertCircle, CheckCircle2, PauseCircle, PlayCircle, Calendar, UserMinus, Loader2, Briefcase, Target, Clock3, Sparkles, Zap, Download, ListChecks, XCircle, Send, Trash2, Edit2, DollarSign, Copy, RefreshCcw } from "lucide-react"
+import { Search, MessageSquare, Phone, User, Clock, AlertCircle, CheckCircle2, PauseCircle, PlayCircle, Calendar, UserMinus, Loader2, Briefcase, Target, Clock3, Sparkles, Zap, Download, ListChecks, XCircle, Send, Trash2, Edit2, DollarSign, Copy, RefreshCcw, GraduationCap } from "lucide-react"
 import { useTenant } from "@/lib/contexts/TenantContext"
 import { resolveAvatarImageSrc } from "@/lib/helpers/avatar-proxy"
 import { toast } from "sonner"
@@ -61,6 +61,7 @@ type ChatSession = {
   isSummary?: boolean
   isGroup?: boolean
   profile_pic?: string
+  isStudent?: boolean | null
   unread?: number
   error?: boolean
   success?: boolean
@@ -673,6 +674,46 @@ export default function ConversasPage() {
     }
   }
 
+  const submitStudentFlag = async (session: ChatSession, isStudent: boolean) => {
+    const key = `${session.session_id}:student:${isStudent ? "yes" : "no"}`
+    setBusyEvents((prev) => new Set(prev).add(key))
+    try {
+      const response = await fetch("/api/crm/status", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          ...(tenant?.prefix ? { "x-tenant-prefix": tenant.prefix } : {}),
+        },
+        body: JSON.stringify({
+          leadId: session.session_id,
+          isStudent,
+        }),
+      })
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || "Falha ao atualizar aluno")
+      }
+
+      setSessions((prev) =>
+        prev.map((currentSession) =>
+          currentSession.session_id === session.session_id
+            ? { ...currentSession, isStudent }
+            : currentSession,
+        ),
+      )
+      toast.success(isStudent ? "Lead marcado como aluno" : "Lead marcado como não aluno")
+    } catch (err: any) {
+      toast.error(`Erro: ${err.message}`)
+    } finally {
+      setBusyEvents((prev) => {
+        const next = new Set(prev)
+        next.delete(key)
+        return next
+      })
+    }
+  }
+
   // Estados para Seleção Múltipla
   const [isSelectionMode, setIsSelectionMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
@@ -827,6 +868,7 @@ export default function ConversasPage() {
                 profile_pic: mergedPic || undefined,
                 instagram_username: session.instagram_username || existing.instagram_username,
                 instagram_bio: session.instagram_bio || existing.instagram_bio,
+                isStudent: session.isStudent ?? existing.isStudent ?? null,
                 messages: existing.messages,
                 messages_count: existing.messages_count ?? existing.messages.length,
                 isSummary: false,
@@ -1116,6 +1158,7 @@ export default function ConversasPage() {
             profile_pic: nextPic || undefined,
             instagram_username: session.instagram_username || detailed.instagram_username,
             instagram_bio: session.instagram_bio || detailed.instagram_bio,
+            isStudent: detailed.isStudent ?? session.isStudent ?? null,
             messages: detailedMessages,
             messages_count: detailedMessages.length,
             isSummary: false,
@@ -2226,6 +2269,19 @@ export default function ConversasPage() {
                             {session.isSummary ? "~" : ""}
                             {session.messages_count ?? session.messages.length} msgs
                           </Badge>
+                          {session.isStudent !== null && session.isStudent !== undefined && (
+                            <Badge
+                              variant="outline"
+                              className={`text-[10px] px-1.5 py-0 ${
+                                session.isStudent
+                                  ? "border-emerald-500/40 text-emerald-300 bg-emerald-500/10"
+                                  : "border-amber-500/40 text-amber-300 bg-amber-500/10"
+                              }`}
+                            >
+                              <GraduationCap className="w-2.5 h-2.5 mr-0.5" />
+                              {session.isStudent ? "Aluno" : "Não aluno"}
+                            </Badge>
+                          )}
                         </div>
                         <div className="flex gap-1 mt-2" onClick={(e) => e.stopPropagation()}>
                           <Button
@@ -2256,6 +2312,28 @@ export default function ConversasPage() {
                             title="Registrar venda realizada"
                           >
                             <DollarSign className="w-3 h-3 mr-1" />Venda
+                          </Button>
+                        </div>
+                        <div className="flex gap-1 mt-1" onClick={(e) => e.stopPropagation()}>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 text-[10px] px-1.5 text-emerald-300 hover:bg-emerald-500/10 hover:text-emerald-200"
+                            disabled={busyEvents.has(`${session.session_id}:student:yes`)}
+                            onClick={() => submitStudentFlag(session, true)}
+                            title="Marcar como aluno"
+                          >
+                            <GraduationCap className="w-3 h-3 mr-1" />Aluno
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 text-[10px] px-1.5 text-amber-300 hover:bg-amber-500/10 hover:text-amber-200"
+                            disabled={busyEvents.has(`${session.session_id}:student:no`)}
+                            onClick={() => submitStudentFlag(session, false)}
+                            title="Marcar como não aluno"
+                          >
+                            <UserMinus className="w-3 h-3 mr-1" />Não aluno
                           </Button>
                         </div>
                       </div>
@@ -2297,6 +2375,19 @@ export default function ConversasPage() {
                        >
                          {current.channel === "instagram" ? "Instagram" : "WhatsApp"}
                        </Badge>
+                       {current.isStudent !== null && current.isStudent !== undefined && (
+                         <Badge
+                           variant="outline"
+                           className={`text-[10px] border ${
+                             current.isStudent
+                               ? "border-emerald-500/40 text-emerald-300 bg-emerald-500/10"
+                               : "border-amber-500/40 text-amber-300 bg-amber-500/10"
+                           }`}
+                         >
+                           <GraduationCap className="w-2.5 h-2.5 mr-1" />
+                           {current.isStudent ? "Aluno" : "Não aluno"}
+                         </Badge>
+                       )}
                        <Button size="icon" variant="ghost" className="h-6 w-6 hover:bg-white/10" onClick={() => {
                           setEditContactName(current.contact_name || "")
                           setEditContactModalOpen(true)

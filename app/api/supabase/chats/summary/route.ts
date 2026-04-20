@@ -3,6 +3,7 @@ import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { getTablesForTenant } from "@/lib/helpers/tenant"
 import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
 import { resolveChatHistoriesTable } from "@/lib/helpers/resolve-chat-table"
+import { getTableColumns } from "@/lib/helpers/supabase-table-columns"
 
 type Row = {
   session_id: string
@@ -30,6 +31,7 @@ type SummarySession = {
   profile_pic?: string
   instagram_username?: string
   instagram_bio?: string
+  isStudent?: boolean | null
   score?: number
   strong_match?: boolean
 }
@@ -222,6 +224,16 @@ function toBoolean(value: any): boolean | null {
   if (normalized === "true" || normalized === "1") return true
   if (normalized === "false" || normalized === "0") return false
   return null
+}
+
+function isMissingTableError(error: any): boolean {
+  const message = String(error?.message || "").toLowerCase()
+  const code = String(error?.code || "").toUpperCase()
+  return (
+    code === "42P01" ||
+    (message.includes("relation") && message.includes("does not exist")) ||
+    (message.includes("table") && message.includes("does not exist"))
+  )
 }
 
 function isInternalInvisibleMessage(msg: any): boolean {
@@ -1000,6 +1012,43 @@ export async function GET(req: Request) {
 
         const bio = extractInstagramBioFromMessages(rows, sessionId)
         if (bio) session.instagram_bio = bio
+      }
+    }
+
+    const sessionIds = Array.from(bySession.keys())
+    if (sessionIds.length > 0) {
+      const statusTable = `${tenant}_crm_lead_status`
+      try {
+        const statusColumns = await getTableColumns(supabase as any, statusTable)
+        const hasLeadIdColumn = statusColumns.has("lead_id")
+        const hasIsStudentColumn = statusColumns.has("is_student")
+
+        if (hasLeadIdColumn && hasIsStudentColumn) {
+          const chunkSize = 200
+          for (let i = 0; i < sessionIds.length; i += chunkSize) {
+            const chunk = sessionIds.slice(i, i + chunkSize)
+            const { data: statusRows, error: statusError } = await supabase
+              .from(statusTable)
+              .select("lead_id, is_student")
+              .in("lead_id", chunk)
+
+            if (statusError) {
+              if (!isMissingTableError(statusError)) {
+                console.warn("[ChatsSummary] Erro ao buscar is_student:", statusError.message)
+              }
+              break
+            }
+
+            for (const row of statusRows || []) {
+              const session = bySession.get(String(row.lead_id || ""))
+              if (!session) continue
+              const parsed = toBoolean(row.is_student)
+              session.isStudent = parsed
+            }
+          }
+        }
+      } catch (error: any) {
+        console.warn("[ChatsSummary] Falha ao carregar is_student:", error?.message || error)
       }
     }
 

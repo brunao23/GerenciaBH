@@ -3,6 +3,7 @@ import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { getTablesForTenant } from "@/lib/helpers/tenant"
 import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
 import { resolveChatHistoriesTable } from "@/lib/helpers/resolve-chat-table"
+import { getTableColumns } from "@/lib/helpers/supabase-table-columns"
 
 type Row = { session_id: string; message: any; id: number; created_at?: string | null } // LEI INVIOLÃVEL: Inclui created_at da tabela
 
@@ -224,6 +225,16 @@ function parseBoolean(value: any): boolean | null {
   if (normalized === "true" || normalized === "1") return true
   if (normalized === "false" || normalized === "0") return false
   return null
+}
+
+function isMissingTableError(error: any): boolean {
+  const message = String(error?.message || "").toLowerCase()
+  const code = String(error?.code || "").toUpperCase()
+  return (
+    code === "42P01" ||
+    (message.includes("relation") && message.includes("does not exist")) ||
+    (message.includes("table") && message.includes("does not exist"))
+  )
 }
 
 function detectSessionChannel(sessionId: string, items: Row[]): SessionChannel {
@@ -1905,9 +1916,52 @@ export async function GET(req: Request) {
         last_id,
         error: hasError,
         success: hasSuccess,
+        isStudent: null as boolean | null,
         formData: formData || undefined, // Dados do formulÃ¡rio se disponÃ­veis
       }
     })
+
+    const sessionIdsForStatus = sessions.map((sessionData) => sessionData.session_id).filter(Boolean)
+    if (sessionIdsForStatus.length > 0) {
+      const statusTable = `${tenant}_crm_lead_status`
+      try {
+        const statusColumns = await getTableColumns(supabase as any, statusTable)
+        const hasLeadIdColumn = statusColumns.has("lead_id")
+        const hasIsStudentColumn = statusColumns.has("is_student")
+
+        if (hasLeadIdColumn && hasIsStudentColumn) {
+          const studentMap = new Map<string, boolean | null>()
+          const chunkSize = 200
+
+          for (let i = 0; i < sessionIdsForStatus.length; i += chunkSize) {
+            const chunk = sessionIdsForStatus.slice(i, i + chunkSize)
+            const { data: statusRows, error: statusError } = await supabase
+              .from(statusTable)
+              .select("lead_id, is_student")
+              .in("lead_id", chunk)
+
+            if (statusError) {
+              if (!isMissingTableError(statusError)) {
+                console.warn("[ChatsAPI] Erro ao buscar is_student:", statusError.message)
+              }
+              break
+            }
+
+            for (const row of statusRows || []) {
+              studentMap.set(String(row.lead_id || ""), parseBoolean(row.is_student))
+            }
+          }
+
+          for (const sessionData of sessions) {
+            if (studentMap.has(sessionData.session_id)) {
+              sessionData.isStudent = studentMap.get(sessionData.session_id) ?? null
+            }
+          }
+        }
+      } catch (error: any) {
+        console.warn("[ChatsAPI] Falha ao carregar is_student:", error?.message || error)
+      }
+    }
 
     const result = sessions.filter((s) => s.messages.length > 0).sort((a, b) => b.last_id - a.last_id)
 

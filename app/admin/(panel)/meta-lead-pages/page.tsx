@@ -46,6 +46,7 @@ interface MetaLeadPage {
   form_id: string | null
   campaign_name: string
   welcome_message: string
+  delay_minutes: number
   is_active: boolean
   created_at: string
 }
@@ -74,6 +75,7 @@ const EMPTY_FORM = {
   form_id: "",
   campaign_name: "",
   welcome_message: DEFAULT_WELCOME,
+  delay_minutes: 0,
 }
 
 export default function MetaLeadPagesPage() {
@@ -95,7 +97,7 @@ export default function MetaLeadPagesPage() {
 
   // Seleção de import
   const [importSelections, setImportSelections] = useState<
-    Record<string, { selected: boolean; form_id: string | null; form_name: string; unit_prefix: string; campaign_name: string }>
+    Record<string, { selected: boolean; form_id: string | null; form_name: string; unit_prefix: string; campaign_name: string; delay_minutes: number }>
   >({})
   const [importing, setImporting] = useState(false)
   const [syncing, setSyncing] = useState<string | null>(null)
@@ -152,6 +154,7 @@ export default function MetaLeadPagesPage() {
           form_name: "Todos os formulários",
           unit_prefix: "",
           campaign_name: page.page_name,
+          delay_minutes: 0,
         }
       }
       return next
@@ -172,6 +175,7 @@ export default function MetaLeadPagesPage() {
           form_name: form.form_name,
           unit_prefix: "",
           campaign_name: form.form_name,
+          delay_minutes: 0,
         }
       }
       return next
@@ -213,6 +217,7 @@ export default function MetaLeadPagesPage() {
             form_id: sel.form_id,
             campaign_name: sel.campaign_name,
             welcome_message: DEFAULT_WELCOME,
+            delay_minutes: sel.delay_minutes ?? 0,
           }),
         })
         if (res.ok) {
@@ -281,6 +286,7 @@ export default function MetaLeadPagesPage() {
       form_id: p.form_id ?? "",
       campaign_name: p.campaign_name,
       welcome_message: p.welcome_message,
+      delay_minutes: p.delay_minutes ?? 0,
     })
     setDialogOpen(true)
   }
@@ -412,6 +418,7 @@ export default function MetaLeadPagesPage() {
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground">Campanha</th>
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground">Page ID</th>
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground">Form ID</th>
+                    <th className="text-center px-4 py-3 font-medium text-muted-foreground">Delay</th>
                     <th className="text-center px-4 py-3 font-medium text-muted-foreground">Ativo</th>
                     <th className="text-right px-4 py-3 font-medium text-muted-foreground">Ações</th>
                   </tr>
@@ -425,6 +432,9 @@ export default function MetaLeadPagesPage() {
                       <td className="px-4 py-3 font-medium">{p.campaign_name}</td>
                       <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{p.page_id}</td>
                       <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{p.form_id || "—"}</td>
+                      <td className="px-4 py-3 text-center text-xs text-muted-foreground">
+                        {p.delay_minutes > 0 ? `${p.delay_minutes}min` : "—"}
+                      </td>
                       <td className="px-4 py-3 text-center">
                         <Switch checked={p.is_active} onCheckedChange={() => handleToggle(p)} />
                       </td>
@@ -537,7 +547,7 @@ export default function MetaLeadPagesPage() {
                             {pageSelected && <CheckCircle2 className="h-4 w-4 text-blue-500 ml-auto" />}
                           </div>
                           {pageSelected && (
-                            <div className="grid grid-cols-2 gap-2 ml-7">
+                            <div className="grid grid-cols-3 gap-2 ml-7">
                               <div>
                                 <Label className="text-xs">Tenant *</Label>
                                 <Select value={importSelections[pageKey]?.unit_prefix}
@@ -557,6 +567,15 @@ export default function MetaLeadPagesPage() {
                                 <Input className="h-8 text-xs mt-0.5"
                                   value={importSelections[pageKey]?.campaign_name}
                                   onChange={(e) => updateSelection(pageKey, "campaign_name", e.target.value)} />
+                              </div>
+                              <div>
+                                <Label className="text-xs">Delay (min)</Label>
+                                <Input className="h-8 text-xs mt-0.5" type="number" min={0} max={1440} placeholder="0"
+                                  value={importSelections[pageKey]?.delay_minutes ?? 0}
+                                  onChange={(e) => setImportSelections((prev) => ({
+                                    ...prev,
+                                    [pageKey]: { ...prev[pageKey], delay_minutes: Math.max(0, parseInt(e.target.value) || 0) }
+                                  }))} />
                               </div>
                             </div>
                           )}
@@ -582,7 +601,7 @@ export default function MetaLeadPagesPage() {
                                 </Badge>
                               </div>
                               {fSelected && (
-                                <div className="grid grid-cols-2 gap-2 ml-7">
+                                <div className="grid grid-cols-3 gap-2 ml-7">
                                   <div>
                                     <Label className="text-xs">Tenant *</Label>
                                     <Select value={importSelections[fKey]?.unit_prefix}
@@ -602,6 +621,15 @@ export default function MetaLeadPagesPage() {
                                     <Input className="h-8 text-xs mt-0.5"
                                       value={importSelections[fKey]?.campaign_name}
                                       onChange={(e) => updateSelection(fKey, "campaign_name", e.target.value)} />
+                                  </div>
+                                  <div>
+                                    <Label className="text-xs">Delay (min)</Label>
+                                    <Input className="h-8 text-xs mt-0.5" type="number" min={0} max={1440} placeholder="0"
+                                      value={importSelections[fKey]?.delay_minutes ?? 0}
+                                      onChange={(e) => setImportSelections((prev) => ({
+                                        ...prev,
+                                        [fKey]: { ...prev[fKey], delay_minutes: Math.max(0, parseInt(e.target.value) || 0) }
+                                      }))} />
                                   </div>
                                 </div>
                               )}
@@ -670,6 +698,17 @@ export default function MetaLeadPagesPage() {
               <Input type="password" placeholder="EAAxxxx..."
                 value={form.page_access_token}
                 onChange={(e) => setForm((f) => ({ ...f, page_access_token: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Delay de envio <span className="text-muted-foreground text-xs">(minutos após preenchimento)</span></Label>
+              <Input
+                type="number"
+                min={0}
+                max={1440}
+                placeholder="0 = imediato"
+                value={form.delay_minutes}
+                onChange={(e) => setForm((f) => ({ ...f, delay_minutes: Math.max(0, parseInt(e.target.value) || 0) }))} />
+              <p className="text-xs text-muted-foreground">0 = envio imediato · use para escalonar disparos simultâneos</p>
             </div>
             <div className="space-y-1.5">
               <Label>Mensagem de boas-vindas</Label>

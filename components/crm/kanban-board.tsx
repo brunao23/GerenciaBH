@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd"
 import { Badge } from "@/components/ui/badge"
-import { Clock, Phone, Eye, Settings2, Plus, X, PauseCircle, Clock3, Timer, GripVertical, CheckCircle2, UserMinus, DollarSign, Loader2, MessageCircle, Instagram, Users, UserPlus } from "lucide-react"
+import { Clock, Phone, Eye, Settings2, Plus, X, PauseCircle, Clock3, Timer, GripVertical, CheckCircle2, UserMinus, DollarSign, Loader2, MessageCircle, Instagram, Users, UserPlus, GraduationCap } from "lucide-react"
 import { toast } from "sonner"
 import { LeadDetailsModal } from "./lead-details-modal"
 import { Button } from "@/components/ui/button"
@@ -45,6 +45,7 @@ interface CRMCard {
         etapaName: string
         etapaInterval: string
     }
+    isStudent?: boolean | null
 }
 
 interface CRMColumn {
@@ -157,6 +158,46 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
             toast.error(`Erro: ${err.message}`)
         } finally {
             setSubmittingSale(false)
+        }
+    }
+
+    const submitStudentFlag = async (card: CRMCard, isStudent: boolean) => {
+        const key = `${card.id}:student:${isStudent ? "yes" : "no"}`
+        setBusyEvents((prev) => new Set(prev).add(key))
+        try {
+            const response = await fetch('/api/crm/status', {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-tenant-prefix': tenant?.prefix || "",
+                },
+                body: JSON.stringify({
+                    leadId: card.id,
+                    isStudent,
+                })
+            })
+
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}))
+                throw new Error(data.error || 'Erro ao atualizar status de aluno')
+            }
+
+            setColumns((prev) => prev.map((column) => ({
+                ...column,
+                cards: column.cards.map((currentCard) =>
+                    currentCard.id === card.id ? { ...currentCard, isStudent } : currentCard
+                ),
+            })))
+            setSelectedLead((prev) => (prev?.id === card.id ? { ...prev, isStudent } : prev))
+            toast.success(isStudent ? "Marcado como aluno" : "Marcado como não aluno")
+        } catch (err: any) {
+            toast.error(`Erro: ${err.message}`)
+        } finally {
+            setBusyEvents((prev) => {
+                const next = new Set(prev)
+                next.delete(key)
+                return next
+            })
         }
     }
     const [addContactCard, setAddContactCard] = useState<CRMCard | null>(null)
@@ -703,6 +744,19 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                                                                                 {card.tags[0]}
                                                                                             </Badge>
                                                                                         )}
+                                                                                        {card.isStudent !== null && card.isStudent !== undefined && (
+                                                                                            <Badge
+                                                                                                variant="outline"
+                                                                                                className={`text-[10px] h-5 px-1 ${
+                                                                                                    card.isStudent
+                                                                                                        ? 'border-emerald-500/40 text-emerald-400 bg-emerald-500/10'
+                                                                                                        : 'border-amber-500/40 text-amber-300 bg-amber-500/10'
+                                                                                                }`}
+                                                                                            >
+                                                                                                <GraduationCap className="w-2.5 h-2.5 mr-0.5" />
+                                                                                                {card.isStudent ? 'Aluno' : 'Não aluno'}
+                                                                                            </Badge>
+                                                                                        )}
                                                                                     </div>
                                                                                 </div>
 
@@ -735,6 +789,28 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                                                                         title="Registrar venda"
                                                                                     >
                                                                                         <DollarSign className="w-3 h-3 mr-1" />Venda
+                                                                                    </Button>
+                                                                                </div>
+                                                                                <div className="flex gap-1 mt-1" onClick={(e) => e.stopPropagation()}>
+                                                                                    <Button
+                                                                                        size="sm"
+                                                                                        variant="ghost"
+                                                                                        className="flex-1 h-6 text-[10px] px-1 text-emerald-300 hover:bg-emerald-500/10 hover:text-emerald-200"
+                                                                                        disabled={busyEvents.has(`${card.id}:student:yes`)}
+                                                                                        onClick={() => submitStudentFlag(card, true)}
+                                                                                        title="Marcar como aluno"
+                                                                                    >
+                                                                                        <GraduationCap className="w-3 h-3 mr-1" />Aluno
+                                                                                    </Button>
+                                                                                    <Button
+                                                                                        size="sm"
+                                                                                        variant="ghost"
+                                                                                        className="flex-1 h-6 text-[10px] px-1 text-amber-300 hover:bg-amber-500/10 hover:text-amber-200"
+                                                                                        disabled={busyEvents.has(`${card.id}:student:no`)}
+                                                                                        onClick={() => submitStudentFlag(card, false)}
+                                                                                        title="Marcar como não aluno"
+                                                                                    >
+                                                                                        <UserMinus className="w-3 h-3 mr-1" />Não aluno
                                                                                     </Button>
                                                                                 </div>
                                                                                 <div className="flex gap-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
@@ -903,9 +979,6 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
         </>
     )
 }
-
-
-
 
 
 

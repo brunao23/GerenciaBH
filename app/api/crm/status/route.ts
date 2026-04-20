@@ -255,9 +255,10 @@ export async function PUT(req: Request) {
 
     if (existing) {
       // Verificar status anterior
+      const oldStatusSelect = hasIsStudentColumn ? "status, is_student" : "status"
       const { data: oldStatus } = await supabase
         .from(statusTable)
-        .select("status")
+        .select(oldStatusSelect)
         .eq("id", existing.id)
         .single()
 
@@ -287,7 +288,7 @@ export async function PUT(req: Request) {
       }
 
       // Notificar se mudou para ganhos
-      if (isGanho && !wasGanho) {
+      if (requestedStatus && isGanho && !wasGanho) {
         const leadProfile = await loadLeadProfile()
         const phoneNumber = leadProfile.phoneNumber
         const leadName = leadProfile.leadName
@@ -300,7 +301,7 @@ export async function PUT(req: Request) {
       }
 
       // Quando move para "em_follow_up" manualmente, garantir que existe registro em followup_schedule
-      if (isEmFollowUp && !wasEmFollowUp) {
+      if (requestedStatus && isEmFollowUp && !wasEmFollowUp) {
         try {
           await ensureFollowUpScheduleActive()
         } catch (err: any) {
@@ -348,7 +349,7 @@ export async function PUT(req: Request) {
       }
     }
 
-    return NextResponse.json({ success: true, message: "Status atualizado com sucesso" })
+    return NextResponse.json({ success: true, message: "Status atualizado com sucesso", status: requestedStatus || null, isStudent: requestedIsStudent ?? null })
   } catch (error: any) {
     console.error("[CRM Status] Erro:", error)
     return NextResponse.json({ error: error.message }, { status: 500 })
@@ -382,12 +383,14 @@ export async function GET(req: Request) {
     }
 
     const statusTable = `${tenant}_crm_lead_status`
-
     const supabase = createBiaSupabaseServerClient()
+    const statusTableColumns = await getTableColumns(supabase as any, statusTable)
+    const hasIsStudentColumn = statusTableColumns.has("is_student")
+    const statusSelect = hasIsStudentColumn ? "status, is_student" : "status"
 
     const { data, error } = await supabase
       .from(statusTable)
-      .select("status")
+      .select(statusSelect)
       .eq("lead_id", leadId)
       .maybeSingle()
 
@@ -396,7 +399,8 @@ export async function GET(req: Request) {
     }
 
     return NextResponse.json({
-      status: data?.status || null
+      status: data?.status || null,
+      isStudent: hasIsStudentColumn ? (data?.is_student ?? null) : null,
     })
   } catch (error: any) {
     console.error("[CRM Status] Erro:", error)

@@ -102,6 +102,14 @@ export async function GET(req: Request) {
     byDay[day] = (byDay[day] || 0) + 1
   }
 
+  const byChannel: Record<string, { total: number; sent: number }> = {}
+  for (const r of rows) {
+    const ch = r.source || "outros"
+    if (!byChannel[ch]) byChannel[ch] = { total: 0, sent: 0 }
+    byChannel[ch].total++
+    if (r.whatsapp_sent) byChannel[ch].sent++
+  }
+
   return NextResponse.json({
     periodo: { start, end },
     totals: {
@@ -114,6 +122,9 @@ export async function GET(req: Request) {
     },
     byCampaign: Object.entries(byCampaign)
       .map(([name, data]) => ({ name, ...data }))
+      .sort((a, b) => b.total - a.total),
+    byChannel: Object.entries(byChannel)
+      .map(([channel, data]) => ({ channel, ...data }))
       .sort((a, b) => b.total - a.total),
     byDay: Object.entries(byDay)
       .map(([date, count]) => ({ date, count }))
