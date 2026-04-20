@@ -3118,6 +3118,39 @@ export async function POST(req: NextRequest) {
       buildInboundMediaContext(event),
     )
 
+    // Busca contexto do formulário Meta Lead Ads para enriquecer o prompt do agente
+    let metaLeadContextHint: string | undefined
+    try {
+      const supabaseLead = createBiaSupabaseServerClient()
+      const cleanPhone = replyPhone.replace(/\D/g, "")
+      const { data: leadRow } = await supabaseLead
+        .from(`${tenant}_lead_campaigns`)
+        .select("name, email, campaign_name, source, form_data")
+        .eq("phone", cleanPhone)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (leadRow) {
+        const parts: string[] = []
+        if (leadRow.name) parts.push(`Nome: ${leadRow.name}`)
+        if (leadRow.email) parts.push(`Email: ${leadRow.email}`)
+        if (leadRow.campaign_name) parts.push(`Campanha: ${leadRow.campaign_name}`)
+        if (leadRow.source) parts.push(`Origem: ${leadRow.source}`)
+        const fieldData: Array<{ name: string; values: string[] }> =
+          leadRow.form_data?.field_data ?? []
+        for (const f of fieldData) {
+          const val = f.values?.[0]
+          if (val && !["phone_number", "phone", "telefone", "celular", "full_name", "name", "nome", "email", "e-mail", "first_name"].includes(f.name.toLowerCase())) {
+            parts.push(`${f.name}: ${val}`)
+          }
+        }
+        if (parts.length > 0) metaLeadContextHint = parts.join(" | ")
+      }
+    } catch {
+      // silencioso — não bloqueia o fluxo principal
+    }
+
     const orchestrator = new NativeAgentOrchestratorService()
     let result: any = null
     try {
@@ -3160,6 +3193,7 @@ export async function POST(req: NextRequest) {
         mediaAnalysis: event.mediaAnalysis,
         mediaAnalysisError: event.mediaAnalysisError,
         raw: event.raw,
+        contextHint: metaLeadContextHint,
       })
     } catch (orchestratorError: any) {
       const fallbackMessage =

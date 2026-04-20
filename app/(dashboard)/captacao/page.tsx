@@ -15,9 +15,30 @@ import {
   Loader2,
   Instagram,
   Megaphone,
+  ChevronDown,
+  ChevronRight,
+  CheckCircle,
+  Clock,
 } from "lucide-react"
 import { toast } from "sonner"
 import { useTenant } from "@/lib/contexts/TenantContext"
+
+interface FormField {
+  name: string
+  values: string[]
+}
+
+interface Lead {
+  id: string
+  name: string | null
+  phone: string | null
+  email: string | null
+  source: string
+  campaign_name: string | null
+  whatsapp_sent: boolean
+  created_at: string
+  form_fields: FormField[]
+}
 
 interface CaptacaoData {
   periodo: { start: string; end: string }
@@ -31,6 +52,7 @@ interface CaptacaoData {
   }
   byCampaign: { name: string; total: number; sent: number }[]
   byDay: { date: string; count: number }[]
+  leads: Lead[]
 }
 
 const PERIOD_OPTIONS = [
@@ -39,6 +61,99 @@ const PERIOD_OPTIONS = [
   { value: "30d", label: "30 dias" },
   { value: "90d", label: "90 dias" },
 ]
+
+const SOURCE_LABELS: Record<string, string> = {
+  meta_lead: "Meta Ads",
+  whatsapp_direct: "WhatsApp",
+  organic: "Orgânico",
+}
+
+const SOURCE_COLORS: Record<string, string> = {
+  meta_lead: "text-blue-500 border-blue-500/30",
+  whatsapp_direct: "text-green-500 border-green-500/30",
+  organic: "text-purple-500 border-purple-500/30",
+}
+
+function LeadRow({ lead }: { lead: Lead }) {
+  const [open, setOpen] = useState(false)
+  const hasForm = lead.form_fields.length > 0
+  const date = new Date(lead.created_at).toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+
+  return (
+    <>
+      <tr
+        className={`border-b border-border/50 transition-colors ${hasForm ? "cursor-pointer hover:bg-muted/30" : ""}`}
+        onClick={() => hasForm && setOpen((v) => !v)}
+      >
+        <td className="py-3 px-3">
+          <div className="flex items-center gap-1.5">
+            {hasForm ? (
+              open ? (
+                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              ) : (
+                <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              )
+            ) : (
+              <span className="w-3.5" />
+            )}
+            <span className="font-medium text-foreground text-sm">
+              {lead.name || <span className="text-muted-foreground italic">Sem nome</span>}
+            </span>
+          </div>
+        </td>
+        <td className="py-3 px-3 text-sm text-muted-foreground">{lead.phone || "—"}</td>
+        <td className="py-3 px-3">
+          <Badge
+            variant="outline"
+            className={`text-xs ${SOURCE_COLORS[lead.source] || "text-muted-foreground"}`}
+          >
+            {SOURCE_LABELS[lead.source] || lead.source}
+          </Badge>
+        </td>
+        <td className="py-3 px-3 text-sm text-muted-foreground max-w-[180px] truncate">
+          {lead.campaign_name || "—"}
+        </td>
+        <td className="py-3 px-3">
+          {lead.whatsapp_sent ? (
+            <CheckCircle className="h-4 w-4 text-emerald-500" />
+          ) : (
+            <Clock className="h-4 w-4 text-muted-foreground" />
+          )}
+        </td>
+        <td className="py-3 px-3 text-xs text-muted-foreground whitespace-nowrap">{date}</td>
+      </tr>
+      {open && hasForm && (
+        <tr className="border-b border-border/50 bg-muted/20">
+          <td colSpan={6} className="px-8 py-3">
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {lead.email && (
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">
+                    Email
+                  </span>
+                  <span className="text-sm text-foreground">{lead.email}</span>
+                </div>
+              )}
+              {lead.form_fields.map((f) => (
+                <div key={f.name} className="flex flex-col gap-0.5">
+                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">
+                    {f.name.replace(/_/g, " ")}
+                  </span>
+                  <span className="text-sm text-foreground">{f.values.join(", ") || "—"}</span>
+                </div>
+              ))}
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  )
+}
 
 export default function CaptacaoPage() {
   const { tenant } = useTenant()
@@ -186,6 +301,53 @@ export default function CaptacaoPage() {
         </Card>
       </div>
 
+      {/* Leads Table */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Users className="h-4 w-4 text-emerald-500" />
+            Leads
+            {data?.leads?.length ? (
+              <Badge variant="secondary" className="ml-1">{data.leads.length}</Badge>
+            ) : null}
+            <span className="text-xs font-normal text-muted-foreground ml-auto">
+              Clique no lead para ver o formulário
+            </span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : !data?.leads?.length ? (
+            <p className="text-sm text-muted-foreground text-center py-8">
+              Nenhum lead no período
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left py-3 px-3 font-medium text-muted-foreground">Nome</th>
+                    <th className="text-left py-3 px-3 font-medium text-muted-foreground">Telefone</th>
+                    <th className="text-left py-3 px-3 font-medium text-muted-foreground">Origem</th>
+                    <th className="text-left py-3 px-3 font-medium text-muted-foreground">Campanha</th>
+                    <th className="text-left py-3 px-3 font-medium text-muted-foreground">WA</th>
+                    <th className="text-left py-3 px-3 font-medium text-muted-foreground">Data</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.leads.map((lead) => (
+                    <LeadRow key={lead.id} lead={lead} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Campaigns Table */}
       <Card>
         <CardHeader>
@@ -246,7 +408,7 @@ export default function CaptacaoPage() {
         </CardContent>
       </Card>
 
-      {/* Daily chart (simple bar) */}
+      {/* Daily chart */}
       {data?.byDay && data.byDay.length > 0 && (
         <Card>
           <CardHeader>

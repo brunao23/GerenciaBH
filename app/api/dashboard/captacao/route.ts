@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server"
 import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
-import { getTablesForTenant } from "@/lib/helpers/tenant"
 
 function parsePeriod(searchParams: URLSearchParams): { start: string; end: string } {
   const period = searchParams.get("period") || "30d"
@@ -22,8 +21,11 @@ function parsePeriod(searchParams: URLSearchParams): { start: string; end: strin
 }
 
 export async function GET(req: Request) {
-  const { tenant, error } = await getTenantFromRequest(req)
-  if (error || !tenant) {
+  let unitPrefix: string
+  try {
+    const result = await getTenantFromRequest()
+    unitPrefix = result.tenant
+  } catch {
     return NextResponse.json({ error: "Não autorizado" }, { status: 401 })
   }
 
@@ -31,11 +33,11 @@ export async function GET(req: Request) {
   const { start, end } = parsePeriod(url.searchParams)
 
   const supabase = createBiaSupabaseServerClient()
-  const campaignTable = `${tenant.unitPrefix}_lead_campaigns`
+  const campaignTable = `${unitPrefix}_lead_campaigns`
 
   const { data: leads, error: leadsError } = await supabase
     .from(campaignTable)
-    .select("id, source, campaign_name, whatsapp_sent, created_at")
+    .select("id, phone, name, email, source, campaign_name, whatsapp_sent, created_at, form_data")
     .gte("created_at", start)
     .lte("created_at", end)
     .order("created_at", { ascending: false })
@@ -83,5 +85,16 @@ export async function GET(req: Request) {
     byDay: Object.entries(byDay)
       .map(([date, count]) => ({ date, count }))
       .sort((a, b) => a.date.localeCompare(b.date)),
+    leads: rows.map((r) => ({
+      id: r.id,
+      name: r.name ?? null,
+      phone: r.phone ? r.phone.replace(/^55(\d{2})(\d{4,5})(\d{4})$/, "($1) $2-$3") : null,
+      email: r.email ?? null,
+      source: r.source,
+      campaign_name: r.campaign_name ?? null,
+      whatsapp_sent: r.whatsapp_sent,
+      created_at: r.created_at,
+      form_fields: (r.form_data?.field_data ?? []) as Array<{ name: string; values: string[] }>,
+    })),
   })
 }
