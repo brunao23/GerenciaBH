@@ -147,8 +147,17 @@ export function gerarPromptAgente(config: AgenteConfig): object {
             ],
 
             "regras_de_agenda": {
-                "dias_uteis": `Segunda a Sexta: ${config.horario_segunda_a_sexta_inicio} às ${config.horario_segunda_a_sexta_fim}.`,
-                "sabado": `Sábado: ${config.horario_sabado_inicio} às ${config.horario_sabado_fim}. JAMAIS ofereça sábado fora deste horário.`,
+                "dias_uteis": (() => {
+                    const ini = String(config.horario_segunda_a_sexta_inicio || "").trim()
+                    const fim = String(config.horario_segunda_a_sexta_fim || "").trim()
+                    return `Segunda a Sexta: ${ini || "09:00"} às ${fim || "19:00"}.`
+                })(),
+                "sabado": (() => {
+                    const ini = String(config.horario_sabado_inicio || "").trim()
+                    const fim = String(config.horario_sabado_fim || "").trim()
+                    if (ini && fim) return `Sábado: ${ini} às ${fim}. JAMAIS ofereça sábado fora deste horário.`
+                    return "Sábado: Atendemos aos sábados. Consulte a equipe para confirmar o horário disponível."
+                })(),
                 "domingo": config.funciona_domingo
                     ? `Domingo: ${config.horario_domingo_inicio} às ${config.horario_domingo_fim}.`
                     : "Domingo: Fechado.",
