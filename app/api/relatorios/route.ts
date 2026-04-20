@@ -105,13 +105,21 @@ function isInRange(date: Date, start: Date, end: Date): boolean {
   return ms >= start.getTime() && ms <= end.getTime()
 }
 
+// Normaliza telefone para últimos 11 dígitos (padrão BR: DDD + número)
+function normalizePhoneForDedup(raw: string): string {
+  const digits = String(raw).replace(/\D/g, "")
+  if (digits.length >= 11) return digits.slice(-11)
+  return digits
+}
+
 // Busca leads de disparos seguindo a mesma regra do dashboard
 async function getDisparosLeads(
   tenant: string,
   startDate: Date,
   tablePrefix?: string,
   endDate?: Date,
-) {
+): Promise<{ leads: number; dailyLeads: Map<string, number>; phoneSet: Set<string> }> {
+  const emptyResult = { leads: 0, dailyLeads: new Map<string, number>(), phoneSet: new Set<string>() }
   try {
     const supabase = createBiaSupabaseServerClient()
     const startDateStr = startDate.toISOString()
@@ -166,25 +174,21 @@ async function getDisparosLeads(
 
     if (!specificError && specificData) {
       const dailyLeads = new Map<string, number>()
-      const processedNumbers = new Set<string>()
+      const phoneSet = new Set<string>()
       const firstDateByNumber = new Map<string, string>()
 
       for (const row of specificData) {
-        const numero = String(row.numero || "").replace(/\D/g, "")
-        if (!numero) continue
-        if (processedNumbers.has(numero)) continue
+        const normalized = normalizePhoneForDedup(String(row.numero || ""))
+        if (!normalized) continue
+        if (phoneSet.has(normalized)) continue
 
-        processedNumbers.add(numero)
+        phoneSet.add(normalized)
 
-        let dateStr = ""
         if (row.created_at) {
           try {
-            dateStr = new Date(row.created_at).toISOString().split("T")[0]
+            const dateStr = new Date(row.created_at).toISOString().split("T")[0]
+            if (dateStr) firstDateByNumber.set(normalized, dateStr)
           } catch {}
-        }
-
-        if (dateStr) {
-          firstDateByNumber.set(numero, dateStr)
         }
       }
 
@@ -192,7 +196,7 @@ async function getDisparosLeads(
         dailyLeads.set(dateStr, (dailyLeads.get(dateStr) || 0) + 1)
       }
 
-      return { leads: processedNumbers.size, dailyLeads }
+      return { leads: phoneSet.size, dailyLeads, phoneSet }
     }
 
     let allowedDDDs: string[] = []
@@ -207,7 +211,7 @@ async function getDisparosLeads(
     } else if (tenant.includes("maceio")) {
       allowedDDDs = DDD_MACEIO
     } else {
-      return { leads: 0, dailyLeads: new Map<string, number>() }
+      return emptyResult
     }
 
     let sharedQuery = supabase
@@ -223,42 +227,42 @@ async function getDisparosLeads(
 
     if (error) {
       console.warn(`[Relatorios] Erro ao buscar vox_disparos:`, error.message)
-      return { leads: 0, dailyLeads: new Map<string, number>() }
+      return emptyResult
     }
 
     const dailyLeads = new Map<string, number>()
-    const processedNumbers = new Set<string>()
+    const phoneSet = new Set<string>()
 
     for (const row of data || []) {
       if (!row.numero) continue
 
-      const numero = row.numero.replace(/\D/g, "")
+      const rawDigits = row.numero.replace(/\D/g, "")
       let ddd = ""
 
-      if (numero.startsWith("55") && numero.length >= 4) {
-        ddd = numero.substring(2, 4)
-      } else if (numero.length >= 2) {
-        ddd = numero.substring(0, 2)
+      if (rawDigits.startsWith("55") && rawDigits.length >= 4) {
+        ddd = rawDigits.substring(2, 4)
+      } else if (rawDigits.length >= 2) {
+        ddd = rawDigits.substring(0, 2)
       }
 
       if (!allowedDDDs.includes(ddd)) continue
 
-      if (processedNumbers.has(numero)) continue
-      processedNumbers.add(numero)
+      const normalized = normalizePhoneForDedup(rawDigits)
+      if (phoneSet.has(normalized)) continue
+      phoneSet.add(normalized)
 
       if (row.created_at) {
         try {
-          const date = new Date(row.created_at)
-          const dateStr = date.toISOString().split("T")[0]
+          const dateStr = new Date(row.created_at).toISOString().split("T")[0]
           dailyLeads.set(dateStr, (dailyLeads.get(dateStr) || 0) + 1)
         } catch {}
       }
     }
 
-    return { leads: processedNumbers.size, dailyLeads }
+    return { leads: phoneSet.size, dailyLeads, phoneSet }
   } catch (error) {
     console.error(`[Relatorios] Erro ao processar vox_disparos:`, error)
-    return { leads: 0, dailyLeads: new Map<string, number>() }
+    return emptyResult
   }
 }
 
@@ -605,9 +609,24 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const totalSessions = validSessions.length
+    // Deduplicar leads: sessions de chat + disparos pelo número de telefone
+    const chatPhoneSet = new Set<string>()
+    let anonymousSessions = 0
+    for (const session of validSessions) {
+      const key = resolveLeadKey(session.sessionId)
+      if (key) {
+        chatPhoneSet.add(normalizePhoneForDedup(key))
+      } else {
+        anonymousSessions += 1
+      }
+    }
+
     const disparosData = await getDisparosLeads(logicalTenant || tenant, dataInicio, tenant, dataFim)
-    const totalLeads = totalSessions + disparosData.leads
+    const allLeadPhones = new Set<string>(chatPhoneSet)
+    for (const phone of disparosData.phoneSet) {
+      allLeadPhones.add(phone)
+    }
+    const totalLeads = allLeadPhones.size + anonymousSessions
     const totalConversas = conversasAtivas
     const conversasFinalizadas = Math.max(totalSessions - conversasAtivas, 0)
     const leadTimeHoras =
@@ -627,6 +646,8 @@ export async function GET(request: NextRequest) {
     const agendamentosQuery = await supabase
       .from(agendamentosTable)
       .select("*")
+      .gte("created_at", dataInicio.toISOString())
+      .lte("created_at", dataFim.toISOString())
       .order("created_at", { ascending: false })
       .limit(10000)
 

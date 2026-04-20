@@ -14,12 +14,18 @@ const DDD_RIO = ['21', '22', '24'] // Rio de Janeiro
 const DDD_ES = ['27', '28'] // EspÃ­rito Santo
 const DDD_MACEIO = ['82'] // Alagoas (MaceiÃ³)
 
+function normalizePhoneForDedup(raw: string): string {
+  const digits = String(raw).replace(/\D/g, "")
+  if (digits.length >= 11) return digits.slice(-11)
+  return digits
+}
+
 // FunÃ§Ã£o para buscar leads de vox_disparos filtrados por DDD
 // IMPORTANTE: vox_disparos Ã© COMPARTILHADA entre BH e SP - precisa filtrar por DDD!
 // Outras unidades (ES, Rio, MaceiÃ³, etc.) NÃƒO usam vox_disparos
 // FunÃ§Ã£o para buscar leads - tenta primeiro tabela especÃ­fica, depois fallback para vox_disparos compartilhada
 // FunÃ§Ã£o para buscar leads - tenta primeiro tabela especÃ­fica, depois fallback para vox_disparos compartilhada
-async function getDisparosLeads(tenant: string, startDate: Date, tablePrefix?: string, endDate?: Date) {
+async function getDisparosLeads(tenant: string, startDate: Date, tablePrefix?: string, endDate?: Date): Promise<{ leads: number; dailyLeads: Map<string, number>; phoneSet: Set<string> }> {
   try {
     const supabase = createBiaSupabaseServerClient()
     const startDateStr = startDate.toISOString()
@@ -83,15 +89,15 @@ async function getDisparosLeads(tenant: string, startDate: Date, tablePrefix?: s
       console.log(`[Overview] Usando tabela especÃ­fica de disparos: ${prefix} (Total: ${specificData.length})`)
 
       const dailyLeads = new Map<string, number>()
-      const processedNumbers = new Set<string>()
+      const phoneSet = new Set<string>()
       const firstDateByNumber = new Map<string, string>()
 
       for (const row of specificData) {
-        const numero = String(row.numero || "").replace(/\D/g, "")
-        if (!numero) continue
-        if (processedNumbers.has(numero)) continue
+        const normalized = normalizePhoneForDedup(String(row.numero || ""))
+        if (!normalized) continue
+        if (phoneSet.has(normalized)) continue
 
-        processedNumbers.add(numero)
+        phoneSet.add(normalized)
 
         let dateStr = ""
         if (row.created_at) {
@@ -101,7 +107,7 @@ async function getDisparosLeads(tenant: string, startDate: Date, tablePrefix?: s
         }
 
         if (dateStr) {
-          firstDateByNumber.set(numero, dateStr)
+          firstDateByNumber.set(normalized, dateStr)
         }
       }
 
@@ -109,7 +115,7 @@ async function getDisparosLeads(tenant: string, startDate: Date, tablePrefix?: s
         dailyLeads.set(dateStr, (dailyLeads.get(dateStr) || 0) + 1)
       }
 
-      return { leads: processedNumbers.size, dailyLeads }
+      return { leads: phoneSet.size, dailyLeads, phoneSet }
     }
 
     // 2. FALLBACK: vox_disparos (Tabela compartilhada - apenas para unidades mapeadas)
@@ -128,7 +134,7 @@ async function getDisparosLeads(tenant: string, startDate: Date, tablePrefix?: s
     } else {
       // âœ… Outras unidades sem tabela especÃ­fica e sem DDD mapeado
       console.log(`[Overview] Tenant ${tenant} nÃ£o tem tabela prÃ³pria e nÃ£o usa vox_disparos - retornando 0 leads`)
-      return { leads: 0, dailyLeads: new Map<string, number>() }
+      return { leads: 0, dailyLeads: new Map<string, number>(), phoneSet: new Set<string>() }
     }
 
     console.log(`[Overview] Buscando leads de vox_disparos para ${tenant} (DDDs: ${allowedDDDs.join(', ')})`)
@@ -147,32 +153,35 @@ async function getDisparosLeads(tenant: string, startDate: Date, tablePrefix?: s
 
     if (error) {
       console.warn(`[Overview] Erro ao buscar vox_disparos:`, error.message)
-      return { leads: 0, dailyLeads: new Map<string, number>() }
+      return { leads: 0, dailyLeads: new Map<string, number>(), phoneSet: new Set<string>() }
     }
 
     // Filtrar por DDD e contar
     const dailyLeads = new Map<string, number>()
-    const processedNumbers = new Set<string>()
+    const phoneSet = new Set<string>()
 
     for (const row of (data || [])) {
       if (!row.numero) continue
 
       // Extrair DDD do nÃºmero (formato: 5531xxxxxxxx ou 31xxxxxxxx)
-      const numero = row.numero.replace(/\D/g, '') // Remover nÃ£o-dÃ­gitos
+      const rawNumero = row.numero.replace(/\D/g, '')
       let ddd = ''
 
-      if (numero.startsWith('55') && numero.length >= 4) {
-        ddd = numero.substring(2, 4)
-      } else if (numero.length >= 2) {
-        ddd = numero.substring(0, 2)
+      if (rawNumero.startsWith('55') && rawNumero.length >= 4) {
+        ddd = rawNumero.substring(2, 4)
+      } else if (rawNumero.length >= 2) {
+        ddd = rawNumero.substring(0, 2)
       }
 
       // âœ… Verificar se o DDD estÃ¡ na lista permitida (filtro crÃ­tico!)
       if (!allowedDDDs.includes(ddd)) continue
 
+      const normalized = normalizePhoneForDedup(rawNumero)
+      if (!normalized) continue
+
       // Evitar duplicados por nÃºmero
-      if (processedNumbers.has(numero)) continue
-      processedNumbers.add(numero)
+      if (phoneSet.has(normalized)) continue
+      phoneSet.add(normalized)
 
       // Contar por dia
       if (row.created_at) {
@@ -186,14 +195,12 @@ async function getDisparosLeads(tenant: string, startDate: Date, tablePrefix?: s
       }
     }
 
-    const totalLeads = processedNumbers.size
-
-    console.log(`[Overview] vox_disparos: ${totalLeads} leads para ${tenant} (filtrado por DDD)`)
-    return { leads: totalLeads, dailyLeads }
+    console.log(`[Overview] vox_disparos: ${phoneSet.size} leads para ${tenant} (filtrado por DDD)`)
+    return { leads: phoneSet.size, dailyLeads, phoneSet }
 
   } catch (error) {
     console.error(`[Overview] Erro ao processar vox_disparos:`, error)
-    return { leads: 0, dailyLeads: new Map<string, number>() }
+    return { leads: 0, dailyLeads: new Map<string, number>(), phoneSet: new Set<string>() }
   }
 }
 
@@ -1044,10 +1051,25 @@ export async function GET(req: Request) {
       }
     })
 
-    // Total de leads = sessÃµes de chat no perÃ­odo + leads de vox_disparos (BH/SP) no perÃ­odo
-    const leadsFromChat = sessionsToProcess.length
-    const totalLeads = leadsFromChat + leadsFromDisparos
-    console.log(`[v0] Total de Leads: ${totalLeads} (Chat: ${leadsFromChat}, Disparos: ${leadsFromDisparos})`)
+    // Deduplicar leads: normalizar session_ids do chat e unir com phoneSet dos disparos
+    const chatPhoneSet = new Set<string>()
+    let anonymousSessions = 0
+    for (const session of sessionsToProcess) {
+      let rawId = String(session.session_id || "")
+      if (rawId.includes("@")) rawId = rawId.split("@")[0]
+      const normalized = normalizePhoneForDedup(rawId)
+      if (normalized) {
+        chatPhoneSet.add(normalized)
+      } else {
+        anonymousSessions += 1
+      }
+    }
+    const allLeadPhones = new Set<string>(chatPhoneSet)
+    for (const phone of disparosData.phoneSet) {
+      allLeadPhones.add(phone)
+    }
+    const totalLeads = allLeadPhones.size + anonymousSessions
+    console.log(`[v0] Total de Leads: ${totalLeads} (Chat únicos: ${chatPhoneSet.size}, Disparos únicos: ${disparosData.phoneSet.size}, Anônimos: ${anonymousSessions})`)
 
     let totalMessages = 0
     let aiMessages = 0
