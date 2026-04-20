@@ -54,14 +54,17 @@ export async function GET(req: NextRequest) {
         "User-Agent": "GerenciaBHAvatarProxy/1.0",
         Accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
       },
-      next: { revalidate: 3600 },
     })
 
     if (!upstream.ok) {
-      return NextResponse.json(
-        { error: `Avatar upstream returned ${upstream.status}` },
-        { status: upstream.status === 404 ? 404 : 502 },
+      const transparent = Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+        "base64",
       )
+      return new NextResponse(transparent, {
+        status: 200,
+        headers: { "Content-Type": "image/png", "Cache-Control": "no-store" },
+      })
     }
 
     const contentType = String(upstream.headers.get("content-type") || "").trim()

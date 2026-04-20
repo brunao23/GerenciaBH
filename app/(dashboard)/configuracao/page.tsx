@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -67,6 +67,7 @@ export default function ConfiguracaoPage() {
   const [showCurrentPassword, setShowCurrentPassword] = useState(false)
   const [showNewPassword, setShowNewPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  const zapiAutoLoadedRef = useRef(false)
   const [zapiPhoneCodeLoading, setZapiPhoneCodeLoading] = useState(false)
   const [zapiPhoneCodeNumber, setZapiPhoneCodeNumber] = useState("")
   const [zapiPhoneCode, setZapiPhoneCode] = useState("")
@@ -340,6 +341,12 @@ export default function ConfiguracaoPage() {
       // silencioso
     }
   }, [metaApiVersion, metaInstagramAccountId])
+
+  useEffect(() => {
+    if (loadingConfig || zapiAutoLoadedRef.current || provider !== "zapi" || !zapiReady) return
+    zapiAutoLoadedRef.current = true
+    void handleLoadZapiQrCode({ silent: true })
+  }, [loadingConfig, provider, zapiReady, handleLoadZapiQrCode])
 
   useEffect(() => {
     if (!tenant?.prefix) return
