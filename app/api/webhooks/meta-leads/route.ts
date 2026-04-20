@@ -5,6 +5,7 @@ import { createZApiServiceFromMessagingConfig } from "@/lib/helpers/zapi-messagi
 import { getTablesForTenant } from "@/lib/helpers/tenant"
 import { generatePersonalizedWelcome, sanitizeName } from "@/lib/helpers/lead-welcome"
 import { TenantChatHistoryService } from "@/lib/services/tenant-chat-history.service"
+import { sendCAPIEvent, getCAPIConfig } from "@/lib/services/meta-capi.service"
 
 const META_GRAPH_API = "https://graph.facebook.com/v20.0"
 
@@ -83,7 +84,7 @@ async function processLead({
   const config =
     (form_id ? configs.find((c) => c.form_id === form_id) : null) ?? configs[0]
 
-  const { unit_prefix, page_access_token, campaign_name, welcome_message, delay_minutes } = config
+  const { unit_prefix, page_access_token, campaign_name, welcome_message, delay_minutes, pixel_id, pixel_access_token } = config as any
 
   // 2. Fetch full lead data from Meta Graph API
   const leadData = await fetchMetaLead(leadgen_id, page_access_token)
@@ -138,6 +139,23 @@ async function processLead({
     { lead_id: leadId, status: "entrada" },
     { onConflict: "lead_id", ignoreDuplicates: true }
   )
+
+  // 5b. Disparar evento Lead para Meta CAPI (non-blocking)
+  const capiConfig = pixel_id
+    ? { pixelId: pixel_id, accessToken: pixel_access_token || page_access_token }
+    : await getCAPIConfig(unit_prefix)
+
+  if (capiConfig) {
+    sendCAPIEvent({
+      ...capiConfig,
+      eventName: "Lead",
+      eventId: `lead_${leadgen_id}`,
+      leadId,
+      userData: { phone: formattedPhone, email: email || undefined, firstName: name || undefined },
+      customData: { campaign_name: campaign_name || undefined },
+      unitPrefix: unit_prefix,
+    }).catch((err) => console.warn("[meta-leads] CAPI Lead error:", err))
+  }
 
   // 6. Generate welcome message
   const message = await generatePersonalizedWelcome({

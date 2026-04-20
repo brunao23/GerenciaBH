@@ -116,12 +116,15 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Triggers para updated_at
+DROP TRIGGER IF EXISTS update_evolution_config_updated_at ON evolution_api_config;
 CREATE TRIGGER update_evolution_config_updated_at BEFORE UPDATE ON evolution_api_config
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_followup_schedule_updated_at ON followup_schedule;
 CREATE TRIGGER update_followup_schedule_updated_at BEFORE UPDATE ON followup_schedule
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_followup_templates_updated_at ON followup_templates;
 CREATE TRIGGER update_followup_templates_updated_at BEFORE UPDATE ON followup_templates
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 

@@ -5,6 +5,7 @@ import { isValidTenant } from "@/lib/auth/tenant"
 import { resolveTenant } from "@/lib/helpers/resolve-tenant"
 import { resolveChatHistoriesTable } from "@/lib/helpers/resolve-chat-table"
 import { getTableColumns } from "@/lib/helpers/supabase-table-columns"
+import { sendCAPIEvent, getCAPIConfig } from "@/lib/services/meta-capi.service"
 
 const BLOCKED_LEAD_NAMES = new Set([
   "bot",
@@ -266,6 +267,10 @@ export async function PUT(req: Request) {
       const wasGanho = oldStatus?.status === 'ganhos' || oldStatus?.status === 'ganho'
       const isEmFollowUp = requestedStatus === 'em_follow_up' || requestedStatus === 'em-follow-up'
       const wasEmFollowUp = oldStatus?.status === 'em_follow_up' || oldStatus?.status === 'em-follow-up'
+      const isQualificacao = requestedStatus === 'qualificacao'
+      const wasQualificacao = oldStatus?.status === 'qualificacao'
+      const isAgendado = requestedStatus === 'agendado'
+      const wasAgendado = oldStatus?.status === 'agendado'
 
       const now = new Date().toISOString()
       const updatePayload: Record<string, any> = {
@@ -307,6 +312,28 @@ export async function PUT(req: Request) {
         } catch (err: any) {
           console.warn(`[CRM Status] Erro ao garantir follow-up ativo:`, err)
         }
+      }
+
+      // Disparar eventos Meta CAPI (non-blocking)
+      const capiEventName =
+        requestedStatus && isQualificacao && !wasQualificacao ? "CompleteRegistration" :
+        requestedStatus && isAgendado && !wasAgendado ? "Schedule" :
+        requestedStatus && isGanho && !wasGanho ? "Purchase" : null
+
+      if (capiEventName) {
+        ;(async () => {
+          const capiConfig = await getCAPIConfig(tenant)
+          if (!capiConfig) return
+          const phone = normalizePhone(leadId)
+          await sendCAPIEvent({
+            ...capiConfig,
+            eventName: capiEventName as any,
+            eventId: `${capiEventName.toLowerCase()}_${leadId}_${Date.now()}`,
+            leadId,
+            userData: { phone: phone ? `55${phone}` : undefined },
+            unitPrefix: tenant,
+          }).catch((err) => console.warn(`[CRM Status] CAPI ${capiEventName} error:`, err))
+        })().catch(() => {})
       }
     } else {
       const now = new Date().toISOString()

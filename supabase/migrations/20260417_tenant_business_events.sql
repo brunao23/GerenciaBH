@@ -1,4 +1,4 @@
-﻿CREATE TABLE IF NOT EXISTS public.tenant_business_events (
+CREATE TABLE IF NOT EXISTS public.tenant_business_events (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant TEXT NOT NULL,
   session_id TEXT,

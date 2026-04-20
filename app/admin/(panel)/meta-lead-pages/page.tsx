@@ -47,6 +47,8 @@ interface MetaLeadPage {
   campaign_name: string
   welcome_message: string
   delay_minutes: number
+  pixel_id: string | null
+  pixel_access_token: string | null
   is_active: boolean
   created_at: string
 }
@@ -76,6 +78,8 @@ const EMPTY_FORM = {
   campaign_name: "",
   welcome_message: DEFAULT_WELCOME,
   delay_minutes: 0,
+  pixel_id: "",
+  pixel_access_token: "",
 }
 
 export default function MetaLeadPagesPage() {
@@ -287,6 +291,8 @@ export default function MetaLeadPagesPage() {
       campaign_name: p.campaign_name,
       welcome_message: p.welcome_message,
       delay_minutes: p.delay_minutes ?? 0,
+      pixel_id: p.pixel_id ?? "",
+      pixel_access_token: p.pixel_access_token ?? "",
     })
     setDialogOpen(true)
   }
@@ -419,6 +425,7 @@ export default function MetaLeadPagesPage() {
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground">Page ID</th>
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground">Form ID</th>
                     <th className="text-center px-4 py-3 font-medium text-muted-foreground">Delay</th>
+                    <th className="text-center px-4 py-3 font-medium text-muted-foreground">Pixel</th>
                     <th className="text-center px-4 py-3 font-medium text-muted-foreground">Ativo</th>
                     <th className="text-right px-4 py-3 font-medium text-muted-foreground">Ações</th>
                   </tr>
@@ -434,6 +441,11 @@ export default function MetaLeadPagesPage() {
                       <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{p.form_id || "—"}</td>
                       <td className="px-4 py-3 text-center text-xs text-muted-foreground">
                         {p.delay_minutes > 0 ? `${p.delay_minutes}min` : "—"}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {p.pixel_id
+                          ? <Badge variant="outline" className="text-xs text-blue-600 border-blue-400/40 font-mono">{p.pixel_id.slice(-6)}</Badge>
+                          : <span className="text-xs text-muted-foreground">—</span>}
                       </td>
                       <td className="px-4 py-3 text-center">
                         <Switch checked={p.is_active} onCheckedChange={() => handleToggle(p)} />
@@ -716,6 +728,20 @@ export default function MetaLeadPagesPage() {
                 value={form.welcome_message}
                 onChange={(e) => setForm((f) => ({ ...f, welcome_message: e.target.value }))} />
               <p className="text-xs text-muted-foreground">Variáveis: {"{nome}"} e {"{campanha}"}</p>
+            </div>
+            <div className="h-px bg-border" />
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Meta Conversions API (CAPI)</p>
+            <div className="space-y-1.5">
+              <Label>Pixel ID <span className="text-muted-foreground text-xs">(opcional)</span></Label>
+              <Input placeholder="123456789012345"
+                value={form.pixel_id}
+                onChange={(e) => setForm((f) => ({ ...f, pixel_id: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Pixel Access Token <span className="text-muted-foreground text-xs">(usa page token se vazio)</span></Label>
+              <Input type="password" placeholder="EAAxxxx..."
+                value={form.pixel_access_token}
+                onChange={(e) => setForm((f) => ({ ...f, pixel_access_token: e.target.value }))} />
             </div>
           </div>
           <DialogFooter>
