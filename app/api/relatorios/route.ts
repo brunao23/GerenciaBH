@@ -628,7 +628,7 @@ export async function GET(request: NextRequest) {
     }
     const totalLeads = allLeadPhones.size + anonymousSessions
     const totalConversas = conversasAtivas
-    const conversasFinalizadas = Math.max(totalSessions - conversasAtivas, 0)
+    const conversasFinalizadas = Math.max(validSessions.length - conversasAtivas, 0)
     const leadTimeHoras =
       leadTimeSamplesMs.length > 0
         ? round(
