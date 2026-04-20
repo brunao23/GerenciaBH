@@ -484,7 +484,7 @@ export default function DashboardPage() {
       <Card className="genial-card genial-elevate">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
           <CardTitle className="text-pure-white flex items-center gap-2">
-            <Megaphone className="h-5 w-5 text-pink-400" />
+            <Megaphone className="h-5 w-5 text-accent-green" />
             Captação de Leads
           </CardTitle>
           <Link
@@ -496,25 +496,25 @@ export default function DashboardPage() {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="rounded-lg bg-pink-500/10 border border-pink-500/20 p-3">
+            <div className="rounded-lg border border-border bg-card/50 p-3">
               <p className="text-xs text-text-gray mb-1">Total Leads</p>
-              <p className="text-2xl font-bold text-pink-400">{captacaoTotals?.leads ?? 0}</p>
+              <p className="text-2xl font-bold text-pure-white">{captacaoTotals?.leads ?? 0}</p>
             </div>
-            <div className="rounded-lg bg-blue-500/10 border border-blue-500/20 p-3">
+            <div className="rounded-lg bg-accent-blue/10 border border-accent-blue/20 p-3">
               <p className="text-xs text-text-gray mb-1 flex items-center gap-1">
                 <Instagram className="h-3 w-3" /> Meta Ads
               </p>
-              <p className="text-2xl font-bold text-blue-400">{captacaoTotals?.meta ?? 0}</p>
+              <p className="text-2xl font-bold text-accent-blue">{captacaoTotals?.meta ?? 0}</p>
             </div>
             <div className="rounded-lg bg-accent-green/10 border border-accent-green/20 p-3">
               <p className="text-xs text-text-gray mb-1">WhatsApp Direto</p>
               <p className="text-2xl font-bold text-accent-green">{captacaoTotals?.whatsapp ?? 0}</p>
             </div>
-            <div className="rounded-lg bg-orange-500/10 border border-orange-500/20 p-3">
+            <div className="rounded-lg bg-accent-green/10 border border-accent-green/20 p-3">
               <p className="text-xs text-text-gray mb-1 flex items-center gap-1">
                 <Send className="h-3 w-3" /> Taxa Envio
               </p>
-              <p className="text-2xl font-bold text-orange-400">{captacaoTotals?.sendRate ?? 0}%</p>
+              <p className="text-2xl font-bold text-accent-green">{captacaoTotals?.sendRate ?? 0}%</p>
             </div>
           </div>
           {captacaoTotals && captacaoTotals.leads > 0 && (
