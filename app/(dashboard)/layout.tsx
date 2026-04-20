@@ -1,18 +1,21 @@
 "use client"
 
 import type React from "react"
-import { lazy, Suspense } from "react"
+import { lazy, Suspense, useState } from "react"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "../../components/ui/sidebar"
 import { AppSidebar } from "../../components/app-sidebar"
 import NotificationsMenu from "../../components/notifications-menu"
 import { Toaster } from "../../components/ui/sonner"
 import { TenantSelector } from "../../components/saas/TenantSelector"
 import { ThemeToggle } from "../../components/theme-toggle"
+import OnboardingTour from "../../components/onboarding/OnboardingTour"
 
 const NotificationCenter = lazy(() => import("../../components/notification-center"))
 const FeedbackWidget = lazy(() => import("../../components/feedback-widget"))
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  const [onboardingForceOpen, setOnboardingForceOpen] = useState(false)
+
   return (
     <SidebarProvider>
       <AppSidebar />
@@ -24,6 +27,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <TenantSelector />
               <ThemeToggle />
               <NotificationsMenu />
+              <button
+                onClick={() => setOnboardingForceOpen(true)}
+                title="Ver tour de introdução"
+                className="genial-hover flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-muted-foreground hover:border-primary/30 hover:bg-primary/8 hover:text-primary text-sm font-bold transition-colors"
+              >
+                ?
+              </button>
             </div>
           </header>
           <main className="p-3 sm:p-4 md:p-6 genial-scrollbar scroll-smooth-gpu overflow-auto safe-area-bottom">{children}</main>
@@ -31,6 +41,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <FeedbackWidget />
             <NotificationCenter />
           </Suspense>
+          <OnboardingTour forceOpen={onboardingForceOpen} onClose={() => setOnboardingForceOpen(false)} />
           <Toaster />
           <style jsx global>{`
             div[id*="v0-built-with-button"] {
