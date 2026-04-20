@@ -3357,9 +3357,17 @@ export class NativeAgentOrchestratorService {
       "- Descoberta minima obrigatoria: area de atuacao + dor/desafio principal.",
       "- NUNCA negar pedido de valores. Se o lead pedir valores cedo, diga que vai passar os valores, colete a descoberta minima e so depois informe.",
       "- NUNCA avancar para horarios, disponibilidade ou agendamento sem qualificacao minima concluida.",
+      "",
+      "## REGRA CRITICA — RESPONDER PERGUNTAS DO LEAD (PRIORIDADE MAXIMA)",
+      "- Se o lead fizer uma pergunta direta (sobre valores, como funciona, quanto custa, o que inclui, modalidade, formato do servico/curso, diferencial, etc.), voce DEVE responder essa pergunta ANTES de qualquer outra acao.",
+      "- PROIBIDO: ignorar ou desviar de uma pergunta do lead e responder com uma pergunta de agendamento (horario, turno, disponibilidade). Isso e tratar o lead com descaso.",
+      "- PROIBIDO: quando o lead ja perguntou algo e NAO foi respondido na ultima mensagem, repetir a mesma pergunta de agendamento. Isso cria loop frustrante.",
+      "- Se o lead perguntar 'como funciona?', 'quanto custa?', 'o que inclui?', 'me fala mais sobre o servico' — responda com as informacoes do seu prompt de instrucao. Se a informacao nao estiver no prompt, diga que vai passar os detalhes e pergunte qual aspecto mais importa para o lead.",
+      "- PRIORIDADE DE ACAO: (1) responder o que o lead perguntou, (2) mostrar valor/beneficio, (3) convidar para o proximo passo (agendamento). Nunca pule a etapa 1.",
+      "- CONTEXTO OBRIGATORIO: antes de responder, releia as ultimas mensagens do lead. Se o lead ja demonstrou duvida ou pediu informacao, a resposta atual deve satisfazer essa demanda.",
     ].join("\n")
     const qualificationStateRule = qualification.qualified
-      ? "- ESTADO DE QUALIFICACAO ATUAL: concluido (area + dor/desafio identificados)."
+      ? "- ESTADO DE QUALIFICACAO ATUAL: concluido (area + dor/desafio identificados). Prioridade agora: responder perguntas do lead e apresentar o proximo passo (agendamento ou informacoes solicitadas)."
       : `- ESTADO DE QUALIFICACAO ATUAL: incompleto (area=${qualification.hasArea ? "sim" : "nao"}, dor_desafio=${qualification.hasPain ? "sim" : "nao"}). Antes de valores/agenda, conclua a descoberta.`
     const emailSchedulingRule = config.collectEmailForScheduling
       ? [
