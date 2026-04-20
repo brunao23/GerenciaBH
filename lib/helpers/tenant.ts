@@ -158,10 +158,13 @@ export const REGISTERED_TENANTS = [
     'vox_piaui',
     'vox_sp',
     'vox_rio',
+    'vox_sete_lagoas',
+    'vox_berini',
 
     // Outras marcas
     'bia_vox',
     'colegio_progresso',
+    'genial_labs',
 ] as const
 
 export type RegisteredTenant = typeof REGISTERED_TENANTS[number]
@@ -187,8 +190,11 @@ const TENANT_NAMES: Record<RegisteredTenant, string> = {
     'vox_piaui': 'Vox Piauí',
     'vox_sp': 'Vox SP',
     'vox_rio': 'Vox Rio',
+    'vox_sete_lagoas': 'Vox Sete Lagoas',
+    'vox_berini': 'Vox Berini',
     'bia_vox': 'Bia Vox',
     'colegio_progresso': 'Colégio Progresso',
+    'genial_labs': 'Genial Labs',
 }
 
 /**
