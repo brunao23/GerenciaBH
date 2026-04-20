@@ -239,133 +239,16 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
 }
 
 /**
- * POST: Sincronizar prompt com N8N
+ * POST: Marcar agente como sincronizado
  */
 export async function POST(req: NextRequest, { params }: RouteParams) {
     try {
         const { isAdmin } = await verificarAdmin(req);
-        if (!isAdmin) {
-            return NextResponse.json({ error: 'Acesso negado' }, { status: 403 });
-        }
-
+        if (!isAdmin) return NextResponse.json({ error: "Acesso negado" }, { status: 403 });
         const { id: empresaId } = await params;
-        const body = await req.json();
-
-        if (body.action !== 'sync') {
-            return NextResponse.json({ error: 'AÃ§Ã£o invÃ¡lida' }, { status: 400 });
-        }
-
-        // Buscar empresa
-        const { data: empresa } = await supabaseAdmin
-            .from('empresas')
-            .select('id, nome, schema')
-            .eq('id', empresaId)
-            .single();
-
-        if (!empresa) {
-            return NextResponse.json({ error: 'Empresa nÃ£o encontrada' }, { status: 404 });
-        }
-
-        // Buscar configuraÃ§Ã£o do agente
-        const { data: config } = await supabaseAdmin
-            .from('empresa_agente_config')
-            .select('*')
-            .eq('empresa_id', empresaId)
-            .single();
-
-        if (!config) {
-            return NextResponse.json({
-                error: 'ConfiguraÃ§Ã£o do agente nÃ£o encontrada. Salve primeiro.',
-            }, { status: 404 });
-        }
-
-        // Buscar workflow ZAPI Principal
-        const { data: workflow } = await supabaseAdmin
-            .from('empresa_workflows')
-            .select('workflow_id')
-            .eq('empresa_id', empresaId)
-            .eq('workflow_type', 'zapi-principal')
-            .single();
-
-        if (!workflow) {
-            return NextResponse.json({
-                error: 'Workflow ZAPI Principal nÃ£o encontrado para esta empresa.',
-            }, { status: 404 });
-        }
-
-        // Gerar prompt
-        const promptGerado = gerarPromptAgente(config as unknown as AgenteConfig);
-
-        // Atualizar workflow no N8N
-        const { N8nClient } = await import('@/lib/n8n/client');
-        const n8nClient = new N8nClient();
-
-        const workflowAtual = await n8nClient.getWorkflow(workflow.workflow_id);
-
-        if (!workflowAtual.success || !workflowAtual.data) {
-            return NextResponse.json({
-                error: 'Workflow nÃ£o encontrado no N8N.',
-            }, { status: 404 });
-        }
-
-        // Encontrar e atualizar o nÃ³ do AI Agent
-        const workflowData: any = workflowAtual.data;
-        const nodes = Array.isArray(workflowData?.nodes) ? workflowData.nodes : [];
-        let agenteEncontrado = false;
-
-        for (const node of nodes) {
-            if (node.type === '@n8n/n8n-nodes-langchain.agent' ||
-                node.type === 'n8n-nodes-langchain.agent' ||
-                node.name?.toLowerCase().includes('agent')) {
-
-                if (node.parameters) {
-                    node.parameters.systemMessage = JSON.stringify(promptGerado, null, 2);
-                    agenteEncontrado = true;
-                }
-            }
-        }
-
-        if (!agenteEncontrado) {
-            return NextResponse.json({
-                error: 'NÃ³ do AI Agent nÃ£o encontrado no workflow.',
-            }, { status: 404 });
-        }
-
-        // Atualizar workflow
-        await n8nClient.updateWorkflow(workflow.workflow_id, {
-            nodes: nodes,
-        });
-
-        // Registrar atualizaÃ§Ã£o
-        await supabaseAdmin
-            .from('empresa_agente_config')
-            .update({ updated_at: new Date().toISOString() })
-            .eq('empresa_id', empresaId);
-
-        if (empresa.schema) {
-            await notifyAdminUpdate({
-                tenant: empresa.schema,
-                title: 'Agente sincronizado com N8N',
-                message: `Uma nova sincronizacao do agente foi aplicada na unidade ${empresa.nome}.`,
-                sourceId: String(workflow.workflow_id),
-            }).catch((error) => {
-                console.error('[Admin Agente] Erro ao enviar notificacao de sync:', error);
-            });
-        }
-
-        return NextResponse.json({
-            success: true,
-            message: `Agente de "${empresa.nome}" sincronizado com N8N!`,
-            workflow_id: workflow.workflow_id,
-        });
-
+        await supabaseAdmin.from("empresa_agente_config").update({ updated_at: new Date().toISOString() }).eq("empresa_id", empresaId);
+        return NextResponse.json({ success: true, message: "Agente atualizado com sucesso." });
     } catch (error: any) {
-        console.error('Erro ao sincronizar:', error);
-        return NextResponse.json({
-            error: 'Erro ao sincronizar com N8N',
-            details: error.message,
-        }, { status: 500 });
+        return NextResponse.json({ error: error.message }, { status: 500 });
     }
 }
-
-

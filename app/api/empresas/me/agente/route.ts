@@ -318,7 +318,7 @@ export async function PUT(req: NextRequest) {
             message: 'Configuração salva com sucesso!',
             config,
             prompt_preview: promptGerado,
-            proximo_passo: 'Clique em "Sincronizar com N8N" para ativar as mudanças',
+            proximo_passo: 'Configuração salva com sucesso!',
         });
 
     } catch (error: any) {
@@ -327,10 +327,7 @@ export async function PUT(req: NextRequest) {
 }
 
 /**
- * POST: Ações especiais (sync com N8N)
- */
-/**
- * POST: Ações especiais (sync com N8N)
+ * POST: Preview do prompt (sem salvar)
  */
 export async function POST(req: NextRequest) {
     try {
@@ -342,11 +339,6 @@ export async function POST(req: NextRequest) {
 
         const body = await req.json();
 
-        if (body.action !== 'sync') {
-            return NextResponse.json({ error: 'Ação inválida' }, { status: 400 });
-        }
-
-        // 1. Buscar configuração atual do agente
         const { data: config } = await supabaseAdmin
             .from('empresa_agente_config')
             .select('*')
@@ -354,164 +346,17 @@ export async function POST(req: NextRequest) {
             .single();
 
         if (!config) {
-            return NextResponse.json({
-                error: 'Configuração do agente não encontrada. Salve primeiro.',
-            }, { status: 404 });
+            return NextResponse.json({ error: 'Configuração do agente não encontrada.' }, { status: 404 });
         }
 
-        // 2. Gerar o Texto do Prompt
-        // O prompt é gerado apenas com texto, sem as variáveis do sistema ({{...}}) que já estão no fluxo
-        const promptGeradoRaw = gerarPromptAgente(config as unknown as AgenteConfig);
-        const promptGerado =
-            typeof promptGeradoRaw === 'string'
-                ? promptGeradoRaw
-                : JSON.stringify(promptGeradoRaw);
-
-        // 3. Conectar ao N8N
-        const { N8nClient } = await import('@/lib/n8n/client');
-        const n8nClient = new N8nClient();
-
-        console.log(`[Sync] Iniciando sincronização para: ${empresaInfo.nome} (${empresaInfo.schema})`);
-
-        // 4. Descobrir qual é o Workflow
-        let workflowId: string | null = null;
-        let workflowName: string | null = null;
-
-        // 4.1 Tentar pelo banco de credenciais (onde salvamos IDs oficiais)
-        const { data: creds } = await supabaseAdmin
-            .from('empresa_credenciais')
-            .select('workflow_zapi_principal')
-            .eq('empresa_id', empresaInfo.empresaId)
-            .single();
-
-        if (creds?.workflow_zapi_principal) {
-            workflowId = creds.workflow_zapi_principal;
-            console.log(`[Sync] ID encontrado no banco: ${workflowId}`);
-        }
-
-        // 4.2 Se não tem no banco, buscar no N8N pelo nome
-        if (!workflowId) {
-            const listResponse = await n8nClient.listWorkflows();
-            if (listResponse.success && listResponse.data?.data) {
-                // Tenta achar com nome padrão: "[VOX BH] zapi-principal"
-                const stdName = `[${empresaInfo.nome}] zapi-principal`;
-                const stdNameUpper = `[${empresaInfo.nome.toUpperCase()}] zapi-principal`;
-                // Tenta achar com nome legado: "ZAPI VOX BH" (conforme usuário relatou)
-                const legacyName = `ZAPI ${empresaInfo.nome.replace('Vox ', 'VOX ')}`;
-
-                const found = listResponse.data.data.find((w: any) =>
-                    w.name === stdName ||
-                    w.name === stdNameUpper ||
-                    w.name === legacyName ||
-                    (w.name.toLowerCase().includes(empresaInfo.nome.toLowerCase()) && w.name.toLowerCase().includes('zapi'))
-                );
-
-                if (found) {
-                    workflowId = found.id;
-                    workflowName = found.name;
-                    console.log(`[Sync] Workflow encontrado pelo nome: ${found.name} (${found.id})`);
-
-                    // Salvar descoberta no banco para ficar mais rápido na próxima
-                    await supabaseAdmin
-                        .from('empresa_credenciais')
-                        .update({ workflow_zapi_principal: workflowId })
-                        .eq('empresa_id', empresaInfo.empresaId);
-                }
-            }
-        }
-
-        if (!workflowId) {
-            return NextResponse.json({
-                error: `Fluxo não encontrado no N8N para ${empresaInfo.nome}. Verifique se o nome contém "ZAPI" e o nome da empresa.`,
-            }, { status: 404 });
-        }
-
-        // 5. Baixar Workflow Atual
-        const workflowResponse = await n8nClient.getWorkflow(workflowId);
-        if (!workflowResponse.success || !workflowResponse.data) {
-            throw new Error('Falha ao baixar workflow do N8N');
-        }
-
-        const workflowData = workflowResponse.data;
-        const nodes = workflowData.nodes || [];
-        let nodeUpdated = false;
-
-        // 6. Atualizar nó do Agente
-        // Procura nó de AI Agent ou Chain
-        for (const node of nodes) {
-            // Estratégia de busca do nó: Pelo tipo OU pelo nome "Agente IA"
-            const isAgentNode =
-                node.type.includes('langchain.agent') ||
-                node.type.includes('chain') ||
-                node.name.toLowerCase().includes('agente') ||
-                node.name === 'AI Agent';
-
-            if (isAgentNode) {
-                console.log(`[Sync] Nó candidato encontrado: ${node.name} (${node.type})`);
-
-                // Tentar injetar o prompt em diferentes locais conhecidos
-                let updated = false;
-
-                // Caso 1: Nó basico de LLM Chain ou Agent (parameters.systemMessage ou text)
-                if (node.parameters) {
-                    // Opção A: systemMessage (comum no n8n novo)
-                    if ('systemMessage' in node.parameters) {
-                        node.parameters.systemMessage = promptGerado;
-                        updated = true;
-                    }
-                    // Opção B: text (alguns nós de chat)
-                    else if ('text' in node.parameters) {
-                        node.parameters.text = promptGerado;
-                        updated = true;
-                    }
-                    // Opção C: prompt (nós custom)
-                    else if ('prompt' in node.parameters) {
-                        node.parameters.prompt = promptGerado;
-                        updated = true;
-                    }
-                    // Opção D: options.systemMessage
-                    else if (node.parameters.options && typeof node.parameters.options === 'object') {
-                        // @ts-ignore
-                        node.parameters.options.systemMessage = promptGerado;
-                        updated = true;
-                    }
-                }
-
-                if (updated) {
-                    nodeUpdated = true;
-                    console.log(`[Sync] Prompt atualizado no nó: ${node.name}`);
-                    break; // Atualiza apenas o primeiro agente que encontrar (geralmente é o principal)
-                }
-            }
-        }
-
-        if (!nodeUpdated) {
-            return NextResponse.json({
-                error: 'Encontramos o fluxo, mas não conseguimos achar o nó do "Agente IA" para atualizar o prompt. Verifique se o nó se chama "Agente" ou é do tipo AI Agent.',
-                workflow_name: workflowName || 'Desconhecido'
-            }, { status: 400 });
-        }
-
-        // 7. Salvar Workflow Atualizado
-        const updateResponse = await n8nClient.updateWorkflow(workflowId, {
-            nodes: nodes
-        });
-
-        if (!updateResponse.success) {
-            throw new Error(`Erro ao salvar no N8N: ${updateResponse.error}`);
-        }
+        const promptGerado = gerarPromptAgente(config as unknown as AgenteConfig);
 
         return NextResponse.json({
-            success: true,
-            message: `✅ Agente atualizado com sucesso no fluxo "${workflowData.name}"!`,
-            workflow_id: workflowId,
+            preview: promptGerado,
+            preview_identidade: gerarPreviewIdentidade(config as unknown as AgenteConfig),
         });
 
     } catch (error: any) {
-        console.error('[Sync] Erro fatal:', error);
-        return NextResponse.json({
-            error: 'Erro ao processar sincronização',
-            details: error.message,
-        }, { status: 500 });
+        return NextResponse.json({ error: error.message }, { status: 500 });
     }
 }

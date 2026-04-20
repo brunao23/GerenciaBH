@@ -212,14 +212,7 @@ export default function AdminUnitsPage() {
     }
 
     const fetchWorkflows = async () => {
-        setLoadingWorkflows(true)
-        try {
-            const res = await fetch('/api/admin/n8n/workflows')
-            const data = await res.json().catch(() => ({}))
-            setWorkflows(Array.isArray(data.workflows) ? data.workflows : [])
-        } catch { } finally {
-            setLoadingWorkflows(false)
-        }
+        setWorkflows([])
     }
 
     useEffect(() => { fetchUnits(); fetchWorkflows() }, [])
@@ -430,8 +423,7 @@ export default function AdminUnitsPage() {
 
     const handleSidebarAction = (unit: Unit, panel: string) => {
         setCurrentView({ unitId: unit.id, panel })
-        if (panel === 'n8n') openLinkDialog(unit)
-        else if (panel === 'whatsapp') openMessagingDialog(unit)
+        if (panel === 'whatsapp') openMessagingDialog(unit)
         else if (panel === 'agente') openNativeAgentDialog(unit)
         else if (panel === 'kommo') openKommoDialog(unit)
         else if (panel === 'logs') openSystemLogsPanel(unit)
@@ -552,7 +544,6 @@ export default function AdminUnitsPage() {
                                                 <span className="text-base text-green-700 group-hover:text-green-400 font-medium">Acessar Painel</span>
                                             </button>
                                             {[
-                                                { id: 'n8n', icon: LinkIcon, label: 'N8N / Workflow', color: 'text-orange-600 group-hover:text-orange-400' },
                                                 { id: 'whatsapp', icon: MessageSquare, label: 'WhatsApp', color: 'text-green-700 group-hover:text-green-400' },
                                                 { id: 'agente', icon: Bot, label: 'Agente IA', color: 'text-purple-600 group-hover:text-purple-400' },
                                                 { id: 'kommo', icon: RefreshCw, label: 'Kommo CRM', color: 'text-blue-600 group-hover:text-blue-400' },

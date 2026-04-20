@@ -1151,7 +1151,7 @@ export class AgentTaskQueueService {
         step: input.step,
         totalSteps: input.totalSteps,
         reason: reasonText || undefined,
-        message: input.message,
+        message: input.kind === "failed" ? input.message : undefined,
         error: input.error,
       }).catch(() => {})
       return
@@ -1212,11 +1212,12 @@ export class AgentTaskQueueService {
         session_id: input.sessionId,
       },
       followup: {
-        task_id: input.taskId || null,
+        task_id: input.kind === "failed" ? input.taskId || null : null,
         step: input.step ?? null,
         total_steps: input.totalSteps ?? null,
         reason: input.reason || null,
-        preview: input.message ? sanitizeFollowupText(input.message, 200) : null,
+        preview:
+          input.kind === "failed" && input.message ? sanitizeFollowupText(input.message, 200) : null,
       },
       error_detail: input.error ? String(input.error).slice(0, 300) : null,
     })
@@ -1297,19 +1298,10 @@ export class AgentTaskQueueService {
             .eq("id", task.id)
           continue
         }
-
-        const runtimeMessage = await this.resolveRuntimeFollowupMessage({
-          tenant,
-          sessionId,
-          payload,
-        })
-        if (runtimeMessage) {
-          message = runtimeMessage
-        }
         processedFollowupSessionIds.add(sessionId)
       }
 
-      if (!tenant || !phone || !message) {
+      if (!tenant || !phone || (!message && taskType !== "followup")) {
         result.skipped += 1
         await this.supabase
           .from(this.table)
@@ -1346,22 +1338,7 @@ export class AgentTaskQueueService {
           }),
         ])
 
-        const duplicateRecentFollowup = await new TenantChatHistoryService(tenant).hasRecentEquivalentMessage({
-          sessionId,
-          content: message,
-          role: "assistant",
-          fromMe: true,
-          withinSeconds: 60 * 60,
-        })
-
-        if (
-          !configValidation.allowed ||
-          paused ||
-          terminal ||
-          replied ||
-          duplicateRecentFollowup ||
-          recentAssistantFollowup
-        ) {
+        if (!configValidation.allowed || paused || terminal || replied || recentAssistantFollowup) {
           result.skipped += 1
           const reason = !configValidation.allowed
             ? `followup_cancelled_${configValidation.reason || "config"}`
@@ -1371,9 +1348,7 @@ export class AgentTaskQueueService {
                 ? "followup_cancelled_terminal_status"
                 : replied
                   ? "followup_cancelled_user_replied"
-                  : duplicateRecentFollowup
-                    ? "followup_cancelled_duplicate_recent"
-                    : "followup_cancelled_recent_assistant_message"
+                  : "followup_cancelled_recent_assistant_message"
           await this.supabase
             .from(this.table)
             .update({
@@ -1391,9 +1366,62 @@ export class AgentTaskQueueService {
             reason,
             step: Number(payload?.followup_step || 0) || undefined,
             totalSteps: Number(payload?.followup_total_steps || 0) || undefined,
-            message,
             taskId: String(task.id || ""),
           })
+          continue
+        }
+
+        const runtimeMessage = await this.resolveRuntimeFollowupMessage({
+          tenant,
+          sessionId,
+          payload,
+        })
+        if (runtimeMessage) {
+          message = runtimeMessage
+        }
+
+        const duplicateRecentFollowup = await new TenantChatHistoryService(tenant).hasRecentEquivalentMessage({
+          sessionId,
+          content: message,
+          role: "assistant",
+          fromMe: true,
+          withinSeconds: 60 * 60,
+        })
+        if (duplicateRecentFollowup) {
+          result.skipped += 1
+          const reason = "followup_cancelled_duplicate_recent"
+          await this.supabase
+            .from(this.table)
+            .update({
+              status: "cancelled",
+              attempts: Number(task.attempts || 0) + 1,
+              last_error: reason,
+            })
+            .eq("id", task.id)
+          await this.notifyFollowupTouchpoint({
+            tenant,
+            sessionId,
+            phone,
+            runtimeConfig,
+            kind: "cancelled",
+            reason,
+            step: Number(payload?.followup_step || 0) || undefined,
+            totalSteps: Number(payload?.followup_total_steps || 0) || undefined,
+            taskId: String(task.id || ""),
+          })
+          continue
+        }
+
+        if (!message) {
+          result.skipped += 1
+          await this.supabase
+            .from(this.table)
+            .update({
+              status: "error",
+              attempts: Number(task.attempts || 0) + 1,
+              last_error: "invalid_task_payload",
+            })
+            .eq("id", task.id)
           continue
         }
       }

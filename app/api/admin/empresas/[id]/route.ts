@@ -205,36 +205,10 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
         const resultados = {
             empresa: false,
             tabelas: false,
-            workflows_n8n: false,
             erros: [] as string[],
         };
 
-        // 1. Remover workflows do N8N (se configurados)
-        try {
-            const { data: workflowsEmpresa } = await supabaseAdmin
-                .from('empresa_workflows')
-                .select('workflow_id')
-                .eq('empresa_id', id);
-
-            if (workflowsEmpresa && workflowsEmpresa.length > 0) {
-                const { N8nClient } = await import('@/lib/n8n/client');
-                const n8nClient = new N8nClient();
-
-                for (const wf of workflowsEmpresa) {
-                    try {
-                        await n8nClient.deleteWorkflow(wf.workflow_id);
-                        console.log(`  ✅ Workflow ${wf.workflow_id} removido do N8N`);
-                    } catch (err: any) {
-                        console.error(`  ⚠️ Erro ao remover workflow ${wf.workflow_id}:`, err.message);
-                    }
-                }
-                resultados.workflows_n8n = true;
-            }
-        } catch (err: any) {
-            resultados.erros.push(`Erro ao remover workflows: ${err.message}`);
-        }
-
-        // 2. Deletar tabelas do banco
+        // 1. Deletar tabelas do banco
         try {
             const { error: tabelasError } = await supabaseAdmin.rpc('deletar_tabelas_empresa', {
                 p_schema: empresa.schema
@@ -250,21 +224,10 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
             resultados.erros.push(`Erro ao deletar tabelas: ${err.message}`);
         }
 
-        // 3. Registrar remoção no log
-        await supabaseAdmin
-            .from('workflow_removals')
-            .insert({
-                empresa_id: id,
-                success: resultados.tabelas && resultados.workflows_n8n,
-                workflows_deleted: 0,
-                errors: resultados.erros.length > 0 ? resultados.erros : null,
-                deleted_by: userId || "admin",
-            });
+        // 2. Deletar registros relacionados (cascadeia automaticamente pelo FK)
+        // empresa_credenciais - tem ON DELETE CASCADE
 
-        // 4. Deletar registros relacionados (cascadeia automaticamente pelo FK)
-        // empresa_credenciais, empresa_workflows - têm ON DELETE CASCADE
-
-        // 5. Deletar a empresa
+        // 3. Deletar a empresa
         const { error: deleteError } = await supabaseAdmin
             .from('empresas')
             .delete()

@@ -326,97 +326,12 @@ export async function POST(req: NextRequest) {
 
         console.log(`âœ… Credenciais salvas`);
 
-        // 11. OBRIGATÃ“RIO: Replicar workflows N8N
-        console.log(`ðŸ”„ Replicando 7 workflows N8N...`);
-
-        let workflowsResult: any;
-        try {
-            const { WorkflowReplicator } = await import('@/lib/n8n/replicator');
-            const replicator = new WorkflowReplicator();
-
-            workflowsResult = await replicator.replicateAll({
-                empresaId: empresa.id,
-                empresaNome: body.nome,
-                schema: schema,
-                credentials: {
-                    supabaseApiId: body.credenciais.supabase_api_id,
-                    supabaseApiName: body.credenciais.supabase_api_name,
-                    redisId: body.credenciais.redis_id,
-                    redisName: body.credenciais.redis_name,
-                    postgresId: body.credenciais.postgres_id,
-                    postgresName: body.credenciais.postgres_name,
-                    googleCalendarId: body.credenciais.google_calendar_id,
-                    googleCalendarName: body.credenciais.google_calendar_name,
-                },
-                calendarEmail: body.credenciais.calendar_email,
-                evolutionInstance: body.credenciais.evolution_instance || '',
-                notificationGroup: body.credenciais.notification_group,
-            } );
-
-            if (!workflowsResult.success) {
-                console.error('âŒ FALHA ao replicar workflows - fazendo rollback');
-                await rollbackEmpresa(empresa.id, schema);
-                return NextResponse.json({
-                    error: 'FALHA ao replicar workflows N8N',
-                    details: workflowsResult.results?.filter((r: any) => !r.success),
-                    rollback: true
-                }, { status: 500 });
-            }
-
-            // Salvar IDs dos workflows criados
-            const workflowIds: Record<string, string> = {};
-            for (const r of workflowsResult.results || []) {
-                if (r.success && r.n8nWorkflowId) {
-                    const key = `workflow_${r.workflowId.replace(/-/g, '_')}`;
-                    workflowIds[key] = r.n8nWorkflowId;
-
-                    // Salvar no mapeamento
-                    await supabaseAdmin.from('empresa_workflows').insert({
-                        empresa_id: empresa.id,
-                        workflow_id: r.n8nWorkflowId,
-                        workflow_name: r.workflowName,
-                        workflow_type: r.workflowId,
-                        active: true,
-                    });
-                }
-            }
-
-            // Atualizar credenciais com IDs dos workflows
-            if (Object.keys(workflowIds).length > 0) {
-                await supabaseAdmin
-                    .from('empresa_credenciais')
-                    .update(workflowIds)
-                    .eq('empresa_id', empresa.id);
-            }
-
-            console.log(`âœ… ${workflowsResult.results?.filter((r: any) => r.success).length || 0} workflows criados`);
-
-        } catch (err: any) {
-            console.error('âŒ EXCEÃ‡ÃƒO ao replicar workflows - fazendo rollback:', err);
-            await rollbackEmpresa(empresa.id, schema);
-            return NextResponse.json({
-                error: 'EXCEÃ‡ÃƒO ao replicar workflows N8N',
-                details: err.message,
-                rollback: true
-            }, { status: 500 });
-        }
-
-        // 12. Registrar no log de replicaÃ§Ãµes
-        await supabaseAdmin.from('workflow_replications').insert({
-            empresa_id: empresa.id,
-            success: true,
-            workflows_created: workflowsResult.results?.filter((r: any) => r.success).length || 0,
-            workflows_failed: 0,
-            results: workflowsResult.results,
-            created_by: user.id,
-        });
-
-        // 13. SUCESSO TOTAL - Retornar resultado
-        console.log(`ðŸŽ‰ EMPRESA CRIADA COM SUCESSO: ${body.nome}`);
+        // 11. SUCESSO - Retornar resultado
+        console.log(`Empresa criada com sucesso: ${body.nome}`);
 
         return NextResponse.json({
             success: true,
-            message: `Empresa "${body.nome}" criada com SUCESSO TOTAL!`,
+            message: `Empresa "${body.nome}" criada com sucesso!`,
             empresa: {
                 id: empresa.id,
                 nome: empresa.nome,
@@ -427,16 +342,7 @@ export async function POST(req: NextRequest) {
                 total: 12,
                 lista: verificacao.tabelas.map((t: any) => t.tabela),
             },
-            workflows: {
-                criados: true,
-                total: workflowsResult.results?.filter((r: any) => r.success).length || 0,
-                lista: workflowsResult.results?.map((r: any) => ({
-                    template: r.workflowId,
-                    nome: r.workflowName,
-                    id_n8n: r.n8nWorkflowId,
-                })),
-            },
-            status: 'âœ… SISTEMA PRONTO PARA USO!',
+            status: 'SISTEMA PRONTO PARA USO',
         });
 
     } catch (error: any) {

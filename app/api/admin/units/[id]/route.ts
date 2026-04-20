@@ -2,13 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createBiaSupabaseServerClient } from '@/lib/supabase/bia-client';
 import { verifyToken } from '@/lib/auth/utils';
 import { cookies } from 'next/headers';
-import { workflowReplicator } from '@/lib/n8n/replicator';
-
 export const dynamic = 'force-dynamic';
 
 /**
  * DELETE /api/admin/units/[id]
- * Exclui completamente uma unidade (Banco + N8N)
+ * Exclui completamente uma unidade (Banco + Tabelas)
  */
 export async function DELETE(
     req: NextRequest,
@@ -45,15 +43,7 @@ export async function DELETE(
 
         console.log(`[Admin Delete Unit] Iniciando exclusão de: ${unit.unit_name} (${unit.unit_prefix})`);
 
-        // 3. Excluir Workflows do N8N
-        try {
-            const replicationResult = await workflowReplicator.removeAllWorkflows(unit.unit_name);
-            console.log(`[Admin Delete Unit] N8N Cleanup: ${replicationResult.deleted} workflows removidos.`);
-        } catch (n8nError) {
-            console.error('[Admin Delete Unit] Erro ao limpar N8N (prosseguindo com DB):', n8nError);
-        }
-
-        // 4. Excluir Banco de Dados (Drop Schema/Tables)
+        // 3. Excluir Banco de Dados (Drop Schema/Tables)
         // Precisamos de uma RPC para isso também
         try {
             // Primeiro tentamos drop_instance se existir

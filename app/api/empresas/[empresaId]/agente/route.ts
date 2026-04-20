@@ -4,7 +4,7 @@
  * GET /api/empresas/[empresaId]/agente - Obter configuraÃ§Ã£o
  * PUT /api/empresas/[empresaId]/agente - Atualizar configuraÃ§Ã£o
  * POST /api/empresas/[empresaId]/agente/preview - Preview do prompt
- * POST /api/empresas/[empresaId]/agente/sync - Sincronizar com N8N
+ * POST /api/empresas/[empresaId]/agente - Preview do prompt
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -192,7 +192,7 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
             message: 'ConfiguraÃ§Ã£o salva com sucesso!',
             config,
             prompt_preview: promptGerado,
-            proximo_passo: 'Clique em "Sincronizar com N8N" para atualizar o workflow',
+            proximo_passo: 'Configuração salva com sucesso!',
         });
 
     } catch (error: any) {
@@ -206,11 +206,6 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
 export async function POST(req: NextRequest, { params }: RouteParams) {
     try {
         const body = await req.json();
-
-        // Se Ã© aÃ§Ã£o de sync
-        if (body.action === 'sync') {
-            return await sincronizarComN8N(await params, body);
-        }
 
         // Validar
         const validacao = validarConfig(body);
@@ -234,108 +229,5 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     }
 }
 
-/**
- * Sincroniza o prompt com o workflow N8N
- */
-async function sincronizarComN8N(params: { empresaId: string }, body: any) {
-    try {
-        const { empresaId } = params;
-
-        // Buscar configuraÃ§Ã£o do agente
-        const { data: config, error: configError } = await supabaseAdmin
-            .from('empresa_agente_config')
-            .select('*')
-            .eq('empresa_id', empresaId)
-            .single();
-
-        if (configError || !config) {
-            return NextResponse.json({
-                error: 'ConfiguraÃ§Ã£o do agente nÃ£o encontrada. Salve primeiro.',
-            }, { status: 404 });
-        }
-
-        // Buscar workflow ZAPI Principal da empresa
-        const { data: workflow } = await supabaseAdmin
-            .from('empresa_workflows')
-            .select('workflow_id')
-            .eq('empresa_id', empresaId)
-            .eq('workflow_type', 'zapi-principal')
-            .single();
-
-        if (!workflow) {
-            return NextResponse.json({
-                error: 'Workflow ZAPI Principal nÃ£o encontrado. Replique os workflows primeiro.',
-            }, { status: 404 });
-        }
-
-        // Gerar prompt
-        const promptGerado = gerarPromptAgente(config as unknown as AgenteConfig);
-
-        // Atualizar workflow no N8N
-        const { N8nClient } = await import('@/lib/n8n/client');
-        const n8nClient = new N8nClient();
-
-        // Buscar workflow atual
-        const workflowAtual = await n8nClient.getWorkflow(workflow.workflow_id);
-
-        if (!workflowAtual.success || !workflowAtual.data) {
-            return NextResponse.json({
-                error: 'Workflow nÃ£o encontrado no N8N.',
-            }, { status: 404 });
-        }
-
-        // Encontrar o nÃ³ do AI Agent e atualizar o prompt
-        const workflowDataRaw: any = workflowAtual.data;
-        const nodes = Array.isArray(workflowDataRaw?.nodes) ? workflowDataRaw.nodes : [];
-        let agenteEncontrado = false;
-
-        for (const node of nodes) {
-            // Procurar pelo nÃ³ de AI Agent
-            if (node.type === '@n8n/n8n-nodes-langchain.agent' ||
-                node.type === 'n8n-nodes-langchain.agent' ||
-                node.name?.toLowerCase().includes('agent')) {
-
-                // Atualizar o prompt no nÃ³
-                if (node.parameters) {
-                    node.parameters.systemMessage = JSON.stringify(promptGerado, null, 2);
-                    agenteEncontrado = true;
-                }
-            }
-        }
-
-        if (!agenteEncontrado) {
-            return NextResponse.json({
-                error: 'NÃ³ do AI Agent nÃ£o encontrado no workflow.',
-                sugestao: 'Verifique se o workflow tem um nÃ³ de AI Agent configurado.',
-            }, { status: 404 });
-        }
-
-        // Atualizar workflow no N8N
-        await n8nClient.updateWorkflow(workflow.workflow_id, {
-            nodes: nodes,
-        });
-
-        // Registrar sincronizaÃ§Ã£o
-        await supabaseAdmin
-            .from('empresa_agente_config')
-            .update({
-                updated_at: new Date().toISOString(),
-            })
-            .eq('empresa_id', empresaId);
-
-        return NextResponse.json({
-            success: true,
-            message: 'Prompt sincronizado com o workflow N8N!',
-            workflow_id: workflow.workflow_id,
-        });
-
-    } catch (error: any) {
-        console.error('Erro ao sincronizar com N8N:', error);
-        return NextResponse.json({
-            error: 'Erro ao sincronizar com N8N',
-            details: error.message,
-        }, { status: 500 });
-    }
-}
 
 
