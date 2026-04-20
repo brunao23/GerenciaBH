@@ -3,6 +3,8 @@ import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { getMessagingConfigForTenant } from "@/lib/helpers/messaging-config"
 import { createZApiServiceFromMessagingConfig } from "@/lib/helpers/zapi-messaging"
 import { getTablesForTenant } from "@/lib/helpers/tenant"
+import { generatePersonalizedWelcome } from "@/lib/helpers/lead-welcome"
+import { TenantChatHistoryService } from "@/lib/services/tenant-chat-history.service"
 
 const META_GRAPH_API = "https://graph.facebook.com/v20.0"
 
@@ -145,7 +147,12 @@ async function processLead({
     return
   }
 
-  const message = buildMessage(welcome_message, { nome: name || "você", campanha: campaign_name })
+  const message = await generatePersonalizedWelcome({
+    name: name || null,
+    campaignName: campaign_name || null,
+    formFields: (leadData.field_data ?? []) as Array<{ name: string; values: string[] }>,
+  })
+
   const zapiResult = await service.sendTextMessage({
     phone: formattedPhone,
     message,
@@ -153,12 +160,27 @@ async function processLead({
     delayTyping: 2,
   })
 
-  // 7. Update sent status
-  if (zapiResult.success && leadRecord?.id) {
-    await supabase
-      .from(campaignTable)
-      .update({ whatsapp_sent: true, whatsapp_sent_at: new Date().toISOString() })
-      .eq("id", leadRecord.id)
+  // 7. Update sent status and persist to chat history
+  if (zapiResult.success) {
+    if (leadRecord?.id) {
+      await supabase
+        .from(campaignTable)
+        .update({ whatsapp_sent: true, whatsapp_sent_at: new Date().toISOString() })
+        .eq("id", leadRecord.id)
+    }
+
+    try {
+      const chatHistory = new TenantChatHistoryService(unit_prefix)
+      await chatHistory.persistMessage({
+        sessionId: formattedPhone,
+        role: "assistant",
+        type: "assistant",
+        content: message,
+        source: "meta-lead-welcome",
+      })
+    } catch (err) {
+      console.warn("[meta-leads] Failed to persist welcome to chat history:", err)
+    }
   }
 
   console.log(
@@ -194,10 +216,3 @@ function extractField(
   return ""
 }
 
-function buildMessage(template: string, vars: Record<string, string>): string {
-  let msg = template || "Oi {nome}! Vi que você se interessou. Como posso te ajudar?"
-  for (const [key, val] of Object.entries(vars)) {
-    msg = msg.replace(new RegExp(`\\{${key}\\}`, "g"), val)
-  }
-  return msg
-}

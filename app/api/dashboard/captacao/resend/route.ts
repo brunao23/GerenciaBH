@@ -3,6 +3,8 @@ import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { getMessagingConfigForTenant } from "@/lib/helpers/messaging-config"
 import { createZApiServiceFromMessagingConfig } from "@/lib/helpers/zapi-messaging"
+import { generatePersonalizedWelcome } from "@/lib/helpers/lead-welcome"
+import { TenantChatHistoryService } from "@/lib/services/tenant-chat-history.service"
 
 export async function POST(req: Request) {
   let unitPrefix: string
@@ -21,7 +23,7 @@ export async function POST(req: Request) {
 
   const { data: lead, error: fetchErr } = await supabase
     .from(campaignTable)
-    .select("id, phone, name, campaign_name, whatsapp_sent")
+    .select("id, phone, name, campaign_name, form_data")
     .eq("id", leadId)
     .maybeSingle()
 
@@ -41,7 +43,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "WhatsApp não configurado" }, { status: 503 })
   }
 
-  const message = `Oi ${lead.name || "você"}! Vi que você se interessou em ${lead.campaign_name || "nossos serviços"}. Como posso te ajudar?`
+  const formFields: Array<{ name: string; values: string[] }> =
+    lead.form_data?.field_data ?? []
+
+  const message = await generatePersonalizedWelcome({
+    name: lead.name ?? null,
+    campaignName: lead.campaign_name ?? null,
+    formFields,
+  })
 
   const zapiResult = await service.sendTextMessage({
     phone: lead.phone,
@@ -58,6 +67,19 @@ export async function POST(req: Request) {
     .from(campaignTable)
     .update({ whatsapp_sent: true, whatsapp_sent_at: new Date().toISOString() })
     .eq("id", leadId)
+
+  try {
+    const chatHistory = new TenantChatHistoryService(unitPrefix)
+    await chatHistory.persistMessage({
+      sessionId: lead.phone,
+      role: "assistant",
+      type: "assistant",
+      content: message,
+      source: "meta-lead-welcome-resend",
+    })
+  } catch (err) {
+    console.warn("[captacao/resend] Failed to persist to chat history:", err)
+  }
 
   return NextResponse.json({ ok: true })
 }
