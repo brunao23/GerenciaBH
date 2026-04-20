@@ -11,6 +11,7 @@ import {
 import { GeminiService } from "@/lib/services/gemini.service"
 import { normalizePhoneNumber, normalizeSessionId, TenantChatHistoryService } from "./tenant-chat-history.service"
 import { TenantMessagingService } from "./tenant-messaging.service"
+import { GroupNotificationDispatcherService } from "./group-notification-dispatcher.service"
 
 export interface EnqueueReminderInput {
   tenant: string
@@ -353,6 +354,7 @@ function buildRuntimeContextualFollowupMessage(input: {
 export class AgentTaskQueueService {
   private readonly supabase = createBiaSupabaseServerClient()
   private readonly messaging = new TenantMessagingService()
+  private readonly groupNotifier = new GroupNotificationDispatcherService()
   private readonly table = "agent_task_queue"
   private readonly followupConfigCache = new Map<
     string,
@@ -373,6 +375,8 @@ export class AgentTaskQueueService {
       reminderMediaUrl?: string
       reminderCaption?: string
       reminderDocumentFileName?: string
+      toolNotificationsEnabled: boolean
+      toolNotificationTargets: string[]
     }
   >()
 
@@ -392,6 +396,8 @@ export class AgentTaskQueueService {
     reminderMediaUrl?: string
     reminderCaption?: string
     reminderDocumentFileName?: string
+    toolNotificationsEnabled: boolean
+    toolNotificationTargets: string[]
   }> {
     const now = Date.now()
     const cached = this.followupConfigCache.get(tenant)
@@ -412,6 +418,8 @@ export class AgentTaskQueueService {
         reminderMediaUrl: cached.reminderMediaUrl,
         reminderCaption: cached.reminderCaption,
         reminderDocumentFileName: cached.reminderDocumentFileName,
+        toolNotificationsEnabled: cached.toolNotificationsEnabled,
+        toolNotificationTargets: cached.toolNotificationTargets,
       }
     }
 
@@ -443,6 +451,10 @@ export class AgentTaskQueueService {
       reminderMediaUrl: String(config?.reminderMediaUrl || "").trim() || undefined,
       reminderCaption: String(config?.reminderCaption || "").trim() || undefined,
       reminderDocumentFileName: String(config?.reminderDocumentFileName || "").trim() || undefined,
+      toolNotificationsEnabled: config?.toolNotificationsEnabled === true,
+      toolNotificationTargets: Array.isArray(config?.toolNotificationTargets)
+        ? config.toolNotificationTargets.map((value) => String(value || "").trim()).filter(Boolean)
+        : [],
     }
 
     this.followupConfigCache.set(tenant, { ...runtime, loadedAt: now })
@@ -1070,6 +1082,114 @@ export class AgentTaskQueueService {
     return { success: sentDocument.success, error: sentDocument.error }
   }
 
+  private async notifyFollowupTouchpoint(input: {
+    tenant: string
+    sessionId: string
+    phone: string
+    runtimeConfig: Awaited<ReturnType<AgentTaskQueueService["loadFollowupRuntimeConfig"]>>
+    kind: "sent" | "failed" | "cancelled"
+    reason?: string
+    step?: number
+    totalSteps?: number
+    message?: string
+    error?: string
+    taskId?: string
+  }): Promise<void> {
+    if (!input.runtimeConfig.toolNotificationsEnabled) return
+
+    const leadRef = normalizePhoneNumber(input.phone)
+    const reasonText = String(input.reason || "").trim()
+
+    // Erros e cancelamentos → webhook externo (nunca para o grupo do cliente)
+    if (input.kind === "cancelled" || input.kind === "failed") {
+      await this.sendFollowupErrorWebhook({
+        kind: input.kind,
+        tenant: input.tenant,
+        taskId: input.taskId,
+        phone: leadRef || input.phone,
+        sessionId: input.sessionId,
+        step: input.step,
+        totalSteps: input.totalSteps,
+        reason: reasonText || undefined,
+        message: input.message,
+        error: input.error,
+      }).catch(() => {})
+      return
+    }
+
+    // FOLLOW-UP ENVIADO → notificação no grupo (comportamento original)
+    const targets = (input.runtimeConfig.toolNotificationTargets || [])
+      .map((value) => String(value || "").trim())
+      .filter((value) => /@g\.us$/i.test(value) || /-group$/i.test(value))
+      .slice(0, 100)
+    if (!targets.length) return
+
+    const stage = input.step && input.totalSteps ? `${input.step}/${input.totalSteps}` : "n/a"
+    const lineMessage = input.message ? `Mensagem: ${sanitizeFollowupText(input.message, 180)}` : ""
+
+    const body = [
+      "FOLLOW-UP ENVIADO",
+      `Contato: wa.me/${leadRef || input.phone}`,
+      `Etapa: ${stage}`,
+      lineMessage,
+    ]
+      .filter(Boolean)
+      .join("\n")
+
+    await this.groupNotifier
+      .dispatch({
+        tenant: input.tenant,
+        anchorSessionId: input.sessionId,
+        source: "followup-touchpoint",
+        message: body,
+        targets,
+        dedupeKey: `followup:sent:${input.taskId || ""}:${leadRef}:${input.step || 0}:${input.totalSteps || 0}`,
+        dedupeWindowSeconds: 3600,
+      })
+      .catch(() => {})
+  }
+
+  private async sendFollowupErrorWebhook(input: {
+    kind: "cancelled" | "failed"
+    tenant: string
+    taskId?: string
+    phone: string
+    sessionId: string
+    step?: number
+    totalSteps?: number
+    reason?: string
+    message?: string
+    error?: string
+  }): Promise<void> {
+    const WEBHOOK_URL = "https://webhook.iagoflow.com/webhook/ERRO"
+
+    const payload = {
+      event: input.kind === "cancelled" ? "followup_cancelled" : "followup_failed",
+      timestamp: new Date().toISOString(),
+      tenant: input.tenant,
+      lead: {
+        phone: input.phone,
+        whatsapp_link: `wa.me/${input.phone}`,
+        session_id: input.sessionId,
+      },
+      followup: {
+        task_id: input.taskId || null,
+        step: input.step ?? null,
+        total_steps: input.totalSteps ?? null,
+        reason: input.reason || null,
+        preview: input.message ? sanitizeFollowupText(input.message, 200) : null,
+      },
+      error_detail: input.error ? String(input.error).slice(0, 300) : null,
+    }
+
+    await fetch(WEBHOOK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(8000),
+    })
+  }
+
   async processDueTasks(limit = 30): Promise<{
     processed: number
     sent: number
@@ -1230,6 +1350,18 @@ export class AgentTaskQueueService {
               last_error: reason,
             })
             .eq("id", task.id)
+          await this.notifyFollowupTouchpoint({
+            tenant,
+            sessionId,
+            phone,
+            runtimeConfig,
+            kind: "cancelled",
+            reason,
+            step: Number(payload?.followup_step || 0) || undefined,
+            totalSteps: Number(payload?.followup_total_steps || 0) || undefined,
+            message,
+            taskId: String(task.id || ""),
+          })
           continue
         }
       }
@@ -1255,6 +1387,20 @@ export class AgentTaskQueueService {
             last_error: null,
           })
           .eq("id", task.id)
+        if (taskType === "followup") {
+          await this.notifyFollowupTouchpoint({
+            tenant,
+            sessionId,
+            phone,
+            runtimeConfig,
+            kind: "sent",
+            reason: "followup_sent",
+            step: Number(payload?.followup_step || 0) || undefined,
+            totalSteps: Number(payload?.followup_total_steps || 0) || undefined,
+            message,
+            taskId: String(task.id || ""),
+          })
+        }
         continue
       }
 
@@ -1269,6 +1415,21 @@ export class AgentTaskQueueService {
           last_error: send.error || "send_failed",
         })
         .eq("id", task.id)
+      if (taskType === "followup") {
+        await this.notifyFollowupTouchpoint({
+          tenant,
+          sessionId,
+          phone,
+          runtimeConfig,
+          kind: "failed",
+          reason: "send_failed",
+          error: send.error || "send_failed",
+          step: Number(payload?.followup_step || 0) || undefined,
+          totalSteps: Number(payload?.followup_total_steps || 0) || undefined,
+          message,
+          taskId: String(task.id || ""),
+        })
+      }
     }
 
     return result
