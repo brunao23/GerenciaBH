@@ -2210,6 +2210,7 @@ export class NativeAgentOrchestratorService {
       contextHint: contextHint || undefined,
       qualificationState,
       source: input.source,
+      tenant,
     })
 
     // â"€â"€ Semantic Cache: lookup â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
@@ -3239,6 +3240,7 @@ export class NativeAgentOrchestratorService {
       contextHint?: string
       qualificationState?: QualificationState
       source?: string
+      tenant?: string
     },
   ): string {
     const contactFirstName = firstName(ctx.contactName)
@@ -3369,6 +3371,16 @@ export class NativeAgentOrchestratorService {
     const qualificationStateRule = qualification.qualified
       ? "- ESTADO DE QUALIFICACAO ATUAL: concluido (area + dor/desafio identificados). Prioridade agora: responder perguntas do lead e apresentar o proximo passo (agendamento ou informacoes solicitadas)."
       : `- ESTADO DE QUALIFICACAO ATUAL: incompleto (area=${qualification.hasArea ? "sim" : "nao"}, dor_desafio=${qualification.hasPain ? "sim" : "nao"}). Antes de valores/agenda, conclua a descoberta.`
+    const tenantPrefix = String(ctx.tenant || "").toLowerCase()
+    const isVoxTenant = tenantPrefix.startsWith("vox_") || tenantPrefix === "bia_vox"
+    const nicheContentRule = isVoxTenant
+      ? [
+          "## REGRA DE CONTEUDO — METODOLOGIA (CLIENTES VOX)",
+          "- PROIBIDO afirmar que a metodologia para criancas (kids) e diferente da metodologia para adultos. A metodologia e UMA SO e se aplica igualmente a todos os publicos (adultos, teens e kids).",
+          "- Se o lead perguntar sobre aulas para criancas, teens ou adultos: informe que a metodologia e a mesma para todos, adaptada ao nivel e faixa etaria de cada aluno.",
+          "- NUNCA mencione 'metodologia exclusiva para kids', 'metodo especial para criancas', 'abordagem diferenciada para o publico infantil' ou similares. Isso e factualmente incorreto para esta unidade.",
+        ].join("\n")
+      : ""
     const emailSchedulingRule = config.collectEmailForScheduling
       ? [
           "- REGRA CRITICA DE AGENDAMENTO: o fluxo NUNCA pode parar por falta de email do lead.",
@@ -3576,6 +3588,7 @@ export class NativeAgentOrchestratorService {
       firstMessageRule,
       qualificationFlowRule,
       qualificationStateRule,
+      nicheContentRule,
       personalizationRule,
       emailSchedulingRule,
       onlineMeetRule,
