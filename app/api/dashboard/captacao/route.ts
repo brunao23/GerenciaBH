@@ -2,16 +2,31 @@ import { NextResponse } from "next/server"
 import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 
-// Brazil is UTC-3 — all date boundaries must use BRT midnight, not UTC
-const BRT_OFFSET_MS = 3 * 60 * 60 * 1000
+// Mapa de fusos horários por tenant (offset em horas em relação a UTC, sem DST desde 2019)
+// UTC-3: maioria do Brasil (SP, MG, RJ, etc.)
+// UTC-4: Cuiabá/MT (bia_vox), Campo Grande/MS, Manaus/AM
+const TENANT_UTC_OFFSET: Record<string, number> = {
+  bia_vox: 4,  // Cuiabá — UTC-4
+}
+const DEFAULT_UTC_OFFSET = 3 // UTC-3 para todos os outros
 
-function toBrtDate(isoString: string): string {
-  return new Date(new Date(isoString).getTime() - BRT_OFFSET_MS).toISOString().slice(0, 10)
+function getTenantOffset(unitPrefix: string): number {
+  return TENANT_UTC_OFFSET[unitPrefix] ?? DEFAULT_UTC_OFFSET
 }
 
-function parsePeriod(searchParams: URLSearchParams): { start: string | null; end: string } {
+function toLocalDate(isoString: string, offsetHours: number): string {
+  return new Date(new Date(isoString).getTime() - offsetHours * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10)
+}
+
+function parsePeriod(
+  searchParams: URLSearchParams,
+  offsetHours: number
+): { start: string | null; end: string } {
   const period = searchParams.get("period") || "30d"
   const now = new Date()
+  const sign = `-0${offsetHours}:00`
 
   if (period === "all") return { start: null, end: now.toISOString() }
 
@@ -19,17 +34,18 @@ function parsePeriod(searchParams: URLSearchParams): { start: string | null; end
     const s = searchParams.get("startDate")
     const e = searchParams.get("endDate")
     if (s && e) return {
-      start: new Date(`${s}T00:00:00-03:00`).toISOString(),
-      end: new Date(`${e}T23:59:59-03:00`).toISOString(),
+      start: new Date(`${s}T00:00:00${sign}`).toISOString(),
+      end: new Date(`${e}T23:59:59${sign}`).toISOString(),
     }
   }
 
   const daysMap: Record<string, number> = { "7d": 7, "15d": 15, "30d": 30, "90d": 90 }
   const days = daysMap[period] || 30
-  // Compute BRT "today" date, then go back (days-1) and set to midnight BRT = 03:00 UTC
-  const nowBrtMs = now.getTime() - BRT_OFFSET_MS
-  const start = new Date(nowBrtMs - (days - 1) * 24 * 60 * 60 * 1000)
-  start.setUTCHours(3, 0, 0, 0) // 03:00 UTC = 00:00 BRT
+  const offsetMs = offsetHours * 60 * 60 * 1000
+  const localNowMs = now.getTime() - offsetMs
+  const start = new Date(localNowMs - (days - 1) * 24 * 60 * 60 * 1000)
+  // Meia-noite local = offsetHours UTC
+  start.setUTCHours(offsetHours, 0, 0, 0)
   return { start: start.toISOString(), end: now.toISOString() }
 }
 
@@ -43,7 +59,8 @@ export async function GET(req: Request) {
   }
 
   const url = new URL(req.url)
-  const { start, end } = parsePeriod(url.searchParams)
+  const offset = getTenantOffset(unitPrefix)
+  const { start, end } = parsePeriod(url.searchParams, offset)
 
   const supabase = createBiaSupabaseServerClient()
   const campaignTable = `${unitPrefix}_lead_campaigns`
@@ -81,7 +98,7 @@ export async function GET(req: Request) {
 
   const byDay: Record<string, number> = {}
   for (const r of rows) {
-    const day = toBrtDate(r.created_at)
+    const day = toLocalDate(r.created_at, offset)
     byDay[day] = (byDay[day] || 0) + 1
   }
 
