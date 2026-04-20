@@ -2377,6 +2377,11 @@ export class NativeAgentOrchestratorService {
       qualificationState,
       effectiveLeadMessage || content,
     )
+    if (isInstagramCommentChannel) {
+      const sentenceMatch = responseText.match(/^.{1,220}?[.!?]/)
+      if (sentenceMatch) responseText = sentenceMatch[0]
+      else if (responseText.length > 220) responseText = responseText.slice(0, 220)
+    }
     if (!responseText) {
       return {
         processed: true,
@@ -3312,11 +3317,13 @@ export class NativeAgentOrchestratorService {
     const deepInteractionRule = config.deepInteractionAnalysisEnabled
       ? "- Antes de responder, analise contexto profundo: historico recente, intencao, emocao, replies/reacoes e mensagens em buffer; responda cobrindo todos os pontos relevantes."
       : "- Use apenas o contexto imediato da ultima mensagem."
-    const firstMessageRule = config.preciseFirstMessageEnabled
-      ? Number(ctx.assistantMessagesCount || 0) === 0
-        ? "- Esta e a primeira resposta da IA: (1) saudacao pelo periodo do dia, (2) apresentacao curta e natural da unidade/servico, (3) pergunte de forma leve a area de atuacao do lead â€” ex.: 'Me conta qual e a sua area de atuacao para eu te orientar melhor.' NAO mencione horarios, agenda, valores ou disponibilidade nesta abertura. Se o lead ja chegou perguntando valores ou horario, siga o prompt da unidade sem usar scripts fixos."
-        : "- Mantenha continuidade precisa com o ponto exato onde a conversa parou."
-      : "- Primeira resposta pode seguir fluxo livre."
+    const firstMessageRule = isInstagramComment
+      ? “- CANAL COMENTARIO PUBLICO: NAO faca saudacao, NAO se apresente, NAO pergunte o nome, NAO mencione horarios ou valores. Responda APENAS com 1 frase curta e direta (maximo 180 caracteres) reagindo ao comentario e convidando para o Direct. Nao use scripts de abertura.”
+      : config.preciseFirstMessageEnabled
+        ? Number(ctx.assistantMessagesCount || 0) === 0
+          ? “- Esta e a primeira resposta da IA: (1) saudacao pelo periodo do dia, (2) apresentacao curta e natural da unidade/servico, (3) pergunte de forma leve a area de atuacao do lead â€” ex.: 'Me conta qual e a sua area de atuacao para eu te orientar melhor.' NAO mencione horarios, agenda, valores ou disponibilidade nesta abertura. Se o lead ja chegou perguntando valores ou horario, siga o prompt da unidade sem usar scripts fixos.”
+          : “- Mantenha continuidade precisa com o ponto exato onde a conversa parou.”
+        : “- Primeira resposta pode seguir fluxo livre.”
     const qualification = ctx.qualificationState || {
       hasArea: false,
       hasPain: false,
