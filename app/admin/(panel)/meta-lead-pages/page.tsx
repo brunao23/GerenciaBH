@@ -150,7 +150,7 @@ export default function MetaLeadPagesPage() {
           selected: true,
           form_id: null,
           form_name: "Todos os formulários",
-          unit_prefix: page.unit_prefix_hint ?? "",
+          unit_prefix: "",
           campaign_name: page.page_name,
         }
       }
@@ -170,7 +170,7 @@ export default function MetaLeadPagesPage() {
           selected: true,
           form_id: form.form_id,
           form_name: form.form_name,
-          unit_prefix: page.unit_prefix_hint ?? "",
+          unit_prefix: "",
           campaign_name: form.form_name,
         }
       }
