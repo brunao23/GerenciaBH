@@ -4,6 +4,21 @@ const IGNORED_FIELD_NAMES = new Set([
   "email", "e-mail",
 ])
 
+const INVALID_NAME_PATTERNS = /^(null|undefined|none|n\/a|não informado|nao informado|sem nome|test|teste|-|\.|\d+)$/i
+
+// Valida e normaliza o primeiro nome do lead — retorna null se inválido
+export function sanitizeName(raw: string | null | undefined): string | null {
+  const trimmed = (raw ?? "").trim()
+  if (!trimmed || trimmed.length < 2) return null
+  if (INVALID_NAME_PATTERNS.test(trimmed)) return null
+  if (trimmed.includes("@")) return null          // email
+  if (/^[\d\s\-+().]{6,}$/.test(trimmed)) return null  // telefone
+  if (/^\d/.test(trimmed)) return null            // começa com número
+  const firstName = trimmed.split(/\s+/)[0]
+  if (firstName.length < 2) return null
+  return firstName.charAt(0).toUpperCase() + firstName.slice(1).toLowerCase()
+}
+
 export interface LeadWelcomeInput {
   name: string | null
   campaignName: string | null
@@ -11,7 +26,7 @@ export interface LeadWelcomeInput {
 }
 
 function buildFallback(input: LeadWelcomeInput): string {
-  const nome = input.name?.split(" ")[0] || "você"
+  const nome = sanitizeName(input.name) ?? "você"
   const campanha = input.campaignName || "nossos serviços"
   return `Oi ${nome}! Vi que você se interessou em ${campanha}. Como posso te ajudar?`
 }
@@ -20,7 +35,7 @@ export async function generatePersonalizedWelcome(input: LeadWelcomeInput): Prom
   const apiKey = process.env.GEMINI_API_KEY?.trim()
   if (!apiKey) return buildFallback(input)
 
-  const nome = input.name?.split(" ")[0] || null
+  const nome = sanitizeName(input.name)
   const extraFields = input.formFields.filter(
     (f) => !IGNORED_FIELD_NAMES.has(f.name.toLowerCase()) && f.values?.[0]
   )

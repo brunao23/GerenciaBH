@@ -3,7 +3,7 @@ import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { getMessagingConfigForTenant } from "@/lib/helpers/messaging-config"
 import { createZApiServiceFromMessagingConfig } from "@/lib/helpers/zapi-messaging"
 import { getTablesForTenant } from "@/lib/helpers/tenant"
-import { generatePersonalizedWelcome } from "@/lib/helpers/lead-welcome"
+import { generatePersonalizedWelcome, sanitizeName } from "@/lib/helpers/lead-welcome"
 import { TenantChatHistoryService } from "@/lib/services/tenant-chat-history.service"
 
 const META_GRAPH_API = "https://graph.facebook.com/v20.0"
@@ -94,7 +94,8 @@ async function processLead({
 
   // 3. Extract fields
   const phone = extractField(leadData.field_data, ["phone_number", "phone", "telefone", "celular"])
-  const name = extractField(leadData.field_data, ["full_name", "name", "nome", "first_name"])
+  const rawName = extractField(leadData.field_data, ["full_name", "name", "nome", "first_name"])
+  const name = sanitizeName(rawName)
   const email = extractField(leadData.field_data, ["email", "e-mail"])
 
   if (!phone) {
