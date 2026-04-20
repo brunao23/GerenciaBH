@@ -28,6 +28,7 @@ import {
     MessageCircle,
     Calendar,
     Instagram,
+    Target,
 } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useState } from "react"
@@ -37,6 +38,7 @@ const adminItems = [
     { title: "Resultados / Leads", url: "/admin/leads", icon: BarChart },
     { title: "Gerar Relatórios", url: "/admin/reports", icon: FileText },
     { title: "Testadores Instagram", url: "/admin/instagram-testers", icon: Instagram },
+    { title: "Meta Lead Ads", url: "/admin/meta-lead-pages", icon: Target },
 ]
 
 export function AdminSidebar() {

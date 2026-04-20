@@ -32,6 +32,7 @@ import {
   ShieldCheck,
   Bell,
   BookUser,
+  Target,
 } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useState } from "react"
@@ -48,6 +49,7 @@ const items = [
   { title: "Disparos", url: "/disparos", icon: Megaphone },
   { title: "Configuracao", url: "/configuracao", icon: ShieldCheck },
   { title: "Agente IA", url: "/agente-ia", icon: Bot },
+  { title: "Captação", url: "/captacao", icon: Target },
   { title: "Relatorios", url: "/relatorios", icon: FileText },
 ]
 
