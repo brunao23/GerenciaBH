@@ -2,9 +2,11 @@ import { NextResponse } from "next/server"
 import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 
-function parsePeriod(searchParams: URLSearchParams): { start: string; end: string } {
+function parsePeriod(searchParams: URLSearchParams): { start: string | null; end: string } {
   const period = searchParams.get("period") || "30d"
   const now = new Date()
+
+  if (period === "all") return { start: null, end: now.toISOString() }
 
   if (period === "custom") {
     const s = searchParams.get("startDate")
@@ -35,12 +37,15 @@ export async function GET(req: Request) {
   const supabase = createBiaSupabaseServerClient()
   const campaignTable = `${unitPrefix}_lead_campaigns`
 
-  const { data: leads, error: leadsError } = await supabase
+  let query = supabase
     .from(campaignTable)
     .select("id, phone, name, email, source, campaign_name, whatsapp_sent, created_at, form_data")
-    .gte("created_at", start)
     .lte("created_at", end)
     .order("created_at", { ascending: false })
+
+  if (start) query = query.gte("created_at", start)
+
+  const { data: leads, error: leadsError } = await query
 
   if (leadsError) {
     console.error("[captacao] Error fetching leads:", leadsError)

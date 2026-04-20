@@ -61,6 +61,7 @@ const PERIOD_OPTIONS = [
   { value: "15d", label: "15 dias" },
   { value: "30d", label: "30 dias" },
   { value: "90d", label: "90 dias" },
+  { value: "all", label: "Tudo" },
 ]
 
 const SOURCE_LABELS: Record<string, string> = {
