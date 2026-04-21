@@ -127,7 +127,9 @@ function normalizeLeadName(name?: string): string {
     "bot", "ia", "assistente", "agente", "sistema", "automacao",
     "atendente", "robo", "chatbot", "suporte", "admin", "teste",
   ])
-  const parts = text.split(" ").map((p) => p.trim()).filter(Boolean)
+  // Quebra CamelCase antes de dividir por espaço: "GabriellaMoraes" → "Gabriella Moraes"
+  const normalized = text.replace(/([a-z\u00C0-\u017E])([A-Z\u0178-\u024F])/g, "$1 $2")
+  const parts = normalized.split(" ").map((p) => p.trim()).filter(Boolean)
   for (const part of parts) {
     if (blocked.has(part.toLowerCase())) continue
     if (!/[a-zA-Z\u00C0-\u024F]/.test(part)) continue

@@ -515,7 +515,10 @@ export class FollowUpAutomationService {
         history: Array<{ role: string; content: string }>
         previousFollowUps: string[]
     }): string {
-        const leadName = String(params.leadName || '').trim() || 'cliente'
+        const rawLeadName = String(params.leadName || '').trim()
+        const leadName = rawLeadName
+          ? (rawLeadName.replace(/([a-z\u00C0-\u017E])([A-Z\u0178-\u024F])/g, '$1 $2').split(' ')[0].replace(/^(.)(.*)$/, (_, f, r) => f.toUpperCase() + r.toLowerCase()) || 'cliente')
+          : 'cliente'
         const topic = this.extractConversationTopic(params.history)
         const lastLeadMessage = this.extractLastLeadMessage(params.history)
         const lastQuestion = this.extractLastAgentQuestion(params.history)
@@ -940,8 +943,12 @@ Retorne JSON:
                 })
             }
 
-            // Garantia final: substitui placeholder se ainda existir
-            const finalMessage = (messageText || '').replace(/\{nome\}/g, schedule.lead_name || 'amigo(a)')
+            // Garantia final: substitui placeholder se ainda existir (usa primeiro nome)
+            const rawSchedName = String(schedule.lead_name || '').trim()
+            const schedFirstName = rawSchedName
+              ? (rawSchedName.replace(/([a-z\u00C0-\u017E])([A-Z\u0178-\u024F])/g, '$1 $2').split(' ')[0].replace(/^(.)(.*)$/, (_, f, r) => f.toUpperCase() + r.toLowerCase()) || 'amigo(a)')
+              : 'amigo(a)'
+            const finalMessage = (messageText || '').replace(/\{nome\}/g, schedFirstName)
 
             // Regra rÃ­gida: nÃ£o disparar follow-up fora da janela 07:00-23:00 (SP).
             // Se virar o horÃ¡rio durante o processamento, reagenda para a prÃ³xima manhÃ£ comercial.

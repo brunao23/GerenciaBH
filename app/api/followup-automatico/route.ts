@@ -169,8 +169,16 @@ async function enviarLembrete(agendamento: any, tipoLembrete: string): Promise<b
   }
 }
 
+function primeiroNome(rawName: string | null | undefined, fallback = "Cliente"): string {
+  const t = (rawName ?? "").trim()
+  if (!t) return fallback
+  const first = t.replace(/([a-z\u00C0-\u017E])([A-Z\u0178-\u024F])/g, "$1 $2").split(/\s+/)[0]
+  if (!first || first.length < 2) return fallback
+  return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase()
+}
+
 function gerarMensagemLembrete(agendamento: any, tipoLembrete: string): string {
-  const nome = agendamento.nome || "Cliente"
+  const nome = primeiroNome(agendamento.nome)
   const dia = agendamento.dia
   const horario = agendamento.horario
 

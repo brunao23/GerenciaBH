@@ -28,6 +28,23 @@ export function isCompanyName(raw: string): boolean {
 
 const INVALID_NAME_RE = INVALID_NAME_PATTERNS
 
+/**
+ * Extrai e normaliza o primeiro nome, tratando CamelCase ("GabriellaMoraes" → "Gabriella"),
+ * nomes com espaço ("Gabriella Moraes" → "Gabriella") e maiúsculas ("GABRIELLA" → "Gabriella").
+ */
+export function extractFirstName(raw: string | null | undefined, fallback = ""): string {
+  const trimmed = (raw ?? "").trim()
+  if (!trimmed) return fallback
+  // Quebra CamelCase: "GabriellaMoraes" → "Gabriella Moraes"
+  const split = trimmed
+    .replace(/([a-z\u00C0-\u017E])([A-Z\u0178-\u024F])/g, "$1 $2")
+    .replace(/\s+/g, " ")
+    .trim()
+  const first = split.split(" ")[0]
+  if (!first || first.length < 2) return fallback
+  return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase()
+}
+
 export function sanitizeName(raw: string | null | undefined): string | null {
   const trimmed = (raw ?? "").trim()
   if (!trimmed || trimmed.length < 2) return null

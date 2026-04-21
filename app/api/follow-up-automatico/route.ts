@@ -44,6 +44,14 @@ function detectarContextoAgendamento(observacoes: string): keyof typeof CONTEXT_
   return null
 }
 
+function primeiroNome(rawName: string | null | undefined, fallback = "Cliente"): string {
+  const t = (rawName ?? "").trim()
+  if (!t) return fallback
+  const first = t.replace(/([a-z\u00C0-\u017E])([A-Z\u0178-\u024F])/g, "$1 $2").split(/\s+/)[0]
+  if (!first || first.length < 2) return fallback
+  return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase()
+}
+
 function gerarMensagemPersonalizada(
   nome: string,
   data: string,
@@ -107,7 +115,7 @@ async function criarFollowUpJobs(agendamento: any, tenant: string) {
     // Só criar job se a data de envio for futura
     if (dataEnvio > new Date()) {
       const mensagemPersonalizada = gerarMensagemPersonalizada(
-        agendamento.nome,
+        primeiroNome(agendamento.nome),
         agendamento.dia,
         agendamento.horario,
         tipo,

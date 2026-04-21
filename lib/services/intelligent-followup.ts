@@ -93,7 +93,10 @@ export class IntelligentFollowUpService {
     topic: string,
     sentiment: 'positive' | 'neutral' | 'negative'
   ): string {
-    const name = context.leadName || 'aí'
+    const rawNameSelect = String(context.leadName || '').trim()
+    const name = rawNameSelect
+      ? (rawNameSelect.replace(/([a-z\u00C0-\u017E])([A-Z\u0178-\u024F])/g, '$1 $2').split(' ')[0].replace(/^(.)(.*)$/, (_, f, r) => f.toUpperCase() + r.toLowerCase()) || 'aí')
+      : 'aí'
     const hoursSinceLast = (Date.now() - context.lastInteractionAt.getTime()) / (1000 * 60 * 60)
 
     // Template baseado no tópico e sentimento
@@ -136,7 +139,10 @@ export class IntelligentFollowUpService {
     attemptNumber: number
   ): string {
     const analysis = this.analyzeContext(context)
-    const name = context.leadName || 'aí'
+    const rawName = String(context.leadName || '').trim()
+    const name = rawName
+      ? (rawName.replace(/([a-z\u00C0-\u017E])([A-Z\u0178-\u024F])/g, '$1 $2').split(' ')[0].replace(/^(.)(.*)$/, (_, f, r) => f.toUpperCase() + r.toLowerCase()) || 'aí')
+      : 'aí'
     const hoursSinceLast = Math.floor(
       (Date.now() - context.lastInteractionAt.getTime()) / (1000 * 60 * 60)
     )
