@@ -68,7 +68,7 @@ CREATE TRIGGER trg_semantic_cache_updated_at
 CREATE OR REPLACE FUNCTION public.match_semantic_cache(
   query_embedding   vector(768),
   query_tenant      TEXT,
-  similarity_threshold FLOAT DEFAULT 0.85,
+  similarity_threshold FLOAT DEFAULT 0.82,
   match_limit       INT DEFAULT 1
 )
 RETURNS TABLE (
