@@ -26,9 +26,8 @@ interface FollowUpStage {
   context: string
 }
 
-// Intervalos de follow-up: 10min, 1h, 6h, 12h, 24h, 26h, 72h, 90h
-const FOLLOW_UP_INTERVALS = [10, 60, 360, 720, 1440, 1560, 4320, 5400] // em minutos
-// 10min=10, 1h=60, 6h=360, 12h=720, 24h=1440, 26h=1560, 72h=4320, 90h=5400
+// Intervalos de follow-up: 10min, 1h, 6h, 1d, 2d, 3d, 5d
+const FOLLOW_UP_INTERVALS = [10, 60, 360, 1440, 2880, 4320, 7200] // em minutos
 
 export class IntelligentFollowUpService {
   /**
@@ -148,34 +147,31 @@ export class IntelligentFollowUpService {
     )
     const daysSinceLast = Math.floor(hoursSinceLast / 24)
 
-    // Mensagens baseadas no número da tentativa
+    // Mensagens baseadas no número da tentativa (7 etapas: 10min/1h/6h/1d/2d/3d/5d)
     switch (attemptNumber) {
-      case 1: // 10 minutos
+      case 1: // 10 minutos — Primeiro contato
         return `Oi ${name}! Vi que estávamos conversando agora há pouco. Tudo certo por aí? Está precisando de mais alguma informação? 😊`
-      
-      case 2: // 1 hora
+
+      case 2: // 1 hora — Relembrar conversa
         return `Olá ${name}! Passando aqui para ver se conseguiu pensar melhor sobre o que conversamos. Fico à disposição para tirar qualquer dúvida! 📩`
-      
-      case 3: // 6 horas
-        return `${name}, preparei algumas informações adicionais que podem te ajudar na decisão. Quando tiver um tempinho, me chama que passo os detalhes! ✨`
-      
-      case 4: // 12 horas
-        return `Olá ${name}! Percebi que não recebi retorno ainda. Ainda tem interesse? Posso te ajudar com algo específico? 💬`
-      
-      case 5: // 24 horas
-        return daysSinceLast === 1
-          ? `Bom dia ${name}! 🌞 Passando aqui para retomar nossa conversa de ontem. Ainda tem interesse? Posso te ajudar com algo específico?`
-          : `Bom dia ${name}! 🌞 Passando aqui para retomar nossa conversa. Ainda tem interesse?`
-      
-      case 6: // 26 horas (1 dia e 2 horas)
-        return `Oi ${name}, tudo bem? Faz um dia que conversamos. Queria saber se ainda faz sentido para você ou se mudou alguma coisa. Estou aqui! 💬`
-      
-      case 7: // 72 horas (3 dias)
-        return `Oi ${name}, tudo bem? Faz alguns dias que conversamos. Queria saber se ainda tem interesse ou se mudou alguma coisa. Estou à disposição! 🙌`
-      
-      case 8: // 90 horas (~4 dias)
-        return `${name}, percebi que não conseguimos finalizar nossa conversa. Se ainda tiver interesse ou precisar de algo, pode me chamar. Estou à disposição! 🙌`
-      
+
+      case 3: // 6 horas — Acompanhamento
+        return `${name}, preparei algumas informações adicionais que podem te ajudar. Quando tiver um tempinho, me chama que passo os detalhes! ✨`
+
+      case 4: // 1 dia — Retomada do dia seguinte
+        return daysSinceLast >= 1
+          ? `Bom dia ${name}! 🌞 Retomando nossa conversa de ontem. Ainda posso te ajudar com algo específico?`
+          : `Olá ${name}! Passando para retomar nossa conversa. Ainda tem interesse? Posso te ajudar com algo? 💬`
+
+      case 5: // 2 dias — Reforço de contexto
+        return `Oi ${name}, tudo bem? Passando para reforçar que ainda estou à disposição para continuar de onde paramos. Me avisa se quiser! 💬`
+
+      case 6: // 3 dias — Tentativa final
+        return `Oi ${name}, é minha última tentativa de contato. Se ainda tiver interesse ou precisar de algo, é só responder aqui. Estou à disposição! 🙌`
+
+      case 7: // 5 dias — Encerramento automático
+        return `${name}, estou encerrando seu atendimento por aqui. Se quiser retomar em qualquer momento, é só me chamar! 🙌`
+
       default:
         return this.selectTemplate(context, analysis.topic, analysis.sentiment)
     }

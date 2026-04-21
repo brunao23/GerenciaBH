@@ -33,7 +33,7 @@ export interface EnqueueFollowupSequenceInput {
   intervalsMinutes?: number[]
 }
 
-const DEFAULT_FOLLOWUP_INTERVALS_MINUTES = [15, 60, 360, 1440, 2880, 4320, 7200]
+const DEFAULT_FOLLOWUP_INTERVALS_MINUTES = [10, 60, 360, 1440, 2880, 4320, 7200]
 const FOLLOWUP_CONFIG_CACHE_TTL_MS = 5_000
 type TaskMessageMode = "text" | "image" | "video" | "document"
 
@@ -288,42 +288,46 @@ function buildContextualFollowupMessage(input: {
   const topic = excerpt(input.lastUserMessage || "", 110)
   const agentContext = excerpt(input.lastAgentMessage || "", 120)
 
-  // Etapas iniciais: referencia direta ao assunto da conversa
+  // Etapa 1 (10min) — Primeiro contato
   if (input.step === 1) {
     if (topic) return `${greeting}, voce comentou ${topic} — consigo te ajudar com isso agora, quer continuar?`
     if (agentContext) return `${greeting}, ficou pendente aqui: ${agentContext}. Quer que eu siga?`
     return `${greeting}, sua mensagem ficou pendente aqui comigo. Posso dar sequencia?`
   }
 
+  // Etapa 2 (1h) — Relembrar conversa
   if (input.step === 2) {
     if (topic) return `${greeting}, sobre ${topic} — tenho as informacoes que voce precisa. Posso te passar?`
     return `${greeting}, ainda tenho seu atendimento em aberto aqui. Quer que eu continue de onde paramos?`
   }
 
-  // Etapas intermediarias: foco em valor e proximo passo concreto
+  // Etapa 3 (6h) — Acompanhamento
   if (input.step === 3) {
     if (topic) return `${greeting}, ja preparei os proximos passos sobre ${topic}. Te envio agora?`
     return `${greeting}, ja tenho os proximos passos do seu atendimento. Quer que eu envie?`
   }
 
+  // Etapa 4 (1 dia) — Retomada do dia seguinte
   if (input.step === 4) {
-    if (topic) return `${greeting}, consigo resolver ${topic} ainda hoje se voce confirmar. O que acha?`
-    return `${greeting}, consigo fechar seu atendimento hoje. Me da um ok que eu finalizo.`
+    if (topic) return `${greeting}, retomando aqui: consigo resolver ${topic} hoje se voce confirmar. O que acha?`
+    return `${greeting}, retomando nosso atendimento do dia anterior. Posso finalizar isso pra voce agora?`
   }
 
-  // Etapas finais: urgencia natural sem pressao
+  // Etapa 5 (2 dias) — Reforco de contexto
   if (input.step === 5) {
-    if (topic) return `${greeting}, ultimo ponto sobre ${topic}: posso te enviar o resumo final?`
-    return `${greeting}, vou fechar seu atendimento em breve. Se precisar de algo, me responde aqui.`
+    if (topic) return `${greeting}, passando para reforcar: ainda consigo te ajudar com ${topic}. Quer que eu siga?`
+    return `${greeting}, sigo disponivel para concluir seu atendimento. Me avisa se quiser continuar.`
   }
 
+  // Etapa 6 (3 dias) — Tentativa final
   if (input.step === 6) {
-    return `${greeting}, como nao tive retorno, vou encerrar seu atendimento por aqui. Qualquer coisa e so me chamar.`
+    if (topic) return `${greeting}, e minha ultima tentativa de contato sobre ${topic}. Se quiser continuar, e so responder aqui.`
+    return `${greeting}, e minha ultima tentativa de contato. Se quiser retomar, e so me chamar aqui.`
   }
 
-  // Etapas extras / encerramento
+  // Etapa 7 (5 dias) — Encerramento automatico
   if (agentContext) {
-    return `${greeting}, estou encerrando por enquanto. O ultimo ponto que tratamos foi: ${agentContext}. Quando quiser retomar, e so chamar.`
+    return `${greeting}, estou encerrando seu atendimento por aqui. O ultimo ponto que tratamos foi: ${agentContext}. Quando quiser retomar, e so me chamar.`
   }
   return `${greeting}, estou encerrando seu atendimento. Quando precisar, e so me enviar uma mensagem.`
 }
@@ -344,7 +348,7 @@ function buildRuntimeContextualFollowupMessage(input: {
   if (pendingQuestion) {
     if (input.step <= 2) return `${greeting}, ficou pendente aqui: ${pendingQuestion}`
     if (input.step <= 4) return `${greeting}, consigo resolver isso agora se voce confirmar: ${pendingQuestion}`
-    if (input.step <= 5) return `${greeting}, antes de encerrar, so preciso da sua resposta sobre: ${pendingQuestion}`
+    if (input.step <= 6) return `${greeting}, antes de encerrar, so preciso da sua resposta sobre: ${pendingQuestion}`
     return `${greeting}, vou encerrar por aqui. Se precisar, a pergunta que ficou pendente foi: ${pendingQuestion}`
   }
 
@@ -353,7 +357,8 @@ function buildRuntimeContextualFollowupMessage(input: {
     if (input.step === 1) return `${greeting}, voce mencionou "${userTopic}" — posso continuar daqui?`
     if (input.step === 2) return `${greeting}, sobre "${userTopic}", ja tenho a resposta. Quer que eu envie?`
     if (input.step === 3) return `${greeting}, preparei os proximos passos sobre "${userTopic}". Te envio agora?`
-    if (input.step <= 5) return `${greeting}, ainda posso te ajudar com "${userTopic}". Me avisa se quiser continuar.`
+    if (input.step === 4) return `${greeting}, retomando: ainda consigo te ajudar com "${userTopic}". Me avisa se quiser continuar.`
+    if (input.step <= 6) return `${greeting}, e minha ultima tentativa sobre "${userTopic}". Se quiser continuar, e so responder.`
     return `${greeting}, encerrando por aqui. Se quiser retomar sobre "${userTopic}", e so me chamar.`
   }
 
@@ -611,16 +616,20 @@ export class AgentTaskQueueService {
       ? recentLeadMessages.map((msg) => `- "${excerpt(msg, 100)}"`).join("\n")
       : "(sem mensagens do lead)"
 
-    // Determinar tom baseado na etapa
+    // Determinar tom baseado na etapa (7 etapas: 10min/1h/6h/1d/2d/3d/5d)
     let stageGuidance = ""
     if (input.step <= 2) {
+      // Etapas 1-2: Primeiro contato / Relembrar conversa
       stageGuidance = "Tom: leve e disponivel. Objetivo: lembrar o lead do ponto exato onde pararam sem pressao."
     } else if (input.step <= 4) {
+      // Etapas 3-4: Acompanhamento / Retomada do dia seguinte
       stageGuidance = "Tom: direto e prestativo. Objetivo: oferecer resolver de forma objetiva, mostrar que tem a resposta pronta."
-    } else if (input.step <= 5) {
-      stageGuidance = "Tom: ultimo contato ativo. Objetivo: comunicar que vai encerrar, mas deixar porta aberta."
+    } else if (input.step <= 6) {
+      // Etapas 5-6: Reforco de contexto / Tentativa final
+      stageGuidance = "Tom: urgencia natural sem pressao. Objetivo: ultima tentativa ativa antes do encerramento, deixar porta aberta."
     } else {
-      stageGuidance = "Tom: encerramento respeitoso. Objetivo: informar que esta encerrando, sem pressao."
+      // Etapa 7: Encerramento automatico
+      stageGuidance = "Tom: encerramento respeitoso e definitivo. Objetivo: informar que esta encerrando o atendimento, sem pressao. O lead sera pausado automaticamente."
     }
 
     const prompt = [
@@ -1014,6 +1023,23 @@ export class AgentTaskQueueService {
       return until.getTime() > Date.now()
     } catch {
       return false
+    }
+  }
+
+  private async pauseLead(tenant: string, phone: string): Promise<void> {
+    try {
+      const tables = getTablesForTenant(tenant)
+      const normalized = normalizePhoneNumber(phone)
+      if (!normalized) return
+      await this.supabase
+        .from(tables.pausar)
+        .upsert(
+          { numero: normalized, pausar: true, updated_at: new Date().toISOString() },
+          { onConflict: "numero" },
+        )
+      console.log(`[AgentTaskQueue] Lead ${normalized} pausado automaticamente (etapa final de follow-up)`)
+    } catch (err) {
+      console.error("[AgentTaskQueue] Erro ao pausar lead:", err)
     }
   }
 
@@ -1450,6 +1476,8 @@ export class AgentTaskQueueService {
           })
           .eq("id", task.id)
         if (taskType === "followup") {
+          const sentStep = Number(payload?.followup_step || 0)
+          const sentTotalSteps = Number(payload?.followup_total_steps || 0)
           await this.notifyFollowupTouchpoint({
             tenant,
             sessionId,
@@ -1457,11 +1485,15 @@ export class AgentTaskQueueService {
             runtimeConfig,
             kind: "sent",
             reason: "followup_sent",
-            step: Number(payload?.followup_step || 0) || undefined,
-            totalSteps: Number(payload?.followup_total_steps || 0) || undefined,
+            step: sentStep || undefined,
+            totalSteps: sentTotalSteps || undefined,
             message,
             taskId: String(task.id || ""),
           })
+          // Auto-pausa na ultima etapa: lead nao respondeu em toda a sequencia
+          if (sentStep > 0 && sentTotalSteps > 0 && sentStep >= sentTotalSteps) {
+            await this.pauseLead(tenant, phone)
+          }
         }
         continue
       }

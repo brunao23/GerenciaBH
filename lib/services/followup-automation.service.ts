@@ -27,7 +27,7 @@ function toDate(value: any): Date | null {
     return null
 }
 
-const DEFAULT_FOLLOWUP_INTERVALS = [15, 60, 360, 1440, 2880, 4320, 7200]
+const DEFAULT_FOLLOWUP_INTERVALS = [10, 60, 360, 1440, 2880, 4320, 7200]
 const MIN_FOLLOWUP_INTERVAL_MINUTES = 10
 
 function normalizeFollowupIntervals(value: any): number[] {
@@ -546,8 +546,12 @@ export class FollowUpAutomationService {
                 `Oi ${leadName}, antes de encerrar o follow-up, confirmo se ainda faz sentido seguir com ${topic}.`,
             ],
             6: [
-                `Oi ${leadName}, ultimo retorno por aqui para nao perder o contexto da conversa. Se quiser continuar, eu sigo de onde paramos.`,
-                `Oi ${leadName}, vou encerrar os avisos automaticos agora. Se quiser retomar ${topic}, me chama e continuo do ponto certo.`,
+                `Oi ${leadName}, e minha ultima tentativa de contato. Se quiser continuar, e so responder aqui.`,
+                `Oi ${leadName}, ultimo retorno antes de encerrar. Se quiser retomar ${topic}, me chama que sigo do ponto certo.`,
+            ],
+            7: [
+                `Oi ${leadName}, estou encerrando seu atendimento por aqui. Quando quiser retomar, e so me chamar.`,
+                `Oi ${leadName}, vou encerrar os contatos automaticos agora. Se precisar de algo sobre ${topic}, e so me enviar uma mensagem.`,
             ],
         }
 
