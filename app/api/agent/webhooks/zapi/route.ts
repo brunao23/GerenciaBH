@@ -939,6 +939,50 @@ function resolveFallbackDelayMinutesFromText(text: string): number {
   return 120
 }
 
+function isInternalTaskLeakMessage(text: string): boolean {
+  const raw = String(text || "").trim()
+  if (!raw) return true
+  const normalized = normalizeComparableText(raw)
+  if (!normalized) return true
+
+  const startsAsInternalTag = /^\s*(task|tarefa|acao|a[cç][aã]o)\s*:/.test(raw.toLowerCase())
+  const hasInternalSignals = [
+    "lead pediu retorno",
+    "retomar atendimento",
+    "validar pendencia",
+    "atendente assumiu compromisso",
+    "compromisso de retorno",
+    "prazo combinado",
+    "fila",
+    "queue",
+    "cron",
+  ].some((signal) => normalized.includes(signal))
+
+  return startsAsInternalTag || hasInternalSignals
+}
+
+function buildSafeTaskReminderMessage(senderType: "lead" | "human", leadName: string): string {
+  const firstName = String(leadName || "")
+    .trim()
+    .split(/\s+/)
+    .find(Boolean) || "tudo bem"
+
+  const greeting = senderType === "lead" ? `Oi ${firstName}` : "Oi"
+  return `${greeting}, conforme combinado, estou retomando nosso contato por aqui. Quer continuar?`
+}
+
+function sanitizeTaskReminderMessage(input: {
+  senderType: "lead" | "human"
+  leadName: string
+  message: string
+}): string {
+  const raw = String(input.message || "").trim()
+  if (!raw || isInternalTaskLeakMessage(raw)) {
+    return buildSafeTaskReminderMessage(input.senderType, input.leadName)
+  }
+  return raw
+}
+
 async function classifyTaskIntentWithGemini(params: {
   config: NativeAgentConfig
   senderType: "lead" | "human"
@@ -1079,10 +1123,15 @@ async function processConversationTaskIntelligence(params: {
   )
   const runAtIso = new Date(Date.now() + delayMinutes * 60 * 1000).toISOString()
   const leadName = extractLeadDisplayName(params.event)
-  const queueMessage = String(decision.task_message || "").trim() ||
+  const queueMessageRaw = String(decision.task_message || "").trim() ||
     (senderType === "lead"
       ? "Lead pediu retorno em outro momento. Retomar atendimento conforme combinado."
       : "Atendente registrou compromisso de retorno. Validar pendencia e retomar contato.")
+  const queueMessage = sanitizeTaskReminderMessage({
+    senderType,
+    leadName,
+    message: queueMessageRaw,
+  })
 
   const enqueue = await new AgentTaskQueueService().enqueueReminder({
     tenant: params.tenant,

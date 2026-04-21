@@ -8,6 +8,7 @@ export interface AgentActionPlan {
     | "get_available_slots"
     | "schedule_appointment"
     | "edit_appointment"
+    | "cancel_appointment"
     | "create_followup"
     | "create_reminder"
     | "handoff_human"
@@ -138,6 +139,7 @@ function safeParseDecision(input: string): GeminiAgentDecision | null {
           "get_available_slots",
           "schedule_appointment",
           "edit_appointment",
+          "cancel_appointment",
           "create_followup",
           "create_reminder",
           "handoff_human",
@@ -242,6 +244,16 @@ function actionFromToolCall(toolCall: GeminiToolCall): AgentActionPlan {
         String(args.appointment_mode || "").toLowerCase() === "online" ? "online" : "presencial",
       customer_email: args.customer_email ? String(args.customer_email) : undefined,
       note: args.note ? String(args.note) : undefined,
+    }
+  }
+
+  if (name === "cancel_appointment") {
+    return {
+      type: "cancel_appointment",
+      appointment_id: args.appointment_id ? String(args.appointment_id) : undefined,
+      date: args.date ? String(args.date) : undefined,
+      time: args.time ? String(args.time) : undefined,
+      note: args.reason ? String(args.reason) : args.note ? String(args.note) : undefined,
     }
   }
 
@@ -595,10 +607,11 @@ export class GeminiService {
       "Se detectar intencao de agendamento, follow-up ou lembrete, adicione acao em `actions`.",
       "Retorne APENAS JSON valido no formato:",
       '{ "reply": "texto", "actions": [{"type":"none"}], "handoff": false }',
-      "Tipos de action permitidos: get_available_slots, schedule_appointment, edit_appointment, create_followup, create_reminder, handoff_human, none.",
+      "Tipos de action permitidos: get_available_slots, schedule_appointment, edit_appointment, cancel_appointment, create_followup, create_reminder, handoff_human, none.",
       "Para get_available_slots, voce pode enviar date_from/date_to e max_slots.",
       "Para schedule_appointment, inclua date (YYYY-MM-DD) e time (HH:mm) quando o lead confirmar.",
-      "Para edit_appointment, inclua appointment_id quando disponivel e os novos date/time.",
+      "Para edit_appointment, inclua appointment_id quando disponivel e sempre use essa action quando houver remarcacao, reagendamento ou pedido para mudar data/horario.",
+      "Para cancel_appointment, inclua appointment_id quando disponivel ou date/time quando o lead quiser cancelar o horario marcado.",
       "Para create_followup/create_reminder, inclua minutes_from_now.",
       `Data/hora atual: ${nowIso}.`,
     ].join("\n")

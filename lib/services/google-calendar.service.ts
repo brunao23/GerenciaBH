@@ -368,4 +368,38 @@ export class GoogleCalendarService {
       meetLink: meetLink || undefined,
     }
   }
+
+  async cancelEvent(eventId: string): Promise<void> {
+    const normalizedEventId = String(eventId || "").trim()
+    if (!normalizedEventId) {
+      throw new Error("Google eventId is required for cancel")
+    }
+
+    const accessToken = await fetchAccessToken(this.config)
+    const endpoint = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(
+      this.config.calendarId,
+    )}/events/${encodeURIComponent(normalizedEventId)}`
+
+    const response = await fetch(endpoint, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    })
+
+    if (response.ok || response.status === 404 || response.status === 410) {
+      return
+    }
+
+    const responseText = await response.text()
+    let responseJson: any = null
+    try {
+      responseJson = responseText ? JSON.parse(responseText) : null
+    } catch {
+      responseJson = null
+    }
+
+    const errorMessage = responseJson?.error?.message || responseText || "Google event cancel failed"
+    throw new Error(errorMessage)
+  }
 }

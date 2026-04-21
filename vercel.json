@@ -25,6 +25,10 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/meta-leads/auto-sync",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/admin/instances/zapi/monitor",
       "schedule": "*/10 * * * *"
     }

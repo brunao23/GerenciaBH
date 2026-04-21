@@ -28,6 +28,21 @@ export interface ReminderConfig {
   }
 }
 
+const LEGACY_REMINDER_TEMPLATES: ReminderConfig["templates"] = {
+  "3days": "Ola {nome}! Passando para lembrar que seu agendamento esta marcado para {data} as {horario}. Faltam 3 dias! Qualquer duvida, estamos a disposicao.",
+  "1day": "Oi {nome}! Amanha e o dia do seu agendamento as {horario}. Estamos te esperando! Se precisar reagendar, e so avisar.",
+  "4hours": "{nome}, seu agendamento e HOJE as {horario}! Nos vemos em breve. Qualquer imprevisto, nos avise o quanto antes.",
+}
+
+const DEFAULT_REMINDER_TEMPLATES: ReminderConfig["templates"] = {
+  "3days":
+    "{saudacao_ola_tudo_bem}\n\nPassando para confirmar nosso Diagnostico Estrategico de Comunicacao, que acontecera em {dia_semana}, {data}, as {horario}.\n\nQuero que seja um encontro bem direcionado aos seus objetivos, entao, se possivel, ja va refletindo sobre quais situacoes de comunicacao voce quer evoluir neste momento.\n\nQualquer duvida, estou a disposicao. Te aguardamos!",
+  "1day":
+    "{saudacao_oi_tudo_bem}\n\nPassando para confirmar nossa consultoria amanha as {horario}.\n\nNosso consultor especialista preparou esse horario exclusivamente para voce e vai te explicar com clareza:\n\n✔️ Como funciona a metodologia Vox\n✔️ Qual formato e mais indicado para o seu perfil e momento atual\n✔️ Dias e horarios disponiveis\n✔️ Investimento e condicoes\n\nSepare 30 minutos para essa conversa, pois sera um atendimento individual e personalizado.\n\nComo a agenda e limitada e trabalhamos com horarios reservados, caso surja qualquer imprevisto, nos avise com antecedencia.\n\nConto com sua presenca amanha!",
+  "4hours":
+    "{saudacao_reforco_hoje}\n\nPassando para reforcar nossa consultoria hoje as {horario}.\n\nO horario segue reservado exclusivamente para o seu Diagnostico de comunicacao, onde nosso consultor especialista vai te direcionar sobre a metodologia, formatos e investimento.\n\nComo e um atendimento personalizado, peco apenas que nos avise caso surja qualquer imprevisto.\n\nTe espero no horario combinado!",
+}
+
 export const DEFAULT_REMINDER_CONFIG: ReminderConfig = {
   enabled: true,
   reminder3days: true,
@@ -37,17 +52,16 @@ export const DEFAULT_REMINDER_CONFIG: ReminderConfig = {
   businessEnd: "20:00",
   businessDays: [1, 2, 3, 4, 5, 6], // seg a sab
   timezone: "America/Sao_Paulo",
-  templates: {
-    "3days": "Ola {nome}! Passando para lembrar que seu agendamento esta marcado para {data} as {horario}. Faltam 3 dias! Qualquer duvida, estamos a disposicao.",
-    "1day": "Oi {nome}! Amanha e o dia do seu agendamento as {horario}. Estamos te esperando! Se precisar reagendar, e so avisar.",
-    "4hours": "{nome}, seu agendamento e HOJE as {horario}! Nos vemos em breve. Qualquer imprevisto, nos avise o quanto antes.",
-  },
+  templates: DEFAULT_REMINDER_TEMPLATES,
 }
 
 // Available template variables
 export const TEMPLATE_VARIABLES = [
   { key: "{nome}", description: "Primeiro nome do lead" },
   { key: "{nome_completo}", description: "Nome completo do lead" },
+  { key: "{saudacao_ola_tudo_bem}", description: "Saudacao com nome quando disponivel para o lembrete de 3 dias" },
+  { key: "{saudacao_oi_tudo_bem}", description: "Saudacao com nome quando disponivel para o lembrete de 1 dia" },
+  { key: "{saudacao_reforco_hoje}", description: "Saudacao contextual para o lembrete do dia" },
   { key: "{data}", description: "Data do agendamento (DD/MM/YYYY)" },
   { key: "{horario}", description: "Horario do agendamento (HH:MM)" },
   { key: "{dia_semana}", description: "Dia da semana (ex: Segunda-feira)" },
@@ -82,6 +96,23 @@ function safeMetadata(input: any): Record<string, any> {
   return {}
 }
 
+function normalizeReminderTemplates(input: any): ReminderConfig["templates"] {
+  const provided = safeMetadata(input)
+  const normalized: ReminderConfig["templates"] = { ...DEFAULT_REMINDER_TEMPLATES }
+  const keys: Array<keyof ReminderConfig["templates"]> = ["3days", "1day", "4hours"]
+
+  for (const key of keys) {
+    const candidate = typeof provided[key] === "string" ? provided[key].trim() : ""
+    if (!candidate) continue
+    normalized[key] =
+      candidate === LEGACY_REMINDER_TEMPLATES[key]
+        ? DEFAULT_REMINDER_TEMPLATES[key]
+        : candidate
+  }
+
+  return normalized
+}
+
 export async function getReminderConfigForTenant(tenant: string): Promise<ReminderConfig> {
   try {
     const supabase = createBiaSupabaseServerClient()
@@ -95,7 +126,11 @@ export async function getReminderConfigForTenant(tenant: string): Promise<Remind
     const metadata = safeMetadata(data?.metadata)
     const config = metadata.reminders
     if (config && typeof config === "object") {
-      return { ...DEFAULT_REMINDER_CONFIG, ...config }
+      return {
+        ...DEFAULT_REMINDER_CONFIG,
+        ...config,
+        templates: normalizeReminderTemplates(config.templates),
+      }
     }
   } catch (e) {
     console.error("[Reminders] Failed to load config:", e)
@@ -118,7 +153,13 @@ export async function saveReminderConfigForTenant(
   if (error || !data) throw new Error("Unit not found")
 
   const metadata = safeMetadata(data.metadata)
-  const next = { ...metadata, reminders: config }
+  const next = {
+    ...metadata,
+    reminders: {
+      ...config,
+      templates: normalizeReminderTemplates(config.templates),
+    },
+  }
 
   const { error: updateError } = await supabase
     .from("units_registry")
@@ -241,14 +282,30 @@ function renderTemplate(
   const nome = appointment.nome_aluno || "voce"
   const primeiroNome = nome.split(" ")[0]
   const diaSemana = DIAS_SEMANA[appointmentDate.getDay()] || ""
+  const hasLeadName = Boolean(primeiroNome && primeiroNome.toLowerCase() !== "voce")
+  const saudacaoOlaTudoBem = hasLeadName
+    ? `Ola, ${primeiroNome}! Tudo bem? 😊`
+    : "Ola! Tudo bem? 😊"
+  const saudacaoOiTudoBem = hasLeadName
+    ? `Oi, ${primeiroNome}! Tudo bem? 👋`
+    : "Oi! Tudo bem? 👋"
+  const saudacaoReforcoHoje = hasLeadName
+    ? `Ola novamente, ${primeiroNome}!`
+    : "Ola novamente!"
 
   return template
+    .replace(/\{saudacao_ola_tudo_bem\}/gi, saudacaoOlaTudoBem)
+    .replace(/\{saudacao_oi_tudo_bem\}/gi, saudacaoOiTudoBem)
+    .replace(/\{saudacao_reforco_hoje\}/gi, saudacaoReforcoHoje)
     .replace(/\{nome\}/gi, primeiroNome)
     .replace(/\{nome_completo\}/gi, nome)
     .replace(/\{data\}/gi, appointment.dia)
     .replace(/\{horario\}/gi, appointment.horario?.replace(/:00$/, "") || "")
     .replace(/\{dia_semana\}/gi, diaSemana)
     .replace(/\{servico\}/gi, appointment.observacoes || "atendimento")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
 }
 
 // ── Main scheduler ───────────────────────────────────────────────────────

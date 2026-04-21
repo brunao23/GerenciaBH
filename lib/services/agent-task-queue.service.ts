@@ -75,6 +75,12 @@ function sanitizeFollowupText(input: string, max = 220): string {
   return excerpt(stripped.replace(/\r/g, " ").replace(/\n+/g, " "), max)
 }
 
+function stripTaskPrefix(text: string): string {
+  return String(text || "")
+    .replace(/^\s*(task|tarefa|acao|a[cç][aã]o)\s*:\s*/i, "")
+    .trim()
+}
+
 function normalizeComparableText(input: string): string {
   return String(input || "")
     .normalize("NFD")
@@ -232,6 +238,27 @@ function isLikelyInternalTaskInstructionMessage(message: string): boolean {
   if ((startsWithInternalVerb || startsAsChecklist) && mentionsSystemMeta) return true
 
   return false
+}
+
+function isInternalReminderLeakMessage(message: string): boolean {
+  const raw = String(message || "").trim()
+  if (!raw) return true
+  const cleaned = stripTaskPrefix(raw)
+  const normalized = normalizeComparableText(cleaned)
+  if (!normalized) return true
+  const internalSignals = [
+    "lead pediu retorno",
+    "retomar atendimento",
+    "validar pendencia",
+    "atendente assumiu compromisso",
+    "compromisso de retorno",
+    "prazo combinado",
+    "conversation listener",
+    "queue",
+    "fila",
+    "cron",
+  ]
+  return isLikelyInternalTaskInstructionMessage(cleaned) || internalSignals.some((signal) => normalized.includes(signal))
 }
 
 function isTooSimilarToAny(candidate: string, previousMessages: string[]): boolean {
@@ -944,6 +971,98 @@ export class AgentTaskQueueService {
     }
   }
 
+  async cancelPendingReminders(input: {
+    tenant: string
+    sessionId?: string
+    phone?: string
+    appointmentId?: string
+    reason?: string
+  }): Promise<{ ok: boolean; cancelled: number; error?: string }> {
+    try {
+      const tenant = normalizeTenant(input.tenant)
+      if (!tenant) return { ok: false, cancelled: 0, error: "Invalid tenant" }
+
+      const sessionId = input.sessionId ? normalizeSessionId(input.sessionId) : ""
+      const phone = input.phone ? normalizePhoneNumber(input.phone) : ""
+      const appointmentId = String(input.appointmentId || "").trim()
+      const reason =
+        String(input.reason || "cancelled_by_appointment_update").trim() ||
+        "cancelled_by_appointment_update"
+
+      if (!sessionId && !phone && !appointmentId) {
+        return { ok: true, cancelled: 0 }
+      }
+
+      let query: any = this.supabase
+        .from(this.table)
+        .select("id, session_id, phone_number, payload")
+        .eq("tenant", tenant)
+        .eq("task_type", "reminder")
+        .eq("status", "pending")
+
+      if (!appointmentId) {
+        if (sessionId) {
+          query = query.eq("session_id", sessionId)
+        } else if (phone) {
+          query = query.eq("phone_number", phone)
+        }
+      }
+
+      const { data, error } = await query.limit(500)
+      if (error) {
+        if (isMissingTableError(error)) {
+          return { ok: true, cancelled: 0 }
+        }
+        return { ok: false, cancelled: 0, error: error.message }
+      }
+
+      const ids = (Array.isArray(data) ? data : [])
+        .filter((row: any) => {
+          const payload = row?.payload && typeof row.payload === "object" ? row.payload : {}
+          const rowAppointmentId = String(payload?.appointment_id || "").trim()
+          const rowSessionId = normalizeSessionId(String(row?.session_id || ""))
+          const rowPhone = normalizePhoneNumber(String(row?.phone_number || ""))
+
+          if (appointmentId && rowAppointmentId === appointmentId) {
+            return true
+          }
+
+          if (!appointmentId) {
+            if (sessionId && rowSessionId === sessionId) return true
+            if (phone && rowPhone === phone) return true
+          }
+
+          return false
+        })
+        .map((row: any) => String(row?.id || "").trim())
+        .filter(Boolean)
+
+      if (!ids.length) {
+        return { ok: true, cancelled: 0 }
+      }
+
+      const updateResult = await this.supabase
+        .from(this.table)
+        .update({ status: "cancelled", last_error: reason })
+        .in("id", ids)
+        .select("id")
+
+      if (updateResult.error) {
+        if (isMissingTableError(updateResult.error)) {
+          return { ok: true, cancelled: 0 }
+        }
+        return { ok: false, cancelled: 0, error: updateResult.error.message }
+      }
+
+      return {
+        ok: true,
+        cancelled: Array.isArray(updateResult.data) ? updateResult.data.length : ids.length,
+      }
+    } catch (error: any) {
+      return { ok: false, cancelled: 0, error: error?.message || "Failed to cancel reminder tasks" }
+    }
+  }
+
   private async hasUserReplyAfterTask(input: {
     tenant: string
     sessionId: string
@@ -1058,6 +1177,28 @@ export class AgentTaskQueueService {
     } catch {
       return false
     }
+  }
+
+  private resolveSafeReminderMessage(input: {
+    message: string
+    payload: Record<string, any>
+  }): string {
+    const raw = stripTaskPrefix(String(input.message || "").trim())
+    const normalized = sanitizeFollowupText(raw, 280)
+    if (normalized && !isInternalReminderLeakMessage(normalized)) {
+      return normalized
+    }
+
+    const leadName = normalizeLeadName(
+      String(
+        input.payload?.contact_name ||
+          input.payload?.lead_name ||
+          input.payload?.leadName ||
+          "",
+      ),
+    )
+    const greeting = leadName ? `Oi ${leadName}` : "Oi"
+    return `${greeting}, conforme combinamos, estou retomando nosso contato por aqui. Quer continuar?`
   }
 
   private async dispatchTaskMessage(input: {
@@ -1329,7 +1470,8 @@ export class AgentTaskQueueService {
         processedFollowupSessionIds.add(sessionId)
       }
 
-      if (!tenant || !phone || (!message && taskType !== "followup")) {
+      const requiresExplicitMessage = taskType !== "followup" && taskType !== "reminder"
+      if (!tenant || !phone || (requiresExplicitMessage && !message)) {
         result.skipped += 1
         await this.supabase
           .from(this.table)
@@ -1452,6 +1594,8 @@ export class AgentTaskQueueService {
             .eq("id", task.id)
           continue
         }
+      } else {
+        message = this.resolveSafeReminderMessage({ message, payload })
       }
 
       const send = await this.dispatchTaskMessage({

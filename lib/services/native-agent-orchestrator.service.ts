@@ -35,6 +35,7 @@ import { createNotification } from "@/lib/services/notifications"
 import { TtsService, type TtsProvider } from "@/lib/services/tts.service"
 import { GroupNotificationDispatcherService } from "@/lib/services/group-notification-dispatcher.service"
 import { sendErrorWebhook } from "@/lib/helpers/error-webhook"
+import { scheduleRemindersForTenant } from "@/lib/services/reminder-scheduler.service"
 
 type AppointmentResult = {
   ok: boolean
@@ -86,6 +87,14 @@ type EditAppointmentResult = {
   meetLink?: string
   appointmentMode?: "presencial" | "online"
   previousAppointmentId?: string
+  error?: string
+}
+
+type CancelAppointmentResult = {
+  ok: boolean
+  appointmentId?: string
+  eventId?: string
+  appointmentMode?: "presencial" | "online"
   error?: string
 }
 
@@ -3660,7 +3669,8 @@ export class NativeAgentOrchestratorService {
       "- Se o lead pedir um horario que NAO esta nos slots disponiveis, diga que aquele horario nao esta disponivel e sugira os proximos horarios livres.",
       "- Se o horario estiver ocupado, diga 'Esse horario ja esta ocupado' e sugira o proximo disponivel.",
       "- Quando o lead confirmar data e hora, acione schedule_appointment.",
-      "- Se o lead pedir remarcacao, acione edit_appointment para atualizar o horario.",
+      "- Se o lead pedir remarcacao, reagendamento, mudanca de dia ou mudanca de horario, acione SEMPRE edit_appointment para atualizar o horario.",
+      "- Se o lead pedir cancelamento do agendamento, acione cancel_appointment.",
       "- Se a tool de agendamento retornar erro, explique o motivo ao lead e proponha proximo horario valido.",
       "- NUNCA pergunte se o lead quer agendar em um horario fora do expediente configurado. Respeite rigorosamente os horarios acima.",
       "- LEI DO MESMO HORARIO: quando 'allowOverlappingAppointments' estiver desativado, horario ocupado e BLOQUEADO. Se houver conflito ('time_slot_unavailable' ou 'google_calendar_conflict'), nunca insistir no mesmo horario; oferecer proximos horarios livres.",
@@ -3805,6 +3815,20 @@ export class NativeAgentOrchestratorService {
             },
           },
           required: editRequired,
+        },
+      },
+      {
+        name: "cancel_appointment",
+        description:
+          "Cancela o agendamento atual do lead quando houver pedido explicito de cancelamento.",
+        parameters: {
+          type: "object",
+          properties: {
+            appointment_id: { type: "string", description: "ID do agendamento existente (opcional)" },
+            date: { type: "string", description: "Data do agendamento YYYY-MM-DD (opcional)" },
+            time: { type: "string", description: "Horario do agendamento HH:mm (opcional)" },
+            reason: { type: "string", description: "Motivo opcional do cancelamento" },
+          },
         },
       },
       {
@@ -4172,6 +4196,46 @@ export class NativeAgentOrchestratorService {
           alternativeSlots: recoverySlots,
           alternativeSlotsDateFrom: recoveryDateFrom,
           alternativeSlotsDateTo: recoveryDateTo,
+        },
+      }
+    }
+
+    if (name === "cancel_appointment") {
+      if (!params.config.schedulingEnabled) {
+        return {
+          ok: false,
+          action: { type: "cancel_appointment" },
+          error: "scheduling_disabled",
+          response: { ok: false, error: "scheduling_disabled" },
+        }
+      }
+
+      const action: AgentActionPlan = {
+        type: "cancel_appointment",
+        appointment_id: args.appointment_id ? String(args.appointment_id) : undefined,
+        date: args.date ? String(args.date) : undefined,
+        time: args.time ? String(args.time) : undefined,
+        note: args.reason ? String(args.reason) : args.note ? String(args.note) : undefined,
+      }
+
+      const result = await this.cancelAppointment({
+        tenant: params.tenant,
+        phone: params.phone,
+        sessionId: params.sessionId,
+        config: params.config,
+        action,
+      })
+
+      return {
+        ok: result.ok,
+        action,
+        error: result.error,
+        response: {
+          ok: result.ok,
+          appointmentId: result.appointmentId,
+          eventId: result.eventId,
+          appointmentMode: result.appointmentMode,
+          error: result.error,
         },
       }
     }
@@ -5066,6 +5130,16 @@ export class NativeAgentOrchestratorService {
       }
     }
 
+    await this.taskQueue
+      .cancelPendingReminders({
+        tenant: params.tenant,
+        sessionId: params.sessionId,
+        phone: params.phone,
+        appointmentId: existingId,
+        reason: "cancelled_by_reschedule",
+      })
+      .catch(() => {})
+
     await this
       .onAppointmentScheduled({
         tenant: params.tenant,
@@ -5083,6 +5157,144 @@ export class NativeAgentOrchestratorService {
       eventId,
       htmlLink,
       meetLink,
+      appointmentMode,
+    }
+  }
+
+  private async cancelAppointment(params: {
+    tenant: string
+    phone: string
+    sessionId: string
+    config: NativeAgentConfig
+    action: AgentActionPlan
+  }): Promise<CancelAppointmentResult> {
+    const tables = getTablesForTenant(params.tenant)
+    const columns = await getTableColumns(this.supabase as any, tables.agendamentos)
+    const mappedColumns = this.resolveAgendamentosColumns(columns)
+    const statusColumn = mappedColumns.statusColumn
+    const dateColumn = mappedColumns.dateColumn
+    const timeColumn = mappedColumns.timeColumn
+
+    if (!statusColumn) {
+      return { ok: false, error: "appointment_status_column_missing" }
+    }
+
+    const selectionResult = await this.supabase
+      .from(tables.agendamentos)
+      .select("*")
+      .order("id", { ascending: false })
+      .limit(200)
+    if (selectionResult.error) {
+      return { ok: false, error: selectionResult.error.message || "appointment_lookup_failed" }
+    }
+
+    const requestedAppointmentId = String(params.action.appointment_id || "").trim()
+    const requestedDate = String(params.action.date || "").trim()
+    const requestedTime = String(params.action.time || "").trim()
+
+    const rows = Array.isArray(selectionResult.data) ? selectionResult.data : []
+    const activeRows = rows.filter((row) => {
+      const status = String(row?.[statusColumn] || "").toLowerCase().trim()
+      if (["cancelado", "cancelada", "canceled", "cancelled"].includes(status)) return false
+
+      const phoneMatches = mappedColumns.phoneColumns.length
+        ? mappedColumns.phoneColumns.some((column) => normalizePhoneNumber(String(row?.[column] || "")) === params.phone)
+        : true
+      const sessionMatches = mappedColumns.sessionColumns.length
+        ? mappedColumns.sessionColumns.some((column) => normalizeSessionId(String(row?.[column] || "")) === params.sessionId)
+        : true
+      return phoneMatches || sessionMatches
+    })
+
+    const existing =
+      activeRows.find((row) => {
+        if (requestedAppointmentId && String(row?.id || "") !== requestedAppointmentId) {
+          return false
+        }
+        if (requestedDate && dateColumn && String(row?.[dateColumn] || "").trim() !== requestedDate) {
+          return false
+        }
+        if (requestedTime && timeColumn && String(row?.[timeColumn] || "").trim().slice(0, 5) !== requestedTime) {
+          return false
+        }
+        return true
+      }) || activeRows[0]
+
+    if (!existing) {
+      return { ok: false, error: "appointment_not_found" }
+    }
+
+    const existingId = String(existing?.id || "").trim()
+    if (!existingId) {
+      return { ok: false, error: "appointment_without_id" }
+    }
+
+    const appointmentMode: "presencial" | "online" =
+      mappedColumns.modeColumn && String(existing?.[mappedColumns.modeColumn] || "").toLowerCase() === "online"
+        ? "online"
+        : "presencial"
+
+    const updatePayload: Record<string, any> = {
+      [statusColumn]: "cancelado",
+      updated_at: new Date().toISOString(),
+    }
+
+    if (mappedColumns.noteColumn && params.action.note) {
+      const currentNote = String(existing?.[mappedColumns.noteColumn] || "").trim()
+      updatePayload[mappedColumns.noteColumn] = [currentNote, `Cancelado: ${params.action.note}`]
+        .filter(Boolean)
+        .join(" | ")
+        .slice(0, 2000)
+    }
+
+    const updated = await this.updateWithColumnFallback(
+      tables.agendamentos,
+      { id: existingId },
+      updatePayload,
+    )
+    if (updated.error) {
+      return { ok: false, error: updated.error.message || "appointment_cancel_failed" }
+    }
+
+    const eventId = String(existing?.google_event_id || "").trim() || undefined
+    if (params.config.googleCalendarEnabled && eventId) {
+      try {
+        const calendar = new GoogleCalendarService({
+          authMode: params.config.googleAuthMode || "service_account",
+          calendarId: params.config.googleCalendarId || "primary",
+          serviceAccountEmail: params.config.googleServiceAccountEmail,
+          serviceAccountPrivateKey: params.config.googleServiceAccountPrivateKey,
+          delegatedUser: params.config.googleDelegatedUser,
+          oauthClientId: params.config.googleOAuthClientId,
+          oauthClientSecret: params.config.googleOAuthClientSecret,
+          oauthRefreshToken: params.config.googleOAuthRefreshToken,
+        })
+
+        await calendar.cancelEvent(eventId)
+      } catch (error: any) {
+        console.warn("[native-agent] failed to cancel Google Calendar event:", error)
+      }
+    }
+
+    await Promise.allSettled([
+      this.taskQueue.cancelPendingFollowups({
+        tenant: params.tenant,
+        sessionId: params.sessionId,
+        phone: params.phone,
+      }),
+      this.taskQueue.cancelPendingReminders({
+        tenant: params.tenant,
+        sessionId: params.sessionId,
+        phone: params.phone,
+        appointmentId: existingId,
+        reason: "cancelled_by_cancel_appointment",
+      }),
+    ])
+
+    return {
+      ok: true,
+      appointmentId: existingId,
+      eventId,
       appointmentMode,
     }
   }
@@ -5889,6 +6101,9 @@ export class NativeAgentOrchestratorService {
         tenant: params.tenant,
         sessionId: params.sessionId,
         phone: params.phone,
+      }),
+      scheduleRemindersForTenant(params.tenant).catch((error) => {
+        console.warn("[native-agent] failed to refresh appointment reminders:", error)
       }),
     ]
 

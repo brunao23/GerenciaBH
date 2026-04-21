@@ -17,7 +17,7 @@ import { useTenant } from "@/lib/contexts/TenantContext"
 import {
   MessageSquare, CalendarClock, Workflow, AlertTriangle, TrendingUp, Users, Target, Clock, X,
   Megaphone, Send, Instagram, MessageCircle, ChevronDown, ChevronRight, CheckCircle, AlertCircle,
-  FileText, Download, Loader2, RefreshCw, BarChart3, Calendar, CheckCircle2, Eye,
+  FileText, Download, Loader2, RefreshCw, BarChart3, Calendar, CheckCircle2, Eye, Trash2,
   MousePointerClick, ShieldCheck, XCircle,
 } from "lucide-react"
 
@@ -162,7 +162,19 @@ function formatDateShort(dateISO: string): string {
 
 // ─── LeadRow ──────────────────────────────────────────────────────────────────
 
-function LeadRow({ lead, onResend }: { lead: Lead; onResend?: (id: string) => void }) {
+function LeadRow({
+  lead,
+  onResend,
+  onDelete,
+  isResending = false,
+  isDeleting = false,
+}: {
+  lead: Lead
+  onResend?: (id: string) => void
+  onDelete?: (id: string) => void
+  isResending?: boolean
+  isDeleting?: boolean
+}) {
   const [open, setOpen] = useState(false)
   const hasForm = lead.form_fields.length > 0 || !!lead.email
   const date = new Date(lead.created_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
@@ -185,14 +197,6 @@ function LeadRow({ lead, onResend }: { lead: Lead; onResend?: (id: string) => vo
         <td className="py-3 px-3">
           {lead.whatsapp_sent ? (
             <CheckCircle className="h-4 w-4 text-emerald-500" />
-          ) : onResend ? (
-            <button
-              onClick={(e) => { e.stopPropagation(); onResend(lead.id) }}
-              className="flex items-center gap-1 text-xs text-amber-500 hover:text-amber-400 transition-colors"
-              title="Reenviar mensagem"
-            >
-              <AlertCircle className="h-4 w-4" />
-            </button>
           ) : (
             <Clock className="h-4 w-4 text-muted-foreground" />
           )}
@@ -216,10 +220,34 @@ function LeadRow({ lead, onResend }: { lead: Lead; onResend?: (id: string) => vo
             <span className="w-8 inline-block" />
           )}
         </td>
+        <td className="py-3 px-3">
+          <div className="flex items-center gap-1">
+            {onResend && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onResend(lead.id) }}
+                disabled={isResending || isDeleting}
+                className="flex items-center justify-center rounded border border-amber-500/30 p-1.5 text-amber-500 hover:bg-amber-500/10 disabled:opacity-60"
+                title={lead.whatsapp_sent ? "Reenviar mensagem novamente" : "Enviar mensagem"}
+              >
+                {isResending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              </button>
+            )}
+            {onDelete && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onDelete(lead.id) }}
+                disabled={isResending || isDeleting}
+                className="flex items-center justify-center rounded border border-red-500/30 p-1.5 text-red-500 hover:bg-red-500/10 disabled:opacity-60"
+                title="Excluir lead da captação"
+              >
+                {isDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+              </button>
+            )}
+          </div>
+        </td>
       </tr>
       {open && hasForm && (
         <tr className="border-b border-border/50 bg-muted/20">
-          <td colSpan={7} className="px-8 py-3">
+          <td colSpan={8} className="px-8 py-3">
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {lead.email && (
                 <div className="flex flex-col gap-0.5">
@@ -267,7 +295,9 @@ export default function DashboardPage() {
   const [captPeriod, setCaptPeriod] = useState("30d")
   const [filterSent, setFilterSent] = useState<"all" | "sent" | "unsent">("all")
   const [resending, setResending] = useState<Set<string>>(new Set())
+  const [deleting, setDeleting] = useState<Set<string>>(new Set())
   const [importing, setImporting] = useState(false)
+  const [deduping, setDeduping] = useState(false)
 
   // ── Relatórios state ──
   const [relatorio, setRelatorio] = useState<RelatorioData | null>(null)
@@ -374,11 +404,57 @@ export default function DashboardPage() {
     setResending((s) => new Set(s).add(leadId))
     try {
       const res = await fetch("/api/dashboard/captacao/resend", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ leadId }) })
-      if (!res.ok) throw new Error("Erro ao reenviar")
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json?.error || "Erro ao reenviar")
       toast.success("Mensagem reenviada com sucesso")
       fetchCaptacao()
-    } catch { toast.error("Erro ao reenviar mensagem") }
+    } catch (e: any) { toast.error(e?.message || "Erro ao reenviar mensagem") }
     finally { setResending((s) => { const n = new Set(s); n.delete(leadId); return n }) }
+  }
+
+  const handleDeleteLead = async (leadId: string) => {
+    const ok = window.confirm("Excluir este lead da captação?")
+    if (!ok) return
+
+    setDeleting((s) => new Set(s).add(leadId))
+    try {
+      const res = await fetch("/api/dashboard/captacao", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leadId }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json?.error || "Erro ao excluir lead")
+      toast.success("Lead excluído da captação")
+      fetchCaptacao()
+    } catch (e: any) {
+      toast.error(e?.message || "Erro ao excluir lead")
+    } finally {
+      setDeleting((s) => {
+        const n = new Set(s)
+        n.delete(leadId)
+        return n
+      })
+    }
+  }
+
+  const handleDedupe = async () => {
+    setDeduping(true)
+    try {
+      const res = await fetch("/api/dashboard/captacao", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "dedupe" }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json?.error || "Erro ao deduplicar leads")
+      toast.success(`Deduplicação concluída: ${json?.deleted ?? 0} lead(s) removido(s)`)
+      fetchCaptacao("all")
+    } catch (e: any) {
+      toast.error(e?.message || "Erro ao deduplicar leads")
+    } finally {
+      setDeduping(false)
+    }
   }
 
   const handleImport = async () => {
@@ -828,7 +904,11 @@ export default function DashboardPage() {
               </div>
               <Button variant="outline" size="sm" onClick={handleImport} disabled={importing || captLoading} title="Importar leads históricos do Meta">
                 {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                <span className="ml-1.5 hidden sm:inline">Importar do Meta</span>
+                <span className="ml-1.5 hidden sm:inline">Sincronizar agora</span>
+              </Button>
+              <Button variant="outline" size="sm" onClick={handleDedupe} disabled={deduping || captLoading} title="Remover leads duplicados por telefone">
+                {deduping ? <Loader2 className="h-4 w-4 animate-spin" /> : <Users className="h-4 w-4" />}
+                <span className="ml-1.5 hidden sm:inline">Deduplicar</span>
               </Button>
               <Button variant="outline" size="sm" onClick={() => fetchCaptacao()} disabled={captLoading}>
                 {captLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
@@ -887,7 +967,7 @@ export default function DashboardPage() {
                 </div>
               </CardTitle>
               {filterSent === "unsent" && filteredLeads.length > 0 && (
-                <p className="text-xs text-amber-500/80 mt-1">Clique no ícone <AlertCircle className="inline h-3 w-3" /> para reenviar a mensagem de boas-vindas</p>
+                <p className="text-xs text-amber-500/80 mt-1">Use o botão <RefreshCw className="inline h-3 w-3" /> para enviar ou reenviar a mensagem de boas-vindas</p>
               )}
             </CardHeader>
             <CardContent>
@@ -909,11 +989,19 @@ export default function DashboardPage() {
                         <th className="text-left py-3 px-3 font-medium text-muted-foreground">WA</th>
                         <th className="text-left py-3 px-3 font-medium text-muted-foreground">Data</th>
                         <th className="text-left py-3 px-3 font-medium text-muted-foreground">Form</th>
+                        <th className="text-left py-3 px-3 font-medium text-muted-foreground">Ações</th>
                       </tr>
                     </thead>
                     <tbody>
                       {filteredLeads.map((lead) => (
-                        <LeadRow key={lead.id} lead={lead} onResend={!lead.whatsapp_sent ? handleResend : undefined} />
+                        <LeadRow
+                          key={lead.id}
+                          lead={lead}
+                          onResend={handleResend}
+                          onDelete={handleDeleteLead}
+                          isResending={resending.has(lead.id)}
+                          isDeleting={deleting.has(lead.id)}
+                        />
                       ))}
                     </tbody>
                   </table>

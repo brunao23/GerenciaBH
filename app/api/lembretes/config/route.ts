@@ -3,7 +3,6 @@ import { resolveTenant } from "@/lib/helpers/resolve-tenant"
 import {
   getReminderConfigForTenant,
   saveReminderConfigForTenant,
-  DEFAULT_REMINDER_CONFIG,
   TEMPLATE_VARIABLES,
   type ReminderConfig,
 } from "@/lib/services/reminder-scheduler.service"

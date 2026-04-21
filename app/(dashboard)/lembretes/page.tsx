@@ -54,14 +54,17 @@ const DEFAULT_CONFIG: ReminderConfig = {
   businessDays: [1, 2, 3, 4, 5, 6],
   timezone: "America/Sao_Paulo",
   templates: {
-    "3days": "Ola {nome}! Passando para lembrar que seu agendamento esta marcado para {data} as {horario}. Faltam 3 dias! Qualquer duvida, estamos a disposicao.",
-    "1day": "Oi {nome}! Amanha e o dia do seu agendamento as {horario}. Estamos te esperando! Se precisar reagendar, e so avisar.",
-    "4hours": "{nome}, seu agendamento e HOJE as {horario}! Nos vemos em breve. Qualquer imprevisto, nos avise o quanto antes.",
+    "3days": "{saudacao_ola_tudo_bem}\n\nPassando para confirmar nosso Diagnostico Estrategico de Comunicacao, que acontecera em {dia_semana}, {data}, as {horario}.\n\nQuero que seja um encontro bem direcionado aos seus objetivos, entao, se possivel, ja va refletindo sobre quais situacoes de comunicacao voce quer evoluir neste momento.\n\nQualquer duvida, estou a disposicao. Te aguardamos!",
+    "1day": "{saudacao_oi_tudo_bem}\n\nPassando para confirmar nossa consultoria amanha as {horario}.\n\nNosso consultor especialista preparou esse horario exclusivamente para voce e vai te explicar com clareza:\n\n✔️ Como funciona a metodologia Vox\n✔️ Qual formato e mais indicado para o seu perfil e momento atual\n✔️ Dias e horarios disponiveis\n✔️ Investimento e condicoes\n\nSepare 30 minutos para essa conversa, pois sera um atendimento individual e personalizado.\n\nComo a agenda e limitada e trabalhamos com horarios reservados, caso surja qualquer imprevisto, nos avise com antecedencia.\n\nConto com sua presenca amanha!",
+    "4hours": "{saudacao_reforco_hoje}\n\nPassando para reforcar nossa consultoria hoje as {horario}.\n\nO horario segue reservado exclusivamente para o seu Diagnostico de comunicacao, onde nosso consultor especialista vai te direcionar sobre a metodologia, formatos e investimento.\n\nComo e um atendimento personalizado, peco apenas que nos avise caso surja qualquer imprevisto.\n\nTe espero no horario combinado!",
   },
 }
 
 function renderPreview(template: string): string {
   return template
+    .replace(/\{saudacao_ola_tudo_bem\}/gi, "Ola, Maria! Tudo bem? 😊")
+    .replace(/\{saudacao_oi_tudo_bem\}/gi, "Oi, Maria! Tudo bem? 👋")
+    .replace(/\{saudacao_reforco_hoje\}/gi, "Ola novamente, Maria!")
     .replace(/\{nome\}/gi, "Maria")
     .replace(/\{nome_completo\}/gi, "Maria Silva")
     .replace(/\{data\}/gi, "18/04/2026")
@@ -87,7 +90,14 @@ export default function LembretesPage() {
       const res = await fetch("/api/lembretes/config")
       const data = await res.json()
       if (res.ok && data.config) {
-        setConfig({ ...DEFAULT_CONFIG, ...data.config })
+        setConfig({
+          ...DEFAULT_CONFIG,
+          ...data.config,
+          templates: {
+            ...DEFAULT_CONFIG.templates,
+            ...(data.config?.templates || {}),
+          },
+        })
         if (data.variables) setVariables(data.variables)
       }
     } catch {
