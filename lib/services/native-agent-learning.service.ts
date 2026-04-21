@@ -51,6 +51,17 @@ type AdaptivePromptSnapshot = {
   avoidRules: string[]
 }
 
+type HumanStyleProfile = {
+  sampleCount: number
+  avgMessageLength: number
+  emojiFrequency: number
+  formalityScore: number
+  commonGreetings: string[]
+  commonClosings: string[]
+  informalMarkers: number
+  formalMarkers: number
+}
+
 type LearningState = {
   enabled?: boolean
   updatedAt?: string
@@ -59,6 +70,7 @@ type LearningState = {
   signals: LearningSignalSample[]
   strategyScores: Record<string, StrategyScore>
   adaptivePrompt: AdaptivePromptSnapshot
+  humanStyleProfile?: HumanStyleProfile
 }
 
 type LearningSignalSample = {
@@ -234,6 +246,42 @@ function classifyPerformance(outcome: LearningOutcome | undefined, reward: numbe
   return "neutral"
 }
 
+const INFORMAL_MARKERS = ["vc", "pq", "tb", "né", "ne", "hein", "kk", "kkk", "rs", "rsrs", "pra ", "ta ", "to ", "blz", "vlw", "obg", "flw", "hj", "amh", "msg"]
+const FORMAL_MARKERS = ["você", "para ", "obrigado", "obrigada", "está", "estou", "correto", "certo", "compreendo", "entendo", "atenciosamente"]
+const GREETING_PATTERNS = ["bom dia", "boa tarde", "boa noite", "olá", "ola", "oi ", "oi,", "oi!", "tudo bem", "tudo bom"]
+const CLOSING_PATTERNS = ["qualquer dúvida", "qualquer duvida", "estou à disposição", "a disposicao", "até logo", "ate logo", "obrigado", "obrigada", "abraços", "abracos"]
+
+function extractHumanStyleHints(message: string): {
+  hasEmoji: boolean
+  informalCount: number
+  formalCount: number
+  greeting: string | null
+  closing: string | null
+} {
+  const lower = message.toLowerCase()
+  const hasEmoji = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(message)
+  const informalCount = INFORMAL_MARKERS.filter((m) => lower.includes(m)).length
+  const formalCount = FORMAL_MARKERS.filter((m) => lower.includes(m)).length
+  const firstChars = lower.slice(0, 50)
+  const lastChars = lower.slice(-60)
+  const greeting = GREETING_PATTERNS.find((p) => firstChars.includes(p)) || null
+  const closing = CLOSING_PATTERNS.find((p) => lastChars.includes(p)) || null
+  return { hasEmoji, informalCount, formalCount, greeting, closing }
+}
+
+function defaultHumanStyleProfile(): HumanStyleProfile {
+  return {
+    sampleCount: 0,
+    avgMessageLength: 0,
+    emojiFrequency: 0,
+    formalityScore: 0,
+    commonGreetings: [],
+    commonClosings: [],
+    informalMarkers: 0,
+    formalMarkers: 0,
+  }
+}
+
 function defaultState(): LearningState {
   return {
     enabled: true,
@@ -261,6 +309,7 @@ function defaultState(): LearningState {
     signals: [],
     strategyScores: defaultStrategyScores(),
     adaptivePrompt: defaultAdaptivePrompt(),
+    humanStyleProfile: defaultHumanStyleProfile(),
   }
 }
 
@@ -507,8 +556,28 @@ export class NativeAgentLearningService {
 
     if (recentHumanSignals.length > 0) {
       lines.push(
-        `- Ultimos sinais de contexto humano: ${recentHumanSignals.map((item) => `"${item}"`).join(" | ")}`,
+        `- Exemplos de respostas do atendente humano desta unidade (aprenda o estilo, vocabulario e tom): ${recentHumanSignals.map((item) => `"${item}"`).join(" | ")}`,
       )
+    }
+
+    const profile = state.humanStyleProfile
+    if (profile && profile.sampleCount >= 3) {
+      const formalityLabel =
+        profile.formalityScore >= 30 ? "formal" : profile.formalityScore <= -20 ? "informal/descontraido" : "semiformal"
+      const emojiLabel = profile.emojiFrequency >= 0.5 ? "usa emojis com frequencia" : profile.emojiFrequency >= 0.2 ? "usa emojis ocasionalmente" : "raramente usa emojis"
+      const lengthLabel = profile.avgMessageLength <= 80 ? "respostas curtas e diretas" : profile.avgMessageLength <= 200 ? "respostas de tamanho medio" : "respostas mais detalhadas"
+      const styleLines = [
+        `## ESTILO DO ATENDENTE HUMANO DESTA UNIDADE (calibre suas respostas para se aproximar deste padrao):`,
+        `- Tom detectado: ${formalityLabel}. ${lengthLabel}. ${emojiLabel}.`,
+        profile.commonGreetings.length > 0
+          ? `- Formas de cumprimento usadas: ${profile.commonGreetings.join(", ")}.`
+          : "",
+        profile.commonClosings.length > 0
+          ? `- Formas de encerramento usadas: ${profile.commonClosings.join(", ")}.`
+          : "",
+        `- Analise esses exemplos e adapte sua linguagem para soar como este atendente, mantendo todas as regras de profissionalismo e sem abreviacoes.`,
+      ].filter(Boolean)
+      lines.push(...styleLines)
     }
 
     return lines.join("\n")
@@ -619,6 +688,28 @@ export class NativeAgentLearningService {
     if (hasTaskCommitment) {
       state.stats.taskCommitmentSignals += 1
     }
+
+    if (senderType === "human" && message.length >= 10) {
+      if (!state.humanStyleProfile) state.humanStyleProfile = defaultHumanStyleProfile()
+      const profile = state.humanStyleProfile
+      const hints = extractHumanStyleHints(message)
+      const n = profile.sampleCount
+      profile.avgMessageLength = Math.round((profile.avgMessageLength * n + message.length) / (n + 1))
+      profile.emojiFrequency = parseFloat(((profile.emojiFrequency * n + (hints.hasEmoji ? 1 : 0)) / (n + 1)).toFixed(2))
+      profile.informalMarkers += hints.informalCount
+      profile.formalMarkers += hints.formalCount
+      profile.formalityScore = Math.round(
+        ((profile.formalMarkers - profile.informalMarkers) / Math.max(1, profile.formalMarkers + profile.informalMarkers)) * 100,
+      )
+      if (hints.greeting && !profile.commonGreetings.includes(hints.greeting)) {
+        profile.commonGreetings = [...profile.commonGreetings.slice(-4), hints.greeting]
+      }
+      if (hints.closing && !profile.commonClosings.includes(hints.closing)) {
+        profile.commonClosings = [...profile.commonClosings.slice(-4), hints.closing]
+      }
+      profile.sampleCount += 1
+    }
+
     state.updatedAt = new Date().toISOString()
 
     state.signals.push({

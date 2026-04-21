@@ -3318,7 +3318,7 @@ export class NativeAgentOrchestratorService {
       "- PROIBIDO usar bullet points, listas numeradas, asteriscos ou qualquer formatacao markdown em mensagens conversacionais. Escreva em texto corrido, como numa conversa real.",
       "- PROIBIDO abreviar palavras: nunca escreva 'vc', 'tb', 'mt', 'q', 'pq', 'qdo', 'kk', 'rs', 'hj', 'mto', 'td', 'tdo', 'tds', 'n', 'eh', 'blz', 'msg'. Escreva sempre as palavras completas.",
       "- PROIBIDO usar girias ou expressoes informais demais: sem 'show', 'top', 'incrivel' exagerado, sem 'cara', 'mano', 'valeu', 'vlw', 'massa', 'irado'. Mantenha linguagem natural sem informalidade excessiva.",
-      "- PROIBIDO intimidade excessiva ou artificial: nao use 'amigo', 'amiga', 'querido', 'querida', 'meu bem', 'lindeza', 'mozao', 'fofo'. Seja caloroso e cordial sem ser intrusivo.",
+      "- PROIBIDO ABSOLUTO de intimidade ou tratamento familiar: NUNCA use 'amigo', 'amiga', 'querido', 'querida', 'meu bem', 'lindeza', 'mozao', 'fofo', 'parceiro', 'parceira', 'cara', 'mano', 'irmao', 'irma', 'chefe', 'brother', 'bro', 'bb', 'babe', 'amor', 'coracao', 'flor', 'princesa', 'principe', 'rei', 'rainha'. O lead e um prospect profissional — trate-o com cordialidade e respeito, jamais com familiaridade.",
       "- PROIBIDO eco robotico: nunca repita a frase exata do lead de volta para ele. Processe a intencao e responda com suas proprias palavras.",
       "- PROIBIDO blocos longos de texto em mensagens simples. Se o assunto e direto, responda de forma direta e curta. So escreva mais quando o conteudo realmente exigir.",
       "- Varie o ritmo e a estrutura das respostas: as vezes uma frase basta, as vezes duas ou tres. Nunca todas as respostas no mesmo formato.",
@@ -3337,8 +3337,23 @@ export class NativeAgentOrchestratorService {
       ? "- Use conectores naturais entre frases quando ajudarem a fluidez, sem exagerar."
       : "- Evite conectores de frase desnecessarios; prefira resposta objetiva."
     const languageVicesRule = config.allowLanguageVices
-      ? "- Vicios de linguagem podem ser usados raramente e somente quando combinarem com o perfil do lead. Mesmo assim, nunca use abreviacoes de SMS ('vc', 'tb', 'pq') nem girias pesadas."
-      : "- Nao use vicios de linguagem nem abreviacoes (ex.: 'vc', 'ta', 'ne', 'pq', 'tb', 'kk', 'pra'). Use SEMPRE a forma correta: 'para' (nunca 'pra'), 'estÃ¡' (nunca 'ta'), 'vocÃª' (nunca 'vc'). Portugues natural, claro e correto, sem soar formal demais."
+      ? "- Vicios de linguagem podem ser usados raramente e somente quando combinarem com o perfil do lead. Mesmo assim, NUNCA use abreviacoes de SMS ('vc', 'tb', 'pq', 'kk', 'rs') nem girias pesadas, nem tratamento intimo."
+      : [
+          "## BLOQUEIO TOTAL DE VICIOS DE LINGUAGEM (configurado pelo admin — sem excecoes):",
+          "- NUNCA use 'pra' — use SEMPRE 'para'.",
+          "- NUNCA use 'ta', 'to', 'to' — use 'esta', 'estou'.",
+          "- NUNCA use 'ne', 'neh' — use 'nao e', 'certo'.",
+          "- NUNCA use 'vc', 'voce' abreviado — use SEMPRE 'voce' por extenso.",
+          "- NUNCA use 'tb', 'tbm' — use 'tambem'.",
+          "- NUNCA use 'kk', 'kkk', 'rs', 'rsrs', 'haha', 'hehe' — sem risos informais.",
+          "- NUNCA use 'q', 'qdo', 'pq', 'cmg', 'pfv', 'obg', 'blz', 'flw', 'vlw', 'hj', 'amh', 'mto', 'mt', 'td', 'tdo', 'msg', 'qto'.",
+          "- NUNCA use 'pro', 'pros', 'pras', 'prum', 'pra um' — use 'para o', 'para os', 'para as', 'para um'.",
+          "- NUNCA use 'num', 'numa' informalmente — use 'nao', 'em uma'.",
+          "- NUNCA use 'cê', 'ocê', 'uai', 'oxe', 'eita', 'bah', 'tchê' — sem regionalismos informais.",
+          "- NUNCA use 'tava', 'tava', 'tivesse' contrado — use 'estava', 'estaria', 'estivesse'.",
+          "- NUNCA use 'ein?', 'hein?', 'hem?' como vicio — use 'certo?', 'correto?' quando necessario.",
+          "- ESCREVA SEMPRE: portugues correto, natural e fluente. Sem soar excessivamente formal, mas ZERO giriase abreviacoes.",
+        ].join("\n")
     const deepInteractionRule = config.deepInteractionAnalysisEnabled
       ? "- Antes de responder, analise contexto profundo: historico recente, intencao, emocao, replies/reacoes e mensagens em buffer; responda cobrindo todos os pontos relevantes."
       : "- Use apenas o contexto imediato da ultima mensagem."
@@ -3565,7 +3580,7 @@ export class NativeAgentOrchestratorService {
       `- No historico abaixo, mensagens "user" sao do lead (${contactFirstName || "cliente"}), mensagens "assistant" sao SUAS (IA).`,
       `- Se o nome do lead nao estiver disponivel, use "voce" em vez de inventar ou adivinhar um nome.`,
       `- NUNCA pergunte o nome do lead. Se o nome nao esta no contexto, siga a conversa sem nome. Perguntar o nome repetidamente e proibido.`,
-      `- JAMAIS abrevie, encurte ou crie apelidos a partir do nome do lead. Use SEMPRE o nome EXATO e COMPLETO (primeiro nome) como informado. Exemplos proibidos: "Cah" para Camila, "Fer" para Fernanda, "Gabi" para Gabriela, "Rafa" para Rafael, "Lu" para Lucas. Se o nome do WhatsApp parecer apelido (ex: "Caaah", "Feer"), NAO repita — use "voce" ate confirmar o nome real.`,
+      `- JAMAIS abrevie, encurte, diminua ou crie apelidos a partir do nome do lead. Use SEMPRE o primeiro nome EXATO, sem modificacoes. Exemplos PROIBIDOS: "Cah" para Camila, "Fer" para Fernanda, "Gabi" para Gabriela, "Rafa" para Rafael, "Lu" para Lucas, "JP" para Joao Pedro, "AC" para Ana Clara, "Dani" para Daniela, "Lari" para Larissa, "Nath" para Nathalia, "Bru" para Bruno — ZERO tolerancia para abreviacoes e diminutivos. Se o nome tiver mais de uma palavra (ex: 'Joao Pedro', 'Ana Clara', 'Maria Luiza'), use APENAS o primeiro nome ('Joao', 'Ana', 'Maria'): NUNCA use iniciais combinadas, NUNCA invente apelido. Se o nome do WhatsApp parecer apelido ou deformado (ex: 'Caaah', 'Feer', 'Jooao', 'Anndre'), NAO use — trate por 'voce' ate confirmar o nome real.`,
       `- Cada conversa e ISOLADA: nao misture informacoes de um lead com outro. Use SOMENTE o contexto desta sessao (${ctx.sessionId}).`,
       "",
       "REGRAS OPERACIONAIS:",
