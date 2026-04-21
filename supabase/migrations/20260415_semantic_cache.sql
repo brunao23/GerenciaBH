@@ -1,5 +1,6 @@
 -- Semantic cache for native agent responses
 -- Requires pgvector extension (enable in Supabase dashboard: Database > Extensions > vector)
+-- Safe to run multiple times (idempotent)
 
 CREATE EXTENSION IF NOT EXISTS vector;
 
@@ -15,11 +16,16 @@ CREATE TABLE IF NOT EXISTS public.semantic_cache (
   has_tool_calls BOOLEAN NOT NULL DEFAULT FALSE,
   category      TEXT,
   hit_count     INTEGER NOT NULL DEFAULT 0,
+  last_hit_at   TIMESTAMPTZ,
   is_active     BOOLEAN NOT NULL DEFAULT TRUE,
   expires_at    TIMESTAMP WITH TIME ZONE,
   created_at    TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
   updated_at    TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
+
+-- Backfill: add columns that may be missing from older schema versions
+ALTER TABLE public.semantic_cache ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW();
+ALTER TABLE public.semantic_cache ADD COLUMN IF NOT EXISTS last_hit_at TIMESTAMPTZ;
 
 -- ─── Indexes ──────────────────────────────────────────────────────
 
@@ -36,14 +42,11 @@ CREATE INDEX IF NOT EXISTS idx_semantic_cache_tenant_active
   WHERE is_active = TRUE;
 
 -- HNSW index for fast approximate nearest-neighbor search on embeddings
+-- NOTE: requires at least a few hundred rows to be effective
 CREATE INDEX IF NOT EXISTS idx_semantic_cache_embedding
   ON public.semantic_cache
   USING hnsw (embedding vector_cosine_ops)
   WITH (m = 16, ef_construction = 64);
-
--- ─── Backfill: add updated_at if missing from pre-existing table ──
-
-ALTER TABLE public.semantic_cache ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW();
 
 -- ─── Updated_at trigger ───────────────────────────────────────────
 
@@ -65,7 +68,7 @@ CREATE TRIGGER trg_semantic_cache_updated_at
 CREATE OR REPLACE FUNCTION public.match_semantic_cache(
   query_embedding   vector(768),
   query_tenant      TEXT,
-  similarity_threshold FLOAT DEFAULT 0.92,
+  similarity_threshold FLOAT DEFAULT 0.85,
   match_limit       INT DEFAULT 1
 )
 RETURNS TABLE (
@@ -81,7 +84,7 @@ LANGUAGE sql STABLE AS $$
     response_text,
     category,
     has_tool_calls,
-    1 - (embedding <=> query_embedding) AS similarity
+    (1 - (embedding <=> query_embedding))::FLOAT AS similarity
   FROM public.semantic_cache
   WHERE
     tenant = query_tenant
@@ -97,8 +100,27 @@ $$;
 CREATE OR REPLACE FUNCTION public.semantic_cache_record_hit(cache_id UUID)
 RETURNS VOID LANGUAGE sql AS $$
   UPDATE public.semantic_cache
-  SET hit_count = hit_count + 1, updated_at = NOW()
+  SET hit_count = hit_count + 1,
+      last_hit_at = NOW(),
+      updated_at = NOW()
   WHERE id = cache_id;
+$$;
+
+-- ─── RPC: cleanup expired entries ────────────────────────────────
+
+CREATE OR REPLACE FUNCTION public.semantic_cache_cleanup_expired()
+RETURNS INTEGER
+LANGUAGE plpgsql AS $$
+DECLARE
+  deleted_count INTEGER;
+BEGIN
+  DELETE FROM public.semantic_cache
+  WHERE is_active = TRUE
+    AND expires_at IS NOT NULL
+    AND expires_at < NOW();
+  GET DIAGNOSTICS deleted_count = ROW_COUNT;
+  RETURN deleted_count;
+END;
 $$;
 
 -- ─── RLS: service role only (no anon access) ──────────────────────

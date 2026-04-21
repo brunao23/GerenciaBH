@@ -49,7 +49,7 @@ const EMBEDDING_MODEL = "text-embedding-004"
 const EMBEDDING_DIMS = 768
 const EMBEDDING_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 
-const DEFAULT_SIMILARITY_THRESHOLD = 0.92
+const DEFAULT_SIMILARITY_THRESHOLD = 0.85
 const DEFAULT_TTL_HOURS = 168 // 7 days
 
 // Patterns that indicate the message should NOT be cached
