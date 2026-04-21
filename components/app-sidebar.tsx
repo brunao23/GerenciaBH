@@ -14,7 +14,7 @@ import {
   SidebarSeparator,
   SidebarRail,
 } from "@/components/ui/sidebar"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import {
   BarChart3,
   MessageCircle,
@@ -30,6 +30,7 @@ import {
   ShieldCheck,
   Bell,
   BookUser,
+  Users,
 } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useState } from "react"
@@ -50,6 +51,7 @@ const items = [
 
 export function AppSidebar() {
   const pathname = usePathname()
+  const router = useRouter()
   const [sessionData, setSessionData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
@@ -103,6 +105,22 @@ export function AppSidebar() {
                 <div className="font-semibold text-[var(--accent-green)] text-sm">{sessionData.session.unitName}</div>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Botão Trocar de Cliente — apenas admin */}
+        {!loading && isAdmin && (
+          <div className="mt-2 px-2">
+            <button
+              onClick={() => router.push('/admin/units')}
+              className="flex items-center gap-2 w-full p-2.5 rounded-lg bg-blue-500/8 border border-blue-500/15 hover:border-blue-500/30 transition-all duration-200 group"
+            >
+              <Users className="w-4 h-4 text-blue-400 group-hover:scale-105 transition-transform duration-200" />
+              <div className="flex-1 text-left">
+                <span className="font-medium text-foreground text-xs">Trocar de Cliente</span>
+                <div className="text-[10px] text-muted-foreground">Modo Admin</div>
+              </div>
+            </button>
           </div>
         )}
 
