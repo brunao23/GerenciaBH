@@ -14,7 +14,7 @@ import {
   SidebarSeparator,
   SidebarRail,
 } from "@/components/ui/sidebar"
-import { usePathname, useRouter } from "next/navigation"
+import { usePathname } from "next/navigation"
 import {
   BarChart3,
   MessageCircle,
@@ -25,7 +25,6 @@ import {
   Megaphone,
   LayoutTemplate,
   LogOut,
-  Users,
   Building2,
   Bot,
   ShieldCheck,
@@ -51,7 +50,6 @@ const items = [
 
 export function AppSidebar() {
   const pathname = usePathname()
-  const router = useRouter()
   const [sessionData, setSessionData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
@@ -78,10 +76,6 @@ export function AppSidebar() {
     } catch (error) {
       console.error('Erro ao fazer logout:', error)
     }
-  }
-
-  const handleSwitchClient = () => {
-    router.push('/admin/switch-client')
   }
 
   return (
@@ -112,18 +106,7 @@ export function AppSidebar() {
           </div>
         )}
 
-        {/* Botão Trocar de Cliente — admin */}
-        {!loading && isAdmin && (
-          <div className="mt-2 px-2">
-            <button
-              onClick={handleSwitchClient}
-              className="flex items-center gap-2 w-full p-2 rounded-lg bg-[var(--accent-green)]/6 border border-[var(--accent-green)]/12 hover:border-[var(--accent-green)]/25 transition-all duration-200 group"
-            >
-              <Users className="w-4 h-4 text-[var(--accent-green)] group-hover:scale-105 transition-transform duration-200" />
-              <span className="font-medium text-foreground text-xs">Trocar de Cliente</span>
-            </button>
-          </div>
-        )}
+
       </SidebarHeader>
 
       <SidebarSeparator className="bg-sidebar-border" />
@@ -172,21 +155,7 @@ export function AppSidebar() {
 
       <SidebarFooter className="px-4 py-4 border-t border-sidebar-border">
         <div className="space-y-2">
-          {/* Trocar de Cliente — admin (footer) */}
-          {!loading && isAdmin && (
-            <button
-              onClick={handleSwitchClient}
-              className="flex items-center gap-2.5 w-full p-2.5 rounded-lg bg-[var(--accent-blue)]/8 border border-[var(--accent-blue)]/15 hover:border-[var(--accent-blue)]/30 transition-all duration-200 group"
-            >
-              <Users className="w-4 h-4 text-[var(--accent-blue)] group-hover:scale-105 transition-transform duration-200" />
-              <div className="flex-1 text-left">
-                <span className="font-medium text-foreground text-xs">Trocar de Cliente</span>
-                <div className="text-[10px] text-muted-foreground">Modo Admin</div>
-              </div>
-            </button>
-          )}
-
-          {/* Botão Sair */}
+{/* Botão Sair */}
           <button
             onClick={handleLogout}
             className="flex items-center gap-2.5 w-full p-2.5 rounded-lg bg-[var(--accent-red)]/8 border border-[var(--accent-red)]/15 hover:border-[var(--accent-red)]/30 transition-all duration-200 group"
