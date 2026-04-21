@@ -3,59 +3,113 @@
 import Link from "next/link"
 
 const heroMetrics = [
-  { label: "Primeira resposta", value: "Até 2 min", tone: "text-cyan-300" },
-  { label: "Atendimento contínuo", value: "24/7 com IA", tone: "text-emerald-300" },
-  { label: "Canais conectados", value: "WhatsApp + Instagram", tone: "text-violet-300" },
+  { label: "Tempo de resposta", value: "Atendimento em minutos", tone: "text-cyan-300" },
+  { label: "Capacidade de conversão", value: "Qualificação contínua", tone: "text-emerald-300" },
+  { label: "Canais ativos", value: "WhatsApp, Instagram Direct e comentários", tone: "text-violet-300" },
 ]
 
-const platformSignals = [
+const outcomePillars = [
   {
-    title: "Agentes autônomos com contexto real",
+    title: "Mais leads aproveitados",
     description:
-      "A IA entende histórico, estágio do lead e intenção de compra para responder com precisão, sem conversa genérica.",
+      "Sua operação para de perder oportunidade por demora ou conversa desconexa e mantém o lead avançando.",
   },
   {
-    title: "Agendamento inteligente e sem conflito",
+    title: "Mais reuniões de qualidade",
     description:
-      "A agenda é consultada antes da oferta de horários. Menos retrabalho, menos erro e mais reuniões realmente confirmadas.",
+      "A jornada de qualificação filtra melhor e entrega para o time comercial contatos com maior chance de fechamento.",
   },
   {
-    title: "Gestão por unidade com controle total",
+    title: "Mais eficiência para escalar",
     description:
-      "Cada tenant opera com regras próprias, credenciais isoladas e visão clara de performance para escalar sem perder padrão.",
+      "Você cresce sem inflar operação, com automação consistente e governança por unidade em um mesmo sistema.",
   },
+]
+
+const strongArguments = [
+  {
+    title: "Você responde rápido sem aumentar equipe",
+    description:
+      "A IA sustenta o primeiro atendimento e reduz gargalo em picos de demanda sem perder qualidade de conversa.",
+  },
+  {
+    title: "Você transforma Instagram em canal de venda",
+    description:
+      "Direct e comentários entram no fluxo comercial com contexto para acelerar resposta, qualificação e conversão.",
+  },
+  {
+    title: "Você reduz retrabalho e ruído operacional",
+    description:
+      "Agenda, CRM e conversa trabalham juntos. O time atua com clareza do próximo passo, sem apagar incêndio.",
+  },
+  {
+    title: "Você ganha previsibilidade comercial",
+    description:
+      "Follow up contextual e operação por etapa criam rotina de execução estável para gerar receita recorrente.",
+  },
+]
+
+const featureGrid = [
+  {
+    title: "Atendimento autônomo com contexto real",
+    description:
+      "Agentes de IA entendem o histórico completo da conversa e respondem com continuidade entre canais.",
+  },
+  {
+    title: "Instagram Direct e comentários no mesmo fluxo",
+    description:
+      "Interações do Instagram entram com contexto no CRM para o time atuar sem troca de ferramenta.",
+  },
+  {
+    title: "Qualificação comercial estruturada",
+    description:
+      "A conversa evolui por etapas de descoberta para elevar qualidade de lead antes da proposta.",
+  },
+  {
+    title: "Handoff humano sem perda de histórico",
+    description:
+      "Quando o consultor assume, todo o contexto já está organizado para acelerar fechamento.",
+  },
+  {
+    title: "Follow up inteligente por etapa",
+    description:
+      "Retomadas acontecem no momento certo, com mensagem coerente ao ponto exato da jornada.",
+  },
+  {
+    title: "Agenda integrada com validação prévia",
+    description:
+      "Horários ocupados não são oferecidos. O sistema prioriza disponibilidade real para evitar falhas.",
+  },
+  { title: "Gestão multi tenant com governança", description: "Cada operação mantém credenciais, fluxos e configurações isoladas com visão administrativa central." },
 ]
 
 const workflowSteps = [
   {
     step: "01",
-    title: "Captura em todos os canais",
-    description:
-      "Leads entram por WhatsApp e Instagram com identificação automática de origem, contexto e prioridade de atendimento.",
+    title: "Captura",
+    description: "Leads chegam por WhatsApp e Instagram e entram no CRM com identificação de canal e contexto.",
   },
   {
     step: "02",
-    title: "Qualificação e avanço de conversa",
-    description:
-      "A IA conduz a jornada, qualifica dor e perfil, quebra objeções e move o lead com consistência até o próximo passo.",
+    title: "Qualificação",
+    description: "A IA conduz a conversa com critérios comerciais e prepara o avanço para agendamento ou proposta.",
   },
   {
     step: "03",
-    title: "Agendamento, follow-up e escala",
-    description:
-      "CRM, agenda, follow-up contextual e handoff humano trabalham juntos para transformar volume em resultado previsível.",
+    title: "Conversão",
+    description: "Com agenda validada e histórico limpo, o time atua com velocidade e precisão para fechar.",
   },
 ]
 
 const trustSignals = [
   "WhatsApp",
-  "Instagram",
-  "Direct",
-  "Comentários",
-  "CRM",
+  "Instagram Direct",
+  "Instagram comentários",
+  "CRM integrado",
   "Agenda inteligente",
-  "Follow-up contextual",
-  "Operação multi-unidade",
+  "Follow up contextual",
+  "Operação por unidade",
+  "Governança central",
 ]
 
 export default function HomePage() {
@@ -98,15 +152,15 @@ export default function HomePage() {
         <section className="grid gap-10 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
           <div className="space-y-7">
             <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-4 py-1 text-[11px] uppercase tracking-[0.28em] text-accent-green">
-              Plataforma de crescimento com IA
+              Plataforma premium de atendimento e conversão
             </span>
 
             <div className="space-y-4">
               <h1 className="max-w-3xl font-display text-4xl font-semibold leading-[1.02] text-pure-white md:text-5xl xl:text-6xl">
-                Converta mais leads com agentes de IA autônomos no WhatsApp e Instagram.
+                Transforme WhatsApp e Instagram em uma máquina de aquisição, qualificação e conversão.
               </h1>
               <p className="max-w-2xl text-base leading-7 text-text-gray md:text-lg">
-                Centralize atendimento, CRM, agenda e automações em um único sistema. Sua operação responde rápido, qualifica melhor e agenda com mais precisão.
+                GerencIA foi construída para operação comercial real. A plataforma responde rápido, mantém contexto, agenda com precisão e entrega controle total da jornada até a venda.
               </p>
             </div>
 
@@ -115,7 +169,7 @@ export default function HomePage() {
                 href="/login"
                 className="rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-black shadow-lg shadow-white/20 transition hover:scale-[1.02]"
               >
-                Entrar no painel
+                Acessar painel
               </Link>
               <Link
                 href="/admin/login"
@@ -141,21 +195,21 @@ export default function HomePage() {
             <div className="genial-surface rounded-[28px] p-4 shadow-2xl shadow-black/35">
               <div className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr]">
                 <div className="rounded-[24px] border border-white/10 bg-black/[0.35] p-5">
-                  <div className="text-[11px] uppercase tracking-[0.28em] text-text-gray">Promessa da plataforma</div>
-                  <div className="mt-3 text-3xl font-semibold text-pure-white">Mais agendamentos, menos perda de lead</div>
+                  <div className="text-[11px] uppercase tracking-[0.28em] text-text-gray">Promessa de valor</div>
+                  <div className="mt-3 text-3xl font-semibold text-pure-white">Mais conversão com menos ruído operacional.</div>
                   <p className="mt-3 text-sm leading-6 text-text-gray">
-                    Estrutura completa para vender com consistência: IA que conversa, qualifica, segue o fluxo e entrega contexto para o time fechar.
+                    A plataforma elimina atrasos de resposta, organiza contexto de ponta a ponta e mantém o time focado no que gera receita.
                   </p>
                 </div>
 
                 <div className="rounded-[24px] border border-white/10 bg-white/[0.06] p-5 backdrop-blur">
                   <div className="flex items-center justify-between">
                     <div>
-                      <div className="text-[11px] uppercase tracking-[0.28em] text-text-gray">Operação em tempo real</div>
+                      <div className="text-[11px] uppercase tracking-[0.28em] text-text-gray">Painel em tempo real</div>
                       <div className="mt-2 text-xl font-semibold text-pure-white">Atendimento, CRM e agenda sincronizados</div>
                     </div>
                     <div className="rounded-full border border-emerald-400/30 bg-emerald-500/[0.12] px-3 py-1 text-xs font-semibold text-accent-green">
-                      Online
+                      Ativo
                     </div>
                   </div>
 
@@ -173,19 +227,19 @@ export default function HomePage() {
                   </div>
 
                   <div className="mt-5 rounded-2xl border border-white/10 bg-black/[0.35] p-4">
-                    <div className="text-xs uppercase tracking-[0.24em] text-text-gray">Visão da rotina</div>
+                    <div className="text-xs uppercase tracking-[0.24em] text-text-gray">Prioridades da operação</div>
                     <div className="mt-3 grid gap-3 sm:grid-cols-3">
                       <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
-                        <div className="text-xs text-text-gray">Fila ativa</div>
-                        <div className="mt-2 text-lg font-semibold text-pure-white">Leads em qualificação</div>
+                        <div className="text-xs text-text-gray">Fila comercial</div>
+                        <div className="mt-2 text-lg font-semibold text-pure-white">Leads por estágio</div>
                       </div>
                       <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
-                        <div className="text-xs text-text-gray">Ações críticas</div>
-                        <div className="mt-2 text-lg font-semibold text-pure-white">Handoffs e reengajamentos</div>
+                        <div className="text-xs text-text-gray">Ações sensíveis</div>
+                        <div className="mt-2 text-lg font-semibold text-pure-white">Handoff e retomada</div>
                       </div>
                       <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
                         <div className="text-xs text-text-gray">Agenda</div>
-                        <div className="mt-2 text-lg font-semibold text-pure-white">Horários e confirmações</div>
+                        <div className="mt-2 text-lg font-semibold text-pure-white">Horários validados</div>
                       </div>
                     </div>
                   </div>
@@ -195,45 +249,77 @@ export default function HomePage() {
           </div>
         </section>
 
-        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {[
-            { label: "Resposta 24/7", value: "Seu lead nunca fica sem retorno no momento mais quente da decisão." },
-            { label: "Qualificação real", value: "A IA conduz descoberta de dor, perfil e intenção antes de avançar para proposta." },
-            { label: "Conversão", value: "Agendamento com checagem de disponibilidade e fluxo contínuo até confirmação." },
-            { label: "Escala com controle", value: "Operação multi-tenant com regras por unidade e governança central." },
-          ].map((item, index) => (
-            <div
-              key={item.label}
-              className="rounded-2xl border border-white/10 bg-white/5 p-5 backdrop-blur animate-fade-up"
-              style={{ animationDelay: `${0.18 + index * 0.08}s` }}
-            >
-              <div className="text-[11px] uppercase tracking-[0.26em] text-text-gray">{item.label}</div>
-              <p className="mt-3 text-sm leading-6 text-pure-white">{item.value}</p>
-            </div>
-          ))}
-        </section>
-
         <section className="grid gap-6 lg:grid-cols-3">
-          {platformSignals.map((item, index) => (
+          {outcomePillars.map((item, index) => (
             <article
               key={item.title}
-              className="genial-surface rounded-3xl p-6 animate-fade-up"
-              style={{ animationDelay: `${0.24 + index * 0.08}s` }}
+              className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur animate-fade-up"
+              style={{ animationDelay: `${0.14 + index * 0.08}s` }}
             >
-              <div className="text-[11px] uppercase tracking-[0.28em] text-accent-green">Funcionalidade-chave</div>
-              <h2 className="mt-4 text-xl font-semibold text-pure-white">{item.title}</h2>
+              <div className="text-[11px] uppercase tracking-[0.24em] text-accent-green">Resultado</div>
+              <h2 className="mt-3 text-xl font-semibold text-pure-white">{item.title}</h2>
               <p className="mt-3 text-sm leading-6 text-text-gray">{item.description}</p>
             </article>
           ))}
         </section>
 
         <section className="rounded-[32px] border border-white/10 bg-black/[0.30] p-8 backdrop-blur">
+          <div className="space-y-6">
+            <div className="space-y-3">
+              <div className="text-[11px] uppercase tracking-[0.28em] text-accent-green">Por que escolher GerencIA</div>
+              <h2 className="text-3xl font-semibold text-pure-white">Argumentos de negócio para quem precisa vender mais com consistência.</h2>
+              <p className="max-w-3xl text-sm leading-6 text-text-gray">
+                A plataforma não é só atendimento automatizado. Ela organiza execução comercial para acelerar resposta, elevar qualidade de lead e aumentar taxa de fechamento.
+              </p>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              {strongArguments.map((item, index) => (
+                <article
+                  key={item.title}
+                  className="rounded-2xl border border-white/10 bg-white/5 p-5 animate-fade-up"
+                  style={{ animationDelay: `${0.18 + index * 0.06}s` }}
+                >
+                  <h3 className="text-lg font-semibold text-pure-white">{item.title}</h3>
+                  <p className="mt-3 text-sm leading-6 text-text-gray">{item.description}</p>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-[32px] border border-white/10 bg-black/[0.30] p-8 backdrop-blur">
+          <div className="space-y-6">
+            <div className="space-y-3">
+              <div className="text-[11px] uppercase tracking-[0.28em] text-accent-green">Recursos que sustentam crescimento</div>
+              <h2 className="text-3xl font-semibold text-pure-white">Tecnologia aplicada para vender mais com consistência.</h2>
+              <p className="max-w-3xl text-sm leading-6 text-text-gray">
+                O sistema opera como uma camada comercial inteligente. Ele organiza contexto, acelera atendimento e mantém padrão de execução entre IA e equipe.
+              </p>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {featureGrid.map((item, index) => (
+                <article
+                  key={item.title}
+                  className="rounded-2xl border border-white/10 bg-white/5 p-5 animate-fade-up"
+                  style={{ animationDelay: `${0.22 + index * 0.05}s` }}
+                >
+                  <h3 className="text-lg font-semibold text-pure-white">{item.title}</h3>
+                  <p className="mt-3 text-sm leading-6 text-text-gray">{item.description}</p>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-[32px] border border-white/10 bg-black/[0.30] p-8 backdrop-blur">
           <div className="grid gap-8 lg:grid-cols-[0.9fr_1.1fr] lg:items-start">
             <div className="space-y-4">
-              <div className="text-[11px] uppercase tracking-[0.28em] text-accent-green">Como a operação flui</div>
-              <h2 className="text-3xl font-semibold text-pure-white">Um sistema único para captar, qualificar, agendar e vender.</h2>
+              <div className="text-[11px] uppercase tracking-[0.28em] text-accent-green">Como funciona</div>
+              <h2 className="text-3xl font-semibold text-pure-white">Da entrada do lead ao agendamento, sem ruído operacional.</h2>
               <p className="max-w-xl text-sm leading-6 text-text-gray">
-                Você substitui processos quebrados e respostas manuais por uma máquina comercial inteligente, com IA autônoma e time humano trabalhando no mesmo contexto.
+                O fluxo foi desenhado para aumentar conversão sem aumentar complexidade. Cada etapa prepara a próxima com contexto limpo e ação clara.
               </p>
             </div>
 
@@ -252,10 +338,10 @@ export default function HomePage() {
         <section className="rounded-[32px] border border-white/10 bg-gradient-to-r from-black via-black/80 to-black p-8 shadow-2xl shadow-black/30">
           <div className="grid gap-6 lg:grid-cols-[1fr_auto] lg:items-center">
             <div className="space-y-3">
-              <div className="text-[11px] uppercase tracking-[0.28em] text-accent-green">Pronto para escalar atendimento e vendas</div>
-              <h2 className="text-2xl font-semibold text-pure-white">Ative seus agentes de IA e transforme conversas em receita previsível.</h2>
+              <div className="text-[11px] uppercase tracking-[0.28em] text-accent-green">Comece agora</div>
+              <h2 className="text-2xl font-semibold text-pure-white">Transforme atendimento em uma operação comercial de alta performance.</h2>
               <p className="max-w-2xl text-sm leading-6 text-text-gray">
-                Entre agora e opere com uma base profissional para WhatsApp e Instagram, com automação, contexto e controle por unidade.
+                Acesse sua unidade e ative uma estrutura premium para qualificar, agendar e converter com mais segurança.
               </p>
             </div>
 

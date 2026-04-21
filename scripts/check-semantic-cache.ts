@@ -3,6 +3,13 @@
  * Execute: npx tsx scripts/check-semantic-cache.ts
  */
 
+import { config as dotenvConfig } from "dotenv"
+import { resolve } from "path"
+
+// Carrega .env.local antes de qualquer import que precise das variáveis
+dotenvConfig({ path: resolve(process.cwd(), ".env.local") })
+dotenvConfig({ path: resolve(process.cwd(), ".env") })
+
 import { createBiaSupabaseServerClient } from "../lib/supabase/bia-client"
 
 async function main() {

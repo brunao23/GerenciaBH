@@ -1,6 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
-import { getRandomTemplate, getContextTemplate, type CONTEXT_TEMPLATES } from "@/lib/templates/follow-up-messages"
 
 // Cliente Supabase com Service Role para acesso administrativo
 function createServiceRoleClient() {
@@ -30,20 +29,6 @@ interface FollowUpJob {
   created_at?: string
 }
 
-function detectarContextoAgendamento(observacoes: string): keyof typeof CONTEXT_TEMPLATES | null {
-  const observacoesLower = observacoes.toLowerCase()
-
-  if (observacoesLower.includes("matricula") || observacoesLower.includes("matrícula")) {
-    return "matricula"
-  }
-
-  if (observacoesLower.includes("consultoria") || observacoesLower.includes("orientação")) {
-    return "consultoria"
-  }
-
-  return null
-}
-
 function primeiroNome(rawName: string | null | undefined, fallback = "Cliente"): string {
   const t = (rawName ?? "").trim()
   if (!t) return fallback
@@ -52,23 +37,31 @@ function primeiroNome(rawName: string | null | undefined, fallback = "Cliente"):
   return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase()
 }
 
-function gerarMensagemPersonalizada(
+// Etapa 1/3 — 72h antes: primeiro contato, tom acolhedor
+// Etapa 2/3 — 24h antes: confirmação, urgência leve
+// Etapa 3/3 — 1h antes: lembrete final, conciso
+function gerarMensagemContextual(
   nome: string,
   data: string,
   horario: string,
   tipo: "72h" | "24h" | "1h",
   observacoes?: string,
 ): string {
-  // Detectar contexto baseado nas observações
-  const contexto = observacoes ? detectarContextoAgendamento(observacoes) : null
+  const obs = observacoes ? `\n\n📝 ${observacoes}` : ""
 
-  if (contexto) {
-    return getContextTemplate(contexto, tipo, nome, data, horario)
+  switch (tipo) {
+    case "72h":
+      return `Olá ${nome}! 👋\n\nPassando para lembrar que você tem uma visita agendada conosco para *${data} às ${horario}*.\n\nEstamos ansiosos para te receber! Se precisar reagendar ou tiver qualquer dúvida, é só me chamar aqui.${obs}\n\nAté breve! 😊`
+
+    case "24h":
+      return `Oi ${nome}! 🌟\n\nSua visita conosco é *amanhã, ${data} às ${horario}*!\n\nVocê pode confirmar sua presença? É só responder aqui.\n\nCaso precise reagendar, me avisa que a gente resolve.${obs}\n\nTe esperamos! 🎯`
+
+    case "1h":
+      return `${nome}, sua visita é *daqui a pouco*! ⏰\n\n📅 Hoje às *${horario}*\n\nJá estamos te esperando. Qualquer imprevisto, me avisa!${obs}`
+
+    default:
+      return `Olá ${nome}! Lembrando da sua visita agendada para ${data} às ${horario}. Te esperamos!`
   }
-
-  // Usar template aleatório padrão
-  const template = getRandomTemplate(tipo)
-  return template.template(nome, data, horario, observacoes)
 }
 
 function calcularDataEnvio(dataAgendamento: string, horaAgendamento: string, tipoLembrete: "72h" | "24h" | "1h"): Date {
@@ -114,7 +107,7 @@ async function criarFollowUpJobs(agendamento: any, tenant: string) {
 
     // Só criar job se a data de envio for futura
     if (dataEnvio > new Date()) {
-      const mensagemPersonalizada = gerarMensagemPersonalizada(
+      const mensagemPersonalizada = gerarMensagemContextual(
         primeiroNome(agendamento.nome),
         agendamento.dia,
         agendamento.horario,
