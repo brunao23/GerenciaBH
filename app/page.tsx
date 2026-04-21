@@ -3,36 +3,60 @@
 import Link from "next/link"
 
 const heroMetrics = [
-  { label: "Tempo médio de resposta", value: "Até 2 min", tone: "text-cyan-300" },
-  { label: "Leads com contexto vivo", value: "100%", tone: "text-emerald-300" },
-  { label: "Unidades centralizadas", value: "Multi-tenant", tone: "text-violet-300" },
+  { label: "Primeira resposta", value: "Até 2 min", tone: "text-cyan-300" },
+  { label: "Atendimento contínuo", value: "24/7 com IA", tone: "text-emerald-300" },
+  { label: "Canais conectados", value: "WhatsApp + Instagram", tone: "text-violet-300" },
 ]
 
 const platformSignals = [
-  { title: "Conversas em contexto", description: "Histórico limpo, leitura rápida do estágio do lead e operação contínua entre IA e humano." },
-  { title: "Agenda e follow-up sob controle", description: "Acompanhamento da jornada sem perder o timing comercial e sem ruído operacional." },
-  { title: "Gestão por unidade", description: "Cada operação mantém suas próprias regras, credenciais, fluxos e visão de desempenho." },
+  {
+    title: "Agentes autônomos com contexto real",
+    description:
+      "A IA entende histórico, estágio do lead e intenção de compra para responder com precisão, sem conversa genérica.",
+  },
+  {
+    title: "Agendamento inteligente e sem conflito",
+    description:
+      "A agenda é consultada antes da oferta de horários. Menos retrabalho, menos erro e mais reuniões realmente confirmadas.",
+  },
+  {
+    title: "Gestão por unidade com controle total",
+    description:
+      "Cada tenant opera com regras próprias, credenciais isoladas e visão clara de performance para escalar sem perder padrão.",
+  },
 ]
 
 const workflowSteps = [
   {
     step: "01",
-    title: "Captura e qualificação",
-    description: "O sistema recebe o lead, organiza o contexto e sustenta uma triagem consistente desde a primeira mensagem.",
+    title: "Captura em todos os canais",
+    description:
+      "Leads entram por WhatsApp e Instagram com identificação automática de origem, contexto e prioridade de atendimento.",
   },
   {
     step: "02",
-    title: "Interação assistida",
-    description: "IA e equipe compartilham contexto, preservam o histórico e mantêm a conversa produtiva sem rupturas.",
+    title: "Qualificação e avanço de conversa",
+    description:
+      "A IA conduz a jornada, qualifica dor e perfil, quebra objeções e move o lead com consistência até o próximo passo.",
   },
   {
     step: "03",
-    title: "Gestão e escala",
-    description: "CRM, agenda, alertas e automações operam em conjunto para transformar volume em rotina previsível.",
+    title: "Agendamento, follow-up e escala",
+    description:
+      "CRM, agenda, follow-up contextual e handoff humano trabalham juntos para transformar volume em resultado previsível.",
   },
 ]
 
-const trustSignals = ["WhatsApp", "Instagram", "CRM", "Agenda", "Follow-up", "Operação multi-unidade"]
+const trustSignals = [
+  "WhatsApp",
+  "Instagram",
+  "Direct",
+  "Comentários",
+  "CRM",
+  "Agenda inteligente",
+  "Follow-up contextual",
+  "Operação multi-unidade",
+]
 
 export default function HomePage() {
   return (
@@ -74,15 +98,15 @@ export default function HomePage() {
         <section className="grid gap-10 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
           <div className="space-y-7">
             <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-4 py-1 text-[11px] uppercase tracking-[0.28em] text-accent-green">
-              Gestão de atendimento com IA
+              Plataforma de crescimento com IA
             </span>
 
             <div className="space-y-4">
               <h1 className="max-w-3xl font-display text-4xl font-semibold leading-[1.02] text-pure-white md:text-5xl xl:text-6xl">
-                Operação comercial, atendimento e automação no mesmo painel.
+                Converta mais leads com agentes de IA autônomos no WhatsApp e Instagram.
               </h1>
               <p className="max-w-2xl text-base leading-7 text-text-gray md:text-lg">
-                Centralize conversas, CRM, agenda e agentes de IA em uma estrutura única, com leitura clara do que está acontecendo e controle real por unidade.
+                Centralize atendimento, CRM, agenda e automações em um único sistema. Sua operação responde rápido, qualifica melhor e agenda com mais precisão.
               </p>
             </div>
 
@@ -117,17 +141,17 @@ export default function HomePage() {
             <div className="genial-surface rounded-[28px] p-4 shadow-2xl shadow-black/35">
               <div className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr]">
                 <div className="rounded-[24px] border border-white/10 bg-black/[0.35] p-5">
-                  <div className="text-[11px] uppercase tracking-[0.28em] text-text-gray">Controle operacional</div>
-                  <div className="mt-3 text-3xl font-semibold text-pure-white">Pulsos em tempo real</div>
+                  <div className="text-[11px] uppercase tracking-[0.28em] text-text-gray">Promessa da plataforma</div>
+                  <div className="mt-3 text-3xl font-semibold text-pure-white">Mais agendamentos, menos perda de lead</div>
                   <p className="mt-3 text-sm leading-6 text-text-gray">
-                    Uma visão objetiva da operação para saber o que precisa de atenção, o que está fluindo e onde agir primeiro.
+                    Estrutura completa para vender com consistência: IA que conversa, qualifica, segue o fluxo e entrega contexto para o time fechar.
                   </p>
                 </div>
 
                 <div className="rounded-[24px] border border-white/10 bg-white/[0.06] p-5 backdrop-blur">
                   <div className="flex items-center justify-between">
                     <div>
-                      <div className="text-[11px] uppercase tracking-[0.28em] text-text-gray">Painel vivo</div>
+                      <div className="text-[11px] uppercase tracking-[0.28em] text-text-gray">Operação em tempo real</div>
                       <div className="mt-2 text-xl font-semibold text-pure-white">Atendimento, CRM e agenda sincronizados</div>
                     </div>
                     <div className="rounded-full border border-emerald-400/30 bg-emerald-500/[0.12] px-3 py-1 text-xs font-semibold text-accent-green">
@@ -153,11 +177,11 @@ export default function HomePage() {
                     <div className="mt-3 grid gap-3 sm:grid-cols-3">
                       <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
                         <div className="text-xs text-text-gray">Fila ativa</div>
-                        <div className="mt-2 text-lg font-semibold text-pure-white">Leads em andamento</div>
+                        <div className="mt-2 text-lg font-semibold text-pure-white">Leads em qualificação</div>
                       </div>
                       <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
                         <div className="text-xs text-text-gray">Ações críticas</div>
-                        <div className="mt-2 text-lg font-semibold text-pure-white">Handoffs e retornos</div>
+                        <div className="mt-2 text-lg font-semibold text-pure-white">Handoffs e reengajamentos</div>
                       </div>
                       <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
                         <div className="text-xs text-text-gray">Agenda</div>
@@ -173,10 +197,10 @@ export default function HomePage() {
 
         <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {[
-            { label: "Operação", value: "CRM, mensagens e agenda em um fluxo só." },
-            { label: "Gestão", value: "Leitura rápida da unidade, sem depender de planilhas paralelas." },
-            { label: "Escala", value: "Regras independentes por tenant, com base compartilhada de produto." },
-            { label: "Execução", value: "IA e equipe trabalham com o mesmo contexto da conversa." },
+            { label: "Resposta 24/7", value: "Seu lead nunca fica sem retorno no momento mais quente da decisão." },
+            { label: "Qualificação real", value: "A IA conduz descoberta de dor, perfil e intenção antes de avançar para proposta." },
+            { label: "Conversão", value: "Agendamento com checagem de disponibilidade e fluxo contínuo até confirmação." },
+            { label: "Escala com controle", value: "Operação multi-tenant com regras por unidade e governança central." },
           ].map((item, index) => (
             <div
               key={item.label}
@@ -196,7 +220,7 @@ export default function HomePage() {
               className="genial-surface rounded-3xl p-6 animate-fade-up"
               style={{ animationDelay: `${0.24 + index * 0.08}s` }}
             >
-              <div className="text-[11px] uppercase tracking-[0.28em] text-accent-green">Capacidade</div>
+              <div className="text-[11px] uppercase tracking-[0.28em] text-accent-green">Funcionalidade-chave</div>
               <h2 className="mt-4 text-xl font-semibold text-pure-white">{item.title}</h2>
               <p className="mt-3 text-sm leading-6 text-text-gray">{item.description}</p>
             </article>
@@ -207,9 +231,9 @@ export default function HomePage() {
           <div className="grid gap-8 lg:grid-cols-[0.9fr_1.1fr] lg:items-start">
             <div className="space-y-4">
               <div className="text-[11px] uppercase tracking-[0.28em] text-accent-green">Como a operação flui</div>
-              <h2 className="text-3xl font-semibold text-pure-white">Uma base única para atender, acompanhar e crescer.</h2>
+              <h2 className="text-3xl font-semibold text-pure-white">Um sistema único para captar, qualificar, agendar e vender.</h2>
               <p className="max-w-xl text-sm leading-6 text-text-gray">
-                A experiência de entrada precisa explicar rápido o valor do produto. Por isso a página inicial agora posiciona o sistema como plataforma operacional, não só como tela de login.
+                Você substitui processos quebrados e respostas manuais por uma máquina comercial inteligente, com IA autônoma e time humano trabalhando no mesmo contexto.
               </p>
             </div>
 
@@ -228,10 +252,10 @@ export default function HomePage() {
         <section className="rounded-[32px] border border-white/10 bg-gradient-to-r from-black via-black/80 to-black p-8 shadow-2xl shadow-black/30">
           <div className="grid gap-6 lg:grid-cols-[1fr_auto] lg:items-center">
             <div className="space-y-3">
-              <div className="text-[11px] uppercase tracking-[0.28em] text-accent-green">Acesso imediato</div>
-              <h2 className="text-2xl font-semibold text-pure-white">Entre com sua unidade e assuma a operação em poucos minutos.</h2>
+              <div className="text-[11px] uppercase tracking-[0.28em] text-accent-green">Pronto para escalar atendimento e vendas</div>
+              <h2 className="text-2xl font-semibold text-pure-white">Ative seus agentes de IA e transforme conversas em receita previsível.</h2>
               <p className="max-w-2xl text-sm leading-6 text-text-gray">
-                Acesso do cliente e acesso administrativo seguem caminhos distintos, com uma apresentação mais clara desde a primeira tela.
+                Entre agora e opere com uma base profissional para WhatsApp e Instagram, com automação, contexto e controle por unidade.
               </p>
             </div>
 

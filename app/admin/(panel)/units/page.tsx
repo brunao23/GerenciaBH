@@ -132,6 +132,8 @@ export default function AdminUnitsPage() {
     const [instanceId, setInstanceId] = useState("")
     const [instanceName, setInstanceName] = useState("")
     const [providerToken, setProviderToken] = useState("")
+    const [zapiPaymentUrl, setZapiPaymentUrl] = useState("")
+    const [zapiDashboardUrl, setZapiDashboardUrl] = useState("")
     const [metaAccessToken, setMetaAccessToken] = useState("")
     const [metaPhoneNumberId, setMetaPhoneNumberId] = useState("")
     const [metaWabaId, setMetaWabaId] = useState("")
@@ -298,6 +300,8 @@ export default function AdminUnitsPage() {
         setInstanceId(config.instanceId || "")
         setInstanceName(config.instanceName || "")
         setProviderToken(config.token || "")
+        setZapiPaymentUrl(config.zapiPaymentUrl || "")
+        setZapiDashboardUrl(config.zapiDashboardUrl || "")
         setMetaAccessToken(config.metaAccessToken || "")
         setMetaPhoneNumberId(config.metaPhoneNumberId || "")
         setMetaWabaId(config.metaWabaId || "")
@@ -326,6 +330,8 @@ export default function AdminUnitsPage() {
                 instanceId: instanceId.trim() || undefined,
                 instanceName: instanceName.trim() || undefined,
                 token: providerToken.trim() || undefined,
+                zapiPaymentUrl: zapiPaymentUrl.trim() || undefined,
+                zapiDashboardUrl: zapiDashboardUrl.trim() || undefined,
                 metaAccessToken: metaAccessToken.trim() || undefined,
                 metaPhoneNumberId: metaPhoneNumberId.trim() || undefined,
                 metaWabaId: metaWabaId.trim() || undefined,
@@ -938,6 +944,8 @@ export default function AdminUnitsPage() {
                                 <div className="space-y-2"><Label>Instance ID</Label><Input value={instanceId} onChange={e => setInstanceId(e.target.value)} className="bg-secondary border-border text-white text-base" /></div>
                             </div>
                             <div className="space-y-2"><Label>Token</Label><Input value={providerToken} onChange={e => setProviderToken(e.target.value)} className="bg-secondary border-border text-white text-base" /></div>
+                            <div className="space-y-2"><Label>Link de pagamento (1 clique)</Label><Input value={zapiPaymentUrl} onChange={e => setZapiPaymentUrl(e.target.value)} placeholder="https://..." className="bg-secondary border-border text-white text-base" /></div>
+                            <div className="space-y-2"><Label>Link do painel Z-API</Label><Input value={zapiDashboardUrl} onChange={e => setZapiDashboardUrl(e.target.value)} placeholder="https://..." className="bg-secondary border-border text-white text-base" /></div>
                         </>)}
                         {messagingProvider === 'evolution' && (<>
                             <div className="space-y-2"><Label>API URL</Label><Input value={apiUrl} onChange={e => setApiUrl(e.target.value)} className="bg-secondary border-border text-white text-base" /></div>

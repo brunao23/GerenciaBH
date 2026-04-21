@@ -11,6 +11,8 @@ export interface MessagingConfig {
   instanceName?: string
   token?: string
   clientToken?: string
+  zapiPaymentUrl?: string
+  zapiDashboardUrl?: string
   metaAccessToken?: string
   metaPhoneNumberId?: string
   metaWabaId?: string

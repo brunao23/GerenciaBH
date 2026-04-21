@@ -81,6 +81,7 @@ export class ZApiService {
   private qrCodeImageUrl: string
   private phoneCodeUrl: string
   private messagesUrl: string
+  private meUrl: string
 
   constructor(config: ZApiConfig) {
     this.config = config
@@ -100,6 +101,7 @@ export class ZApiService {
       this.qrCodeImageUrl = `${baseUrl}/qr-code/image`
       this.phoneCodeUrl = `${baseUrl}/phone-code`
       this.messagesUrl = `${baseUrl}/messages`
+      this.meUrl = `${baseUrl}/me`
       return
     }
 
@@ -118,6 +120,7 @@ export class ZApiService {
     this.qrCodeImageUrl = `${root}/qr-code/image`
     this.phoneCodeUrl = `${root}/phone-code`
     this.messagesUrl = `${root}/messages`
+    this.meUrl = `${root}/me`
   }
 
   private buildHeaders() {
@@ -590,7 +593,12 @@ export class ZApiService {
     }
   }
 
-  async checkInstanceStatus(): Promise<{ connected: boolean; error?: string }> {
+  async checkInstanceStatusDetailed(): Promise<{
+    connected: boolean
+    statusText?: string
+    error?: string
+    raw?: any
+  }> {
     try {
       const response = await fetch(this.statusUrl, {
         method: "GET",
@@ -602,6 +610,8 @@ export class ZApiService {
         return {
           connected: false,
           error: data?.message || `Erro HTTP ${response.status}`,
+          statusText: String(data?.status || data?.connectionStatus || data?.state || "").trim() || undefined,
+          raw: data,
         }
       }
 
@@ -614,12 +624,51 @@ export class ZApiService {
 
       return {
         connected,
+        statusText: statusText || undefined,
         error: connected ? undefined : data?.error || data?.message || "Instancia desconectada",
+        raw: data,
       }
     } catch (error: any) {
       console.error("[Z-API] Erro ao verificar status:", error)
       return {
         connected: false,
+        error: error?.message || "Erro de conexao",
+        raw: null,
+      }
+    }
+  }
+
+  async checkInstanceStatus(): Promise<{ connected: boolean; error?: string }> {
+    const detailed = await this.checkInstanceStatusDetailed()
+    return {
+      connected: detailed.connected,
+      error: detailed.error,
+    }
+  }
+
+  async getInstanceInfo(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const response = await fetch(this.meUrl, {
+        method: "GET",
+        headers: this.buildHeaders(),
+      })
+      const data = await this.parseResponse(response)
+
+      if (!response.ok) {
+        return {
+          success: false,
+          error: data?.message || `Erro HTTP ${response.status}`,
+        }
+      }
+
+      return {
+        success: true,
+        data,
+      }
+    } catch (error: any) {
+      console.error("[Z-API] Erro ao carregar dados da instancia (/me):", error)
+      return {
+        success: false,
         error: error?.message || "Erro de conexao",
       }
     }
