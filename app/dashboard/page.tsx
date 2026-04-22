@@ -89,6 +89,13 @@ interface CaptacaoData {
   leads: Lead[]
 }
 
+interface CaptacaoSettings {
+  delayMinutes: number | null
+  autoWelcomeEnabled: boolean | null
+  activeConfigs: number
+  totalConfigs: number
+}
+
 interface RelatorioData {
   periodo: string
   dataInicio: string
@@ -298,6 +305,11 @@ export default function DashboardPage() {
   const [deleting, setDeleting] = useState<Set<string>>(new Set())
   const [importing, setImporting] = useState(false)
   const [deduping, setDeduping] = useState(false)
+  const [captSettings, setCaptSettings] = useState<CaptacaoSettings | null>(null)
+  const [captDelayMinutes, setCaptDelayMinutes] = useState("0")
+  const [captAutoWelcomeEnabled, setCaptAutoWelcomeEnabled] = useState(true)
+  const [captSettingsLoading, setCaptSettingsLoading] = useState(false)
+  const [captSettingsSaving, setCaptSettingsSaving] = useState(false)
 
   // ── Relatórios state ──
   const [relatorio, setRelatorio] = useState<RelatorioData | null>(null)
@@ -398,7 +410,39 @@ export default function DashboardPage() {
     }
   }
 
-  useEffect(() => { if (tenant) fetchCaptacao(captPeriod) }, [tenant, captPeriod])
+  const fetchCaptacaoSettings = async () => {
+    if (!tenant) return
+    setCaptSettingsLoading(true)
+    try {
+      const res = await fetch("/api/dashboard/captacao/settings", { cache: "no-store" })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json?.error || "Erro ao carregar configuracao de delay")
+
+      const settings = (json?.settings || null) as CaptacaoSettings | null
+      setCaptSettings(settings)
+      setCaptDelayMinutes(String(settings?.delayMinutes ?? 0))
+      setCaptAutoWelcomeEnabled(settings?.autoWelcomeEnabled !== false)
+    } catch (e: any) {
+      toast.error(e?.message || "Erro ao carregar configuracao de delay")
+    } finally {
+      setCaptSettingsLoading(false)
+    }
+  }
+
+  const getValidDelayForSave = (): number => {
+    const parsed = Number(captDelayMinutes)
+    if (Number.isFinite(parsed) && parsed >= 0) return Math.floor(parsed)
+    if (typeof captSettings?.delayMinutes === "number" && Number.isFinite(captSettings.delayMinutes) && captSettings.delayMinutes >= 0) {
+      return Math.floor(captSettings.delayMinutes)
+    }
+    return 0
+  }
+
+  useEffect(() => {
+    if (!tenant) return
+    fetchCaptacao(captPeriod)
+    fetchCaptacaoSettings()
+  }, [tenant, captPeriod])
 
   const handleResend = async (leadId: string) => {
     setResending((s) => new Set(s).add(leadId))
@@ -467,6 +511,65 @@ export default function DashboardPage() {
       if (json.imported > 0) fetchCaptacao("all")
     } catch (e: any) { toast.error(e.message || "Erro ao importar leads do Meta") }
     finally { setImporting(false) }
+  }
+
+  const saveCaptacaoSettings = async (delayMinutes: number, autoWelcomeEnabled: boolean, showToast = true) => {
+    setCaptSettingsSaving(true)
+    try {
+      const res = await fetch("/api/dashboard/captacao/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          delayMinutes,
+          autoWelcomeEnabled,
+          activeOnly: true,
+        }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json?.error || "Erro ao salvar configuracao")
+
+      if (showToast) {
+        toast.success(
+          `Configuracao salva: delay ${json?.delayMinutes ?? delayMinutes} minuto(s), disparo ${autoWelcomeEnabled ? "ligado" : "desligado"}`,
+        )
+      }
+      setCaptDelayMinutes(String(json?.delayMinutes ?? delayMinutes))
+      setCaptAutoWelcomeEnabled(json?.autoWelcomeEnabled !== false)
+      setCaptSettings((prev) => ({
+        activeConfigs: prev?.activeConfigs ?? 0,
+        totalConfigs: prev?.totalConfigs ?? 0,
+        delayMinutes: json?.delayMinutes ?? delayMinutes,
+        autoWelcomeEnabled: json?.autoWelcomeEnabled ?? autoWelcomeEnabled,
+      }))
+      await fetchCaptacaoSettings()
+      return true
+    } catch (e: any) {
+      toast.error(e?.message || "Erro ao salvar configuracao")
+      return false
+    } finally {
+      setCaptSettingsSaving(false)
+    }
+  }
+
+  const handleSaveCaptacaoDelay = async () => {
+    const parsed = Number(captDelayMinutes)
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      toast.error("Informe um delay valido em minutos")
+      return
+    }
+
+    await saveCaptacaoSettings(parsed, captAutoWelcomeEnabled, true)
+  }
+
+  const handleToggleCaptacaoAutoWelcome = async () => {
+    const parsed = getValidDelayForSave()
+
+    const next = !captAutoWelcomeEnabled
+    setCaptAutoWelcomeEnabled(next)
+    const ok = await saveCaptacaoSettings(parsed, next, true)
+    if (!ok) {
+      setCaptAutoWelcomeEnabled(!next)
+    }
   }
 
   const filteredLeads = captData?.leads?.filter((l) => {
@@ -915,6 +1018,54 @@ export default function DashboardPage() {
               </Button>
             </div>
           </div>
+
+          <Card className="border-emerald-500/20 bg-emerald-500/5">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium text-emerald-300 flex items-center gap-2">
+                <Clock className="h-4 w-4" />
+                Disparo inicial pos-formulario
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                <div className="space-y-1">
+                  <label className="text-xs text-text-gray">Minutos para enviar apos o lead chegar</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={0}
+                      value={captDelayMinutes}
+                      onChange={(e) => setCaptDelayMinutes(e.target.value)}
+                      className="h-9 w-32 rounded-md border border-border bg-card px-3 text-sm text-pure-white focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={captAutoWelcomeEnabled ? "default" : "outline"}
+                      onClick={handleToggleCaptacaoAutoWelcome}
+                      disabled={captSettingsSaving || captSettingsLoading}
+                      className={captAutoWelcomeEnabled ? "bg-emerald-500 text-black hover:bg-emerald-500/90" : ""}
+                    >
+                      {captAutoWelcomeEnabled ? "Disparo ligado" : "Disparo desligado"}
+                    </Button>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    onClick={handleSaveCaptacaoDelay}
+                    disabled={captSettingsSaving || captSettingsLoading}
+                    className="bg-emerald-500 text-black hover:bg-emerald-500/90"
+                  >
+                    {captSettingsSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar configuracao"}
+                  </Button>
+                </div>
+              </div>
+              <p className="text-xs text-text-gray">
+                Aplicado nas campanhas ativas: {captSettings?.activeConfigs ?? 0} de {captSettings?.totalConfigs ?? 0}. Status atual do disparo: {captAutoWelcomeEnabled ? "ligado" : "desligado"}.
+              </p>
+            </CardContent>
+          </Card>
 
           {captError && <Alert variant="destructive"><AlertDescription>{captError}</AlertDescription></Alert>}
 

@@ -1334,9 +1334,8 @@ export class AgentTaskQueueService {
     payload: Record<string, any>
   }): string {
     const raw = stripTaskPrefix(String(input.message || "").trim())
-    const normalized = sanitizeFollowupText(raw, 280)
-    if (normalized && !isInternalReminderLeakMessage(normalized)) {
-      return normalized
+    if (raw && !isInternalReminderLeakMessage(raw)) {
+      return raw
     }
 
     const leadName = normalizeLeadName(
@@ -1639,14 +1638,58 @@ export class AgentTaskQueueService {
         runtimeConfig = await this.loadFollowupRuntimeConfig(tenant)
       }
 
+      let isFallbackReminder = false
+      if (taskType !== "followup") {
+        const raw = stripTaskPrefix(String(message).trim())
+        if (!raw || isInternalReminderLeakMessage(raw)) {
+          isFallbackReminder = true
+        }
+      }
+
+      const [paused, terminal] = await Promise.all([
+        this.isLeadPaused(tenant, phone),
+        this.isLeadTerminal(tenant, sessionId),
+      ])
+
+      const shouldCancelAsPaused = paused && (taskType === "followup" || isFallbackReminder)
+      const shouldCancelAsTerminal = terminal && taskType === "followup"
+
+      if (shouldCancelAsPaused || shouldCancelAsTerminal) {
+        result.skipped += 1
+        const reason = shouldCancelAsPaused
+          ? `${taskType}_cancelled_paused`
+          : `${taskType}_cancelled_terminal_status`
+        await this.supabase
+          .from(this.table)
+          .update({
+            status: "cancelled",
+            attempts: Number(task.attempts || 0) + 1,
+            last_error: reason,
+          })
+          .eq("id", task.id)
+        
+        if (taskType === "followup") {
+          await this.notifyFollowupTouchpoint({
+            tenant,
+            sessionId,
+            phone,
+            runtimeConfig,
+            kind: "cancelled",
+            reason,
+            step: Number(payload?.followup_step || 0) || undefined,
+            totalSteps: Number(payload?.followup_total_steps || 0) || undefined,
+            taskId: String(task.id || ""),
+          })
+        }
+        continue
+      }
+
       if (taskType === "followup") {
-        const [configValidation, paused, terminal, replied, recentAssistantFollowup] = await Promise.all([
+        const [configValidation, replied, recentAssistantFollowup] = await Promise.all([
           this.validateFollowupTaskAgainstCurrentConfig({
             tenant,
             payload,
           }),
-          this.isLeadPaused(tenant, phone),
-          this.isLeadTerminal(tenant, sessionId),
           this.hasUserReplyAfterTask({
             tenant,
             sessionId,
@@ -1659,17 +1702,13 @@ export class AgentTaskQueueService {
           }),
         ])
 
-        if (!configValidation.allowed || paused || terminal || replied || recentAssistantFollowup) {
+        if (!configValidation.allowed || replied || recentAssistantFollowup) {
           result.skipped += 1
           const reason = !configValidation.allowed
             ? `followup_cancelled_${configValidation.reason || "config"}`
-            : paused
-              ? "followup_cancelled_paused"
-              : terminal
-                ? "followup_cancelled_terminal_status"
-                : replied
-                  ? "followup_cancelled_user_replied"
-                  : "followup_cancelled_recent_assistant_message"
+            : replied
+              ? "followup_cancelled_user_replied"
+              : "followup_cancelled_recent_assistant_message"
           await this.supabase
             .from(this.table)
             .update({

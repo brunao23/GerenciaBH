@@ -375,6 +375,82 @@ function extractNumber(sessionId: string): string | null {
   return digits.length >= 8 ? digits : null
 }
 
+function normalizePossiblePhone(value: string): string {
+  const digits = onlyDigits(String(value || ""))
+  if (!digits) return ""
+  if (digits.startsWith("55")) return digits
+  if (digits.length === 10 || digits.length === 11) return `55${digits}`
+  return digits
+}
+
+function toCanonicalSessionId(sessionId: string, msg?: any): string {
+  const raw = String(sessionId || "").trim()
+  if (!raw) return ""
+
+  const lower = raw.toLowerCase()
+  if (lower.startsWith("group_") || lower.includes("@g.us")) {
+    const digits = onlyDigits(raw)
+    return digits ? `group_${digits}` : lower
+  }
+
+  const channel = detectChannel(raw, msg)
+  if (channel === "instagram") {
+    if (lower.startsWith("ig_")) {
+      const igId = onlyDigits(lower.slice(3))
+      return igId ? `ig_${igId}` : lower
+    }
+    if (lower.startsWith("igcomment_") || lower.startsWith("ig_comment_")) {
+      const commentId = onlyDigits(lower)
+      return commentId ? `ig_comment_${commentId}` : lower
+    }
+    const igDigits = onlyDigits(raw)
+    return igDigits ? `ig_${igDigits}` : lower
+  }
+
+  const normalizedPhone = normalizePossiblePhone(raw)
+  if (normalizedPhone.length >= 12) return normalizedPhone
+
+  const extracted = extractNumber(raw)
+  if (extracted) return normalizePossiblePhone(extracted)
+
+  return lower
+}
+
+function buildLeadIdVariants(sessionId: string): string[] {
+  const raw = String(sessionId || "").trim()
+  if (!raw) return []
+
+  const variants = new Set<string>([raw])
+  const canonical = toCanonicalSessionId(raw)
+  if (canonical) variants.add(canonical)
+
+  const lower = raw.toLowerCase()
+  if (/^\d{10,15}$/.test(raw)) {
+    variants.add(`${raw}@s.whatsapp.net`)
+    variants.add(`lid_${raw}`)
+  }
+
+  if (lower.endsWith("@s.whatsapp.net")) {
+    const base = raw.split("@")[0]
+    const normalized = normalizePossiblePhone(base)
+    if (normalized) {
+      variants.add(normalized)
+      variants.add(`lid_${normalized}`)
+      variants.add(`${normalized}@s.whatsapp.net`)
+    }
+  }
+
+  if (lower.startsWith("lid_")) {
+    const digits = normalizePossiblePhone(raw.slice(4))
+    if (digits) {
+      variants.add(digits)
+      variants.add(`${digits}@s.whatsapp.net`)
+    }
+  }
+
+  return Array.from(variants).filter(Boolean)
+}
+
 function extractNameFromMeta(msg: any): string | null {
   if (!msg || typeof msg !== "object") return null
 
@@ -480,8 +556,8 @@ function isUserMessage(msg: any): boolean {
   return false
 }
 
-function extractInstagramUsernameFromMessages(rows: Row[], sessionId: string): string | null {
-  const sessionRows = rows.filter((r) => r.session_id === sessionId)
+function extractInstagramUsernameFromMessages(rows: Row[], sessionId: string, prefilteredRows?: Row[]): string | null {
+  const sessionRows = prefilteredRows ?? rows.filter((r) => r.session_id === sessionId)
   const sortedDesc = [...sessionRows].sort((a, b) => b.id - a.id)
 
   for (const row of sortedDesc) {
@@ -516,8 +592,8 @@ function extractInstagramUsernameFromMessages(rows: Row[], sessionId: string): s
   return null
 }
 
-function extractInstagramBioFromMessages(rows: Row[], sessionId: string): string | null {
-  const sessionRows = rows.filter((r) => r.session_id === sessionId)
+function extractInstagramBioFromMessages(rows: Row[], sessionId: string, prefilteredRows?: Row[]): string | null {
+  const sessionRows = prefilteredRows ?? rows.filter((r) => r.session_id === sessionId)
   const sortedDesc = [...sessionRows].sort((a, b) => b.id - a.id)
 
   for (const row of sortedDesc) {
@@ -550,8 +626,106 @@ function msgFromRow(row: Row): any {
   return row?.message && typeof row.message === "object" ? row.message : {}
 }
 
-function extractContactNameFromMessages(rows: Row[], sessionId: string): string | null {
-  const sessionRows = rows.filter(r => r.session_id === sessionId)
+function extractLeadNameFromAssistantGreeting(content: string): string | null {
+  const text = String(content || "").replace(/\s+/g, " ").trim()
+  if (!text) return null
+
+  const match = text.match(/^(?:oi|ol[aá])[,!\s]+([A-Za-zÀ-ÖØ-öø-ÿ]{2,40})(?:[,.!:\s]|$)/i)
+  if (!match?.[1]) return null
+
+  const candidate = String(match[1] || "").trim()
+  if (!candidate || /^\d+$/.test(candidate)) return null
+  if (candidate.includes("@")) return null
+
+  return candidate.charAt(0).toUpperCase() + candidate.slice(1).toLowerCase()
+}
+
+function isGenericContactName(name: string | null | undefined): boolean {
+  const value = String(name || "").trim()
+  if (!value) return true
+  return /^lead(?:\s*#?\d+)?$/i.test(value) || /^instagram(?:\s*#?\d+)?$/i.test(value)
+}
+
+function chooseBestContactName(current: string | null | undefined, candidate: string | null | undefined): string | null {
+  const cur = String(current || "").trim()
+  const next = String(candidate || "").trim()
+  if (!cur) return next || null
+  if (!next) return cur || null
+
+  const curGeneric = isGenericContactName(cur)
+  const nextGeneric = isGenericContactName(next)
+
+  if (curGeneric && !nextGeneric) return next
+  if (!curGeneric && nextGeneric) return cur
+  if (next.length > cur.length) return next
+  return cur
+}
+
+function buildSummaryIdentityKey(session: SummarySession): string {
+  const channel = session.channel === "instagram" ? "instagram" : "whatsapp"
+  if (channel === "instagram") {
+    const digits = onlyDigits(session.session_id)
+    return digits ? `ig_${digits}` : String(session.session_id || "").trim().toLowerCase()
+  }
+
+  const phone = normalizePossiblePhone(String(session.numero || session.session_id || ""))
+  if (phone) return phone
+  return toCanonicalSessionId(session.session_id)
+}
+
+function mergeSummarySessionsByIdentity(sessions: SummarySession[]): SummarySession[] {
+  const merged = new Map<string, SummarySession>()
+
+  for (const session of sessions) {
+    const key = buildSummaryIdentityKey(session)
+    if (!key) continue
+
+    const existing = merged.get(key)
+    if (!existing) {
+      merged.set(key, {
+        ...session,
+        session_id: key,
+        numero: session.channel === "whatsapp" ? normalizePossiblePhone(String(session.numero || session.session_id || "")) || session.numero || null : null,
+      })
+      continue
+    }
+
+    const existingPic = String(existing.profile_pic || "").trim()
+    const nextPic = String(session.profile_pic || "").trim()
+    const existingPicValid = /^https?:\/\//i.test(existingPic) || /^data:image\//i.test(existingPic)
+    const nextPicValid = /^https?:\/\//i.test(nextPic) || /^data:image\//i.test(nextPic)
+
+    const keepExistingMessage = (existing.last_id || 0) >= (session.last_id || 0)
+    const mergedMessages = keepExistingMessage ? existing.messages : session.messages
+
+    merged.set(key, {
+      ...existing,
+      ...session,
+      session_id: key,
+      channel: existing.channel === "instagram" || session.channel === "instagram" ? "instagram" : "whatsapp",
+      numero:
+        existing.channel === "instagram" || session.channel === "instagram"
+          ? null
+          : normalizePossiblePhone(String(existing.numero || session.numero || key || "")) || existing.numero || session.numero || null,
+      contact_name: chooseBestContactName(existing.contact_name, session.contact_name) || existing.contact_name || session.contact_name,
+      profile_pic: nextPicValid ? nextPic : existingPicValid ? existingPic : undefined,
+      instagram_username: existing.instagram_username || session.instagram_username,
+      instagram_bio: existing.instagram_bio || session.instagram_bio,
+      isGroup: Boolean(existing.isGroup || session.isGroup),
+      isStudent: existing.isStudent ?? session.isStudent ?? null,
+      messages: mergedMessages,
+      messages_count: Math.max(existing.messages_count || 0, session.messages_count || 0),
+      last_id: Math.max(existing.last_id || 0, session.last_id || 0),
+      score: Math.max(existing.score || 0, session.score || 0),
+      strong_match: Boolean(existing.strong_match || session.strong_match),
+    })
+  }
+
+  return Array.from(merged.values())
+}
+
+function extractContactNameFromMessages(rows: Row[], sessionId: string, prefilteredRows?: Row[]): string | null {
+  const sessionRows = prefilteredRows ?? rows.filter(r => r.session_id === sessionId)
   const sortedDesc = [...sessionRows].sort((a, b) => b.id - a.id)
 
   // Priority 0: Manual override from "update_contact" system message
@@ -560,6 +734,50 @@ function extractContactNameFromMessages(rows: Row[], sessionId: string): string 
     if (msg.action === "update_contact" && msg.updated_name) {
       return msg.updated_name
     }
+  }
+
+  // Priority 0.5: trusted lead metadata from Meta lead capture flow
+  for (const row of sortedDesc) {
+    const msg = row.message ?? {}
+    const source = String(msg.source ?? "").toLowerCase()
+    const leadOrigin = String(msg.lead_origin ?? msg.additional?.lead_origin ?? "").toLowerCase()
+    const isTrustedLeadSource =
+      source.includes("meta-lead-welcome") ||
+      leadOrigin === "meta_lead" ||
+      leadOrigin === "meta-lead"
+
+    if (!isTrustedLeadSource) continue
+
+    const candidate = String(
+      msg.lead_name ??
+      msg.additional?.lead_name ??
+      msg.contact_name ??
+      msg.additional?.contact_name ??
+      "",
+    )
+      .replace(/\s+/g, " ")
+      .trim()
+
+    if (!candidate || candidate.length < 2 || /^\d+$/.test(candidate)) continue
+    if (candidate.includes("@")) continue
+    const parts = candidate.split(" ").slice(0, 3)
+    return parts.map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join(" ")
+  }
+
+  // Priority 0.6: trusted assistant greeting fallback ("Oi, Nome.")
+  for (const row of sortedDesc) {
+    const msg = row.message ?? {}
+    const source = String(msg.source ?? "").toLowerCase()
+    const leadOrigin = String(msg.lead_origin ?? msg.additional?.lead_origin ?? "").toLowerCase()
+    const isTrustedLeadSource =
+      source.includes("meta-lead-welcome") ||
+      leadOrigin === "meta_lead" ||
+      leadOrigin === "meta-lead"
+
+    if (!isTrustedLeadSource) continue
+    const content = String(msg.content ?? msg.text ?? "").trim()
+    const greetingName = extractLeadNameFromAssistantGreeting(content)
+    if (greetingName) return greetingName
   }
 
   // Priority 1: pushName from USER messages (most reliable — it's the lead's own name)
@@ -606,8 +824,8 @@ function extractContactNameFromMessages(rows: Row[], sessionId: string): string 
   return null
 }
 
-function extractContactProfilePicFromMessages(rows: Row[], sessionId: string): string | null {
-  const sessionRows = rows.filter(r => r.session_id === sessionId)
+function extractContactProfilePicFromMessages(rows: Row[], sessionId: string, prefilteredRows?: Row[]): string | null {
+  const sessionRows = prefilteredRows ?? rows.filter(r => r.session_id === sessionId)
   const sortedDesc = [...sessionRows].sort((a, b) => b.id - a.id)
 
   // Check manual override first
@@ -616,6 +834,19 @@ function extractContactProfilePicFromMessages(rows: Row[], sessionId: string): s
     if (msg.action === "update_contact" && msg.updated_profile_pic) {
       return msg.updated_profile_pic
     }
+  }
+
+  // Trusted metadata fallback (meta lead capture can persist this)
+  for (const row of sortedDesc) {
+    const msg = row.message ?? {}
+    const trustedPic = String(
+      msg.lead_profile_pic ??
+      msg.additional?.lead_profile_pic ??
+      msg.profile_pic ??
+      msg.additional?.profile_pic ??
+      "",
+    ).trim()
+    if (trustedPic) return trustedPic
   }
 
   // Prefer only lead messages. Status callbacks and human/unit messages often carry the unit avatar.
@@ -894,6 +1125,7 @@ export async function GET(req: Request) {
     const rows = (res.data ?? []) as Row[]
 
     const bySession = new Map<string, SummarySession>()
+    const rowsByCanonicalSession = new Map<string, Row[]>()
 
     for (const row of rows) {
       if (!row || !row.session_id) continue
@@ -901,18 +1133,25 @@ export async function GET(req: Request) {
       if (isStatusCallbackMessage(msg)) continue
       if (isDeletedPlaceholderMessage(msg)) continue
       if (isInternalInvisibleMessage(msg)) continue
+      const canonicalSessionId = toCanonicalSessionId(row.session_id, msg)
+      if (!canonicalSessionId) continue
+
       const raw = String(msg.content ?? msg.text ?? "").trim()
       const preview = sanitizePreview(raw)
       const role = normalizeRole(msg)
       const createdAt = String(row.created_at ?? msg.created_at ?? new Date().toISOString())
-      const numero = extractNumber(row.session_id)
+      const numero = extractNumber(canonicalSessionId)
 
-      let session = bySession.get(row.session_id)
+      const canonicalRows = rowsByCanonicalSession.get(canonicalSessionId)
+      if (canonicalRows) canonicalRows.push(row)
+      else rowsByCanonicalSession.set(canonicalSessionId, [row])
+
+      let session = bySession.get(canonicalSessionId)
       if (!session) {
         session = {
-          session_id: row.session_id,
+          session_id: canonicalSessionId,
           numero,
-          channel: detectChannel(row.session_id, msg),
+          channel: detectChannel(canonicalSessionId, msg),
           contact_name: null as any,
           messages: [
             {
@@ -926,9 +1165,9 @@ export async function GET(req: Request) {
           isSummary: true,
           score: 0,
         }
-        bySession.set(row.session_id, session)
+        bySession.set(canonicalSessionId, session)
       } else if (session.channel !== "instagram") {
-        const rowChannel = detectChannel(row.session_id, msg)
+        const rowChannel = detectChannel(canonicalSessionId, msg)
         if (rowChannel === "instagram") {
           session.channel = "instagram"
           session.numero = null
@@ -959,7 +1198,7 @@ export async function GET(req: Request) {
       
       // If not detected by session_id, check inside message data from rows
       if (!detectedGroup) {
-        const sessionRows = rows.filter(r => r.session_id === sessionId)
+        const sessionRows = rowsByCanonicalSession.get(sessionId) ?? []
         for (const row of sessionRows) {
           const msg = row.message ?? {}
           const chatId = String(
@@ -991,7 +1230,8 @@ export async function GET(req: Request) {
 
     // --- Resolve contact names with priority: user pushName > any pushName > text patterns ---
     for (const [sessionId, session] of bySession.entries()) {
-      const bestName = extractContactNameFromMessages(rows, sessionId)
+      const sessionRows = rowsByCanonicalSession.get(sessionId) ?? []
+      const bestName = extractContactNameFromMessages(rows, sessionId, sessionRows)
       if (bestName) {
         session.contact_name = bestName
       } else if (session.channel === "instagram") {
@@ -1001,16 +1241,16 @@ export async function GET(req: Request) {
         session.contact_name = session.numero ? `Lead ${session.numero.slice(-4)}` : "Lead"
       }
       
-      const bestProfilePic = extractContactProfilePicFromMessages(rows, sessionId)
+      const bestProfilePic = extractContactProfilePicFromMessages(rows, sessionId, sessionRows)
       if (bestProfilePic) {
         session.profile_pic = bestProfilePic
       }
 
       if (session.channel === "instagram") {
-        const username = extractInstagramUsernameFromMessages(rows, sessionId)
+        const username = extractInstagramUsernameFromMessages(rows, sessionId, sessionRows)
         if (username) session.instagram_username = username
 
-        const bio = extractInstagramBioFromMessages(rows, sessionId)
+        const bio = extractInstagramBioFromMessages(rows, sessionId, sessionRows)
         if (bio) session.instagram_bio = bio
       }
     }
@@ -1027,10 +1267,13 @@ export async function GET(req: Request) {
           const chunkSize = 200
           for (let i = 0; i < sessionIds.length; i += chunkSize) {
             const chunk = sessionIds.slice(i, i + chunkSize)
+            const leadIdCandidates = Array.from(
+              new Set(chunk.flatMap((value) => buildLeadIdVariants(value))),
+            )
             const { data: statusRows, error: statusError } = await supabase
               .from(statusTable)
               .select("lead_id, is_student")
-              .in("lead_id", chunk)
+              .in("lead_id", leadIdCandidates.length > 0 ? leadIdCandidates : chunk)
 
             if (statusError) {
               if (!isMissingTableError(statusError)) {
@@ -1040,7 +1283,8 @@ export async function GET(req: Request) {
             }
 
             for (const row of statusRows || []) {
-              const session = bySession.get(String(row.lead_id || ""))
+              const canonicalLeadId = toCanonicalSessionId(String(row.lead_id || ""))
+              const session = bySession.get(canonicalLeadId)
               if (!session) continue
               const parsed = toBoolean(row.is_student)
               session.isStudent = parsed
@@ -1052,7 +1296,43 @@ export async function GET(req: Request) {
       }
     }
 
-    let payload = Array.from(bySession.values())
+    const mergedByCanonical = new Map<string, SummarySession>()
+    for (const session of bySession.values()) {
+      const canonicalKey = toCanonicalSessionId(session.session_id)
+      if (!canonicalKey) continue
+
+      const existing = mergedByCanonical.get(canonicalKey)
+      if (!existing) {
+        mergedByCanonical.set(canonicalKey, { ...session, session_id: canonicalKey })
+        continue
+      }
+
+      const mergedName = chooseBestContactName(existing.contact_name, session.contact_name)
+      const existingPic = String(existing.profile_pic || "").trim()
+      const nextPic = String(session.profile_pic || "").trim()
+      const existingPicValid = /^https?:\/\//i.test(existingPic) || /^data:image\//i.test(existingPic)
+      const nextPicValid = /^https?:\/\//i.test(nextPic) || /^data:image\//i.test(nextPic)
+
+      mergedByCanonical.set(canonicalKey, {
+        ...existing,
+        ...session,
+        session_id: canonicalKey,
+        channel: existing.channel === "instagram" || session.channel === "instagram" ? "instagram" : "whatsapp",
+        numero: existing.numero || session.numero || null,
+        contact_name: mergedName || existing.contact_name || session.contact_name,
+        profile_pic: nextPicValid ? nextPic : existingPicValid ? existingPic : undefined,
+        instagram_username: existing.instagram_username || session.instagram_username,
+        instagram_bio: existing.instagram_bio || session.instagram_bio,
+        isGroup: Boolean(existing.isGroup || session.isGroup),
+        isStudent: existing.isStudent ?? session.isStudent ?? null,
+        messages_count: (existing.messages_count || 0) + (session.messages_count || 0),
+        last_id: Math.max(existing.last_id || 0, session.last_id || 0),
+        score: Math.max(existing.score || 0, session.score || 0),
+        strong_match: Boolean(existing.strong_match || session.strong_match),
+      })
+    }
+
+    let payload = mergeSummarySessionsByIdentity(Array.from(mergedByCanonical.values()))
     if (hasSearch) {
       if (mode === "number") {
         const minScore = minimumNumberScore(digitsQuery.length)

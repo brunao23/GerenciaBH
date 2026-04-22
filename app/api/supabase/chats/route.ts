@@ -255,6 +255,228 @@ function detectSessionChannel(sessionId: string, items: Row[]): SessionChannel {
   return "whatsapp"
 }
 
+function onlyDigits(value: string): string {
+  return String(value || "").replace(/\D+/g, "")
+}
+
+function normalizePossiblePhone(value: string): string {
+  const digits = onlyDigits(value)
+  if (!digits) return ""
+  if (digits.startsWith("55")) return digits
+  if (digits.length === 10 || digits.length === 11) return `55${digits}`
+  return digits
+}
+
+function toCanonicalSessionIdValue(sessionId: string): string {
+  const raw = String(sessionId || "").trim()
+  if (!raw) return ""
+
+  const lower = raw.toLowerCase()
+  if (lower.startsWith("group_") || lower.includes("@g.us")) {
+    const digits = onlyDigits(raw)
+    return digits ? `group_${digits}` : lower
+  }
+
+  if (lower.startsWith("ig_")) {
+    const igId = onlyDigits(lower.slice(3))
+    return igId ? `ig_${igId}` : lower
+  }
+  if (lower.startsWith("igcomment_") || lower.startsWith("ig_comment_")) {
+    const commentId = onlyDigits(lower)
+    return commentId ? `ig_comment_${commentId}` : lower
+  }
+  if (lower.startsWith("ig:")) {
+    const igId = onlyDigits(raw.slice(3))
+    return igId ? `ig_${igId}` : lower
+  }
+
+  if (lower.startsWith("lid_")) {
+    const digits = normalizePossiblePhone(raw.slice(4))
+    return digits || lower
+  }
+  if (lower.includes("@lid")) {
+    const digits = normalizePossiblePhone(raw.split("@")[0])
+    return digits || lower
+  }
+
+  if (lower.endsWith("@s.whatsapp.net")) {
+    const digits = normalizePossiblePhone(raw.split("@")[0])
+    return digits || lower
+  }
+
+  const digits = normalizePossiblePhone(raw)
+  if (digits.length >= 12) return digits
+
+  return lower
+}
+
+function buildSessionFilterVariants(sessionId: string): string[] {
+  const raw = String(sessionId || "").trim()
+  if (!raw) return []
+
+  const variants = new Set<string>([raw, raw.toLowerCase()])
+  const canonical = toCanonicalSessionIdValue(raw)
+  if (canonical) variants.add(canonical)
+
+  if (raw.endsWith("@s.whatsapp.net")) {
+    const base = raw.split("@")[0]
+    const phone = normalizePossiblePhone(base)
+    if (phone) {
+      variants.add(phone)
+      variants.add(`${phone}@s.whatsapp.net`)
+      variants.add(`lid_${phone}`)
+    }
+  } else if (/^\d{10,15}$/.test(raw) || /^55\d{10,13}$/.test(raw)) {
+    const phone = normalizePossiblePhone(raw)
+    if (phone) {
+      variants.add(phone)
+      variants.add(`${phone}@s.whatsapp.net`)
+      variants.add(`lid_${phone}`)
+    }
+  } else if (raw.toLowerCase().startsWith("lid_")) {
+    const phone = normalizePossiblePhone(raw.slice(4))
+    if (phone) {
+      variants.add(phone)
+      variants.add(`${phone}@s.whatsapp.net`)
+      variants.add(`lid_${phone}`)
+    }
+  }
+
+  return Array.from(variants).filter(Boolean)
+}
+
+function isGenericContactName(value?: string | null): boolean {
+  const text = String(value || "").trim()
+  if (!text) return true
+  return /^lead(?:\s*#?\d+)?$/i.test(text) || /^instagram(?:\s*#?\d+)?$/i.test(text)
+}
+
+function chooseBestContactName(current?: string | null, candidate?: string | null): string | null {
+  const cur = String(current || "").trim()
+  const next = String(candidate || "").trim()
+  if (!cur) return next || null
+  if (!next) return cur || null
+
+  const curGeneric = isGenericContactName(cur)
+  const nextGeneric = isGenericContactName(next)
+  if (curGeneric && !nextGeneric) return next
+  if (!curGeneric && nextGeneric) return cur
+  if (next.length > cur.length) return next
+  return cur
+}
+
+function buildChatSessionIdentity(session: any): string {
+  const sessionId = String(session?.session_id || "").trim()
+  const channel = String(session?.channel || "").toLowerCase()
+
+  if (channel === "instagram" || /^ig_/i.test(sessionId) || /^igcomment_/i.test(sessionId) || /^ig_comment_/i.test(sessionId)) {
+    const digits = onlyDigits(sessionId)
+    return digits ? `ig_${digits}` : sessionId.toLowerCase()
+  }
+
+  if (/^group_/i.test(sessionId) || /@g\.us/i.test(sessionId)) {
+    const digits = onlyDigits(sessionId)
+    return digits ? `group_${digits}` : sessionId.toLowerCase()
+  }
+
+  const phone = normalizePossiblePhone(String(session?.numero || sessionId || ""))
+  if (phone) return phone
+  return toCanonicalSessionIdValue(sessionId)
+}
+
+function mergeSessionMessages(existingMessages: any[], incomingMessages: any[]): any[] {
+  const normalizeForDedupe = (value: string) =>
+    String(value || "").toLowerCase().replace(/\s+/g, " ").trim()
+
+  const all = [...(existingMessages || []), ...(incomingMessages || [])]
+  all.sort((a, b) => {
+    const ta = new Date(String(a?.created_at || "")).getTime()
+    const tb = new Date(String(b?.created_at || "")).getTime()
+    if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb
+    return Number(a?.message_id || 0) - Number(b?.message_id || 0)
+  })
+
+  const deduped: any[] = []
+  const seenProviderIds = new Set<string>()
+  for (const msg of all) {
+    const providerId = String(msg?.provider_message_id || "").trim()
+    if (providerId) {
+      if (seenProviderIds.has(providerId)) continue
+      seenProviderIds.add(providerId)
+    }
+
+    const currentContent = normalizeForDedupe(String(msg?.content || ""))
+    const currentTs = new Date(String(msg?.created_at || "")).getTime()
+    const duplicateByTextWindow = deduped.some((existing) => {
+      if (String(existing?.role || "") !== String(msg?.role || "")) return false
+      if (String(existing?.senderType || "") !== String(msg?.senderType || "")) return false
+      if (normalizeForDedupe(String(existing?.content || "")) !== currentContent) return false
+      const existingTs = new Date(String(existing?.created_at || "")).getTime()
+      if (Number.isFinite(existingTs) && Number.isFinite(currentTs)) {
+        return Math.abs(existingTs - currentTs) <= 90_000
+      }
+      return true
+    })
+
+    if (duplicateByTextWindow) continue
+    deduped.push(msg)
+  }
+
+  return deduped
+}
+
+function mergeChatSessionsByIdentity(sessions: any[]): any[] {
+  const merged = new Map<string, any>()
+
+  for (const session of sessions || []) {
+    const key = buildChatSessionIdentity(session)
+    if (!key) continue
+
+    const existing = merged.get(key)
+    if (!existing) {
+      merged.set(key, {
+        ...session,
+        session_id: key,
+        numero: String(session?.channel || "").toLowerCase() === "instagram"
+          ? null
+          : normalizePossiblePhone(String(session?.numero || session?.session_id || "")) || session?.numero || null,
+      })
+      continue
+    }
+
+    const existingPic = String(existing?.profile_pic || "").trim()
+    const nextPic = String(session?.profile_pic || "").trim()
+    const existingPicValid = /^https?:\/\//i.test(existingPic) || /^data:image\//i.test(existingPic)
+    const nextPicValid = /^https?:\/\//i.test(nextPic) || /^data:image\//i.test(nextPic)
+    const mergedMessages = mergeSessionMessages(existing?.messages || [], session?.messages || [])
+
+    merged.set(key, {
+      ...existing,
+      ...session,
+      session_id: key,
+      channel: String(existing?.channel || "").toLowerCase() === "instagram" || String(session?.channel || "").toLowerCase() === "instagram"
+        ? "instagram"
+        : "whatsapp",
+      numero:
+        String(existing?.channel || "").toLowerCase() === "instagram" || String(session?.channel || "").toLowerCase() === "instagram"
+          ? null
+          : normalizePossiblePhone(String(existing?.numero || session?.numero || key || "")) || existing?.numero || session?.numero || null,
+      contact_name: chooseBestContactName(existing?.contact_name, session?.contact_name) || existing?.contact_name || session?.contact_name,
+      profile_pic: nextPicValid ? nextPic : existingPicValid ? existingPic : undefined,
+      instagram_username: existing?.instagram_username || session?.instagram_username,
+      instagram_bio: existing?.instagram_bio || session?.instagram_bio,
+      error: Boolean(existing?.error || session?.error),
+      success: Boolean(existing?.success || session?.success),
+      isStudent: existing?.isStudent ?? session?.isStudent ?? null,
+      last_id: Math.max(Number(existing?.last_id || 0), Number(session?.last_id || 0)),
+      messages: mergedMessages,
+      formData: existing?.formData || session?.formData,
+    })
+  }
+
+  return Array.from(merged.values())
+}
+
 function isInternalInvisibleMessage(msg: any): boolean {
   if (!msg || typeof msg !== "object") return false
 
@@ -862,6 +1084,20 @@ function extractNameFromMessageMeta(msg: any): string | null {
   return null
 }
 
+function extractLeadNameFromAssistantGreeting(content: string): string | null {
+  const text = String(content || "").replace(/\s+/g, " ").trim()
+  if (!text) return null
+
+  const match = text.match(/^(?:oi|ol[aá])[,!\s]+([A-Za-zÀ-ÖØ-öø-ÿ]{2,40})(?:[,.!:\s]|$)/i)
+  if (!match?.[1]) return null
+
+  const name = String(match[1] || "").trim()
+  if (!name || /^\d+$/.test(name)) return null
+  if (name.includes("@")) return null
+
+  return name.charAt(0).toUpperCase() + name.slice(1).toLowerCase()
+}
+
 function extractProfilePicFromMessageMeta(msg: any): string | null {
   if (!msg || typeof msg !== "object") return null
 
@@ -1295,6 +1531,9 @@ export async function GET(req: Request) {
     const end = searchParams.get("end")
     const session = searchParams.get("session")
     const sessionMode = Boolean(session && session.trim().length > 0)
+    const sessionVariants = sessionMode && session ? buildSessionFilterVariants(session) : []
+    const sessionVariantSet = new Set(sessionVariants.map((value) => value.toLowerCase()))
+    const canonicalRequestedSession = sessionMode && session ? toCanonicalSessionIdValue(session) : ""
     const cacheKey = buildChatsCacheKey(tenant, start, end, session)
 
     console.log("[v0] ChatsAPI: ParÃ¢metros recebidos:", { start, end, session })
@@ -1324,7 +1563,11 @@ export async function GET(req: Request) {
         .select("id", { count: "exact", head: true })
 
       if (sessionMode && session) {
-        countQuery = countQuery.eq("session_id", session)
+        if (sessionVariants.length > 1) {
+          countQuery = countQuery.in("session_id", sessionVariants)
+        } else {
+          countQuery = countQuery.eq("session_id", session)
+        }
       }
 
       const countRes = await countQuery
@@ -1353,7 +1596,11 @@ export async function GET(req: Request) {
           .range(from, to)
 
         if (sessionMode && session) {
-          query = query.eq("session_id", session)
+          if (sessionVariants.length > 1) {
+            query = query.in("session_id", sessionVariants)
+          } else {
+            query = query.eq("session_id", session)
+          }
         }
 
         let res: any = await query
@@ -1368,7 +1615,11 @@ export async function GET(req: Request) {
             .range(from, to)
 
           if (sessionMode && session) {
-            fallbackQuery = fallbackQuery.eq("session_id", session)
+            if (sessionVariants.length > 1) {
+              fallbackQuery = fallbackQuery.in("session_id", sessionVariants)
+            } else {
+              fallbackQuery = fallbackQuery.eq("session_id", session)
+            }
           }
 
           res = await fallbackQuery
@@ -1415,7 +1666,12 @@ export async function GET(req: Request) {
     // Filtro por sessÃ£o (se solicitado)
     let rows = all
     if (session) {
-      rows = rows.filter((r) => r.session_id === session)
+      rows = rows.filter((r) => {
+        const rawSession = String(r?.session_id || "").trim()
+        if (!rawSession) return false
+        if (sessionVariantSet.has(rawSession.toLowerCase())) return true
+        return toCanonicalSessionIdValue(rawSession) === canonicalRequestedSession
+      })
       console.log("[v0] ChatsAPI: Filtrado por sessÃ£o", session, "resultou em", rows.length, "registros")
     }
 
@@ -1423,10 +1679,12 @@ export async function GET(req: Request) {
     const bySession = new Map<string, Row[]>()
     for (const r of rows) {
       if (!r || !r.session_id) continue // Ignora registros invÃ¡lidos
-      if (!bySession.has(r.session_id)) {
-        bySession.set(r.session_id, [])
+      const canonicalSession = toCanonicalSessionIdValue(r.session_id)
+      if (!canonicalSession) continue
+      if (!bySession.has(canonicalSession)) {
+        bySession.set(canonicalSession, [])
       }
-      bySession.get(r.session_id)!.push(r)
+      bySession.get(canonicalSession)!.push(r)
     }
 
     console.log("[v0] ChatsAPI: Agrupado em", bySession.size, "sessÃµes")
@@ -1442,7 +1700,7 @@ export async function GET(req: Request) {
       leadNumbers.set(sessionId, index + 1)
     })
 
-    const sessions = Array.from(bySession.entries()).map(([session_id, items]) => {
+    let sessions = Array.from(bySession.entries()).map(([session_id, items]) => {
       let lastTs: string | null = null
       let hasError = false
       let hasSuccess = false
@@ -1486,6 +1744,50 @@ export async function GET(req: Request) {
             const updatedProfilePic = String(msg.updated_profile_pic || "").trim()
             if (updatedName && !detectedName) detectedName = updatedName
             if (updatedProfilePic && !detectedProfilePic) detectedProfilePic = updatedProfilePic
+          }
+
+          if (!detectedName || !detectedProfilePic) {
+            const source = String(msg.source ?? "").toLowerCase()
+            const leadOrigin = String(msg.lead_origin ?? msg.additional?.lead_origin ?? "").toLowerCase()
+            const isTrustedLeadSource =
+              source.includes("meta-lead-welcome") ||
+              leadOrigin === "meta_lead" ||
+              leadOrigin === "meta-lead"
+
+            if (isTrustedLeadSource) {
+              if (!detectedName) {
+                const trustedName = String(
+                  msg.lead_name ??
+                  msg.additional?.lead_name ??
+                  msg.contact_name ??
+                  msg.additional?.contact_name ??
+                  "",
+                )
+                  .replace(/\s+/g, " ")
+                  .trim()
+                if (trustedName && trustedName.length >= 2 && !/^\d+$/.test(trustedName) && !trustedName.includes("@")) {
+                  detectedName = trustedName
+                } else {
+                  const inferredName = extractLeadNameFromAssistantGreeting(String(msg.content ?? msg.text ?? ""))
+                  if (inferredName) {
+                    detectedName = inferredName
+                  }
+                }
+              }
+
+              if (!detectedProfilePic) {
+                const trustedProfilePic = String(
+                  msg.lead_profile_pic ??
+                  msg.additional?.lead_profile_pic ??
+                  msg.profile_pic ??
+                  msg.additional?.profile_pic ??
+                  "",
+                ).trim()
+                if (trustedProfilePic) {
+                  detectedProfilePic = trustedProfilePic
+                }
+              }
+            }
           }
 
           // Se nÃ£o tem conteÃºdo vÃ¡lido, ignora
@@ -1921,6 +2223,8 @@ export async function GET(req: Request) {
       }
     })
 
+    sessions = mergeChatSessionsByIdentity(sessions)
+
     const sessionIdsForStatus = sessions.map((sessionData) => sessionData.session_id).filter(Boolean)
     if (sessionIdsForStatus.length > 0) {
       const statusTable = `${tenant}_crm_lead_status`
@@ -1935,10 +2239,13 @@ export async function GET(req: Request) {
 
           for (let i = 0; i < sessionIdsForStatus.length; i += chunkSize) {
             const chunk = sessionIdsForStatus.slice(i, i + chunkSize)
+            const statusLeadVariants = Array.from(
+              new Set(chunk.flatMap((value) => buildSessionFilterVariants(value))),
+            )
             const { data: statusRows, error: statusError } = await supabase
               .from(statusTable)
               .select("lead_id, is_student")
-              .in("lead_id", chunk)
+              .in("lead_id", statusLeadVariants.length > 0 ? statusLeadVariants : chunk)
 
             if (statusError) {
               if (!isMissingTableError(statusError)) {
@@ -1948,7 +2255,8 @@ export async function GET(req: Request) {
             }
 
             for (const row of statusRows || []) {
-              studentMap.set(String(row.lead_id || ""), parseBoolean(row.is_student))
+              const canonicalLeadId = toCanonicalSessionIdValue(String(row.lead_id || ""))
+              studentMap.set(canonicalLeadId, parseBoolean(row.is_student))
             }
           }
 

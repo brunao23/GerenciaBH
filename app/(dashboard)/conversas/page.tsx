@@ -145,6 +145,106 @@ const normalizePhoneCandidate = (value?: string | null) => {
   return digits.length >= 8 ? digits : ""
 }
 
+const toCanonicalWhatsappPhone = (value?: string | null) => {
+  const digits = normalizePhoneCandidate(value)
+  if (!digits) return ""
+  if (digits.startsWith("55")) return digits
+  if (digits.length === 10 || digits.length === 11) return `55${digits}`
+  return digits
+}
+
+const toCanonicalSessionKey = (session: ChatSession) => {
+  const raw = String(session.session_id || "").trim()
+  const lower = raw.toLowerCase()
+  const sessionChannel = session.channel
+
+  if (
+    sessionChannel === "instagram" ||
+    lower.startsWith("ig_") ||
+    lower.startsWith("igcomment_") ||
+    lower.startsWith("ig_comment_")
+  ) {
+    const digits = onlyDigits(raw)
+    return digits ? `ig_${digits}` : lower || raw
+  }
+
+  if (lower.startsWith("group_") || lower.includes("@g.us")) {
+    const digits = onlyDigits(raw)
+    return digits ? `group_${digits}` : lower || raw
+  }
+
+  const numeroCanonical = toCanonicalWhatsappPhone(session.numero)
+  if (numeroCanonical) return numeroCanonical
+
+  const sessionDigits = onlyDigits(raw)
+  if (!sessionDigits) return lower || raw
+  if (sessionDigits.startsWith("55")) return sessionDigits
+  if (sessionDigits.length === 10 || sessionDigits.length === 11) return `55${sessionDigits}`
+  return sessionDigits
+}
+
+const isGenericSessionName = (value?: string | null) => {
+  const text = String(value || "").trim()
+  if (!text) return true
+  return /^lead(?:\s*#?\d+)?$/i.test(text) || /^instagram(?:\s*#?\d+)?$/i.test(text)
+}
+
+const dedupeSessionsById = (sessions: ChatSession[]): ChatSession[] => {
+  const byId = new Map<string, ChatSession>()
+
+  for (const incoming of sessions) {
+    const rawId = String(incoming.session_id || "").trim()
+    const key = toCanonicalSessionKey(incoming) || rawId
+    if (!key) continue
+
+    const existing = byId.get(key)
+    if (!existing) {
+      byId.set(key, {
+        ...incoming,
+        session_id: key,
+        numero: toCanonicalWhatsappPhone(incoming.numero || incoming.session_id) || incoming.numero || null,
+      })
+      continue
+    }
+
+    const existingName = String(existing.contact_name || "").trim()
+    const incomingName = String(incoming.contact_name || "").trim()
+    const name =
+      isGenericSessionName(existingName) && !isGenericSessionName(incomingName)
+        ? incomingName
+        : !isGenericSessionName(existingName)
+          ? existingName
+          : incomingName || existingName
+
+    const existingPic = String(existing.profile_pic || "").trim()
+    const incomingPic = String(incoming.profile_pic || "").trim()
+    const existingPicValid = /^https?:\/\//i.test(existingPic) || /^data:image\//i.test(existingPic)
+    const incomingPicValid = /^https?:\/\//i.test(incomingPic) || /^data:image\//i.test(incomingPic)
+
+    byId.set(key, {
+      ...existing,
+      ...incoming,
+      session_id: key,
+      contact_name: name || existing.contact_name || incoming.contact_name,
+      profile_pic: incomingPicValid ? incomingPic : existingPicValid ? existingPic : undefined,
+      instagram_username: existing.instagram_username || incoming.instagram_username,
+      instagram_bio: existing.instagram_bio || incoming.instagram_bio,
+      channel: existing.channel === "instagram" || incoming.channel === "instagram" ? "instagram" : "whatsapp",
+      numero:
+        toCanonicalWhatsappPhone(existing.numero || incoming.numero || existing.session_id || incoming.session_id) ||
+        existing.numero ||
+        incoming.numero ||
+        null,
+      messages_count: Math.max(existing.messages_count || 0, incoming.messages_count || 0),
+      last_id: Math.max(existing.last_id || 0, incoming.last_id || 0),
+      isStudent: existing.isStudent ?? incoming.isStudent ?? null,
+      isGroup: Boolean(existing.isGroup || incoming.isGroup),
+    })
+  }
+
+  return Array.from(byId.values())
+}
+
 const parseMetaTemplateLines = (input: string) => {
   const raw = input.replace(/\r/g, "").trim()
   if (!raw) return []
@@ -840,7 +940,8 @@ export default function ConversasPage() {
         return r.json()
       })
       .then((d) => {
-        const arr = Array.isArray(d) ? (d as ChatSession[]) : []
+        const rawArr = Array.isArray(d) ? (d as ChatSession[]) : []
+        const arr = dedupeSessionsById(rawArr)
 
         setSessions((prev) => {
           const prevById = new Map(prev.map((session) => [session.session_id, session]))

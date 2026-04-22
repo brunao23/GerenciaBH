@@ -2,8 +2,14 @@ import { NextResponse } from "next/server"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { getMessagingConfigForTenant } from "@/lib/helpers/messaging-config"
 import { createZApiServiceFromMessagingConfig } from "@/lib/helpers/zapi-messaging"
+import { getNativeAgentConfigForTenant } from "@/lib/helpers/native-agent-config"
 import { generatePersonalizedWelcome, sanitizeName } from "@/lib/helpers/lead-welcome"
-import { TenantChatHistoryService } from "@/lib/services/tenant-chat-history.service"
+import { AgentTaskQueueService } from "@/lib/services/agent-task-queue.service"
+import {
+  normalizePhoneNumber,
+  normalizeSessionId,
+  TenantChatHistoryService,
+} from "@/lib/services/tenant-chat-history.service"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -19,6 +25,7 @@ type MetaLeadPageConfig = {
   page_access_token: string
   campaign_name: string | null
   delay_minutes: number | null
+  auto_welcome_enabled?: boolean | null
 }
 
 type MetaLead = {
@@ -44,6 +51,22 @@ function extractField(fieldData: Array<{ name: string; values: string[] }> | und
     if (found?.values?.[0]) return found.values[0]
   }
   return ""
+}
+
+function buildFormContextSnippet(fieldData: Array<{ name: string; values: string[] }>): string {
+  if (!Array.isArray(fieldData) || fieldData.length === 0) return ""
+  const blocked = new Set(["phone_number", "phone", "telefone", "celular", "email", "e-mail"])
+  const parts: string[] = []
+  for (const field of fieldData) {
+    const key = String(field?.name || "").trim()
+    const keyNormalized = key.toLowerCase()
+    if (!key || blocked.has(keyNormalized)) continue
+    const value = String(field?.values?.[0] || "").replace(/\s+/g, " ").trim()
+    if (!value) continue
+    parts.push(`${key}: ${value}`)
+    if (parts.length >= 4) break
+  }
+  return parts.join(" | ").slice(0, 320)
 }
 
 async function fetchLeadsPage(url: string): Promise<{ data: MetaLead[]; next?: string }> {
@@ -101,7 +124,7 @@ export async function GET(req: Request) {
 
   const { data: configs, error: cfgError } = await supabase
     .from("meta_lead_pages")
-    .select("unit_prefix, page_id, form_id, page_access_token, campaign_name, delay_minutes")
+    .select("*")
     .eq("is_active", true)
 
   if (cfgError) {
@@ -149,6 +172,7 @@ export async function GET(req: Request) {
 
         const nameRaw = extractField(fieldData, ["full_name", "name", "nome", "first_name"])
         const email = extractField(fieldData, ["email", "e-mail"])
+        const profilePic = extractField(fieldData, ["profile_pic", "profile_picture", "foto", "avatar", "picture"])
         const name = sanitizeName(nameRaw)
 
         const payload = {
@@ -184,10 +208,22 @@ export async function GET(req: Request) {
 
         imported++
 
+        if (cfg.auto_welcome_enabled === false) {
+          continue
+        }
+
+        const nativeAgentConfig = await getNativeAgentConfigForTenant(cfg.unit_prefix)
         const message = await generatePersonalizedWelcome({
           name: name || null,
           campaignName: cfg.campaign_name || null,
           formFields: fieldData,
+          companyName: nativeAgentConfig?.unitName || null,
+          promptBase: nativeAgentConfig?.promptBase,
+          geminiApiKey: nativeAgentConfig?.geminiApiKey,
+          geminiModel: nativeAgentConfig?.geminiModel,
+          samplingTemperature: nativeAgentConfig?.samplingTemperature,
+          samplingTopP: nativeAgentConfig?.samplingTopP,
+          samplingTopK: nativeAgentConfig?.samplingTopK,
         })
 
         const delayMins = Number(cfg.delay_minutes) || 0
@@ -222,8 +258,8 @@ export async function GET(req: Request) {
         const sentResult = await service.sendTextMessage({
           phone,
           message,
-          delayMessage: 1,
-          delayTyping: 2,
+          delayMessage: 3,
+          delayTyping: 5,
         })
 
         if (!sentResult.success) {
@@ -238,14 +274,39 @@ export async function GET(req: Request) {
           .eq("id", insertedLead.id)
 
         try {
+          const normalizedSessionId = normalizeSessionId(phone)
+          const normalizedPhone = normalizePhoneNumber(phone)
           const chatHistory = new TenantChatHistoryService(cfg.unit_prefix)
           await chatHistory.persistMessage({
-            sessionId: phone,
+            sessionId: normalizedSessionId,
             role: "assistant",
             type: "assistant",
             content: message,
             source: "meta-lead-welcome",
+            additional: {
+              sender_type: "ia",
+              channel: "whatsapp",
+              lead_origin: "meta_lead",
+              lead_name: name || null,
+              contact_name: name || null,
+              lead_profile_pic: profilePic || null,
+              form_data: { field_data: fieldData },
+            },
           })
+
+          if (normalizedSessionId && normalizedPhone) {
+            const enqueue = await new AgentTaskQueueService().enqueueFollowupSequence({
+              tenant: cfg.unit_prefix,
+              sessionId: normalizedSessionId,
+              phone: normalizedPhone,
+              leadName: name || undefined,
+              lastUserMessage: buildFormContextSnippet(fieldData) || undefined,
+              lastAgentMessage: String(message || "").trim() || undefined,
+            })
+            if (!enqueue.ok) {
+              console.warn("[meta-leads/auto-sync] Failed to enqueue followup sequence:", enqueue.error)
+            }
+          }
         } catch (error) {
           console.warn("[meta-leads/auto-sync] Failed persist to chat history:", error)
         }
