@@ -4556,13 +4556,14 @@ export class NativeAgentOrchestratorService {
       const nowParts = getNowPartsForTimezone(timezone)
       const startDate = String(params.action.date_from || formatDateFromParts(nowParts)).trim()
       const endDate = String(params.action.date_to || "").trim()
-      const requestedStart = parseDateTimeParts(startDate, "00:00")
+      let requestedStart = parseDateTimeParts(startDate, "00:00")
+      const todayParts: LocalDateTimeParts = { ...nowParts, hour: 0, minute: 0, second: 0 }
+
       if (!requestedStart) {
-        return { ok: false, error: "invalid_date_from" }
+        requestedStart = { ...todayParts }
       }
 
-      // Clamp: se o modelo pedir date_from no passado, forÃ§a para hoje
-      const todayParts: LocalDateTimeParts = { ...nowParts, hour: 0, minute: 0, second: 0 }
+      // Clamp: se o modelo pedir date_from no passado, forca para hoje
       if (toComparableMs(requestedStart) < toComparableMs(todayParts)) {
         requestedStart.year = todayParts.year
         requestedStart.month = todayParts.month
@@ -4572,12 +4573,9 @@ export class NativeAgentOrchestratorService {
         requestedStart.second = 0
       }
 
-      const requestedEnd = endDate ? parseDateTimeParts(endDate, "00:00") : null
-      if (endDate && !requestedEnd) {
-        return { ok: false, error: "invalid_date_to" }
-      }
+      let requestedEnd = endDate ? parseDateTimeParts(endDate, "00:00") : null
       if (requestedEnd && toComparableMs(requestedEnd) < toComparableMs(requestedStart)) {
-        return { ok: false, error: "invalid_date_range" }
+        requestedEnd = null
       }
 
       const minLeadMinutes = Math.max(0, Number(params.config.calendarMinLeadMinutes || 0))
