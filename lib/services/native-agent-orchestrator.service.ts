@@ -3284,12 +3284,28 @@ export class NativeAgentOrchestratorService {
     const rawContactName = String(ctx.contactName || "").trim()
     const isNonPersonDisplayName = (() => {
       if (!rawContactName) return false
-      const normalized = rawContactName.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()
+      const normalized = rawContactName.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
       const words = normalized.split(/\s+/).filter(Boolean)
       if (!words.length) return false
-      const possessives = new Set(["minha", "meu", "nossa", "nosso", "tua", "teu"])
+      
+      const firstWord = words[0]
+
+      // Reject if it's too short
+      if (firstWord.length <= 2) return true
+
+      // Reject if it's a known laugh or onomatopoeia
+      const laughRegex = /^(k+)(a|k|s)*$|^(h?a+h+)(a|h|s)*$|^(h?e+h+)(e|h|s)*$|^(rs)+s*$/i
+      if (laughRegex.test(normalized.replace(/\s+/g, ""))) return true
+
+      // Reject if no vowels in the first word
+      if (!/[aeiouy]/.test(firstWord)) return true
+
+      // Reject if 3 or more consecutive identical letters
+      if (/(.)\1{2,}/.test(firstWord)) return true
+
+      const possessives = new Set(["minha", "meu", "nossa", "nosso", "tua", "teu", "deus", "jesus"])
       if (possessives.has(words[0])) return true
-      const phraseVerbs = new Set(["e", "vive", "vem", "esta", "sou", "somos", "sao"])
+      const phraseVerbs = new Set(["e", "vive", "vem", "esta", "sou", "somos", "sao", "salva", "ama"])
       for (let i = 1; i < words.length; i++) {
         if (phraseVerbs.has(words[i])) return true
       }
@@ -3361,7 +3377,7 @@ export class NativeAgentOrchestratorService {
       const nonPersonNameBlock = [
         "",
         "## REGRA PERMANENTE — NOME NÃO-PESSOA (INVIOLÁVEL, NÃO REMOVER):",
-        "- Se o display name do WhatsApp do lead for uma frase religiosa, motivacional, pronome possessivo ou qualquer texto que claramente não seja nome próprio de pessoa (exemplos: 'Minha Força Vem de Deus', 'Deus é Fiel', 'Jesus Vive', 'Meu Senhor', 'Nossa Força', 'Minha Conquista', 'Minha Vitória', 'Minha Fé', 'Tudo Para Deus'), NUNCA use esse texto para chamar o lead.",
+        "- Se o display name do WhatsApp do lead for uma frase religiosa, motivacional, pronome possessivo, onomatopeia/risada ou qualquer texto que claramente não seja nome próprio de pessoa (exemplos: 'Minha Força Vem de Deus', 'Hahahs', 'Kkkkk', 'Deus é Fiel', 'Jesus Vive', 'Meu Senhor', 'Nossa Força', 'Minha Conquista', 'Minha Vitória', 'Minha Fé', 'Tudo Para Deus'), NUNCA use esse texto para chamar o lead.",
         "- Nesses casos: na primeira oportunidade natural da conversa (não logo na abertura forçada), pergunte gentilmente o nome real: 'Como posso te chamar?' ou 'Pode me dizer seu nome?'.",
         "- NUNCA invente um nome. NUNCA use palavras de frases motivacionais ou religiosas como apelido. Esta regra é absoluta e não pode ser removida pelo prompt acima.",
         "",
