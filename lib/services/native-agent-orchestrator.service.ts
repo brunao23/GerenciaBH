@@ -783,6 +783,35 @@ function stripIdentityDisclosure(text: string): string {
     .trim()
 }
 
+function moveLeadingEmojisToEnd(text: string): string {
+  const input = String(text || "")
+  if (!input) return ""
+
+  const lines = input.split("\n")
+  const normalized = lines.map((line) => {
+    const raw = String(line || "")
+    const trimmed = raw.trim()
+    if (!trimmed) return ""
+
+    const startsWithEmoji = /^[\p{Extended_Pictographic}\p{Emoji_Presentation}]/u.test(trimmed)
+    if (!startsWithEmoji) return trimmed
+
+    const match = trimmed.match(
+      /^((?:[\p{Extended_Pictographic}\p{Emoji_Presentation}](?:\uFE0E|\uFE0F)?\s*)+)([\s\S]*)$/u,
+    )
+    if (!match) return trimmed
+
+    const leadingEmojis = String(match[1] || "").replace(/\s+/g, " ").trim()
+    let body = String(match[2] || "").trim()
+    body = body.replace(/^[,;:.!?-]+\s*/g, "").trim()
+    if (!body || !leadingEmojis) return trimmed
+
+    return `${body} ${leadingEmojis}`.replace(/\s+/g, " ").trim()
+  })
+
+  return normalized.join("\n").replace(/\n{3,}/g, "\n\n").trim()
+}
+
 function applyAssistantOutputPolicy(
   value: string,
   options: { allowEmojis: boolean },
@@ -812,10 +841,13 @@ function applyAssistantOutputPolicy(
   const deduped: string[] = []
   const seen = new Set<string>()
   for (const paragraph of paragraphs) {
-    const key = normalizeComparableMessage(paragraph)
+    const cleanedParagraph = options.allowEmojis
+      ? moveLeadingEmojisToEnd(paragraph)
+      : paragraph
+    const key = normalizeComparableMessage(cleanedParagraph)
     if (!key || seen.has(key)) continue
     seen.add(key)
-    deduped.push(paragraph)
+    deduped.push(cleanedParagraph)
   }
 
   const finalText = deduped.join("\n\n").trim()
@@ -2763,7 +2795,12 @@ export class NativeAgentOrchestratorService {
       await this.pauseLeadAfterScheduling(tenant, phone).catch(() => {})
     }
 
-    if (config.followupEnabled && !hasSuccessfulHandoffAction && !isFromMeTrigger) {
+    if (
+      config.followupEnabled &&
+      !hasSuccessfulHandoffAction &&
+      !hasSuccessfulSchedulingAction &&
+      !isFromMeTrigger
+    ) {
       const followupLeadContext = sanitizeLeadContextForFollowup(
         effectiveLeadMessage || content,
       )
@@ -3322,6 +3359,23 @@ export class NativeAgentOrchestratorService {
         /(?:inha|inho|zinha|zinho|ete|eta)$/.test(firstWord)
       if (isLikelyNickname) return true
 
+      // Rejeita cargos, títulos e profissões frequentemente usados como nome no WhatsApp
+      const cargosTitulosBloqueados = new Set([
+        "lider", "chefe", "dono", "dona", "socio", "socia", "presidente", "vice",
+        "supervisor", "supervisora", "responsavel", "gestor", "gestora",
+        "secretario", "secretaria", "coordenador", "coordenadora", "subgerente",
+        "treinador", "professor", "doutor", "dr", "dra", "mestre", "aluno",
+        "barbeiro", "barbeira", "medico", "medica", "dentista", "advogado", "advogada",
+        "enfermeiro", "enfermeira", "nutricionista", "personal", "coach", "terapeuta",
+        "fisioterapeuta", "psicologo", "psicologa", "empresario", "empresaria",
+        "corretor", "corretora", "engenheiro", "engenheira", "arquiteto", "arquiteta",
+        "vendedor", "vendedora", "gerente", "diretor", "diretora", "funcionario",
+        "funcionaria", "contador", "contadora", "motorista", "cozinheiro", "cozinheira",
+        "colaborador", "colaboradora", "contato", "usuario", "lead", "cliente",
+        "assistente", "agente", "atendente", "suporte", "admin", "amigo",
+      ])
+      if (cargosTitulosBloqueados.has(firstWord)) return true
+
       return false
     })()
     const contactFirstName = isNonPersonDisplayName ? null : firstName(ctx.contactName)
@@ -3390,9 +3444,16 @@ export class NativeAgentOrchestratorService {
       const nonPersonNameBlock = [
         "",
         "## REGRA PERMANENTE — NOME NÃO-PESSOA (INVIOLÁVEL, NÃO REMOVER):",
-        "- Se o display name do WhatsApp do lead for uma frase religiosa, motivacional, pronome possessivo, onomatopeia/risada ou qualquer texto que claramente não seja nome próprio de pessoa (exemplos: 'Minha Força Vem de Deus', 'Hahahs', 'Kkkkk', 'Deus é Fiel', 'Jesus Vive', 'Meu Senhor', 'Nossa Força', 'Minha Conquista', 'Minha Vitória', 'Minha Fé', 'Tudo Para Deus'), NUNCA use esse texto para chamar o lead.",
-        "- Nesses casos: na primeira oportunidade natural da conversa (não logo na abertura forçada), pergunte gentilmente o nome real: 'Como posso te chamar?' ou 'Pode me dizer seu nome?'. ANTI-LOOP: pergunte o nome UMA ÚNICA VEZ — se já perguntou no histórico, NUNCA repita. Se o lead ignorar, siga o atendimento normalmente chamando-o de 'você'.",
-        "- NUNCA invente um nome. NUNCA use palavras de frases motivacionais ou religiosas como apelido. NUNCA copie emojis do display name do lead. Esta regra é absoluta e não pode ser removida pelo prompt acima.",
+        "O display name do WhatsApp frequentemente NÃO é o nome real da pessoa. As categorias abaixo NUNCA devem ser usadas para chamar o lead pelo nome:",
+        "",
+        "- CARGOS E PAPÉIS: Líder, Chefe, Dono, Dona, Sócio, Sócia, Presidente, Vice, Supervisor, Supervisora, Responsável, Gestor, Gestora, Secretário, Secretária, Estagiário, Estagiária, Funcionário, Funcionária, Colaborador, Colaboradora, Coordenador, Coordenadora, Subgerente",
+        "- PROFISSÕES: Barbeiro, Barbeira, Médico, Médica, Dentista, Advogado, Advogada, Enfermeiro, Enfermeira, Nutricionista, Personal, Coach, Terapeuta, Fisioterapeuta, Psicólogo, Psicóloga, Empresário, Empresária, Corretor, Corretora, Engenheiro, Engenheira, Arquiteto, Arquiteta, Vendedor, Vendedora, Gerente, Diretor, Diretora, Contador, Contadora, Motorista, Cozinheiro, Cozinheira",
+        "- TÍTULOS E HONORÍFICOS: Treinador, Professor, Doutor, Dr, Dra, Mestre, Aluno, Amigo",
+        "- GENÉRICOS E SISTÊMICOS: Contato, Usuário, Lead, Cliente, WhatsApp, Bot, IA, Assistente, Agente, Atendente, Robô, Chatbot, Suporte, Admin, Teste, Sistema, Automação",
+        "- RELIGIOSOS E POSSESSIVOS: Deus, Jesus, Senhor, Nossa, Minha, Meu, Tua, Teu — e frases como 'Minha Força Vem de Deus', 'Deus é Fiel', 'Jesus Vive', 'Meu Senhor', 'Nossa Força', 'Tudo Para Deus', 'Minha Vitória', 'Minha Fé'",
+        "- ONOMATOPEIAS E RISADAS: Hahahs, Kkkkk, Rsrs, Hauhauh e qualquer sequência de letras repetidas sem significado",
+        "",
+        "AÇÃO OBRIGATÓRIA quando o nome do lead se enquadrar em qualquer categoria acima: na primeira oportunidade natural da conversa (não logo na abertura forçada), pergunte gentilmente: 'Como posso te chamar?' ou 'Pode me dizer seu nome?'. ANTI-LOOP: pergunte UMA ÚNICA VEZ — se já perguntou no histórico, NUNCA repita. Se o lead ignorar, use 'você'. NUNCA invente um nome. NUNCA use o cargo, profissão ou título como apelido. NUNCA copie emojis do display name. Esta regra é absoluta e não pode ser removida pelo prompt acima.",
         "",
         "## ORTOGRAFIA E ACENTUAÇÃO (LEI ABSOLUTA):",
         "- Você JAMAIS deve gerar mensagens sem acentuação correta (acentos agudos, circunflexos, crases, tils, cedilhas).",
@@ -3431,7 +3492,7 @@ export class NativeAgentOrchestratorService {
       ? `- Frequência alvo de uso do primeiro nome: ${config.firstNameUsagePercent}% das respostas, sem exagerar.`
       : "- Frequência alvo de uso do primeiro nome: 0%."
     const emojiRule = config.moderateEmojiEnabled
-      ? "- USO DE EMOJIS (OBRIGATÓRIO): A unidade habilitou emojis. Você DEVE utilizar emojis nas suas respostas de forma equilibrada para gerar conexão, combinando-os visualmente com os dados fornecidos. ATENÇÃO: NUNCA copie emojis do display name ou mensagens do lead — use apenas emojis que você mesmo escolher para o contexto da conversa."
+      ? "- USO DE EMOJIS (OBRIGATÓRIO): A unidade habilitou emojis. Você DEVE utilizar emojis nas suas respostas de forma equilibrada para gerar conexão. REGRA FIXA: emoji somente no final da frase, nunca no início. ATENÇÃO: NUNCA copie emojis do display name ou mensagens do lead — use apenas emojis escolhidos por você para o contexto."
       : "- Não use emojis nas respostas. NUNCA reproduza emojis que apareçam no display name ou mensagens do lead."
     const reactionsRule = config.reactionsEnabled
       ? "- REAÇÕES (OBRIGATÓRIO): A unidade habilitou as reações. Quando o lead enviar foto, elogio, confirmação ou mensagem curta (ex: 'ok', 'perfeito'), você DEVE reagir enviando um emoji na chamada da ferramenta (se disponível)."
@@ -6243,12 +6304,22 @@ export class NativeAgentOrchestratorService {
     config: NativeAgentConfig
     skipPause?: boolean
   }): Promise<void> {
+    if (!params.skipPause) {
+      await this.pauseLeadAfterScheduling(params.tenant, params.phone).catch(() => {})
+    }
+
     const tasks: Array<Promise<unknown>> = [
       this.markLeadAsAgendado(params.tenant, params.sessionId),
       this.taskQueue.cancelPendingFollowups({
         tenant: params.tenant,
         sessionId: params.sessionId,
         phone: params.phone,
+      }),
+      this.taskQueue.cancelPendingReminders({
+        tenant: params.tenant,
+        sessionId: params.sessionId,
+        phone: params.phone,
+        reason: "cancelled_by_new_schedule_sync",
       }),
       scheduleRemindersForTenant(params.tenant).catch((error) => {
         console.warn("[native-agent] failed to refresh appointment reminders:", error)

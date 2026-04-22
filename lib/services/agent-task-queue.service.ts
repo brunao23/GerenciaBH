@@ -832,8 +832,8 @@ export class AgentTaskQueueService {
       "4. NUNCA repita ou parafraseie mensagens que a IA ja enviou (veja historico abaixo).",
       "5. Referencie o ASSUNTO ESPECIFICO da conversa (produto, servico, duvida, agendamento, etc).",
       leadName
-        ? `6. O nome do lead e "${leadName}". Use-o de forma natural, sem forcar.`
-        : "6. O nome do lead NAO esta disponivel. Nao use NENHUM nome, titulo ou pronome de tratamento (como 'Treinador', 'Doutor', 'Amigo'). Inicie a mensagem diretamente. NUNCA pergunte o nome.",
+        ? `6. O nome do lead e "${leadName}". Use-o de forma natural, sem forcar. ATENCAO: se esse nome for um cargo (Lider, Chefe, Gerente, Dono), profissao (Medico, Advogado, Coach, Dentista, Nutricionista, Personal), titulo (Treinador, Professor, Doutor, Amigo), generico (Lead, Cliente, Contato, Bot) ou termo religioso/possessivo (Deus, Jesus, Minha, Meu), NAO use — inicie a mensagem sem nome.`
+        : "6. O nome do lead NAO esta disponivel. Nao use NENHUM nome, titulo, cargo ou pronome de tratamento. Proibido usar: cargos (Lider, Chefe, Dono, Gerente, Diretor, Supervisor), profissoes (Medico, Advogado, Dentista, Coach, Nutricionista, Personal, Engenheiro, Terapeuta), titulos (Treinador, Professor, Doutor, Mestre, Amigo), genericos (Lead, Cliente, Contato, Bot, Assistente, Suporte), religiosos/possessivos (Deus, Jesus, Minha, Meu, Nossa). Inicie a mensagem diretamente, sem qualquer forma de tratamento. NUNCA pergunte o nome.",
       "7. NUNCA se apresente pelo nome ou se identifique. Voce ja esta em uma conversa em andamento.",
       "8. Foque em fazer o lead RESPONDER com uma acao clara.",
       "9. NUNCA pergunte o nome do lead. Se nao tem nome, siga sem nome. Isso NAO e relevante para follow-up.",
@@ -870,10 +870,11 @@ export class AgentTaskQueueService {
           "Voce NUNCA inventa informacoes. Se nao sabe o assunto, foque no atendimento em aberto de forma generica.",
           "NUNCA confunda seu papel (IA assistente) com o lead (cliente).",
           "NUNCA use o nome do lead como se fosse o seu.",
-          "NUNCA pergunte o nome do lead em um follow-up. Se o nome nao esta disponivel, NUNCA invente nomes ou titulos (como 'Treinador', 'Amigo'). Nao use NADA, apenas inicie a mensagem.",
+          "NUNCA pergunte o nome do lead em um follow-up. Se o nome nao esta disponivel, NUNCA invente nomes ou titulos. Nao use NADA, apenas inicie a mensagem.",
           "JAMAIS abrevie ou encurte o nome do lead. Use sempre o nome EXATO como informado, sem criar apelidos (ex: Cah, Fer, Gabi, Rafa, Lu sao proibidos).",
           "NUNCA diga que e IA, sistema, assistente virtual, chatbot ou robo.",
           "NUNCA use saudacoes baseadas no horario: 'Bom dia', 'Boa tarde', 'Boa noite'. A mensagem pode chegar ao lead em horario diferente da criacao.",
+          "REGRA CRITICA DE NOMES NAO-PESSOA: o display name do WhatsApp frequentemente NAO e o nome real. NUNCA use como nome de lead: CARGOS (Lider, Chefe, Dono, Dona, Socio, Presidente, Supervisor, Gestor, Secretario, Coordenador, Subgerente, Funcionario, Colaborador, Estagiario), PROFISSOES (Barbeiro, Medico, Dentista, Advogado, Enfermeiro, Nutricionista, Personal, Coach, Terapeuta, Fisioterapeuta, Psicologo, Empresario, Corretor, Engenheiro, Arquiteto, Vendedor, Gerente, Diretor, Contador, Motorista, Cozinheiro), TITULOS (Treinador, Professor, Doutor, Dr, Dra, Mestre, Aluno, Amigo), GENERICOS (Contato, Usuario, Lead, Cliente, Bot, Assistente, Agente, Atendente, Robo, Suporte, Admin, Teste), RELIGIOSOS/POSSESSIVOS (Deus, Jesus, Senhor, Minha, Meu, Nossa, Tua) ou ONOMATOPEIAS (Kkkkk, Haha, Rsrs). Se o nome disponivel se enquadrar em qualquer dessas categorias, NAO use nome algum — inicie a mensagem diretamente.",
           `REGRA DE GENERO: ${genderConstraint}`,
           `REGRA DE TOM: siga o estilo ${toneSummary}.`,
         ].join(" "),
