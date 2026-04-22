@@ -953,6 +953,9 @@ function isInternalTaskLeakMessage(text: string): boolean {
     "atendente assumiu compromisso",
     "compromisso de retorno",
     "prazo combinado",
+    "retornar contato",
+    "para o lead",
+    "conforme solicitado",
     "fila",
     "queue",
     "cron",
@@ -1123,15 +1126,7 @@ async function processConversationTaskIntelligence(params: {
   )
   const runAtIso = new Date(Date.now() + delayMinutes * 60 * 1000).toISOString()
   const leadName = extractLeadDisplayName(params.event)
-  const queueMessageRaw = String(decision.task_message || "").trim() ||
-    (senderType === "lead"
-      ? "Lead pediu retorno em outro momento. Retomar atendimento conforme combinado."
-      : "Atendente registrou compromisso de retorno. Validar pendencia e retomar contato.")
-  const queueMessage = sanitizeTaskReminderMessage({
-    senderType,
-    leadName,
-    message: queueMessageRaw,
-  })
+  const queueMessage = buildSafeTaskReminderMessage(senderType, leadName)
 
   const enqueue = await new AgentTaskQueueService().enqueueReminder({
     tenant: params.tenant,
@@ -1147,6 +1142,7 @@ async function processConversationTaskIntelligence(params: {
       trigger_message_id: params.event.messageId || null,
       contact_name: leadName,
       delay_minutes: delayMinutes,
+      internal_task_note: String(decision.task_message || "").trim().slice(0, 500),
     },
   })
 

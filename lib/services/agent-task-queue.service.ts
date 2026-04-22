@@ -36,6 +36,7 @@ export interface EnqueueFollowupSequenceInput {
 const DEFAULT_FOLLOWUP_INTERVALS_MINUTES = [10, 60, 360, 1440, 2880, 4320, 7200]
 const FOLLOWUP_CONFIG_CACHE_TTL_MS = 5_000
 type TaskMessageMode = "text" | "image" | "video" | "document"
+type AgentGrammaticalGender = "feminino" | "masculino" | "neutro"
 
 function toTaskMessageMode(value: any, fallback: TaskMessageMode): TaskMessageMode {
   const mode = String(value || "").trim().toLowerCase()
@@ -75,6 +76,25 @@ function sanitizeFollowupText(input: string, max = 220): string {
   return excerpt(stripped.replace(/\r/g, " ").replace(/\n+/g, " "), max)
 }
 
+function hasForbiddenIdentityDisclosure(message: string): boolean {
+  const text = normalizeComparableText(message)
+  if (!text) return false
+
+  const blockedPatterns = [
+    "sou uma ia",
+    "sou um sistema",
+    "sou um assistente virtual",
+    "sou um chatbot",
+    "sou um robo",
+    "assistente de ia",
+    "sistema inteligente",
+    "modelo de linguagem",
+    "inteligencia artificial",
+  ]
+
+  return blockedPatterns.some((pattern) => text.includes(pattern))
+}
+
 function stripTaskPrefix(text: string): string {
   return String(text || "")
     .replace(/^\s*(task|tarefa|acao|a[cç][aã]o)\s*:\s*/i, "")
@@ -89,6 +109,92 @@ function normalizeComparableText(input: string): string {
     .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim()
+}
+
+function inferAgentGrammaticalGender(promptBase?: string): AgentGrammaticalGender {
+  const normalized = normalizeComparableText(String(promptBase || "")).slice(0, 2200)
+  if (!normalized) return "neutro"
+
+  let feminineScore = 0
+  let masculineScore = 0
+
+  const femininePatterns = [
+    /\bsou a\b/g,
+    /\baqui e a\b/g,
+    /\bconsultora\b/g,
+    /\bestou preparada\b/g,
+    /\bfiquei curiosa\b/g,
+    /\bestou animada\b/g,
+  ]
+  const masculinePatterns = [
+    /\bsou o\b/g,
+    /\baqui e o\b/g,
+    /\bconsultor\b/g,
+    /\bestou preparado\b/g,
+    /\bfiquei curioso\b/g,
+    /\bestou animado\b/g,
+  ]
+
+  for (const pattern of femininePatterns) {
+    const matches = normalized.match(pattern)
+    if (matches) feminineScore += matches.length
+  }
+  for (const pattern of masculinePatterns) {
+    const matches = normalized.match(pattern)
+    if (matches) masculineScore += matches.length
+  }
+
+  if (feminineScore === masculineScore) return "neutro"
+  return feminineScore > masculineScore ? "feminino" : "masculino"
+}
+
+function buildGenderConstraint(gender: AgentGrammaticalGender): string {
+  if (gender === "feminino") {
+    return "A identidade do agente e FEMININA. Use concordancia feminina quando falar em primeira pessoa (ex: estou preparada, fiquei curiosa). Nunca use formas masculinas para a propria identidade."
+  }
+  if (gender === "masculino") {
+    return "A identidade do agente e MASCULINA. Use concordancia masculina quando falar em primeira pessoa (ex: estou preparado, fiquei curioso). Nunca use formas femininas para a propria identidade."
+  }
+  return "Genero do agente nao identificado com seguranca. Evite termos de primeira pessoa marcados por genero (curioso/curiosa, preparado/preparada). Prefira formulacao neutra."
+}
+
+function describeConversationTone(tone: NativeAgentConfig["conversationTone"]): string {
+  switch (tone) {
+    case "acolhedor":
+      return "acolhedor e proximo"
+    case "direto":
+      return "direto e objetivo"
+    case "formal":
+      return "formal e profissional"
+    default:
+      return "consultivo, claro e profissional"
+  }
+}
+
+function hasGenderConcordanceMismatch(message: string, expected: AgentGrammaticalGender): boolean {
+  if (expected === "neutro") return false
+  const text = normalizeComparableText(message)
+  if (!text) return false
+
+  const firstPersonMarkers = "(?:estou|fiquei|continuo|sigo|sou|estava)"
+  const wordPairs = [
+    { masc: "curioso", fem: "curiosa" },
+    { masc: "preparado", fem: "preparada" },
+    { masc: "animado", fem: "animada" },
+    { masc: "alinhado", fem: "alinhada" },
+    { masc: "disposto", fem: "disposta" },
+    { masc: "pronto", fem: "pronta" },
+    { masc: "tranquilo", fem: "tranquila" },
+  ]
+
+  const hasMismatch = wordPairs.some((pair) => {
+    const hasMascFirstPerson = new RegExp(`\\b${firstPersonMarkers}\\s+${pair.masc}\\b`).test(text)
+    const hasFemFirstPerson = new RegExp(`\\b${firstPersonMarkers}\\s+${pair.fem}\\b`).test(text)
+    if (expected === "feminino") return hasMascFirstPerson && !hasFemFirstPerson
+    return hasFemFirstPerson && !hasMascFirstPerson
+  })
+
+  return hasMismatch
 }
 
 function isSystemNoiseForFollowup(content: string): boolean {
@@ -132,6 +238,7 @@ function normalizeLeadName(name?: string): string {
     "contato", "usuario", "lead", "cliente", "whatsapp", "unknown",
     "bot", "ia", "assistente", "agente", "sistema", "automacao",
     "atendente", "robo", "chatbot", "suporte", "admin", "teste",
+    "treinador", "professor", "doutor", "amigo", "mestre", "aluno",
   ])
   // Quebra CamelCase antes de dividir por espaço: "GabriellaMoraes" → "Gabriella Moraes"
   const normalized = text.replace(/([a-z\u00C0-\u017E])([A-Z\u0178-\u024F])/g, "$1 $2")
@@ -253,6 +360,9 @@ function isInternalReminderLeakMessage(message: string): boolean {
     "atendente assumiu compromisso",
     "compromisso de retorno",
     "prazo combinado",
+    "retornar contato",
+    "para o lead",
+    "conforme solicitado",
     "conversation listener",
     "queue",
     "fila",
@@ -426,6 +536,9 @@ export class AgentTaskQueueService {
       reminderMediaUrl?: string
       reminderCaption?: string
       reminderDocumentFileName?: string
+      promptBase?: string
+      conversationTone: NativeAgentConfig["conversationTone"]
+      agentGrammaticalGender: AgentGrammaticalGender
       toolNotificationsEnabled: boolean
       toolNotificationTargets: string[]
     }
@@ -450,6 +563,9 @@ export class AgentTaskQueueService {
     reminderMediaUrl?: string
     reminderCaption?: string
     reminderDocumentFileName?: string
+    promptBase?: string
+    conversationTone: NativeAgentConfig["conversationTone"]
+    agentGrammaticalGender: AgentGrammaticalGender
     toolNotificationsEnabled: boolean
     toolNotificationTargets: string[]
   }> {
@@ -475,6 +591,9 @@ export class AgentTaskQueueService {
         reminderMediaUrl: cached.reminderMediaUrl,
         reminderCaption: cached.reminderCaption,
         reminderDocumentFileName: cached.reminderDocumentFileName,
+        promptBase: cached.promptBase,
+        conversationTone: cached.conversationTone,
+        agentGrammaticalGender: cached.agentGrammaticalGender,
         toolNotificationsEnabled: cached.toolNotificationsEnabled,
         toolNotificationTargets: cached.toolNotificationTargets,
       }
@@ -520,6 +639,9 @@ export class AgentTaskQueueService {
       reminderMediaUrl: String(config?.reminderMediaUrl || "").trim() || undefined,
       reminderCaption: String(config?.reminderCaption || "").trim() || undefined,
       reminderDocumentFileName: String(config?.reminderDocumentFileName || "").trim() || undefined,
+      promptBase: String(config?.promptBase || "").trim() || undefined,
+      conversationTone: config?.conversationTone || "consultivo",
+      agentGrammaticalGender: inferAgentGrammaticalGender(config?.promptBase),
       toolNotificationsEnabled: config?.toolNotificationsEnabled === true,
       toolNotificationTargets: Array.isArray(config?.toolNotificationTargets)
         ? config.toolNotificationTargets.map((value) => String(value || "").trim()).filter(Boolean)
@@ -642,6 +764,8 @@ export class AgentTaskQueueService {
     const topicSummary = recentLeadMessages.length > 0
       ? recentLeadMessages.map((msg) => `- "${excerpt(msg, 100)}"`).join("\n")
       : "(sem mensagens do lead)"
+    const toneSummary = describeConversationTone(runtime.conversationTone)
+    const genderConstraint = buildGenderConstraint(runtime.agentGrammaticalGender)
 
     // Determinar tom baseado na etapa (7 etapas: 10min/1h/6h/1d/2d/3d/5d)
     let stageGuidance = ""
@@ -670,11 +794,17 @@ export class AgentTaskQueueService {
       "5. Referencie o ASSUNTO ESPECIFICO da conversa (produto, servico, duvida, agendamento, etc).",
       leadName
         ? `6. O nome do lead e "${leadName}". Use-o de forma natural, sem forcar.`
-        : "6. O nome do lead NAO esta disponivel. Use 'voce' para se dirigir ao lead. NUNCA pergunte o nome.",
+        : "6. O nome do lead NAO esta disponivel. Nao use NENHUM nome, titulo ou pronome de tratamento (como 'Treinador', 'Doutor', 'Amigo'). Inicie a mensagem diretamente. NUNCA pergunte o nome.",
       "7. NUNCA se apresente pelo nome ou se identifique. Voce ja esta em uma conversa em andamento.",
       "8. Foque em fazer o lead RESPONDER com uma acao clara.",
       "9. NUNCA pergunte o nome do lead. Se nao tem nome, siga sem nome. Isso NAO e relevante para follow-up.",
       "10. JAMAIS abrevie, encurte ou crie apelidos do nome do lead. Use SEMPRE o nome EXATO como informado. Proibido: Cah (Camila), Fer (Fernanda), Gabi (Gabriela), Rafa (Rafael), Lu (Lucas). Se o nome parecer apelido (ex: Caaah, Feer), use 'voce'.",
+      "11. NUNCA diga que voce e IA, sistema, assistente virtual, chatbot ou robo.",
+      `12. ${genderConstraint}`,
+      `13. Siga o tom do agente configurado no tenant: ${toneSummary}.`,
+      runtime.promptBase
+        ? `14. Personalidade base do agente (resumo): ${excerpt(runtime.promptBase, 260)}`
+        : "14. Sem prompt base explicito: mantenha o texto humano, natural, educado e comercial.",
       "",
       `CONTEXTO:`,
       `Etapa: ${input.step} de ${input.totalSteps}`,
@@ -701,8 +831,11 @@ export class AgentTaskQueueService {
           "Voce NUNCA inventa informacoes. Se nao sabe o assunto, foque no atendimento em aberto de forma generica.",
           "NUNCA confunda seu papel (IA assistente) com o lead (cliente).",
           "NUNCA use o nome do lead como se fosse o seu.",
-          "NUNCA pergunte o nome do lead em um follow-up. Se o nome nao esta disponivel, use 'voce'.",
+          "NUNCA pergunte o nome do lead em um follow-up. Se o nome nao esta disponivel, NUNCA invente nomes ou titulos (como 'Treinador', 'Amigo'). Nao use NADA, apenas inicie a mensagem.",
           "JAMAIS abrevie ou encurte o nome do lead. Use sempre o nome EXATO como informado, sem criar apelidos (ex: Cah, Fer, Gabi, Rafa, Lu sao proibidos).",
+          "NUNCA diga que e IA, sistema, assistente virtual, chatbot ou robo.",
+          `REGRA DE GENERO: ${genderConstraint}`,
+          `REGRA DE TOM: siga o estilo ${toneSummary}.`,
         ].join(" "),
         conversation: [{ role: "user", content: prompt }],
         sampling: {
@@ -713,6 +846,8 @@ export class AgentTaskQueueService {
       })
       const candidate = sanitizeFollowupText(String(decision.reply || ""), 280)
       if (!candidate) return null
+      if (hasForbiddenIdentityDisclosure(candidate)) return null
+      if (hasGenderConcordanceMismatch(candidate, runtime.agentGrammaticalGender)) return null
       if (isLikelyGenericFollowup(candidate)) return null
       if (isTooSimilarToAny(candidate, previousAssistantMessages)) return null
       return candidate
@@ -731,6 +866,7 @@ export class AgentTaskQueueService {
     const payloadLeadName = String(input.payload?.lead_name || "").trim()
     const payloadUser = String(input.payload?.last_user_message || input.payload?.context_excerpt || "").trim()
     const payloadAgent = String(input.payload?.last_agent_message || "").trim()
+    const runtime = await this.loadFollowupRuntimeConfig(input.tenant)
 
     try {
       const chat = new TenantChatHistoryService(input.tenant)
@@ -786,7 +922,7 @@ export class AgentTaskQueueService {
       })
       if (aiMessage) {
         const candidate = sanitizeFollowupText(aiMessage, 280)
-        if (!isLikelyInternalTaskInstructionMessage(candidate)) {
+        if (!isLikelyInternalTaskInstructionMessage(candidate) && !hasForbiddenIdentityDisclosure(candidate)) {
           return candidate
         }
       }
@@ -804,7 +940,12 @@ export class AgentTaskQueueService {
         .filter((entry) => entry.role === "assistant")
         .map((entry) => entry.content)
         .slice(-8)
-      if (!isTooSimilarToAny(fallbackSanitized, previousAssistantMessages) && !isLikelyGenericFollowup(fallbackSanitized)) {
+      if (
+        !isTooSimilarToAny(fallbackSanitized, previousAssistantMessages) &&
+        !isLikelyGenericFollowup(fallbackSanitized) &&
+        !hasForbiddenIdentityDisclosure(fallbackSanitized) &&
+        !hasGenderConcordanceMismatch(fallbackSanitized, runtime.agentGrammaticalGender)
+      ) {
         return fallbackSanitized
       }
 
@@ -812,7 +953,11 @@ export class AgentTaskQueueService {
       const emergency = step <= 3
         ? `${greet}, seu atendimento esta em aberto aqui. Me avisa se posso dar sequencia?`
         : `${greet}, vou encerrar seu atendimento em breve. Qualquer coisa, e so me chamar.`
-      return sanitizeFollowupText(emergency, 280)
+      const emergencySanitized = sanitizeFollowupText(emergency, 280)
+      if (!hasForbiddenIdentityDisclosure(emergencySanitized)) {
+        return emergencySanitized
+      }
+      return sanitizeFollowupText(`${greet}, seu atendimento ficou em aberto. Se quiser, seguimos por aqui.`, 280)
     } catch {
       const fallback = buildRuntimeContextualFollowupMessage({
         step,
@@ -821,7 +966,12 @@ export class AgentTaskQueueService {
         lastUserMessage: payloadUser,
         lastAgentMessage: payloadAgent,
       })
-      return sanitizeFollowupText(fallback, 280)
+      const fallbackSanitized = sanitizeFollowupText(fallback, 280)
+      if (!hasForbiddenIdentityDisclosure(fallbackSanitized)) {
+        return fallbackSanitized
+      }
+      const greet = buildGreeting(payloadLeadName)
+      return sanitizeFollowupText(`${greet}, se fizer sentido, seguimos seu atendimento por aqui.`, 280)
     }
   }
 
@@ -1345,6 +1495,7 @@ export class AgentTaskQueueService {
     ]
       .filter(Boolean)
       .join("\n")
+    const dedupeMessage = sanitizeFollowupText(input.message || "", 120).toLowerCase()
 
     await this.groupNotifier
       .dispatch({
@@ -1353,7 +1504,7 @@ export class AgentTaskQueueService {
         source: "followup-touchpoint",
         message: body,
         targets,
-        dedupeKey: `followup:sent:${input.taskId || ""}:${leadRef}:${input.step || 0}:${input.totalSteps || 0}`,
+        dedupeKey: `followup:sent:${leadRef}:${input.step || 0}:${input.totalSteps || 0}:${dedupeMessage}`,
         dedupeWindowSeconds: 3600,
       })
       .catch(() => {})

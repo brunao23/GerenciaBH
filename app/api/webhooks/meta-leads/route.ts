@@ -3,11 +3,61 @@ import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { getMessagingConfigForTenant } from "@/lib/helpers/messaging-config"
 import { createZApiServiceFromMessagingConfig } from "@/lib/helpers/zapi-messaging"
 import { getTablesForTenant } from "@/lib/helpers/tenant"
+import { getNativeAgentConfigForTenant } from "@/lib/helpers/native-agent-config"
 import { generatePersonalizedWelcome, sanitizeName } from "@/lib/helpers/lead-welcome"
-import { TenantChatHistoryService } from "@/lib/services/tenant-chat-history.service"
+import { AgentTaskQueueService } from "@/lib/services/agent-task-queue.service"
+import {
+  normalizePhoneNumber,
+  normalizeSessionId,
+  TenantChatHistoryService,
+} from "@/lib/services/tenant-chat-history.service"
 import { sendCAPIEvent, getCAPIConfig } from "@/lib/services/meta-capi.service"
 
 const META_GRAPH_API = "https://graph.facebook.com/v20.0"
+
+function buildFormContextSnippet(fieldData: Array<{ name: string; values: string[] }> | undefined): string {
+  if (!Array.isArray(fieldData) || fieldData.length === 0) return ""
+  const blocked = new Set(["phone_number", "phone", "telefone", "celular", "email", "e-mail"])
+  const parts: string[] = []
+  for (const field of fieldData) {
+    const key = String(field?.name || "").trim()
+    const keyNormalized = key.toLowerCase()
+    if (!key || blocked.has(keyNormalized)) continue
+    const value = String(field?.values?.[0] || "").replace(/\s+/g, " ").trim()
+    if (!value) continue
+    parts.push(`${key}: ${value}`)
+    if (parts.length >= 4) break
+  }
+  return parts.join(" | ").slice(0, 320)
+}
+
+async function enqueueLeadFollowups(input: {
+  tenant: string
+  phone: string
+  leadName?: string | null
+  welcomeMessage: string
+  formFields?: Array<{ name: string; values: string[] }>
+}) {
+  const phone = normalizePhoneNumber(input.phone)
+  const sessionId = normalizeSessionId(input.phone)
+  if (!phone || !sessionId) return
+
+  const queue = new AgentTaskQueueService()
+  const lastUserMessage = buildFormContextSnippet(input.formFields)
+
+  const enqueue = await queue.enqueueFollowupSequence({
+    tenant: input.tenant,
+    sessionId,
+    phone,
+    leadName: input.leadName || undefined,
+    lastUserMessage: lastUserMessage || undefined,
+    lastAgentMessage: String(input.welcomeMessage || "").trim(),
+  })
+
+  if (!enqueue.ok) {
+    console.warn("[meta-leads] failed to enqueue followup sequence:", enqueue.error)
+  }
+}
 
 // Meta webhook verification
 export async function GET(req: NextRequest) {
@@ -84,7 +134,7 @@ async function processLead({
   const config =
     (form_id ? configs.find((c) => c.form_id === form_id) : null) ?? configs[0]
 
-  const { unit_prefix, page_access_token, campaign_name, welcome_message, delay_minutes, pixel_id, pixel_access_token } = config as any
+  const { unit_prefix, page_access_token, campaign_name, welcome_message, delay_minutes, pixel_id, pixel_access_token, auto_welcome_enabled } = config as any
 
   // 2. Fetch full lead data from Meta Graph API
   const leadData = await fetchMetaLead(leadgen_id, page_access_token)
@@ -98,6 +148,7 @@ async function processLead({
   const rawName = extractField(leadData.field_data, ["full_name", "name", "nome", "first_name"])
   const name = sanitizeName(rawName)
   const email = extractField(leadData.field_data, ["email", "e-mail"])
+  const profilePic = extractField(leadData.field_data, ["profile_pic", "profile_picture", "foto", "avatar", "picture"])
 
   if (!phone) {
     console.warn(`[meta-leads] Lead ${leadgen_id} has no phone number`)
@@ -157,12 +208,55 @@ async function processLead({
     }).catch((err) => console.warn("[meta-leads] CAPI Lead error:", err))
   }
 
+  if (auto_welcome_enabled === false) {
+    console.log(`[meta-leads] auto welcome disabled for ${unit_prefix} (${page_id})`)
+    return
+  }
+
+  // 6a. Phone-level dedup: skip if this phone already received a broadcast or has an existing conversation
+  const { data: alreadySentRecord } = await supabase
+    .from(campaignTable)
+    .select("id")
+    .eq("phone", formattedPhone)
+    .eq("whatsapp_sent", true)
+    .limit(1)
+    .maybeSingle()
+
+  if (alreadySentRecord) {
+    console.log(`[meta-leads] ⏭️ Skip broadcast ${formattedPhone} — already sent (phone dedup)`)
+    return
+  }
+
+  try {
+    const chatHistory = new TenantChatHistoryService(unit_prefix)
+    const existingMessages = await chatHistory.loadConversation(normalizeSessionId(formattedPhone), 1)
+    if (existingMessages && existingMessages.length > 0) {
+      console.log(`[meta-leads] ⏭️ Skip broadcast ${formattedPhone} — existing conversation found`)
+      return
+    }
+  } catch (err) {
+    console.warn("[meta-leads] Failed to check chat history for phone dedup:", err)
+  }
+
   // 6. Generate welcome message
+  const nativeAgentConfig = await getNativeAgentConfigForTenant(unit_prefix)
   const message = await generatePersonalizedWelcome({
     name: name || null,
     campaignName: campaign_name || null,
     formFields: (leadData.field_data ?? []) as Array<{ name: string; values: string[] }>,
+    companyName: nativeAgentConfig?.unitName || null,
+    promptBase: nativeAgentConfig?.promptBase,
+    geminiApiKey: nativeAgentConfig?.geminiApiKey,
+    geminiModel: nativeAgentConfig?.geminiModel,
+    samplingTemperature: nativeAgentConfig?.samplingTemperature,
+    samplingTopP: nativeAgentConfig?.samplingTopP,
+    samplingTopK: nativeAgentConfig?.samplingTopK,
   })
+
+  if (!message) {
+    console.warn(`[meta-leads] ⏭️ Skip broadcast ${formattedPhone} — LLM não gerou mensagem`)
+    return
+  }
 
   const delayMins = Number(delay_minutes) || 0
 
@@ -212,15 +306,34 @@ async function processLead({
     try {
       const chatHistory = new TenantChatHistoryService(unit_prefix)
       await chatHistory.persistMessage({
-        sessionId: formattedPhone,
+        sessionId: normalizeSessionId(formattedPhone),
         role: "assistant",
         type: "assistant",
         content: message,
         source: "meta-lead-welcome",
+        additional: {
+          sender_type: "ia",
+          channel: "whatsapp",
+          lead_origin: "meta_lead",
+          lead_name: name || null,
+          contact_name: name || null,
+          lead_profile_pic: profilePic || null,
+          form_data: { field_data: leadData.field_data ?? [] },
+        },
       })
     } catch (err) {
       console.warn("[meta-leads] Failed to persist welcome to chat history:", err)
     }
+
+    await enqueueLeadFollowups({
+      tenant: unit_prefix,
+      phone: formattedPhone,
+      leadName: name || null,
+      welcomeMessage: message,
+      formFields: (leadData.field_data ?? []) as Array<{ name: string; values: string[] }>,
+    }).catch((err) => {
+      console.warn("[meta-leads] Failed to enqueue followup sequence:", err)
+    })
   }
 
   console.log(
@@ -255,4 +368,3 @@ function extractField(
   }
   return ""
 }
-
