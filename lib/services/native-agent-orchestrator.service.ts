@@ -3098,32 +3098,32 @@ export class NativeAgentOrchestratorService {
 
     if (input.isEdit) {
       const lines = [
-        "REAGENDAMENTO CONFIRMADO",
+        "🔄 *REAGENDAMENTO CONFIRMADO*",
         "",
-        `Cliente: ${name}`,
-        `Contato: ${contact}`,
-        oldWhen ? `Horario anterior: ${oldWhen}` : "",
-        `Novo horario: ${day} as ${time}`,
-        `Modalidade: ${mode}`,
+        `👤 *Cliente:* ${name}`,
+        `📱 *Contato:* ${contact}`,
+        oldWhen ? `⏪ *Horário anterior:* ${oldWhen}` : "",
+        `⏰ *Novo horário:* ${day} as ${time}`,
+        `🏢 *Modalidade:* ${mode}`,
       ]
-      if (notes) lines.push(`Obs: ${notes}`)
-      if (meetLink) lines.push(`Google Meet: ${meetLink}`)
-      if (calLink) lines.push(`Calendario: ${calLink}`)
+      if (notes) lines.push(`📝 *Obs:* ${notes}`)
+      if (meetLink) lines.push(`💻 *Google Meet:* ${meetLink}`)
+      if (calLink) lines.push(`📅 *Calendário:* ${calLink}`)
       return lines.filter(Boolean).join("\n")
     }
 
     const lines = [
-      "AGENDAMENTO CONFIRMADO",
+      "✅ *AGENDAMENTO CONFIRMADO*",
       "",
-      `Cliente: ${name}`,
-      `Contato: ${contact}`,
-      `Data: ${day}`,
-      `Horario: ${time}`,
-      `Modalidade: ${mode}`,
+      `👤 *Cliente:* ${name}`,
+      `📱 *Contato:* ${contact}`,
+      `📅 *Data:* ${day}`,
+      `⏰ *Horário:* ${time}`,
+      `🏢 *Modalidade:* ${mode}`,
     ]
-    if (notes) lines.push(`Obs: ${notes}`)
-    if (meetLink) lines.push(`Google Meet: ${meetLink}`)
-    if (calLink) lines.push(`Calendario: ${calLink}`)
+    if (notes) lines.push(`📝 *Obs:* ${notes}`)
+    if (meetLink) lines.push(`💻 *Google Meet:* ${meetLink}`)
+    if (calLink) lines.push(`📅 *Calendário:* ${calLink}`)
     return lines.filter(Boolean).join("\n")
   }
 
@@ -3395,8 +3395,14 @@ export class NativeAgentOrchestratorService {
       ? `- Frequencia alvo de uso do primeiro nome: ${config.firstNameUsagePercent}% das respostas, sem exagerar.`
       : "- Frequencia alvo de uso do primeiro nome: 0%."
     const emojiRule = config.moderateEmojiEnabled
-      ? "- Emojis permitidos de forma moderada: no maximo 1 por mensagem, sempre integrado ao texto (nunca sozinho em linha separada)."
+      ? "- USO DE EMOJIS (OBRIGATORIO): A unidade habilitou emojis. Voce DEVE utilizar emojis nas suas respostas de forma equilibrada para gerar conexao, combinando-os visualmente com os dados fornecidos."
       : "- Nao use emojis nas respostas."
+    const reactionsRule = config.reactionsEnabled
+      ? "- REACOES (OBRIGATORIO): A unidade habilitou as reacoes. Quando o lead enviar foto, elogio, confirmacao ou mensagem curta (ex: 'ok', 'perfeito'), voce DEVE reagir enviando um emoji na chamada do tool (se disponivel)."
+      : ""
+    const replyRule = config.replyEnabled
+      ? "- REPLY (OBRIGATORIO): A unidade habilitou reply. Use o recurso de responder em cima de uma mensagem especifica se o sistema oferecer a possibilidade em sua ferramenta de envio."
+      : ""
     const connectorsRule = config.sentenceConnectorsEnabled
       ? "- Use conectores naturais entre frases quando ajudarem a fluidez, sem exagerar."
       : "- Evite conectores de frase desnecessarios; prefira resposta objetiva."
@@ -3642,13 +3648,13 @@ export class NativeAgentOrchestratorService {
       "REGRA CRITICA DE IDENTIDADE E NOMES:",
       contactFirstName
         ? `- Voce e a IA assistente. O lead (cliente) com quem voce esta conversando se chama: ${contactFirstName}.`
-        : `- Voce e a IA assistente. ATENCAO CRITICA: O nome real do lead NAO esta disponivel (o display name do WhatsApp "${rawContactName}" veio com formato estranho, e empresa, emoji ou nao informou). REGRA INVIOLAVEL: Em uma conversa comercial voce NUNCA pode seguir sem saber o nome da pessoa. OBRIGATORIO: Na sua resposta AGORA, pergunte de forma gentil como o lead se chama (ex: "Antes de continuarmos, como posso te chamar?"). NAO ignore essa regra.`,
+        : `- Voce e a IA assistente. ATENCAO: O nome real do lead NAO esta disponivel (o display name do WhatsApp "${rawContactName}" veio com formato estranho, e empresa, emoji ou nao informou). Tente descobrir o nome dele de forma natural. OBRIGATORIO: Na sua primeira resposta, pergunte gentilmente como o lead se chama (ex: "Como posso te chamar?"). Se o lead ignorar a pergunta sobre o nome e focar no atendimento, NAO insista em loop, siga a conversa normalmente chamando-o de "voce".`,
       `- NUNCA confunda SEU nome (definido no prompt acima) com o nome do lead.`,
       `- NUNCA se apresente usando o nome do lead. NUNCA chame o lead pelo seu proprio nome de IA.`,
       `- No historico abaixo, mensagens "user" sao do lead (${contactFirstName || "cliente"}), mensagens "assistant" sao SUAS (IA).`,
       contactFirstName
         ? `- Se o lead ja informou o nome, siga a conversa normalmente e use-o de forma natural.`
-        : `- Como voce ainda NAO sabe o nome do lead, sua prioridade absoluta e descobrir. Nao responda questoes longas ou detalhes sem antes perguntar com quem esta falando.`,
+        : `- Como voce ainda NAO sabe o nome do lead, pergunte UMA VEZ. Se ele nao responder ao nome, NAO crie um loop, siga atendendo as duvidas.`,
       `- JAMAIS abrevie, encurte, diminua ou crie apelidos a partir do nome do lead. Use SEMPRE o primeiro nome EXATO, sem modificacoes. Exemplos PROIBIDOS: "Cah" para Camila, "Fer" para Fernanda, "Gabi" para Gabriela, "Rafa" para Rafael, "Lu" para Lucas, "JP" para Joao Pedro, "AC" para Ana Clara, "Dani" para Daniela, "Lari" para Larissa, "Nath" para Nathalia, "Bru" para Bruno — ZERO tolerancia para abreviacoes e diminutivos. Se o nome tiver mais de uma palavra (ex: 'Joao Pedro', 'Ana Clara', 'Maria Luiza'), use APENAS o primeiro nome ('Joao', 'Ana', 'Maria'): NUNCA use iniciais combinadas, NUNCA invente apelido. Se o nome do WhatsApp parecer apelido ou deformado (ex: 'Caaah', 'Feer', 'Jooao', 'Anndre'), NAO use — trate por 'voce' ate confirmar o nome real.`,
       "",
       "## INTELIGENCIA E APRENDIZAGEM AUTOMATICA (MEMORIA COMPARTILHADA)",
@@ -3673,6 +3679,8 @@ export class NativeAgentOrchestratorService {
       humanizationRule,
       firstNameUsageRule,
       emojiRule,
+      reactionsRule,
+      replyRule,
       connectorsRule,
       languageVicesRule,
       deepInteractionRule,
