@@ -1223,36 +1223,14 @@ export class AgentTaskQueueService {
       if (Number.isNaN(taskCreatedAt.getTime())) return false
 
       const chat = new TenantChatHistoryService(input.tenant)
-      const table = await chat.getChatTableName()
-      const { data, error } = await this.supabase
-        .from(table)
-        .select("created_at, message")
-        .eq("session_id", normalizeSessionId(input.sessionId))
-        .order("created_at", { ascending: false })
-        .limit(30)
-
-      if (error || !Array.isArray(data)) return false
-
-      for (const row of data) {
-        const createdAt = new Date(String(row?.created_at || ""))
-        if (Number.isNaN(createdAt.getTime())) continue
-        if (createdAt.getTime() <= taskCreatedAt.getTime()) continue
-
-        const message = row?.message && typeof row.message === "object" ? row.message : {}
-        const type = String((message as any).type || "").toLowerCase()
-        const role = String((message as any).role || "").toLowerCase()
-        const fromMe = (message as any).fromMe === true || (message as any)?.key?.fromMe === true
-        const content = String((message as any).content || (message as any).text || "").trim()
-        const isUser =
-          type === "human" ||
-          type === "user" ||
-          role === "user" ||
-          role === "human" ||
-          fromMe === false
-
-        if (isUser && content) {
-          return true
-        }
+      const turns = await chat.loadConversation(input.sessionId, 120)
+      for (const turn of turns) {
+        if (turn.role !== "user") continue
+        const content = String(turn.content || "").trim()
+        if (!content) continue
+        const createdAtMs = new Date(String(turn.createdAt || "")).getTime()
+        if (!Number.isFinite(createdAtMs)) continue
+        if (createdAtMs > taskCreatedAt.getTime()) return true
       }
       return false
     } catch {
@@ -1334,20 +1312,9 @@ export class AgentTaskQueueService {
     payload: Record<string, any>
   }): string {
     const raw = stripTaskPrefix(String(input.message || "").trim())
-    if (raw && !isInternalReminderLeakMessage(raw)) {
-      return raw
-    }
-
-    const leadName = normalizeLeadName(
-      String(
-        input.payload?.contact_name ||
-          input.payload?.lead_name ||
-          input.payload?.leadName ||
-          "",
-      ),
-    )
-    const greeting = leadName ? `Oi ${leadName}` : "Oi"
-    return `${greeting}, conforme combinamos, estou retomando nosso contato por aqui. Quer continuar?`
+    if (!raw) return ""
+    if (isInternalReminderLeakMessage(raw)) return ""
+    return raw
   }
 
   private async dispatchTaskMessage(input: {
@@ -1491,13 +1458,17 @@ export class AgentTaskQueueService {
     
     if (input.taskType === "followup") {
       header = "🔄 *FOLLOW-UP ENVIADO*"
-    } else if (input.taskType === "reminder") {
+    } else if (input.taskType === "official_reminder" || input.taskType === "reminder") {
       header = "⏰ *LEMBRETE ENVIADO*"
       labelEtapa = "Tipo"
     } else if (input.taskType === "call" || input.taskType === "ligacao") {
       header = "📞 *LIGAÇÃO REGISTRADA*"
     } else if (input.taskType === "post_schedule") {
       header = "✅ *PÓS-AGENDAMENTO ENVIADO*"
+    } else if (input.taskType === "reengagement") {
+      header = "🔁 *REENGAJAMENTO ENVIADO*"
+    } else if (input.taskType === "welcome") {
+      header = "🎉 *BOAS-VINDAS ENVIADAS*"
     } else {
       header = `🟡 *${input.taskType.toUpperCase()} ENVIADO*`
     }
@@ -1599,6 +1570,29 @@ export class AgentTaskQueueService {
       const sessionId = normalizeSessionId(String(task.session_id || phone))
       const taskType = String(task.task_type || "reminder").trim().toLowerCase()
       let message = String(payload?.message || "").trim()
+      const reminderSource = String(payload?.source || "").trim().toLowerCase()
+      const reminderType = String(payload?.reminder_type || "").trim().toLowerCase()
+      const reminderKind = String(payload?.reminder_kind || "").trim().toLowerCase()
+      const sendToLead = payload?.send_to_lead !== false
+      const isOfficialReminder =
+        taskType === "reminder" && ["3days", "1day", "4hours"].includes(reminderType)
+      const isConversationListenerTask =
+        taskType === "reminder" &&
+        (reminderSource === "conversation_listener_llm" ||
+          reminderKind === "conversation_listener" ||
+          sendToLead === false)
+      let notificationTaskType = taskType
+      if (taskType === "reminder") {
+        if (isOfficialReminder) {
+          notificationTaskType = "official_reminder"
+        } else if (reminderSource === "native_agent_post_schedule") {
+          notificationTaskType = "post_schedule"
+        } else if (reminderKind === "reengagement_no_show") {
+          notificationTaskType = "reengagement"
+        } else if (reminderKind === "welcome_new_customer") {
+          notificationTaskType = "welcome"
+        }
+      }
       let runtimeConfig: Awaited<ReturnType<AgentTaskQueueService["loadFollowupRuntimeConfig"]>> | null = null
 
       if (taskType === "followup" && tenant && phone && sessionId) {
@@ -1655,8 +1649,22 @@ export class AgentTaskQueueService {
         runtimeConfig = await this.loadFollowupRuntimeConfig(tenant)
       }
 
+      if (isConversationListenerTask) {
+        result.skipped += 1
+        await this.supabase
+          .from(this.table)
+          .update({
+            status: "done",
+            executed_at: new Date().toISOString(),
+            attempts: Number(task.attempts || 0) + 1,
+            last_error: "conversation_task_notification_only",
+          })
+          .eq("id", task.id)
+        continue
+      }
+
       let isFallbackReminder = false
-      if (taskType !== "followup") {
+      if (taskType === "reminder") {
         const raw = stripTaskPrefix(String(message).trim())
         if (!raw || isInternalReminderLeakMessage(raw)) {
           isFallbackReminder = true
@@ -1668,8 +1676,8 @@ export class AgentTaskQueueService {
         this.isLeadTerminal(tenant, sessionId),
       ])
 
-      const shouldCancelAsPaused = paused && (taskType === "followup" || isFallbackReminder)
-      const shouldCancelAsTerminal = terminal && taskType === "followup"
+      const shouldCancelAsPaused = paused && !isOfficialReminder
+      const shouldCancelAsTerminal = terminal && !isOfficialReminder
 
       if (shouldCancelAsPaused || shouldCancelAsTerminal) {
         result.skipped += 1
@@ -1691,7 +1699,7 @@ export class AgentTaskQueueService {
           phone,
           runtimeConfig,
           kind: "cancelled",
-          taskType,
+          taskType: notificationTaskType,
           reason,
           step: Number(payload?.followup_step || 0) || undefined,
           totalSteps: Number(payload?.followup_total_steps || 0) || undefined,
@@ -1739,7 +1747,7 @@ export class AgentTaskQueueService {
             phone,
             runtimeConfig,
             kind: "cancelled",
-            taskType,
+            taskType: notificationTaskType,
             reason,
             step: Number(payload?.followup_step || 0) || undefined,
             totalSteps: Number(payload?.followup_total_steps || 0) || undefined,
@@ -1781,7 +1789,7 @@ export class AgentTaskQueueService {
             phone,
             runtimeConfig,
             kind: "cancelled",
-            taskType,
+            taskType: notificationTaskType,
             reason,
             step: Number(payload?.followup_step || 0) || undefined,
             totalSteps: Number(payload?.followup_total_steps || 0) || undefined,
@@ -1802,8 +1810,33 @@ export class AgentTaskQueueService {
             .eq("id", task.id)
           continue
         }
-      } else {
+      } else if (taskType === "reminder") {
         message = this.resolveSafeReminderMessage({ message, payload })
+        if (!message) {
+          result.skipped += 1
+          const reason = isOfficialReminder
+            ? "official_reminder_cancelled_invalid_template"
+            : "reminder_cancelled_internal_or_empty_message"
+          await this.supabase
+            .from(this.table)
+            .update({
+              status: "cancelled",
+              attempts: Number(task.attempts || 0) + 1,
+              last_error: reason,
+            })
+            .eq("id", task.id)
+          await this.notifyTouchpoint({
+            tenant,
+            sessionId,
+            phone,
+            runtimeConfig,
+            kind: "cancelled",
+            taskType: notificationTaskType,
+            reason,
+            taskId: String(task.id || ""),
+          })
+          continue
+        }
       }
 
       const send = await this.dispatchTaskMessage({
@@ -1835,8 +1868,8 @@ export class AgentTaskQueueService {
           phone,
           runtimeConfig,
           kind: "sent",
-          taskType,
-          reason: `${taskType}_sent`,
+          taskType: notificationTaskType,
+          reason: `${notificationTaskType}_sent`,
           step: sentStep || undefined,
           totalSteps: sentTotalSteps || undefined,
           message,
@@ -1869,7 +1902,7 @@ export class AgentTaskQueueService {
         phone,
         runtimeConfig,
         kind: "failed",
-        taskType,
+        taskType: notificationTaskType,
         reason: "send_failed",
         error: send.error || "send_failed",
         step: Number(payload?.followup_step || 0) || undefined,
