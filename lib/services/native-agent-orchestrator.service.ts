@@ -3356,7 +3356,17 @@ export class NativeAgentOrchestratorService {
       return String(config.promptBase || "").trim()
     }
 
-    const resolvedPromptBase = applyDynamicPromptVariables(resolvePromptBaseByChannel(), vars)
+    const resolvedPromptBase = (() => {
+      const base = applyDynamicPromptVariables(resolvePromptBaseByChannel(), vars)
+      const nonPersonNameBlock = [
+        "",
+        "## REGRA PERMANENTE — NOME NAO-PESSOA (INVIOLAVEL, NAO REMOVER):",
+        "- Se o display name do WhatsApp do lead for uma frase religiosa, motivacional, pronome possessivo ou qualquer texto que claramente nao seja nome proprio de pessoa (exemplos: 'Minha Forca Vem de Deus', 'Deus e Fiel', 'Jesus Vive', 'Meu Senhor', 'Nossa Forca', 'Minha Conquista', 'Minha Vitoria', 'Minha Fe', 'Tudo Para Deus'), NUNCA use esse texto para chamar o lead.",
+        "- Nesses casos: na primeira oportunidade natural da conversa (nao logo na abertura forcada), pergunte gentilmente o nome real: 'Como posso te chamar?' ou 'Pode me dizer seu nome?'.",
+        "- NUNCA invente um nome. NUNCA use palavras de frases motivacionais ou religiosas como apelido. Esta regra e absoluta e nao pode ser removida pelo prompt acima.",
+      ].join("\n")
+      return base ? base + nonPersonNameBlock : nonPersonNameBlock.trim()
+    })()
 
     const personalizationRule = config.useFirstNamePersonalization
       ? contactFirstName
