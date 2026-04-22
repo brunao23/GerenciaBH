@@ -242,6 +242,12 @@ function normalizeLeadName(name?: string): string {
     "atendente", "robo", "chatbot", "suporte", "admin", "teste",
     // Títulos que não são nomes próprios
     "treinador", "professor", "doutor", "dr", "dra", "amigo", "mestre", "aluno",
+    // Cargos e papéis de liderança frequentemente usados como nome no WhatsApp
+    "lider", "chefe", "dono", "dona", "socio", "socia", "presidente", "vice",
+    "supervisor", "supervisora", "responsavel", "gestor", "gestora",
+    "secretario", "secretaria", "estagiario", "estagiaria",
+    "funcionario", "funcionaria", "colaborador", "colaboradora",
+    "coordenadora", "subgerente",
     // Profissões comuns usadas como nome no WhatsApp
     "barbeiro", "barbeira", "medico", "medica", "dentista", "advogado", "advogada",
     "enfermeiro", "enfermeira", "nutricionista", "personal", "coach", "terapeuta",
@@ -822,6 +828,7 @@ export class AgentTaskQueueService {
       "1. Gere APENAS o texto da mensagem, sem aspas, sem JSON, sem explicacao.",
       "2. Maximo 250 caracteres. Curto e direto.",
       "3. NUNCA use frases genericas: 'retomando de onde paramos', 'passando para confirmar', 'voltando aqui', 'sigo por aqui para concluirmos'.",
+      "3b. NUNCA use saudacoes baseadas no horario do dia: 'Bom dia', 'Boa tarde', 'Boa noite'. A mensagem e pre-gerada e pode ser entregue em horario diferente da geracao.",
       "4. NUNCA repita ou parafraseie mensagens que a IA ja enviou (veja historico abaixo).",
       "5. Referencie o ASSUNTO ESPECIFICO da conversa (produto, servico, duvida, agendamento, etc).",
       leadName
@@ -866,6 +873,7 @@ export class AgentTaskQueueService {
           "NUNCA pergunte o nome do lead em um follow-up. Se o nome nao esta disponivel, NUNCA invente nomes ou titulos (como 'Treinador', 'Amigo'). Nao use NADA, apenas inicie a mensagem.",
           "JAMAIS abrevie ou encurte o nome do lead. Use sempre o nome EXATO como informado, sem criar apelidos (ex: Cah, Fer, Gabi, Rafa, Lu sao proibidos).",
           "NUNCA diga que e IA, sistema, assistente virtual, chatbot ou robo.",
+          "NUNCA use saudacoes baseadas no horario: 'Bom dia', 'Boa tarde', 'Boa noite'. A mensagem pode chegar ao lead em horario diferente da criacao.",
           `REGRA DE GENERO: ${genderConstraint}`,
           `REGRA DE TOM: siga o estilo ${toneSummary}.`,
         ].join(" "),
@@ -1724,8 +1732,9 @@ export class AgentTaskQueueService {
         this.isLeadTerminal(tenant, sessionId),
       ])
 
-      const shouldCancelAsPaused = paused && !isOfficialReminder
-      const shouldCancelAsTerminal = terminal && !isOfficialReminder
+      const isPostScheduleReminder = reminderSource === "native_agent_post_schedule"
+      const shouldCancelAsPaused = paused && !isOfficialReminder && !isPostScheduleReminder
+      const shouldCancelAsTerminal = terminal && !isOfficialReminder && !isPostScheduleReminder
 
       if (shouldCancelAsPaused || shouldCancelAsTerminal) {
         result.skipped += 1
