@@ -234,19 +234,51 @@ function extractLastQuestion(content: string): string {
 function normalizeLeadName(name?: string): string {
   const text = String(name || "").replace(/\s+/g, " ").trim()
   if (!text) return ""
+
   const blocked = new Set([
+    // Genéricos e sistêmicos
     "contato", "usuario", "lead", "cliente", "whatsapp", "unknown",
     "bot", "ia", "assistente", "agente", "sistema", "automacao",
     "atendente", "robo", "chatbot", "suporte", "admin", "teste",
-    "treinador", "professor", "doutor", "amigo", "mestre", "aluno",
+    // Títulos que não são nomes próprios
+    "treinador", "professor", "doutor", "dr", "dra", "amigo", "mestre", "aluno",
+    // Profissões comuns usadas como nome no WhatsApp
+    "barbeiro", "barbeira", "medico", "medica", "dentista", "advogado", "advogada",
+    "enfermeiro", "enfermeira", "nutricionista", "personal", "coach", "terapeuta",
+    "fisioterapeuta", "psicologo", "psicologa", "empresario", "empresaria",
+    "corretor", "corretora", "engenheiro", "engenheira", "arquiteto", "arquiteta",
+    "vendedor", "vendedora", "gerente", "diretor", "diretora", "coordenador",
+    "contador", "contadora", "motorista", "cozinheiro", "cozinheira",
+    // Expressões religiosas/motivacionais frequentes
+    "deus", "jesus", "senhor", "nossa", "minha", "meu", "tua", "teu",
   ])
-  // Quebra CamelCase antes de dividir por espaço: "GabriellaMoraes" → "Gabriella Moraes"
-  const normalized = text.replace(/([a-z\u00C0-\u017E])([A-Z\u0178-\u024F])/g, "$1 $2")
-  const parts = normalized.split(" ").map((p) => p.trim()).filter(Boolean)
+
+  // Texto sem acentos para checar padrões inválidos
+  const flat = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, "")
+
+  // Rejeitar risadas e onomatopeias (kkk, hahaha, rsrs, hehehs, hahahs)
+  const laughRegex = /^(k+)(a|k|s)*$|^(h?a+h+)(a|h|s)*$|^(h?e+h+)(e|h|s)*$|^(rs)+s*$/i
+  if (laughRegex.test(flat)) return ""
+
+  // Rejeitar se não tiver vogal alguma
+  if (!/[aeiouy]/.test(flat)) return ""
+
+  // Rejeitar se tiver 3+ letras idênticas consecutivas (Hahahs, Aaaa, Kkkkk)
+  if (/(.)\1{2,}/.test(flat)) return ""
+
+  // Quebra CamelCase: "GabriellaMoraes" → "Gabriella Moraes"
+  const expanded = text.replace(/([a-z\u00C0-\u017E])([A-Z\u0178-\u024F])/g, "$1 $2")
+  const parts = expanded.split(" ").map((p) => p.trim()).filter(Boolean)
+
   for (const part of parts) {
-    if (blocked.has(part.toLowerCase())) continue
+    const partFlat = part.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+    if (blocked.has(partFlat)) continue
     if (!/[a-zA-Z\u00C0-\u024F]/.test(part)) continue
     if (part.length < 2) continue
+    // Rejeitar palavras sem vogal
+    if (!/[aeiouáéíóúâêîôûàãõy]/i.test(part)) continue
+    // Rejeitar palavras com 3+ letras idênticas consecutivas
+    if (/(.)\1{2,}/i.test(part)) continue
     return part.slice(0, 1).toUpperCase() + part.slice(1).toLowerCase()
   }
   return ""
