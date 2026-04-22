@@ -2514,9 +2514,9 @@ export class NativeAgentOrchestratorService {
           .catch(() => {})
       }
 
-      if (config.followupEnabled && !hasSuccessfulHandoffAction) {
+      if (config.followupEnabled && !hasSuccessfulHandoffAction && !isFromMeTrigger) {
         const followupLeadContext = sanitizeLeadContextForFollowup(
-          effectiveLeadMessage || (isFromMeTrigger ? "" : content),
+          effectiveLeadMessage || content,
         )
         const followupIntervals = resolveFollowupIntervalsFromConfig(config)
         if (followupIntervals.length > 0) {
@@ -2763,9 +2763,9 @@ export class NativeAgentOrchestratorService {
       await this.pauseLeadAfterScheduling(tenant, phone).catch(() => {})
     }
 
-    if (config.followupEnabled && !hasSuccessfulHandoffAction) {
+    if (config.followupEnabled && !hasSuccessfulHandoffAction && !isFromMeTrigger) {
       const followupLeadContext = sanitizeLeadContextForFollowup(
-        effectiveLeadMessage || (isFromMeTrigger ? "" : content),
+        effectiveLeadMessage || content,
       )
       const followupIntervals = resolveFollowupIntervalsFromConfig(config)
       if (followupIntervals.length > 0) {

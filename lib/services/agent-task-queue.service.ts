@@ -1904,11 +1904,16 @@ export class AgentTaskQueueService {
       result.failed += 1
       const attempts = Number(task.attempts || 0) + 1
       const maxAttempts = Number(task.max_attempts || 3)
+      const isLastAttempt = attempts >= maxAttempts
       await this.supabase
         .from(this.table)
         .update({
-          status: attempts >= maxAttempts ? "error" : "pending",
+          status: isLastAttempt ? "error" : "pending",
           attempts,
+          // Avança run_at para evitar retry imediato no próximo ciclo do cron
+          run_at: isLastAttempt
+            ? undefined
+            : toIsoFromNowRespectingBusinessHours(15, runtimeConfig?.businessHours),
           last_error: send.error || "send_failed",
         })
         .eq("id", task.id)
