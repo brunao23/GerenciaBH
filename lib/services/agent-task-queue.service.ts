@@ -1440,12 +1440,13 @@ export class AgentTaskQueueService {
     return { success: sentDocument.success, error: sentDocument.error }
   }
 
-  private async notifyFollowupTouchpoint(input: {
+  private async notifyTouchpoint(input: {
     tenant: string
     sessionId: string
     phone: string
     runtimeConfig: Awaited<ReturnType<AgentTaskQueueService["loadFollowupRuntimeConfig"]>>
     kind: "sent" | "failed" | "cancelled"
+    taskType: string
     reason?: string
     step?: number
     totalSteps?: number
@@ -1475,7 +1476,7 @@ export class AgentTaskQueueService {
       return
     }
 
-    // FOLLOW-UP ENVIADO → notificação no grupo (comportamento original)
+    // NOTIFICACAO NO GRUPO
     const targets = (input.runtimeConfig.toolNotificationTargets || [])
       .map((value) => String(value || "").trim())
       .filter((value) => /@g\.us$/i.test(value) || /-group$/i.test(value))
@@ -1483,14 +1484,30 @@ export class AgentTaskQueueService {
     if (!targets.length) return
 
     const stage = input.step && input.totalSteps ? `${input.step}/${input.totalSteps}` : "n/a"
-    const lineMessage = input.message ? `Mensagem: ${sanitizeFollowupText(input.message, 180)}` : ""
+    const lineMessage = input.message ? `💬 *Mensagem:* ${sanitizeFollowupText(input.message, 180)}` : ""
+
+    let header = "🟡 *NOTIFICAÇÃO ENVIADA*"
+    let labelEtapa = "Etapa"
+    
+    if (input.taskType === "followup") {
+      header = "🔄 *FOLLOW-UP ENVIADO*"
+    } else if (input.taskType === "reminder") {
+      header = "⏰ *LEMBRETE ENVIADO*"
+      labelEtapa = "Tipo"
+    } else if (input.taskType === "call" || input.taskType === "ligacao") {
+      header = "📞 *LIGAÇÃO REGISTRADA*"
+    } else if (input.taskType === "post_schedule") {
+      header = "✅ *PÓS-AGENDAMENTO ENVIADO*"
+    } else {
+      header = `🟡 *${input.taskType.toUpperCase()} ENVIADO*`
+    }
 
     const body = [
-      "🟡 *FOLLOW-UP ENVIADO*",
+      header,
       "",
-      `✅ *ETAPA:* ${stage}`,
-      `✅ *NUMERO:* ${leadRef || input.phone}`,
-      lineMessage ? `✅ *MENSAGEM ENVIADA:* ${sanitizeFollowupText(input.message || "", 180)}` : "",
+      input.step ? `📊 *${labelEtapa}:* ${stage}` : "",
+      `📱 *Contato:* ${leadRef || input.phone}`,
+      lineMessage,
     ]
       .filter(Boolean)
       .join("\n")
@@ -1500,10 +1517,10 @@ export class AgentTaskQueueService {
       .dispatch({
         tenant: input.tenant,
         anchorSessionId: input.sessionId,
-        source: "followup-touchpoint",
+        source: `${input.taskType}-touchpoint`,
         message: body,
         targets,
-        dedupeKey: `followup:sent:${leadRef}:${input.step || 0}:${input.totalSteps || 0}:${dedupeMessage}`,
+        dedupeKey: `${input.taskType}:sent:${leadRef}:${input.step || 0}:${input.totalSteps || 0}:${dedupeMessage}`,
         dedupeWindowSeconds: 3600,
       })
       .catch(() => {})
@@ -1668,19 +1685,18 @@ export class AgentTaskQueueService {
           })
           .eq("id", task.id)
         
-        if (taskType === "followup") {
-          await this.notifyFollowupTouchpoint({
-            tenant,
-            sessionId,
-            phone,
-            runtimeConfig,
-            kind: "cancelled",
-            reason,
-            step: Number(payload?.followup_step || 0) || undefined,
-            totalSteps: Number(payload?.followup_total_steps || 0) || undefined,
-            taskId: String(task.id || ""),
-          })
-        }
+        await this.notifyTouchpoint({
+          tenant,
+          sessionId,
+          phone,
+          runtimeConfig,
+          kind: "cancelled",
+          taskType,
+          reason,
+          step: Number(payload?.followup_step || 0) || undefined,
+          totalSteps: Number(payload?.followup_total_steps || 0) || undefined,
+          taskId: String(task.id || ""),
+        })
         continue
       }
 
@@ -1717,12 +1733,13 @@ export class AgentTaskQueueService {
               last_error: reason,
             })
             .eq("id", task.id)
-          await this.notifyFollowupTouchpoint({
+          await this.notifyTouchpoint({
             tenant,
             sessionId,
             phone,
             runtimeConfig,
             kind: "cancelled",
+            taskType,
             reason,
             step: Number(payload?.followup_step || 0) || undefined,
             totalSteps: Number(payload?.followup_total_steps || 0) || undefined,
@@ -1758,12 +1775,13 @@ export class AgentTaskQueueService {
               last_error: reason,
             })
             .eq("id", task.id)
-          await this.notifyFollowupTouchpoint({
+          await this.notifyTouchpoint({
             tenant,
             sessionId,
             phone,
             runtimeConfig,
             kind: "cancelled",
+            taskType,
             reason,
             step: Number(payload?.followup_step || 0) || undefined,
             totalSteps: Number(payload?.followup_total_steps || 0) || undefined,
@@ -1809,21 +1827,23 @@ export class AgentTaskQueueService {
             last_error: null,
           })
           .eq("id", task.id)
+        const sentStep = Number(payload?.followup_step || 0)
+        const sentTotalSteps = Number(payload?.followup_total_steps || 0)
+        await this.notifyTouchpoint({
+          tenant,
+          sessionId,
+          phone,
+          runtimeConfig,
+          kind: "sent",
+          taskType,
+          reason: `${taskType}_sent`,
+          step: sentStep || undefined,
+          totalSteps: sentTotalSteps || undefined,
+          message,
+          taskId: String(task.id || ""),
+        })
+        
         if (taskType === "followup") {
-          const sentStep = Number(payload?.followup_step || 0)
-          const sentTotalSteps = Number(payload?.followup_total_steps || 0)
-          await this.notifyFollowupTouchpoint({
-            tenant,
-            sessionId,
-            phone,
-            runtimeConfig,
-            kind: "sent",
-            reason: "followup_sent",
-            step: sentStep || undefined,
-            totalSteps: sentTotalSteps || undefined,
-            message,
-            taskId: String(task.id || ""),
-          })
           // Auto-pausa na ultima etapa: lead nao respondeu em toda a sequencia
           if (sentStep > 0 && sentTotalSteps > 0 && sentStep >= sentTotalSteps) {
             await this.pauseLead(tenant, phone)
@@ -1843,21 +1863,20 @@ export class AgentTaskQueueService {
           last_error: send.error || "send_failed",
         })
         .eq("id", task.id)
-      if (taskType === "followup") {
-        await this.notifyFollowupTouchpoint({
-          tenant,
-          sessionId,
-          phone,
-          runtimeConfig,
-          kind: "failed",
-          reason: "send_failed",
-          error: send.error || "send_failed",
-          step: Number(payload?.followup_step || 0) || undefined,
-          totalSteps: Number(payload?.followup_total_steps || 0) || undefined,
-          message,
-          taskId: String(task.id || ""),
-        })
-      }
+      await this.notifyTouchpoint({
+        tenant,
+        sessionId,
+        phone,
+        runtimeConfig,
+        kind: "failed",
+        taskType,
+        reason: "send_failed",
+        error: send.error || "send_failed",
+        step: Number(payload?.followup_step || 0) || undefined,
+        totalSteps: Number(payload?.followup_total_steps || 0) || undefined,
+        message,
+        taskId: String(task.id || ""),
+      })
     }
 
     return result
