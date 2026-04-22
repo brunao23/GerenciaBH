@@ -36,6 +36,10 @@ import { TtsService, type TtsProvider } from "@/lib/services/tts.service"
 import { GroupNotificationDispatcherService } from "@/lib/services/group-notification-dispatcher.service"
 import { sendErrorWebhook } from "@/lib/helpers/error-webhook"
 import { scheduleRemindersForTenant } from "@/lib/services/reminder-scheduler.service"
+import {
+  adjustToBusinessHours,
+  parseTenantBusinessHours,
+} from "@/lib/helpers/business-hours"
 
 type AppointmentResult = {
   ok: boolean
@@ -1423,10 +1427,6 @@ function isCancelledAppointmentStatus(value: any): boolean {
   return ["cancelado", "cancelada", "canceled", "cancelled", "reagendado", "reagendada"].includes(status)
 }
 
-function addMinutesIso(minutes: number): string {
-  const value = Number.isFinite(minutes) ? minutes : 0
-  return new Date(Date.now() + value * 60 * 1000).toISOString()
-}
 
 function clampMinutes(minutes: number): number {
   if (!Number.isFinite(minutes)) return 60
@@ -5908,7 +5908,13 @@ export class NativeAgentOrchestratorService {
   }): Promise<ReminderResult> {
     const minutes = clampMinutes(Number(params.action.minutes_from_now || 60))
     const reminderMessage = params.action.note || params.fallbackMessage
-    const runAt = addMinutesIso(minutes)
+    const tenantCfg = await getNativeAgentConfigForTenant(params.tenant).catch(() => null)
+    const bh = parseTenantBusinessHours(
+      tenantCfg?.followupBusinessStart,
+      tenantCfg?.followupBusinessEnd,
+      tenantCfg?.followupBusinessDays,
+    )
+    const runAt = adjustToBusinessHours(new Date(Date.now() + minutes * 60 * 1000), bh).toISOString()
 
     const queued = await this.taskQueue.enqueueReminder({
       tenant: params.tenant,
@@ -6260,6 +6266,11 @@ export class NativeAgentOrchestratorService {
         String(params.config.postScheduleCaption || "").trim() ||
         this.buildPostScheduleMessageTemplate(params.config, params.contactName)
       const fileName = String(params.config.postScheduleDocumentFileName || "").trim()
+      const postScheduleBh = parseTenantBusinessHours(
+        params.config.followupBusinessStart,
+        params.config.followupBusinessEnd,
+        params.config.followupBusinessDays,
+      )
 
       tasks.push(
         this.taskQueue
@@ -6268,7 +6279,7 @@ export class NativeAgentOrchestratorService {
             sessionId: params.sessionId,
             phone: params.phone,
             message: this.buildPostScheduleMessageTemplate(params.config, params.contactName),
-            runAt: addMinutesIso(delayMinutes),
+            runAt: adjustToBusinessHours(new Date(Date.now() + delayMinutes * 60 * 1000), postScheduleBh).toISOString(),
             metadata: {
               source: "native_agent_post_schedule",
               message_mode:

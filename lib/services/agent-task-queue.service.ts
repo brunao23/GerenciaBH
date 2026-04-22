@@ -1649,6 +1649,22 @@ export class AgentTaskQueueService {
         runtimeConfig = await this.loadFollowupRuntimeConfig(tenant)
       }
 
+      if (taskType === "reminder" && !isOfficialReminder && !isConversationListenerTask) {
+        if (!isWithinBusinessHours(runtimeConfig?.businessHours)) {
+          const deferredRunAt = adjustToBusinessHours(new Date(), runtimeConfig?.businessHours).toISOString()
+          result.skipped += 1
+          await this.supabase
+            .from(this.table)
+            .update({
+              status: "pending",
+              run_at: deferredRunAt,
+              last_error: "reminder_rescheduled_out_of_business_hours",
+            })
+            .eq("id", task.id)
+          continue
+        }
+      }
+
       if (isConversationListenerTask) {
         result.skipped += 1
         await this.supabase
