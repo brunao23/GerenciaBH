@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/agent/tasks/process",
-      "schedule": "*/5 * * * *"
+      "schedule": "*/10 * * * *"
     },
     {
       "path": "/api/admin/reports/weekly",
