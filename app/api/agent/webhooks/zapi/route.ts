@@ -3129,45 +3129,16 @@ export async function POST(req: NextRequest) {
     }
 
     const paused = canonicalPhone ? await isAiPausedForPhone(tenant, canonicalPhone) : false
-    let allowedThroughDespitePause = false
     if (paused) {
-      const inboundText = String(event.text || "")
-      const isInboundFromLead = event.callbackType === "received" && event.fromMe !== true
-      const isReschedule = isInboundFromLead && isRescheduleIntentMessage(inboundText)
-      const isImportant = isInboundFromLead && isImportantMessageFromScheduledLead(normalizeComparableText(inboundText))
-
-      if (isReschedule && canonicalPhone) {
-        // reagendamento: remove a pausa completamente para retomar o fluxo
-        await unpauseAiForLead(tenant, canonicalPhone)
-      } else if (isImportant) {
-        // mensagem importante (confirmação, reclamação, urgência): AI responde mas mantém o lead pausado
-        allowedThroughDespitePause = true
-      } else {
-        const taskInsight = await taskInsightPromise
-        return NextResponse.json({
-          received: true,
-          ignored: true,
-          reason: "ai_paused_by_human",
-          tenant,
-          persisted,
-          taskInsight,
-        })
-      }
-    }
-
-    if (!allowedThroughDespitePause) {
-      const pausedAfterUnpauseAttempt = canonicalPhone ? await isAiPausedForPhone(tenant, canonicalPhone) : false
-      if (pausedAfterUnpauseAttempt) {
-        const taskInsight = await taskInsightPromise
-        return NextResponse.json({
-          received: true,
-          ignored: true,
-          reason: "ai_paused_by_human",
-          tenant,
-          persisted,
-          taskInsight,
-        })
-      }
+      const taskInsight = await taskInsightPromise
+      return NextResponse.json({
+        received: true,
+        ignored: true,
+        reason: "ai_paused_by_human",
+        tenant,
+        persisted,
+        taskInsight,
+      })
     }
 
     const inboundBufferSeconds = clampInboundBufferSeconds(config.inboundMessageBufferSeconds)
