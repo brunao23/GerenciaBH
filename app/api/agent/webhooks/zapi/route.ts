@@ -3130,15 +3130,24 @@ export async function POST(req: NextRequest) {
 
     const paused = canonicalPhone ? await isAiPausedForPhone(tenant, canonicalPhone) : false
     if (paused) {
-      const taskInsight = await taskInsightPromise
-      return NextResponse.json({
-        received: true,
-        ignored: true,
-        reason: "ai_paused_by_human",
-        tenant,
-        persisted,
-        taskInsight,
-      })
+      const inboundText = String(event.text || "")
+      const isInboundFromLead = event.callbackType === "received" && event.fromMe !== true
+      const isReschedule = isInboundFromLead && isRescheduleIntentMessage(inboundText)
+
+      if (isReschedule && canonicalPhone) {
+        // reagendamento: remove a pausa completamente para retomar o fluxo
+        await unpauseAiForLead(tenant, canonicalPhone)
+      } else {
+        const taskInsight = await taskInsightPromise
+        return NextResponse.json({
+          received: true,
+          ignored: true,
+          reason: "ai_paused_by_human",
+          tenant,
+          persisted,
+          taskInsight,
+        })
+      }
     }
 
     const inboundBufferSeconds = clampInboundBufferSeconds(config.inboundMessageBufferSeconds)
