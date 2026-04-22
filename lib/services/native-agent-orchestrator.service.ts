@@ -771,6 +771,14 @@ function stripInternalTags(text: string): string {
     .trim()
 }
 
+function stripIdentityDisclosure(text: string): string {
+  return String(text || "")
+    .replace(/\b(?:sou|eu sou)\s+(?:um|uma)?\s*(?:assistente\s+de\s+ia|ia|inteligencia artificial|sistema(?:\s+inteligente)?|assistente virtual|chatbot|robo)\b[^.!?\n]*[.!?]?/gim, " ")
+    .replace(/\b(?:quem esta aqui|quem está aqui)\s+e\s+(?:um|uma)?\s*(?:assistente\s+de\s+ia|ia|inteligencia artificial|sistema(?:\s+inteligente)?|assistente virtual|chatbot|robo)\b[^.!?\n]*[.!?]?/gim, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim()
+}
+
 function applyAssistantOutputPolicy(
   value: string,
   options: { allowEmojis: boolean },
@@ -783,6 +791,7 @@ function applyAssistantOutputPolicy(
   normalized = stripReactionMarkers(normalized)
   normalized = stripMarkdownFormatting(normalized)
   normalized = stripHyphensAndDashes(normalized)
+  normalized = stripIdentityDisclosure(normalized)
   if (!options.allowEmojis) {
     normalized = stripEmojis(normalized)
   }
@@ -805,7 +814,9 @@ function applyAssistantOutputPolicy(
     deduped.push(paragraph)
   }
 
-  return deduped.join("\n\n").trim()
+  const finalText = deduped.join("\n\n").trim()
+  if (finalText) return finalText
+  return "Posso te ajudar por aqui. Me conta como voce quer seguir."
 }
 
 function normalizeDelaySeconds(value: number | undefined, fallback = 0): number {
@@ -2945,9 +2956,11 @@ export class NativeAgentOrchestratorService {
             },
             isEdit,
           })
+          const dedupeKind = isEdit ? "reschedule" : "schedule"
           const notifyResult = await this.sendToolNotifications(params.tenant, targets, message, {
             anchorSessionId: params.sessionId,
-            dedupeKey: `schedule_success:${params.phone}:${execution.action?.date || ""}:${execution.action?.time || ""}:${actionType}`,
+            dedupeKey: `schedule_success:${dedupeKind}:${params.phone}:${execution.action?.date || ""}:${execution.action?.time || ""}`,
+            dedupeWindowSeconds: 3600,
           })
           if (notifyResult.failed > 0) {
             await this
@@ -3079,23 +3092,39 @@ export class NativeAgentOrchestratorService {
     const mode = input.action.appointment_mode === "online" ? "Online" : "Presencial"
     const meetLink = String(input.result?.meetLink || "").trim()
     const calLink = String(input.result?.htmlLink || "").trim()
-    const header = input.isEdit ? "📅 *AGENDAMENTO REMARCADO* ✅" : "🎉 *AGENDAMENTO CONFIRMADO* ✅"
+    const oldDay = formatDateToBr((input.action as any).old_date)
+    const oldTime = String((input.action as any).old_time || "").trim()
+    const oldWhen = oldDay && oldTime ? `${oldDay} as ${oldTime}` : oldDay || oldTime || ""
+
+    if (input.isEdit) {
+      const lines = [
+        "REAGENDAMENTO CONFIRMADO",
+        "",
+        `Cliente: ${name}`,
+        `Contato: ${contact}`,
+        oldWhen ? `Horario anterior: ${oldWhen}` : "",
+        `Novo horario: ${day} as ${time}`,
+        `Modalidade: ${mode}`,
+      ]
+      if (notes) lines.push(`Obs: ${notes}`)
+      if (meetLink) lines.push(`Google Meet: ${meetLink}`)
+      if (calLink) lines.push(`Calendario: ${calLink}`)
+      return lines.filter(Boolean).join("\n")
+    }
 
     const lines = [
-      header,
+      "AGENDAMENTO CONFIRMADO",
       "",
-      `👤 *Cliente:* ${name}`,
-      `📞 *Contato:* ${contact}`,
-      `📅 *Data:* ${day}`,
-      `🕐 *Horario:* ${time}`,
-      `📍 *Modalidade:* ${mode}`,
+      `Cliente: ${name}`,
+      `Contato: ${contact}`,
+      `Data: ${day}`,
+      `Horario: ${time}`,
+      `Modalidade: ${mode}`,
     ]
-
-    if (notes) lines.push(`📝 *Obs:* ${notes}`)
-    if (meetLink) lines.push(`🔗 *Google Meet:* ${meetLink}`)
-    if (calLink) lines.push(`📆 *Calendario:* ${calLink}`)
-
-    return lines.join("\n")
+    if (notes) lines.push(`Obs: ${notes}`)
+    if (meetLink) lines.push(`Google Meet: ${meetLink}`)
+    if (calLink) lines.push(`Calendario: ${calLink}`)
+    return lines.filter(Boolean).join("\n")
   }
 
   private buildScheduleErrorNotification(input: {
@@ -3252,7 +3281,21 @@ export class NativeAgentOrchestratorService {
       tenant?: string
     },
   ): string {
-    const contactFirstName = firstName(ctx.contactName)
+    const rawContactName = String(ctx.contactName || "").trim()
+    const isNonPersonDisplayName = (() => {
+      if (!rawContactName) return false
+      const normalized = rawContactName.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()
+      const words = normalized.split(/\s+/).filter(Boolean)
+      if (!words.length) return false
+      const possessives = new Set(["minha", "meu", "nossa", "nosso", "tua", "teu"])
+      if (possessives.has(words[0])) return true
+      const phraseVerbs = new Set(["e", "vive", "vem", "esta", "sou", "somos", "sao"])
+      for (let i = 1; i < words.length; i++) {
+        if (phraseVerbs.has(words[i])) return true
+      }
+      return false
+    })()
+    const contactFirstName = isNonPersonDisplayName ? null : firstName(ctx.contactName)
     const timezone = config.timezone || "America/Sao_Paulo"
     const now = new Date().toISOString()
     const nowLocalParts = getNowPartsForTimezone(timezone)
@@ -3318,7 +3361,9 @@ export class NativeAgentOrchestratorService {
     const personalizationRule = config.useFirstNamePersonalization
       ? contactFirstName
         ? `- Sempre trate o lead pelo primeiro nome: ${contactFirstName}.`
-        : `- Nome do lead nao disponivel. Use "voce". NAO pergunte o nome.`
+        : isNonPersonDisplayName
+          ? `- O nome no WhatsApp do lead nao parece ser um nome real de pessoa (ex.: frase religiosa ou motivacional). NUNCA chame o lead por esse texto. Na primeira oportunidade natural da conversa, pergunte o nome gentilmente. Ex.: "Como posso te chamar?" ou "Pode me dizer seu nome?".`
+          : `- Nome do lead nao disponivel. Use "voce". NAO pergunte o nome.`
       : "- Nao personalize por primeiro nome."
     const toneRule = `- Tom de conversa configurado: ${config.conversationTone}.`
     const humanizationRule = [
@@ -3411,7 +3456,11 @@ export class NativeAgentOrchestratorService {
           "- Se o lead informar email valido, envie em customer_email.",
           "- Se o lead nao informar email, agende normalmente: o sistema gera email interno automaticamente sem avisar o lead.",
         ].join("\n")
-      : "- Email do lead no agendamento e opcional."
+      : [
+          "- PROIBIDO ABSOLUTO: NUNCA peca o email do lead. Esta unidade nao coleta email em nenhuma situacao.",
+          "- Se o lead oferecer o email espontaneamente, ignore e continue o fluxo sem solicitar confirmacao nem registrar.",
+          "- Agende normalmente sem email: o sistema gera automaticamente. NAO mencione email ao lead.",
+        ].join("\n")
     const onlineMeetRule = config.generateMeetForOnlineAppointments
       ? "- Para agendamento online, envie appointment_mode='online'. customer_email e opcional; se faltar, o sistema gera email interno automaticamente."
       : "- Use appointment_mode='presencial' por padrao, a menos que o lead solicite online."
@@ -5439,65 +5488,21 @@ export class NativeAgentOrchestratorService {
       }
     }
 
-    // --- Check Google Calendar for conflicts (respects allowOverlappingAppointments) ---
-    if (
-      params.config.calendarCheckGoogleEvents !== false &&
-      params.config.googleCalendarEnabled &&
-      !params.config.allowOverlappingAppointments
-    ) {
-      try {
-        const gcalService = new GoogleCalendarService({
-          calendarId: params.config.googleCalendarId || "primary",
-          authMode: params.config.googleAuthMode || "service_account",
-          serviceAccountEmail: params.config.googleServiceAccountEmail,
-          serviceAccountPrivateKey: params.config.googleServiceAccountPrivateKey,
-          delegatedUser: params.config.googleDelegatedUser,
-          oauthClientId: params.config.googleOAuthClientId,
-          oauthClientSecret: params.config.googleOAuthClientSecret,
-          oauthRefreshToken: params.config.googleOAuthRefreshToken,
-        })
-        const checkStartIso = formatIsoFromParts(requested, timezone)
-        const checkEndIso = formatIsoFromParts(addMinutesToParts(requested, durationMinutes), timezone)
-        const gcalEvents = await gcalService.listEvents({
-          timeMin: checkStartIso,
-          timeMax: checkEndIso,
-          timezone,
-          maxResults: 10,
-        })
-        if (gcalEvents.length > 0) {
-          return { ok: false, error: "google_calendar_conflict" }
-        }
-      } catch (gcalErr: any) {
-        console.warn(`[createAppointment] Google Calendar conflict check failed (non-blocking): ${gcalErr?.message}`)
-      }
-    }
-
     const startIso = formatIsoFromParts(requested, timezone)
     const endIso = formatIsoFromParts(addMinutesToParts(requested, durationMinutes), timezone)
     const tables = getTablesForTenant(params.tenant)
     const agendamentosTable = tables.agendamentos
     const columns = await getTableColumns(this.supabase as any, agendamentosTable)
+    const mappedColumns = this.resolveAgendamentosColumns(columns)
 
-    if (columns.size > 0) {
-      const dateColumn = columns.has("dia")
-        ? "dia"
-        : columns.has("data")
-          ? "data"
-          : null
-      const timeColumn = columns.has("horario")
-        ? "horario"
-        : columns.has("hora")
-          ? "hora"
-          : null
-      const statusColumn = columns.has("status") ? "status" : null
-
+    if (columns.size > 0 && mappedColumns.dateColumn && mappedColumns.timeColumn) {
       const maxPerDay = Math.max(0, Number(params.config.calendarMaxAppointmentsPerDay || 0))
-      if ((maxPerDay > 0 || !params.config.allowOverlappingAppointments) && dateColumn && timeColumn) {
+      if (maxPerDay > 0 || !params.config.allowOverlappingAppointments) {
         const dateVariants = Array.from(new Set([date, toBrDateFromIso(date)]))
         const sameDayQuery: any = this.supabase
           .from(agendamentosTable)
           .select("*")
-          .in(dateColumn, dateVariants)
+          .in(mappedColumns.dateColumn, dateVariants)
           .limit(2000)
 
         const sameDayResult = await sameDayQuery
@@ -5507,11 +5512,57 @@ export class NativeAgentOrchestratorService {
         const sameDayRows = Array.isArray(sameDayResult.data) ? sameDayResult.data : []
 
         const activeSameDayRows = sameDayRows.filter((row: any) => {
-          const rowDate = normalizeDateToIso(row?.[dateColumn])
+          const rowDate = normalizeDateToIso(row?.[mappedColumns.dateColumn!])
           if (rowDate !== date) return false
-          const rowStatus = statusColumn ? row?.[statusColumn] : row?.status
+          const rowStatus = mappedColumns.statusColumn ? row?.[mappedColumns.statusColumn] : row?.status
           return !isCancelledAppointmentStatus(rowStatus)
         })
+
+        // Idempotencia critica: se o mesmo lead ja reservou o mesmo horario,
+        // converte para edicao do agendamento existente em vez de tratar como conflito.
+        const normalizedPhone = normalizePhoneNumber(params.phone)
+        const normalizedSession = normalizeSessionId(params.sessionId)
+        const requestedTime = normalizeTimeToHHmm(time)
+        if (requestedTime) {
+          const sameLeadSameSlot = activeSameDayRows.find((row: any) => {
+            const rowTime = normalizeTimeToHHmm(row?.[mappedColumns.timeColumn!])
+            if (!rowTime || rowTime !== requestedTime) return false
+
+            const phoneMatches =
+              mappedColumns.phoneColumns.length > 0 &&
+              mappedColumns.phoneColumns.some(
+                (column) => normalizePhoneNumber(String(row?.[column] || "")) === normalizedPhone,
+              )
+            const sessionMatches =
+              mappedColumns.sessionColumns.length > 0 &&
+              mappedColumns.sessionColumns.some(
+                (column) => normalizeSessionId(String(row?.[column] || "")) === normalizedSession,
+              )
+            return phoneMatches || sessionMatches
+          })
+
+          const existingId = String(sameLeadSameSlot?.id || "").trim()
+          if (existingId) {
+            return this.editAppointment({
+              tenant: params.tenant,
+              phone: params.phone,
+              sessionId: params.sessionId,
+              contactName: params.contactName,
+              config: params.config,
+              action: {
+                type: "edit_appointment",
+                appointment_id: existingId,
+                old_date: date,
+                old_time: requestedTime,
+                date,
+                time,
+                appointment_mode: appointmentMode,
+                note: params.action.note,
+                customer_email: customerEmail,
+              },
+            })
+          }
+        }
 
         if (maxPerDay > 0 && activeSameDayRows.length >= maxPerDay) {
           return { ok: false, error: "max_appointments_per_day_reached" }
@@ -5525,7 +5576,7 @@ export class NativeAgentOrchestratorService {
           const requestedEndMinutes = requestedStartMinutes + durationMinutes + bufferMinutes
 
           const overlapsExisting = activeSameDayRows.some((row: any) => {
-            const rowTime = normalizeTimeToHHmm(row?.[timeColumn])
+            const rowTime = normalizeTimeToHHmm(row?.[mappedColumns.timeColumn!])
             const rowStartMinutes = rowTime ? parseTimeToMinutes(rowTime) : null
             if (rowStartMinutes === null) return false
 
@@ -5549,6 +5600,37 @@ export class NativeAgentOrchestratorService {
             return { ok: false, error: "time_slot_unavailable" }
           }
         }
+      }
+    }
+
+    // --- Check Google Calendar for conflicts (respects allowOverlappingAppointments) ---
+    if (
+      params.config.calendarCheckGoogleEvents !== false &&
+      params.config.googleCalendarEnabled &&
+      !params.config.allowOverlappingAppointments
+    ) {
+      try {
+        const gcalService = new GoogleCalendarService({
+          calendarId: params.config.googleCalendarId || "primary",
+          authMode: params.config.googleAuthMode || "service_account",
+          serviceAccountEmail: params.config.googleServiceAccountEmail,
+          serviceAccountPrivateKey: params.config.googleServiceAccountPrivateKey,
+          delegatedUser: params.config.googleDelegatedUser,
+          oauthClientId: params.config.googleOAuthClientId,
+          oauthClientSecret: params.config.googleOAuthClientSecret,
+          oauthRefreshToken: params.config.googleOAuthRefreshToken,
+        })
+        const gcalEvents = await gcalService.listEvents({
+          timeMin: startIso,
+          timeMax: endIso,
+          timezone,
+          maxResults: 10,
+        })
+        if (gcalEvents.length > 0) {
+          return { ok: false, error: "google_calendar_conflict" }
+        }
+      } catch (gcalErr: any) {
+        console.warn(`[createAppointment] Google Calendar conflict check failed (non-blocking): ${gcalErr?.message}`)
       }
     }
 

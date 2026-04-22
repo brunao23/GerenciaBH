@@ -998,11 +998,12 @@ async function classifyTaskIntentWithGemini(params: {
 
   const classifierPrompt = [
     "Voce classifica mensagens de conversa de WhatsApp para criar tarefas internas de retorno.",
-    "Crie tarefa SOMENTE quando houver pedido claro de lembrar/retornar depois, ou compromisso explicito de retorno/acao futura.",
+    "Crie tarefa SOMENTE quando houver pedido EXPLICITO de lembrar/retornar depois, ou compromisso explicito de retorno/acao futura.",
     "Nao crie tarefa para saudacao, descoberta comercial, perguntas normais, resposta casual, ou andamento comum sem compromisso futuro.",
     "sender_type pode ser lead ou human.",
-    "Quando sender_type=lead: criar tarefa se o lead pedir retorno em outro horario/data, lembrar depois, ou solicitar contato futuro.",
+    "Quando sender_type=lead: crie tarefa SOMENTE se o lead solicitar EXPLICITAMENTE contato em outro momento ('me liga depois', 'me chama amanha', 'fala comigo outro dia', 'prefiro responder mais tarde', 'pode me retornar'). NAO crie tarefa quando o lead estiver escolhendo horario ou data para agendamento imediato (exemplos que NAO geram tarefa: '16h30', 'quero marcar para sexta', 'pode ser segunda de manha', 'prefiro o horario das 10h', 'terca fica bom').",
     "Quando sender_type=human: criar tarefa se o atendente prometer acao futura (retornar, ligar, enviar proposta, confirmar algo depois).",
+    "REGRA CRITICA ANTI-FALSO-POSITIVO: mensagem que contem apenas horario, data ou dia da semana como resposta a oferta de agenda NAO e pedido de retorno. E selecao de horario para agendamento.",
     "Retorne SOMENTE JSON valido, sem markdown, no formato:",
     '{"create_task":false,"minutes_from_now":0,"reason":"","task_message":"","notify_group":false,"notification_message":""}',
     `timezone=${params.timezone || "America/Sao_Paulo"}`,

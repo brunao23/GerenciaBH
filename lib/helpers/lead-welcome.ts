@@ -6,6 +6,27 @@ const IGNORED_FIELD_NAMES = new Set([
 
 const INVALID_NAME_PATTERNS = /^(null|undefined|none|n\/a|nao informado|sem nome|test|teste|-|\.|\d+)$/i
 
+// Primeiras palavras que nunca são nomes próprios (pronomes possessivos, verbos de frase motivacional)
+const NON_PERSON_FIRST_WORDS = new Set([
+  "minha", "meu", "nossa", "nosso", "tua", "teu",
+])
+// Verbos/conectivos que, quando aparecem no meio de um display name, indicam frase (não nome)
+const PHRASE_VERBS = new Set(["e", "vive", "vem", "esta", "sou", "somos", "sao"])
+
+export function isLikelyNonPersonName(raw: string): boolean {
+  const trimmed = (raw ?? "").trim()
+  if (!trimmed || trimmed.length < 2) return false
+  const normalized = trimmed.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()
+  const words = normalized.split(/\s+/).filter(Boolean)
+  if (!words.length) return false
+  if (NON_PERSON_FIRST_WORDS.has(words[0])) return true
+  // "Deus é Fiel", "Jesus Vive" etc. — verbo/conectivo no meio da frase
+  for (let i = 1; i < words.length; i++) {
+    if (PHRASE_VERBS.has(words[i])) return true
+  }
+  return false
+}
+
 const COMPANY_SUFFIXES = new Set([
   "ltda", "ltda.", "me", "sa", "s.a", "s.a.", "eireli", "epp", "ss", "lda",
   "inc", "corp", "llc", "srl",
@@ -77,6 +98,7 @@ export function sanitizeName(raw: string | null | undefined): string | null {
   if (trimmed.includes("@")) return null
   if (/^[\d\s\-+().]{6,}$/.test(trimmed)) return null
   if (/^\d/.test(trimmed)) return null
+  if (isLikelyNonPersonName(trimmed)) return null
 
   const firstName = trimmed.split(/\s+/)[0]
   if (firstName.length < 2) return null
