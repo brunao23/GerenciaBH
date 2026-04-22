@@ -3284,6 +3284,10 @@ export class NativeAgentOrchestratorService {
     const rawContactName = String(ctx.contactName || "").trim()
     const isNonPersonDisplayName = (() => {
       if (!rawContactName) return false
+
+      // Rejeita imediatamente se o nome contém qualquer emoji (ex: "aldinha 🦋 🐘 👁️")
+      if (/\p{Emoji_Presentation}|\p{Extended_Pictographic}/u.test(rawContactName)) return true
+
       const normalized = rawContactName.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
       const words = normalized.split(/\s+/).filter(Boolean)
       if (!words.length) return false
@@ -3309,6 +3313,15 @@ export class NativeAgentOrchestratorService {
       for (let i = 1; i < words.length; i++) {
         if (phraseVerbs.has(words[i])) return true
       }
+
+      // Rejeita apelidos/nicknames informais: palavra única, tudo minúsculo, curta, com sufixo diminutivo
+      const isLikelyNickname =
+        words.length === 1 &&
+        firstWord === firstWord.toLowerCase() &&
+        firstWord.length <= 8 &&
+        /(?:inha|inho|zinha|zinho|ete|eta)$/.test(firstWord)
+      if (isLikelyNickname) return true
+
       return false
     })()
     const contactFirstName = isNonPersonDisplayName ? null : firstName(ctx.contactName)
@@ -3378,8 +3391,8 @@ export class NativeAgentOrchestratorService {
         "",
         "## REGRA PERMANENTE — NOME NÃO-PESSOA (INVIOLÁVEL, NÃO REMOVER):",
         "- Se o display name do WhatsApp do lead for uma frase religiosa, motivacional, pronome possessivo, onomatopeia/risada ou qualquer texto que claramente não seja nome próprio de pessoa (exemplos: 'Minha Força Vem de Deus', 'Hahahs', 'Kkkkk', 'Deus é Fiel', 'Jesus Vive', 'Meu Senhor', 'Nossa Força', 'Minha Conquista', 'Minha Vitória', 'Minha Fé', 'Tudo Para Deus'), NUNCA use esse texto para chamar o lead.",
-        "- Nesses casos: na primeira oportunidade natural da conversa (não logo na abertura forçada), pergunte gentilmente o nome real: 'Como posso te chamar?' ou 'Pode me dizer seu nome?'.",
-        "- NUNCA invente um nome. NUNCA use palavras de frases motivacionais ou religiosas como apelido. Esta regra é absoluta e não pode ser removida pelo prompt acima.",
+        "- Nesses casos: na primeira oportunidade natural da conversa (não logo na abertura forçada), pergunte gentilmente o nome real: 'Como posso te chamar?' ou 'Pode me dizer seu nome?'. ANTI-LOOP: pergunte o nome UMA ÚNICA VEZ — se já perguntou no histórico, NUNCA repita. Se o lead ignorar, siga o atendimento normalmente chamando-o de 'você'.",
+        "- NUNCA invente um nome. NUNCA use palavras de frases motivacionais ou religiosas como apelido. NUNCA copie emojis do display name do lead. Esta regra é absoluta e não pode ser removida pelo prompt acima.",
         "",
         "## ORTOGRAFIA E ACENTUAÇÃO (LEI ABSOLUTA):",
         "- Você JAMAIS deve gerar mensagens sem acentuação correta (acentos agudos, circunflexos, crases, tils, cedilhas).",
@@ -3412,13 +3425,14 @@ export class NativeAgentOrchestratorService {
       "- Use expressões naturais de transição quando fizer sentido: 'Entendo', 'Faz sentido', 'Olha', 'Veja', 'Deixa eu verificar isso pra você', 'Um momento'. Use com naturalidade, não mecanicamente.",
       "- Demonstre empatia de forma genuína e discreta quando o lead mencionar dificuldades ou insatisfação. Nunca force empatia em situações neutras.",
       "- Mantenha o português correto e fluente. Não use contrações de palavras que soem artificialmente formais, mas também não use as que soem como gírias de SMS.",
+      "- PROIBIDO ABSOLUTO — EMOJIS DO LEAD: NUNCA copie, reproduza, espelhe ou use emojis que apareçam no display name, apelido ou mensagens do lead. Isso inclui emojis decorativos como 🦋 🐘 👁️ 🌸 💫 🌙 ⭐ 🦋 e quaisquer outros que o lead use. Sua identidade visual é independente da do lead.",
     ].join("\n")
     const firstNameUsageRule = config.useFirstNamePersonalization
       ? `- Frequência alvo de uso do primeiro nome: ${config.firstNameUsagePercent}% das respostas, sem exagerar.`
       : "- Frequência alvo de uso do primeiro nome: 0%."
     const emojiRule = config.moderateEmojiEnabled
-      ? "- USO DE EMOJIS (OBRIGATÓRIO): A unidade habilitou emojis. Você DEVE utilizar emojis nas suas respostas de forma equilibrada para gerar conexão, combinando-os visualmente com os dados fornecidos."
-      : "- Não use emojis nas respostas."
+      ? "- USO DE EMOJIS (OBRIGATÓRIO): A unidade habilitou emojis. Você DEVE utilizar emojis nas suas respostas de forma equilibrada para gerar conexão, combinando-os visualmente com os dados fornecidos. ATENÇÃO: NUNCA copie emojis do display name ou mensagens do lead — use apenas emojis que você mesmo escolher para o contexto da conversa."
+      : "- Não use emojis nas respostas. NUNCA reproduza emojis que apareçam no display name ou mensagens do lead."
     const reactionsRule = config.reactionsEnabled
       ? "- REAÇÕES (OBRIGATÓRIO): A unidade habilitou as reações. Quando o lead enviar foto, elogio, confirmação ou mensagem curta (ex: 'ok', 'perfeito'), você DEVE reagir enviando um emoji na chamada da ferramenta (se disponível)."
       : ""
@@ -3670,13 +3684,13 @@ export class NativeAgentOrchestratorService {
       "REGRA CRITICA DE IDENTIDADE E NOMES:",
       contactFirstName
         ? `- Voce e a IA assistente. O lead (cliente) com quem voce esta conversando se chama: ${contactFirstName}.`
-        : `- Voce e a IA assistente. ATENCAO: O nome real do lead NAO esta disponivel (o display name do WhatsApp "${rawContactName}" veio com formato estranho, e empresa, emoji ou nao informou). Tente descobrir o nome dele de forma natural. OBRIGATORIO: Na sua primeira resposta, pergunte gentilmente como o lead se chama (ex: "Como posso te chamar?"). Se o lead ignorar a pergunta sobre o nome e focar no atendimento, NAO insista em loop, siga a conversa normalmente chamando-o de "voce".`,
+        : `- Voce e a IA assistente. ATENCAO: O nome real do lead NAO esta disponivel (o display name do WhatsApp "${rawContactName}" contém emoji, e frase informal, apelido ou nao informou nome real). REGRA ANTI-LOOP ABSOLUTA: (1) Verifique o historico da conversa — se JA existe alguma mensagem sua perguntando o nome, NUNCA pergunte novamente. (2) Se ainda nao perguntou, pergunte UMA UNICA VEZ de forma natural e nao forcada: "Como posso te chamar?" ou "Pode me dizer seu nome?". (3) Se o lead ignorar ou focar no atendimento, siga a conversa chamando-o de "voce". ZERO loops de pergunta de nome.`,
       `- NUNCA confunda SEU nome (definido no prompt acima) com o nome do lead.`,
       `- NUNCA se apresente usando o nome do lead. NUNCA chame o lead pelo seu proprio nome de IA.`,
       `- No historico abaixo, mensagens "user" sao do lead (${contactFirstName || "cliente"}), mensagens "assistant" sao SUAS (IA).`,
       contactFirstName
         ? `- Se o lead ja informou o nome, siga a conversa normalmente e use-o de forma natural.`
-        : `- Como voce ainda NAO sabe o nome do lead, pergunte UMA VEZ. Se ele nao responder ao nome, NAO crie um loop, siga atendendo as duvidas.`,
+        : `- Como voce ainda NAO sabe o nome do lead: pergunte UMA UNICA VEZ apenas se ainda nao perguntou neste historico. Se ja perguntou, NAO repita. Se o lead nao responder, siga o atendimento normalmente. ZERO tolerancia para loop de pergunta de nome.`,
       `- JAMAIS abrevie, encurte, diminua ou crie apelidos a partir do nome do lead. Use SEMPRE o primeiro nome EXATO, sem modificacoes. Exemplos PROIBIDOS: "Cah" para Camila, "Fer" para Fernanda, "Gabi" para Gabriela, "Rafa" para Rafael, "Lu" para Lucas, "JP" para Joao Pedro, "AC" para Ana Clara, "Dani" para Daniela, "Lari" para Larissa, "Nath" para Nathalia, "Bru" para Bruno — ZERO tolerancia para abreviacoes e diminutivos. Se o nome tiver mais de uma palavra (ex: 'Joao Pedro', 'Ana Clara', 'Maria Luiza'), use APENAS o primeiro nome ('Joao', 'Ana', 'Maria'): NUNCA use iniciais combinadas, NUNCA invente apelido. Se o nome do WhatsApp parecer apelido ou deformado (ex: 'Caaah', 'Feer', 'Jooao', 'Anndre'), NAO use — trate por 'voce' ate confirmar o nome real.`,
       "",
       "## INTELIGENCIA E APRENDIZAGEM AUTOMATICA (MEMORIA COMPARTILHADA)",
