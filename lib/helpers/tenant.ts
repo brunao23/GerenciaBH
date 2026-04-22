@@ -150,21 +150,11 @@ export function getTenant(req: NextRequest | Request): string {
  * BASEADO NO BANCO REAL - mantenha atualizado ao adicionar novas unidades
  */
 export const REGISTERED_TENANTS = [
-    // Vox (escolas de oratória)
-    'vox_bh',
-    'vox_es',
-    'vox_maceio',
-    'vox_marilia',
-    'vox_piaui',
-    'vox_sp',
-    'vox_rio',
     'vox_sete_lagoas',
-    'vox_berini',
-
-    // Outras marcas
-    'bia_vox',
-    'colegio_progresso',
     'genial_labs',
+    'vox_sp_berini',
+    'bia_vox',
+    'vox_maceio',
 ] as const
 
 export type RegisteredTenant = typeof REGISTERED_TENANTS[number]
@@ -183,18 +173,11 @@ export function isRegisteredTenant(tenant: string): boolean {
  * Mapeamento de nomes amigáveis
  */
 const TENANT_NAMES: Record<RegisteredTenant, string> = {
-    'vox_bh': 'Vox BH',
-    'vox_es': 'Vox ES',
-    'vox_maceio': 'Vox Maceió',
-    'vox_marilia': 'Vox Marília',
-    'vox_piaui': 'Vox Piauí',
-    'vox_sp': 'Vox SP',
-    'vox_rio': 'Vox Rio',
     'vox_sete_lagoas': 'Vox Sete Lagoas',
-    'vox_berini': 'Vox Berini',
-    'bia_vox': 'Bia Vox',
-    'colegio_progresso': 'Colégio Progresso',
     'genial_labs': 'Genial Labs',
+    'vox_sp_berini': 'Vox SP Berini',
+    'bia_vox': 'Vox Cuiabá',
+    'vox_maceio': 'Vox Maceió',
 }
 
 /**
