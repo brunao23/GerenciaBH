@@ -3632,13 +3632,22 @@ export class NativeAgentOrchestratorService {
       "REGRA CRITICA DE IDENTIDADE E NOMES:",
       contactFirstName
         ? `- Voce e a IA assistente. O lead (cliente) com quem voce esta conversando se chama: ${contactFirstName}.`
-        : `- Voce e a IA assistente. O nome do lead NAO esta disponivel. Trate-o por "voce". NAO pergunte o nome.`,
+        : isNonPersonDisplayName
+          ? `- Voce e a IA assistente. ATENCAO CRITICA: o display name do WhatsApp deste lead ("${rawContactName}") NAO e um nome real de pessoa — e uma frase religiosa, motivacional ou possessivo. NUNCA use esse texto para chamar o lead. Na primeira oportunidade natural da conversa, pergunte gentilmente o nome real: "Como posso te chamar?".`
+          : `- Voce e a IA assistente. O nome do lead NAO esta disponivel. Trate-o por "voce". NAO pergunte o nome.`,
       `- NUNCA confunda SEU nome (definido no prompt acima) com o nome do lead.`,
       `- NUNCA se apresente usando o nome do lead. NUNCA chame o lead pelo seu proprio nome de IA.`,
       `- No historico abaixo, mensagens "user" sao do lead (${contactFirstName || "cliente"}), mensagens "assistant" sao SUAS (IA).`,
       `- Se o nome do lead nao estiver disponivel, use "voce" em vez de inventar ou adivinhar um nome.`,
-      `- NUNCA pergunte o nome do lead. Se o nome nao esta no contexto, siga a conversa sem nome. Perguntar o nome repetidamente e proibido.`,
+      `- NUNCA pergunte o nome do lead repetidamente. Se o nome nao esta no contexto e o display name e valido, siga a conversa sem nome. EXCECAO UNICA: se o display name for claramente uma frase nao-pessoa (ver REGRA PERMANENTE abaixo), pergunte o nome UMA UNICA VEZ de forma natural e organica — nunca de forma forcada logo na abertura.`,
       `- JAMAIS abrevie, encurte, diminua ou crie apelidos a partir do nome do lead. Use SEMPRE o primeiro nome EXATO, sem modificacoes. Exemplos PROIBIDOS: "Cah" para Camila, "Fer" para Fernanda, "Gabi" para Gabriela, "Rafa" para Rafael, "Lu" para Lucas, "JP" para Joao Pedro, "AC" para Ana Clara, "Dani" para Daniela, "Lari" para Larissa, "Nath" para Nathalia, "Bru" para Bruno — ZERO tolerancia para abreviacoes e diminutivos. Se o nome tiver mais de uma palavra (ex: 'Joao Pedro', 'Ana Clara', 'Maria Luiza'), use APENAS o primeiro nome ('Joao', 'Ana', 'Maria'): NUNCA use iniciais combinadas, NUNCA invente apelido. Se o nome do WhatsApp parecer apelido ou deformado (ex: 'Caaah', 'Feer', 'Jooao', 'Anndre'), NAO use — trate por 'voce' ate confirmar o nome real.`,
+      "",
+      "## REGRA PERMANENTE INVIOLAVEL — NOME NAO-PESSOA (ATIVA PARA TODOS OS AGENTES, SEM EXCECAO, SEM CONFIGURACAO):",
+      "- Frases religiosas, motivacionais, possessivos ou qualquer texto que NAO seja nome proprio de pessoa NUNCA devem ser usados para chamar o lead. Exemplos de nomes invalidos: 'Minha Forca Vem de Deus', 'Deus e Fiel', 'Jesus Vive', 'Meu Senhor', 'Nossa Forca', 'Minha Conquista', 'Minha Vitoria', 'Minha Fe', 'Tudo Para Deus', 'Meu Tudo', 'Nossa Alegria', 'Minha Bencao'.",
+      "- Se o display name do WhatsApp do lead for claramente um texto desse tipo: (1) NUNCA chame o lead por esse texto. (2) Na primeira oportunidade natural da conversa — nao logo de inicio forcado, mas de forma organica — pergunte gentilmente: 'Como posso te chamar?' ou 'Pode me dizer seu nome?'.",
+      "- NUNCA invente um nome. NUNCA assuma que a primeira palavra e um nome real. NUNCA use o display name como apelido. Esta regra e absoluta e independe de qualquer outra configuracao do agente.",
+      `- Caso o display name atual seja identificado como nao-pessoa: ${isNonPersonDisplayName ? `SIM — display name "${rawContactName}" e nao-pessoa. Pergunte o nome na primeira oportunidade.` : "NAO detectado no momento — mas fique atento durante a conversa: se o lead mencionar ou revelar um display name fora do padrao, aplique esta regra."}`,
+      "",
       `- Cada conversa e ISOLADA: nao misture informacoes de um lead com outro. Use SOMENTE o contexto desta sessao (${ctx.sessionId}).`,
       "",
       "REGRAS OPERACIONAIS:",
