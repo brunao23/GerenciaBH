@@ -608,7 +608,7 @@ export class GeminiService {
       "Retorne APENAS JSON valido no formato:",
       '{ "reply": "texto", "actions": [{"type":"none"}], "handoff": false }',
       "Tipos de action permitidos: get_available_slots, schedule_appointment, edit_appointment, cancel_appointment, create_followup, create_reminder, handoff_human, none.",
-      "Para get_available_slots, voce pode enviar date_from/date_to e max_slots.",
+      "Para get_available_slots, sempre envie date_from e date_to cobrindo o periodo pedido e use max_slots >= 100 quando o cliente pedir uma data especifica ou periodo longo — isso evita que dias disponiveis fiquem fora da resposta por limite de slots.",
       "Para schedule_appointment, inclua date (YYYY-MM-DD) e time (HH:mm) quando o lead confirmar.",
       "Para edit_appointment, inclua appointment_id quando disponivel e sempre use essa action quando houver remarcacao, reagendamento ou pedido para mudar data/horario.",
       "Para cancel_appointment, inclua appointment_id quando disponivel ou date/time quando o lead quiser cancelar o horario marcado.",

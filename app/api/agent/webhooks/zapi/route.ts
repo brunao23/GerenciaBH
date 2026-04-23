@@ -168,6 +168,18 @@ function extractChatLid(payload: any): string {
   return ""
 }
 
+function repairReactionEncoding(value: string): string {
+  if (!value) return value
+  if (!/[ÃÃÂÂââððïï�]/.test(value)) return value
+  try {
+    const repaired = Buffer.from(value, "latin1").toString("utf8")
+    if (repaired && repaired.length > 0) return repaired
+  } catch {
+    // noop
+  }
+  return value
+}
+
 function extractReactionValue(payload: any): string {
   const msg = asObject(payload?.message)
   const reactionMsg = asObject(msg?.reactionMessage || payload?.reactionMessage)
@@ -175,7 +187,7 @@ function extractReactionValue(payload: any): string {
   const dataMsg = asObject(data?.message)
   const dataReactionMsg = asObject(dataMsg?.reactionMessage || data?.reactionMessage)
 
-  return readString(
+  const raw = readString(
     payload?.reaction?.value,
     payload?.reaction?.text,
     payload?.reaction?.emoji,
@@ -189,6 +201,7 @@ function extractReactionValue(payload: any): string {
     dataReactionMsg?.text,
     dataReactionMsg?.emoji,
   )
+  return repairReactionEncoding(raw)
 }
 
 function extractIsGif(payload: any): boolean {
@@ -1137,6 +1150,8 @@ async function processConversationTaskIntelligence(params: {
     message: queueMessage,
     metadata: {
       source: "conversation_listener_llm",
+      reminder_kind: "conversation_listener",
+      send_to_lead: false,
       sender_type: senderType,
       reason: decision.reason || null,
       trigger_message: message.slice(0, 500),
@@ -2289,6 +2304,39 @@ type BufferedUserTurn = {
   replyPreview?: string
 }
 
+function buildSessionVariantsForLookup(sessionId: string): string[] {
+  const raw = String(sessionId || "").trim()
+  const normalized = normalizeSessionId(raw)
+  if (!normalized) return []
+
+  const variants = new Set<string>([normalized])
+  if (raw) variants.add(raw)
+
+  const addPhoneVariants = (value: string) => {
+    const digits = String(value || "").replace(/\D/g, "")
+    if (!digits) return
+    const with55 = digits.startsWith("55") ? digits : `55${digits}`
+    const without55 = with55.startsWith("55") ? with55.slice(2) : with55
+    variants.add(with55)
+    if (without55) variants.add(without55)
+    variants.add(`${with55}@s.whatsapp.net`)
+    variants.add(`${with55}@c.us`)
+    if (without55) {
+      variants.add(`${without55}@s.whatsapp.net`)
+      variants.add(`${without55}@c.us`)
+    }
+  }
+
+  if (/^\d{10,15}$/.test(normalized)) {
+    addPhoneVariants(normalized)
+  } else if (normalized.startsWith("lid_")) {
+    addPhoneVariants(normalized.slice(4))
+  }
+  if (raw.includes("@")) addPhoneVariants(raw)
+
+  return Array.from(variants).filter(Boolean).slice(0, 20)
+}
+
 async function loadRecentUserTurns(params: {
   tenant: string
   sessionId: string
@@ -2303,13 +2351,21 @@ async function loadRecentUserTurns(params: {
     const chat = new TenantChatHistoryService(tenant)
     const table = await chat.getChatTableName()
     const supabase = createBiaSupabaseServerClient()
-    const { data, error } = await supabase
+    const sessionVariants = buildSessionVariantsForLookup(sessionId)
+    let query: any = supabase
       .from(table)
       .select("created_at, message")
-      .eq("session_id", sessionId)
       .gte("created_at", params.sinceIso)
       .order("created_at", { ascending: true })
-      .limit(Math.max(1, Math.min(80, Number(params.limit || 30))))
+      .limit(Math.max(1, Math.min(120, Number(params.limit || 30) * 3)))
+
+    if (sessionVariants.length > 1) {
+      query = query.in("session_id", sessionVariants)
+    } else {
+      query = query.eq("session_id", sessionId)
+    }
+
+    const { data, error } = await query
 
     if (error || !Array.isArray(data)) return []
 

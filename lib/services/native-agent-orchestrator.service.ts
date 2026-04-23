@@ -783,6 +783,53 @@ function stripIdentityDisclosure(text: string): string {
     .trim()
 }
 
+function stripToolInvocationLeaks(text: string): string {
+  return String(text || "")
+    .replace(
+      /\b(?:get_available_slots|schedule_appointment|edit_appointment|cancel_appointment|create_followup|create_reminder|handoff_human|handoffhuman|send_location|send_reaction)\s*\([^)]*\)?/gim,
+      " ",
+    )
+    .replace(
+      /\b(?:handoff_human|handoffhuman)\b\s*(?:reason\s*=\s*(?:"[^"]+"|'[^']+'|[^\s,.;!?]+))?/gim,
+      " ",
+    )
+    .replace(/\s{2,}/g, " ")
+    .trim()
+}
+
+function extractInlineHandoffToolCall(text: string): GeminiToolCall | null {
+  const raw = String(text || "")
+  if (!raw) return null
+  if (!/\bhandoff\s*_?\s*human\b/i.test(raw)) return null
+
+  let reason = ""
+  const reasonFromParentheses = raw.match(
+    /(?:handoff_human|handoffhuman)\s*\([^)]*?\breason\s*=\s*(?:"([^"]+)"|'([^']+)'|([^,\)\n]+))/i,
+  )
+  if (reasonFromParentheses) {
+    reason = String(
+      reasonFromParentheses[1] ||
+      reasonFromParentheses[2] ||
+      reasonFromParentheses[3] ||
+      "",
+    ).trim()
+  }
+
+  if (!reason) {
+    const reasonLoose = raw.match(
+      /\breason\s*=\s*(?:"([^"]+)"|'([^']+)'|([^,\)\n]+))/i,
+    )
+    if (reasonLoose) {
+      reason = String(reasonLoose[1] || reasonLoose[2] || reasonLoose[3] || "").trim()
+    }
+  }
+
+  return {
+    name: "handoff_human",
+    args: reason ? { reason } : {},
+  }
+}
+
 function moveLeadingEmojisToEnd(text: string): string {
   const input = String(text || "")
   if (!input) return ""
@@ -825,6 +872,7 @@ function applyAssistantOutputPolicy(
   normalized = stripMarkdownFormatting(normalized)
   normalized = stripHyphensAndDashes(normalized)
   normalized = stripIdentityDisclosure(normalized)
+  normalized = stripToolInvocationLeaks(normalized)
   if (!options.allowEmojis) {
     normalized = stripEmojis(normalized)
   }
@@ -1921,6 +1969,45 @@ export class NativeAgentOrchestratorService {
       .catch(() => {})
 
     // -----------------------------------------------------------------------
+    // Global Pause Check: ensure paused leads are NOT engaged
+    // -----------------------------------------------------------------------
+    if (phone) {
+      const isPaused = await this.taskQueue.isLeadPaused(tenant, phone)
+      if (isPaused) {
+        const isReschedule = !isFromMeTrigger && detectsSchedulingIntent(content)
+        if (!isReschedule) {
+          await chat.persistMessage({
+            sessionId,
+            role: "system",
+            type: "status",
+            content: "native_agent_ignored_paused_lead",
+            source: "native-agent",
+            additional: {
+              debug_event: "lead_is_paused_global_block",
+              debug_severity: "info",
+              phone: phone || recipient,
+            },
+          }).catch(() => {})
+
+          return {
+            processed: true,
+            replied: false,
+            actions: [],
+            reason: "lead_is_paused_global_block",
+          }
+        } else {
+          // Lead is paused but showed scheduling intent (reschedule). Unpause automatically!
+          const { pausar: pauseTable } = getTablesForTenant(tenant)
+          await this.supabase
+            .from(pauseTable)
+            .update({ pausar: false, vaga: false, agendamento: false, paused_until: null })
+            .eq("numero", phone)
+            .catch(() => {})
+        }
+      }
+    }
+
+    // -----------------------------------------------------------------------
     // Auto-pause: detect negative intent BEFORE any AI processing
     // Only runs when autoPauseOnHumanIntervention is explicitly enabled
     // -----------------------------------------------------------------------
@@ -2404,6 +2491,64 @@ export class NativeAgentOrchestratorService {
           }
         } catch (storeErr) {
           console.warn("[native-agent][semantic-cache] store failed:", storeErr)
+        }
+      }
+    }
+
+    if (!Array.isArray(decision.executions)) {
+      decision.executions = []
+    }
+    if (!Array.isArray(decision.actions)) {
+      decision.actions = [{ type: "none" }]
+    }
+
+    // Fallback defensivo: se o modelo vazar "handoff_human(...)" como texto,
+    // converte em execução real da tool e impede vazamento para o lead.
+    if (decision.executions.length === 0 && typeof decision.reply === "string" && decision.reply.trim()) {
+      const inlineHandoff = extractInlineHandoffToolCall(decision.reply)
+      if (inlineHandoff) {
+        try {
+          const handled = await this.executeToolCall({
+            toolCall: inlineHandoff,
+            tenant,
+            phone,
+            sessionId,
+            contactName: input.contactName,
+            config,
+            chat,
+            incomingMessageId: input.messageId,
+            qualificationState,
+          })
+
+          const ok = Boolean(handled?.ok)
+          const responsePayload = handled?.response && typeof handled.response === "object"
+            ? handled.response
+            : ok
+              ? { ok: true }
+              : { ok: false, error: handled?.error || "tool_execution_failed" }
+
+          decision.executions.push({
+            call: inlineHandoff,
+            action: handled?.action || { type: "handoff_human", note: inlineHandoff.args?.reason },
+            ok,
+            response: responsePayload,
+            error: handled?.error,
+          })
+
+          if (ok) {
+            decision.handoff = true
+          }
+        } catch (inlineToolError: any) {
+          decision.executions.push({
+            call: inlineHandoff,
+            action: { type: "handoff_human", note: inlineHandoff.args?.reason },
+            ok: false,
+            response: {
+              ok: false,
+              error: inlineToolError?.message || "inline_handoff_tool_execution_failed",
+            },
+            error: inlineToolError?.message || "inline_handoff_tool_execution_failed",
+          })
         }
       }
     }
@@ -3929,13 +4074,13 @@ export class NativeAgentOrchestratorService {
       {
         name: "get_available_slots",
         description:
-          "Lista horarios disponiveis para agendamento considerando regras da unidade e ocupacao atual.",
+          "Lista horarios disponiveis para agendamento considerando regras da unidade e ocupacao atual. IMPORTANTE: se o cliente pedir uma data especifica ou distante, sempre defina date_from e date_to abrangendo essa data e use max_slots >= 100 para garantir que todos os horarios do periodo sejam retornados.",
         parameters: {
           type: "object",
           properties: {
             date_from: { type: "string", description: "Data inicial YYYY-MM-DD (opcional)" },
             date_to: { type: "string", description: "Data final YYYY-MM-DD (opcional)" },
-            max_slots: { type: "number", description: "Numero maximo de horarios na resposta (opcional)" },
+            max_slots: { type: "number", description: "Numero maximo de horarios na resposta (padrao 80, use 100-200 para periodos longos ou datas especificas)" },
           },
         },
       },
@@ -4688,7 +4833,7 @@ export class NativeAgentOrchestratorService {
         5,
         Math.min(240, Number(params.config.calendarEventDurationMinutes || 50)),
       )
-      const maxSlots = Math.max(1, Math.min(80, Number(params.action.max_slots || 20)))
+      const maxSlots = Math.max(1, Math.min(1000, Number(params.action.max_slots || 500)))
 
       const defaultBusinessStart = parseTimeToMinutes(params.config.calendarBusinessStart || "08:00")
       const defaultBusinessEnd = parseTimeToMinutes(params.config.calendarBusinessEnd || "20:00")
@@ -6327,45 +6472,12 @@ export class NativeAgentOrchestratorService {
     ]
 
     if (params.config.postScheduleAutomationEnabled) {
-      const delayMinutes = Math.max(
-        0,
-        Math.min(1440, Math.floor(Number(params.config.postScheduleDelayMinutes || 0))),
-      )
-      const mode = String(params.config.postScheduleMessageMode || "text").toLowerCase()
-      const mediaUrl = String(params.config.postScheduleMediaUrl || "").trim()
-      const caption =
-        String(params.config.postScheduleCaption || "").trim() ||
-        this.buildPostScheduleMessageTemplate(params.config, params.contactName)
-      const fileName = String(params.config.postScheduleDocumentFileName || "").trim()
-      const postScheduleBh = parseTenantBusinessHours(
-        params.config.followupBusinessStart,
-        params.config.followupBusinessEnd,
-        params.config.followupBusinessDays,
-      )
-
-      tasks.push(
-        this.taskQueue
-          .enqueueReminder({
-            tenant: params.tenant,
-            sessionId: params.sessionId,
-            phone: params.phone,
-            message: this.buildPostScheduleMessageTemplate(params.config, params.contactName),
-            runAt: adjustToBusinessHours(new Date(Date.now() + delayMinutes * 60 * 1000), postScheduleBh).toISOString(),
-            metadata: {
-              source: "native_agent_post_schedule",
-              message_mode:
-                mode === "image" || mode === "video" || mode === "document" ? mode : "text",
-              media_url: mediaUrl || undefined,
-              caption: caption || undefined,
-              file_name: fileName || undefined,
-              minutes_from_now: delayMinutes,
-            },
-          })
-          .then((queued) => {
-            if (!queued.ok) {
-              console.warn("[native-agent] failed to enqueue post-schedule message:", queued.error)
-            }
-          }),
+      console.info(
+        "[native-agent] post-schedule automation ignored: official reminder flow is authoritative",
+        {
+          tenant: params.tenant,
+          sessionId: params.sessionId,
+        },
       )
     }
 
