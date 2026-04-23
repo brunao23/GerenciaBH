@@ -1799,14 +1799,6 @@ export class AgentTaskQueueService {
 
       // post_schedule tasks fluem normalmente para dispatchTaskMessage
 
-      let isFallbackReminder = false
-      if (taskType === "reminder") {
-        const raw = stripTaskPrefix(String(message).trim())
-        if (!raw || isInternalReminderLeakMessage(raw)) {
-          isFallbackReminder = true
-        }
-      }
-
       const [paused, terminal] = await Promise.all([
         this.isLeadPaused(tenant, phone),
         this.isLeadTerminal(tenant, sessionId),
@@ -1963,7 +1955,11 @@ export class AgentTaskQueueService {
           }
         }
 
-        message = this.resolveSafeReminderMessage({ message, payload })
+        // Post-schedule messages are admin-configured, not AI-generated — skip internal leak filter
+        if (!isPostScheduleReminder) {
+          message = this.resolveSafeReminderMessage({ message, payload })
+        }
+
         if (!message) {
           result.skipped += 1
           const reason = isOfficialReminder
