@@ -3805,6 +3805,8 @@ export class NativeAgentOrchestratorService {
       "- [PROIBIDO] NUNCA responda 'amanha tenho horario', 'semana que vem', 'segunda-feira', 'de manha' ou qualquer variacao sem antes chamar a ferramenta.",
       "- [PROIBIDO] NUNCA pergunte 'prefere manha ou tarde?' sem ANTES ter chamado get_available_slots — voce precisa saber quais periodos realmente tem vagas antes de oferecer opcoes.",
       "- [PROIBIDO] NUNCA diga 'nao tenho acesso a agenda', 'nao consigo ver agenda' ou 'so tenho acesso a X periodo'. Voce DEVE consultar get_available_slots e responder com base no retorno real.",
+      "- [PROIBIDO] NUNCA diga ao lead que 'nao e possivel agendar porque sao X horas', 'passou das X horas', 'hoje nao da mais', 'o expediente ja encerrou' ou qualquer variacao baseada no seu proprio julgamento da hora atual. SEMPRE chame get_available_slots — a ferramenta automaticamente exclui horarios passados e retorna apenas opcoes validas. Se nao houver horarios disponiveis, a ferramenta dira isso; nao e voce que decide.",
+      "- [PROIBIDO ABSOLUTO] NUNCA apresente ao lead datas passadas, horarios passados ou anos passados. Toda data ou horario que voce mencionar deve ser atual ou futuro, baseado nos slots retornados pela ferramenta.",
       "- Se o lead perguntar 'tem horario?', 'quando voce tem?', 'qual o proximo horario?', 'tem amanha?' — chame get_available_slots IMEDIATAMENTE antes de responder.",
       maxWindowDays > 0
         ? `- JANELA DE AGENDAMENTO DESTA UNIDADE: ${maxWindowDays} dias no futuro (configurado pelo admin). Ao chamar get_available_slots use SEMPRE date_from=${todayIso} e date_to=${searchWindowEndIso}. NUNCA ultrapasse ${searchWindowEndIso} — slots alem dessa data nao existem por configuracao.`
