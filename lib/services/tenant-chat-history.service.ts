@@ -93,6 +93,48 @@ function normalizeComparableContent(value: any): string {
     .trim()
 }
 
+function buildSessionIdVariants(input: string): string[] {
+  const raw = String(input || "").trim()
+  const normalized = normalizeSessionId(raw)
+  if (!normalized) return []
+
+  const variants = new Set<string>([normalized])
+  if (raw) variants.add(raw)
+
+  const addPhoneVariants = (phoneInput: string) => {
+    const digits = String(phoneInput || "").replace(/\D/g, "")
+    if (!digits) return
+    const with55 = digits.startsWith("55") ? digits : `55${digits}`
+    const without55 = with55.startsWith("55") ? with55.slice(2) : with55
+
+    variants.add(with55)
+    if (without55) variants.add(without55)
+
+    variants.add(`${with55}@s.whatsapp.net`)
+    variants.add(`${with55}@c.us`)
+    if (without55) {
+      variants.add(`${without55}@s.whatsapp.net`)
+      variants.add(`${without55}@c.us`)
+      variants.add(`lid_${without55}`)
+    }
+    variants.add(`lid_${with55}`)
+  }
+
+  if (/^\d{10,15}$/.test(normalized)) {
+    addPhoneVariants(normalized)
+  } else if (normalized.startsWith("lid_")) {
+    addPhoneVariants(normalized.slice(4))
+  } else if (normalized.includes("@")) {
+    addPhoneVariants(normalized)
+  }
+
+  if (raw.includes("@")) {
+    addPhoneVariants(raw)
+  }
+
+  return Array.from(variants).filter(Boolean).slice(0, 20)
+}
+
 export class TenantChatHistoryService {
   private readonly supabase = createBiaSupabaseServerClient()
   private readonly tenant: string
@@ -180,12 +222,20 @@ export class TenantChatHistoryService {
     const ignoreMessageId = String(params.ignoreMessageId || "").trim()
 
     const table = await this.getChatTableName()
-    const { data, error } = await this.supabase
+    const sessionVariants = buildSessionIdVariants(params.sessionId)
+    let query: any = this.supabase
       .from(table)
       .select("created_at, message")
-      .eq("session_id", sessionId)
       .order("created_at", { ascending: false })
-      .limit(80)
+      .limit(120)
+
+    if (sessionVariants.length > 1) {
+      query = query.in("session_id", sessionVariants)
+    } else {
+      query = query.eq("session_id", sessionId)
+    }
+
+    const { data, error } = await query
 
     if (error || !Array.isArray(data)) return false
 
@@ -237,12 +287,18 @@ export class TenantChatHistoryService {
     const excludeMessageId = String(params.excludeMessageId || "").trim()
 
     const table = await this.getChatTableName()
-    let query = this.supabase
+    const sessionVariants = buildSessionIdVariants(params.sessionId)
+    let query: any = this.supabase
       .from(table)
       .select("created_at, message")
-      .eq("session_id", sessionId)
       .order("created_at", { ascending: false })
-      .limit(80)
+      .limit(120)
+
+    if (sessionVariants.length > 1) {
+      query = query.in("session_id", sessionVariants)
+    } else {
+      query = query.eq("session_id", sessionId)
+    }
 
     if (sinceIso) {
       query = query.gte("created_at", sinceIso)
@@ -277,12 +333,20 @@ export class TenantChatHistoryService {
     if (!normalizedSession) return []
 
     const table = await this.getChatTableName()
-    const { data, error } = await this.supabase
+    const sessionVariants = buildSessionIdVariants(sessionId)
+    let query: any = this.supabase
       .from(table)
       .select("id, created_at, message")
-      .eq("session_id", normalizedSession)
       .order("created_at", { ascending: false })
-      .limit(limit)
+      .limit(Math.max(limit, 80))
+
+    if (sessionVariants.length > 1) {
+      query = query.in("session_id", sessionVariants)
+    } else {
+      query = query.eq("session_id", normalizedSession)
+    }
+
+    const { data, error } = await query
 
     if (error || !data) return []
 
@@ -328,6 +392,7 @@ export class TenantChatHistoryService {
           createdAt: toIso(row.created_at || message.created_at),
         } as ConversationTurn
       })
-      .filter(Boolean) as ConversationTurn[]
+      .filter(Boolean)
+      .slice(-Math.max(1, Math.min(120, limit))) as ConversationTurn[]
   }
 }

@@ -81,6 +81,13 @@ type LearningSignalSample = {
   created_at: string
 }
 
+type HumanApproachInsight = {
+  humanMessage: string
+  leadReply: string
+  score: number
+  createdAt: string
+}
+
 const POSITIVE_HINTS = [
   "sim",
   "quero",
@@ -244,6 +251,77 @@ function classifyPerformance(outcome: LearningOutcome | undefined, reward: numbe
   if (reward >= 1.25) return "win"
   if (reward <= -1) return "loss"
   return "neutral"
+}
+
+function compactText(value: string, limit: number): string {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, Math.max(0, limit))
+}
+
+function extractHumanApproachInsights(signals: LearningSignalSample[]): HumanApproachInsight[] {
+  if (!Array.isArray(signals) || signals.length < 2) return []
+  const insights: HumanApproachInsight[] = []
+  const dedupe = new Set<string>()
+
+  for (let i = 0; i < signals.length; i += 1) {
+    const current = signals[i]
+    if (!current || current.senderType !== "human") continue
+
+    const humanMessage = compactText(current.message, 190)
+    if (humanMessage.length < 12) continue
+
+    let leadSignal: LearningSignalSample | null = null
+    const windowEnd = Math.min(signals.length, i + 7)
+
+    for (let j = i + 1; j < windowEnd; j += 1) {
+      const candidate = signals[j]
+      if (!candidate) continue
+      if (candidate.senderType === "lead") {
+        leadSignal = candidate
+        break
+      }
+      if (candidate.senderType === "human") {
+        break
+      }
+    }
+
+    if (!leadSignal) continue
+
+    const leadReply = compactText(leadSignal.message, 170)
+    if (leadReply.length < 2) continue
+
+    const hasPositive = hasAny(leadReply, POSITIVE_HINTS) || hasAny(leadReply, SCHEDULE_HINTS)
+    const hasNegative = hasAny(leadReply, NEGATIVE_HINTS)
+    const hasCommitment = detectTaskCommitment(leadReply)
+
+    let score = 0
+    if (hasPositive) score += 2
+    if (leadReply.length >= 18) score += 1
+    if (hasCommitment) score += 1
+    if (hasNegative) score -= 3
+
+    if (score <= 0) continue
+
+    const dedupeKey = normalizeText(humanMessage).slice(0, 140)
+    if (!dedupeKey || dedupe.has(dedupeKey)) continue
+    dedupe.add(dedupeKey)
+
+    insights.push({
+      humanMessage,
+      leadReply,
+      score,
+      createdAt: String(current.created_at || leadSignal.created_at || ""),
+    })
+  }
+
+  return insights
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score
+      return String(b.createdAt).localeCompare(String(a.createdAt))
+    })
+    .slice(0, 4)
 }
 
 const INFORMAL_MARKERS = ["vc", "pq", "tb", "né", "ne", "hein", "kk", "kkk", "rs", "rsrs", "pra ", "ta ", "to ", "blz", "vlw", "obg", "flw", "hj", "amh", "msg"]
@@ -528,6 +606,7 @@ export class NativeAgentLearningService {
       .slice(-3)
       .map((signal) => signal.message)
       .filter(Boolean)
+    const humanApproachInsights = extractHumanApproachInsights(state.signals)
     const commitmentSignals = state.stats.taskCommitmentSignals
 
     const lines = [
@@ -557,6 +636,18 @@ export class NativeAgentLearningService {
     if (recentHumanSignals.length > 0) {
       lines.push(
         `- Exemplos de respostas do atendente humano desta unidade (aprenda o estilo, vocabulario e tom): ${recentHumanSignals.map((item) => `"${item}"`).join(" | ")}`,
+      )
+    }
+
+    if (humanApproachInsights.length > 0) {
+      lines.push("## ABORDAGENS HUMANAS QUE DESTRAVARAM CONVERSAS (usar como referencia, sem copiar literal):")
+      humanApproachInsights.forEach((item, index) => {
+        lines.push(
+          `- Caso ${index + 1}: abordagem "${item.humanMessage}" -> resposta positiva do lead "${item.leadReply}".`,
+        )
+      })
+      lines.push(
+        "- Quando o contexto for parecido, adapte essa linha de conducao junto do seu prompt base e da etapa atual da conversa.",
       )
     }
 

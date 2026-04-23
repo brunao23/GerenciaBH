@@ -4,6 +4,7 @@ import { getTablesForTenant } from "@/lib/helpers/tenant"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { TenantMessagingService } from "@/lib/services/tenant-messaging.service"
 import { AgentTaskQueueService } from "@/lib/services/agent-task-queue.service"
+import { NativeAgentLearningService } from "@/lib/services/native-agent-learning.service"
 import {
   normalizePhoneNumber,
   normalizeSessionId,
@@ -116,6 +117,14 @@ export async function POST(req: Request) {
         tenant,
         sessionId,
         phone,
+      })
+      .catch(() => {})
+
+    await new NativeAgentLearningService()
+      .trackConversationSignal({
+        tenant,
+        senderType: "human",
+        message,
       })
       .catch(() => {})
 

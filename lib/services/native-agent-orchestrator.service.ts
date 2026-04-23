@@ -6483,12 +6483,30 @@ export class NativeAgentOrchestratorService {
     ]
 
     if (params.config.postScheduleAutomationEnabled) {
-      console.info(
-        "[native-agent] post-schedule automation ignored: official reminder flow is authoritative",
-        {
-          tenant: params.tenant,
-          sessionId: params.sessionId,
-        },
+      const delayMinutes = Math.max(0, Number(params.config.postScheduleDelayMinutes ?? 2))
+      const runAt = new Date(Date.now() + delayMinutes * 60 * 1000).toISOString()
+      const messageText = this.buildPostScheduleMessageTemplate(params.config, params.contactName)
+      const mode = params.config.postScheduleMessageMode || "text"
+
+      tasks.push(
+        this.taskQueue
+          .enqueueReminder({
+            tenant: params.tenant,
+            sessionId: params.sessionId,
+            phone: params.phone,
+            message: messageText,
+            runAt,
+            metadata: {
+              source: "native_agent_post_schedule",
+              message_mode: mode,
+              media_url: String(params.config.postScheduleMediaUrl || "").trim(),
+              caption: String(params.config.postScheduleCaption || messageText).trim(),
+              file_name: String(params.config.postScheduleDocumentFileName || "").trim(),
+            },
+          })
+          .catch((err) => {
+            console.warn("[native-agent] failed to enqueue post-schedule message:", err)
+          }),
       )
     }
 

@@ -8,7 +8,6 @@
 
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { resolveTenantRegistryPrefix } from "@/lib/helpers/tenant-resolution"
-import { TenantMessagingService } from "@/lib/services/tenant-messaging.service"
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -70,14 +69,24 @@ export const TEMPLATE_VARIABLES = [
 
 interface Appointment {
   id: string
-  contato: string
-  nome_aluno: string | null
-  dia: string
-  horario: string
-  status: string
-  observacoes: string | null
-  session_id: string | null
-  numero: string | null
+  contato?: string | null
+  nome_aluno?: string | null
+  dia?: string | null
+  horario?: string | null
+  status?: string | null
+  observacoes?: string | null
+  session_id?: string | null
+  numero?: string | null
+}
+
+type ZonedDateInfo = {
+  year: number
+  month: number
+  day: number
+  hour: number
+  minute: number
+  second: number
+  dayOfWeek: number
 }
 
 export interface ReminderScheduleResult {
@@ -87,6 +96,119 @@ export interface ReminderScheduleResult {
   scheduled: number
   skipped: number
   errors: string[]
+}
+
+export const OFFICIAL_REMINDER_TYPES = ["3days", "1day", "4hours"] as const
+export type OfficialReminderType = (typeof OFFICIAL_REMINDER_TYPES)[number]
+const MINIMUM_LEAD_BEFORE_SEND_MS = 2 * 60 * 1000
+const APPOINTMENT_SELECT_COLUMNS = [
+  "id",
+  "contato",
+  "nome_aluno",
+  "dia",
+  "horario",
+  "status",
+  "observacoes",
+  "session_id",
+  "numero",
+]
+
+function extractMissingColumnName(error: any): string | null {
+  const message = String(error?.message || "")
+  if (!message) return null
+
+  const patterns = [
+    /Could not find the '([^']+)' column/i,
+    /column "([^"]+)" of relation .* does not exist/i,
+    /column "([^"]+)" does not exist/i,
+    /column ([a-zA-Z0-9_.]+) does not exist/i,
+  ]
+
+  for (const pattern of patterns) {
+    const match = message.match(pattern)
+    if (match?.[1]) {
+      const raw = String(match[1]).trim()
+      return raw.includes(".") ? raw.split(".").pop() || raw : raw
+    }
+  }
+  return null
+}
+
+function isMissingTableMessage(error: any): boolean {
+  const message = String(error?.message || "").toLowerCase()
+  const code = String(error?.code || "").toUpperCase()
+  return (
+    code === "42P01" ||
+    (message.includes("relation") && message.includes("does not exist")) ||
+    (message.includes("table") && message.includes("does not exist"))
+  )
+}
+
+async function fetchAppointmentsWithColumnFallback(input: {
+  supabase: ReturnType<typeof createBiaSupabaseServerClient>
+  table: string
+}): Promise<{ data: Appointment[] | null; error: any }> {
+  const columns = [...APPOINTMENT_SELECT_COLUMNS]
+  let attempts = 0
+
+  while (attempts < 20 && columns.length > 0) {
+    attempts += 1
+    const query = await input.supabase
+      .from(input.table)
+      .select(columns.join(","))
+      .in("status", ["agendado", "confirmado"])
+      .order("created_at", { ascending: false })
+      .limit(5000)
+
+    if (!query.error) {
+      return {
+        data: (Array.isArray(query.data) ? query.data : []) as Appointment[],
+        error: null,
+      }
+    }
+
+    if (isMissingTableMessage(query.error)) {
+      return { data: null, error: query.error }
+    }
+
+    const missingColumn = extractMissingColumnName(query.error)
+    if (missingColumn && columns.includes(missingColumn)) {
+      const index = columns.indexOf(missingColumn)
+      columns.splice(index, 1)
+      continue
+    }
+
+    return { data: null, error: query.error }
+  }
+
+  return {
+    data: null,
+    error: new Error(`Failed to query ${input.table}: all select columns removed by fallback`),
+  }
+}
+
+function normalizeReminderKeyPart(value: string): string {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_")
+    .replace(/[^a-z0-9_:/-]/g, "")
+}
+
+function buildReminderKey(input: {
+  tenant: string
+  appointmentId: string
+  type: OfficialReminderType
+  appointmentDate: string
+  appointmentTime: string
+}): string {
+  return [
+    normalizeReminderKeyPart(input.tenant),
+    normalizeReminderKeyPart(input.appointmentId),
+    normalizeReminderKeyPart(input.type),
+    normalizeReminderKeyPart(input.appointmentDate),
+    normalizeReminderKeyPart(input.appointmentTime),
+  ].join("_")
 }
 
 // ── Config helpers ───────────────────────────────────────────────────────
@@ -173,6 +295,112 @@ export async function saveReminderConfigForTenant(
 
 const DIAS_SEMANA = ["Domingo", "Segunda-feira", "Terca-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sabado"]
 
+const WEEKDAY_MAP: Record<string, number> = {
+  Sun: 0,
+  Mon: 1,
+  Tue: 2,
+  Wed: 3,
+  Thu: 4,
+  Fri: 5,
+  Sat: 6,
+}
+
+function getTimeZoneOffsetStringAt(date: Date, timezone: string): string {
+  try {
+    const utcMs = date.getTime()
+    const localParts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: timezone || "America/Sao_Paulo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    }).formatToParts(date)
+    const readPart = (type: string) => Number(localParts.find((p) => p.type === type)?.value ?? 0)
+    const localMs = Date.UTC(
+      readPart("year"),
+      readPart("month") - 1,
+      readPart("day"),
+      readPart("hour"),
+      readPart("minute"),
+      readPart("second"),
+    )
+    const offsetMinutes = Math.round((localMs - utcMs) / 60000)
+    const sign = offsetMinutes >= 0 ? "+" : "-"
+    const absMinutes = Math.abs(offsetMinutes)
+    const hh = String(Math.floor(absMinutes / 60)).padStart(2, "0")
+    const mm = String(absMinutes % 60).padStart(2, "0")
+    return `${sign}${hh}:${mm}`
+  } catch {
+    return "-03:00"
+  }
+}
+
+function buildDateInTimezone(input: {
+  year: number
+  month: number
+  day: number
+  hour: number
+  minute: number
+  second?: number
+  timezone: string
+}): Date | null {
+  const isoDate = `${String(input.year).padStart(4, "0")}-${String(input.month).padStart(2, "0")}-${String(input.day).padStart(2, "0")}`
+  const isoTime = `${String(input.hour).padStart(2, "0")}:${String(input.minute).padStart(2, "0")}:${String(
+    input.second ?? 0,
+  ).padStart(2, "0")}`
+  const utcGuess = new Date(`${isoDate}T${isoTime}Z`)
+  const offset = getTimeZoneOffsetStringAt(utcGuess, input.timezone)
+  const zoned = new Date(`${isoDate}T${isoTime}${offset}`)
+  return Number.isNaN(zoned.getTime()) ? null : zoned
+}
+
+function getDateInfoInTimezone(date: Date, timezone: string): ZonedDateInfo | null {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: timezone || "America/Sao_Paulo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      weekday: "short",
+      hour12: false,
+    }).formatToParts(date)
+    const read = (type: string): number => Number(parts.find((p) => p.type === type)?.value || 0)
+    const weekdayText = String(parts.find((p) => p.type === "weekday")?.value || "Sun")
+    return {
+      year: read("year"),
+      month: read("month"),
+      day: read("day"),
+      hour: read("hour"),
+      minute: read("minute"),
+      second: read("second"),
+      dayOfWeek: WEEKDAY_MAP[weekdayText] ?? date.getUTCDay(),
+    }
+  } catch {
+    return null
+  }
+}
+
+function addDaysToLocalDate(year: number, month: number, day: number, daysToAdd: number): {
+  year: number
+  month: number
+  day: number
+} {
+  const base = new Date(Date.UTC(year, month - 1, day, 12, 0, 0))
+  base.setUTCDate(base.getUTCDate() + daysToAdd)
+  return {
+    year: base.getUTCFullYear(),
+    month: base.getUTCMonth() + 1,
+    day: base.getUTCDate(),
+  }
+}
+
 function parseAppointmentDateTime(dia: string, horario: string, timezone: string): Date | null {
   if (!dia || !horario) return null
   if (dia.toLowerCase().includes("definir") || horario.toLowerCase().includes("definir")) return null
@@ -183,13 +411,13 @@ function parseAppointmentDateTime(dia: string, horario: string, timezone: string
     const parts = dia.split("/")
     if (parts.length !== 3) return null
     day = Number(parts[0])
-    month = Number(parts[1]) - 1
+    month = Number(parts[1])
     year = Number(parts[2])
   } else if (dia.includes("-")) {
     const parts = dia.split("-")
     if (parts.length !== 3) return null
     year = Number(parts[0])
-    month = Number(parts[1]) - 1
+    month = Number(parts[1])
     day = Number(parts[2])
   } else {
     return null
@@ -199,89 +427,116 @@ function parseAppointmentDateTime(dia: string, horario: string, timezone: string
   const timeParts = horario.split(":")
   const hours = Number(timeParts[0] || 0)
   const minutes = Number(timeParts[1] || 0)
+  const seconds = Number(timeParts[2] || 0)
 
   if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null
+  if (month < 1 || month > 12) return null
+  if (day < 1 || day > 31) return null
+  if (!Number.isFinite(hours) || hours < 0 || hours > 23) return null
+  if (!Number.isFinite(minutes) || minutes < 0 || minutes > 59) return null
+  if (!Number.isFinite(seconds) || seconds < 0 || seconds > 59) return null
   if (year < 2020 || year > 2030) return null
 
-  // Create date in the target timezone
-  const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}T${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:00`
-
-  try {
-    // Use Intl to get the offset for this timezone at this date
-    const formatter = new Intl.DateTimeFormat("en-US", {
-      timeZone: timezone,
-      year: "numeric", month: "2-digit", day: "2-digit",
-      hour: "2-digit", minute: "2-digit", second: "2-digit",
-      hour12: false,
-    })
-
-    // Parse as local time in the target timezone by creating a UTC date and adjusting
-    const utcGuess = new Date(`${dateStr}Z`)
-    const parts = formatter.formatToParts(utcGuess)
-    const tzHour = Number(parts.find(p => p.type === "hour")?.value || 0)
-    const offsetHours = tzHour - utcGuess.getUTCHours()
-
-    // Simpler approach: create date and manually adjust
-    const result = new Date(year, month, day, hours, minutes, 0)
-    return isNaN(result.getTime()) ? null : result
-  } catch {
-    const result = new Date(year, month, day, hours, minutes, 0)
-    return isNaN(result.getTime()) ? null : result
-  }
+  return buildDateInTimezone({
+    year,
+    month,
+    day,
+    hour: hours,
+    minute: minutes,
+    second: seconds,
+    timezone: timezone || "America/Sao_Paulo",
+  })
 }
 
 function adjustToBusinessHours(
   targetDate: Date,
   config: ReminderConfig,
 ): Date {
-  const result = new Date(targetDate)
+  const timezone = String(config.timezone || "America/Sao_Paulo").trim() || "America/Sao_Paulo"
+  const info = getDateInfoInTimezone(targetDate, timezone)
+  if (!info) return new Date(targetDate)
+
+  const businessDaysRaw = Array.isArray(config.businessDays) ? config.businessDays : []
+  const businessDays = Array.from(
+    new Set(
+      businessDaysRaw.filter((value): value is number => Number.isInteger(value) && value >= 0 && value <= 6),
+    ),
+  )
+  if (businessDays.length === 0) {
+    businessDays.push(...DEFAULT_REMINDER_CONFIG.businessDays)
+  }
+
   const [startH, startM] = config.businessStart.split(":").map(Number)
   const [endH, endM] = config.businessEnd.split(":").map(Number)
-  const startMinutes = (startH || 8) * 60 + (startM || 0)
-  const endMinutes = (endH || 20) * 60 + (endM || 0)
+  const safeStartH = Number.isFinite(startH) ? startH : 8
+  const safeStartM = Number.isFinite(startM) ? startM : 0
+  const safeEndH = Number.isFinite(endH) ? endH : 20
+  const safeEndM = Number.isFinite(endM) ? endM : 0
+  let startMinutes = safeStartH * 60 + safeStartM
+  let endMinutes = safeEndH * 60 + safeEndM
+  if (endMinutes <= startMinutes) {
+    startMinutes = 8 * 60
+    endMinutes = 20 * 60
+  }
+  const currentMinutes = info.hour * 60 + info.minute
 
-  const currentMinutes = result.getHours() * 60 + result.getMinutes()
-  const dayOfWeek = result.getDay()
+  const isBusinessDay = businessDays.includes(info.dayOfWeek)
+  const isWithinBusinessTime = currentMinutes >= startMinutes && currentMinutes < endMinutes
 
-  // If outside business days, move to next business day at start time
-  if (!config.businessDays.includes(dayOfWeek)) {
-    for (let i = 1; i <= 7; i++) {
-      result.setDate(result.getDate() + 1)
-      if (config.businessDays.includes(result.getDay())) {
-        result.setHours(startH || 8, startM || 0, 0, 0)
-        return result
-      }
-    }
+  if (isBusinessDay && isWithinBusinessTime) {
+    return new Date(targetDate)
   }
 
-  // If before business hours, set to start
-  if (currentMinutes < startMinutes) {
-    result.setHours(startH || 8, startM || 0, 0, 0)
-    return result
+  if (isBusinessDay && currentMinutes < startMinutes) {
+    return (
+      buildDateInTimezone({
+        year: info.year,
+        month: info.month,
+        day: info.day,
+        hour: Math.floor(startMinutes / 60),
+        minute: startMinutes % 60,
+        second: 0,
+        timezone,
+      }) || new Date(targetDate)
+    )
   }
 
-  // If after business hours, move to next business day start
-  if (currentMinutes >= endMinutes) {
-    for (let i = 1; i <= 7; i++) {
-      result.setDate(result.getDate() + 1)
-      if (config.businessDays.includes(result.getDay())) {
-        result.setHours(startH || 8, startM || 0, 0, 0)
-        return result
-      }
-    }
+  const firstDayOffset = isBusinessDay ? 1 : 0
+  for (let offset = firstDayOffset; offset <= 8; offset += 1) {
+    const dayParts = addDaysToLocalDate(info.year, info.month, info.day, offset)
+    const noon = buildDateInTimezone({
+      ...dayParts,
+      hour: 12,
+      minute: 0,
+      second: 0,
+      timezone,
+    })
+    const weekdayInfo = noon ? getDateInfoInTimezone(noon, timezone) : null
+    if (!weekdayInfo || !businessDays.includes(weekdayInfo.dayOfWeek)) continue
+
+    const nextBusiness = buildDateInTimezone({
+      ...dayParts,
+      hour: Math.floor(startMinutes / 60),
+      minute: startMinutes % 60,
+      second: 0,
+      timezone,
+    })
+    if (nextBusiness) return nextBusiness
   }
 
-  return result
+  return new Date(targetDate)
 }
 
-function renderTemplate(
+export function renderReminderTemplate(
   template: string,
   appointment: Appointment,
   appointmentDate: Date,
+  timezone: string,
 ): string {
   const nome = appointment.nome_aluno || "voce"
   const primeiroNome = nome.split(" ")[0]
-  const diaSemana = DIAS_SEMANA[appointmentDate.getDay()] || ""
+  const appointmentDateInfo = getDateInfoInTimezone(appointmentDate, timezone)
+  const diaSemana = DIAS_SEMANA[appointmentDateInfo?.dayOfWeek ?? appointmentDate.getDay()] || ""
   const hasLeadName = Boolean(primeiroNome && primeiroNome.toLowerCase() !== "voce")
   const saudacaoOlaTudoBem = hasLeadName
     ? `Ola, ${primeiroNome}! Tudo bem? 😊`
@@ -308,6 +563,25 @@ function renderTemplate(
     .trim()
 }
 
+export function renderOfficialReminderMessageFromConfig(input: {
+  config: ReminderConfig
+  reminderType: OfficialReminderType
+  appointment: Pick<Appointment, "nome_aluno" | "dia" | "horario" | "observacoes">
+}): string {
+  const appointmentDate = parseAppointmentDateTime(
+    input.appointment.dia,
+    input.appointment.horario,
+    input.config.timezone,
+  )
+
+  if (!appointmentDate) return ""
+
+  const template =
+    input.config.templates[input.reminderType] || DEFAULT_REMINDER_CONFIG.templates[input.reminderType]
+
+  return renderReminderTemplate(template, input.appointment as Appointment, appointmentDate, input.config.timezone)
+}
+
 // ── Main scheduler ───────────────────────────────────────────────────────
 
 export async function scheduleRemindersForTenant(
@@ -325,28 +599,62 @@ export async function scheduleRemindersForTenant(
 
   try {
     const config = await getReminderConfigForTenant(tenant)
+    const supabase = createBiaSupabaseServerClient()
+    const agendamentosTable = `${tenant}_agendamentos`
+    const taskQueueTable = "agent_task_queue"
+
+    // Force mode: cancel pending official reminders to resync templates/timing from current config
+    if (options?.force && !options?.dryRun) {
+      try {
+        const { data: pendingRows } = await supabase
+          .from(taskQueueTable)
+          .select("id, payload")
+          .eq("tenant", tenant)
+          .eq("task_type", "reminder")
+          .eq("status", "pending")
+          .limit(5000)
+
+        const idsToCancel = (pendingRows || [])
+          .filter((row: any) =>
+            OFFICIAL_REMINDER_TYPES.includes(
+              String(row?.payload?.reminder_type || "").trim().toLowerCase() as OfficialReminderType,
+            ),
+          )
+          .map((row: any) => String(row?.id || "").trim())
+          .filter(Boolean)
+
+        if (idsToCancel.length > 0) {
+          await supabase
+            .from(taskQueueTable)
+            .update({
+              status: "cancelled",
+              last_error: "cancelled_by_reminder_config_resync",
+            })
+            .in("id", idsToCancel)
+        }
+      } catch (forceError: any) {
+        result.errors.push(`Force resync warning: ${String(forceError?.message || forceError)}`)
+      }
+    }
+
     if (!config.enabled) {
-      result.errors.push("Reminders disabled")
+      result.success = true
       return result
     }
 
-    const supabase = createBiaSupabaseServerClient()
-    const agendamentosTable = `${tenant}_agendamentos`
-
     // Fetch upcoming appointments (next 4 days) that are confirmed/agendado
-    const { data: appointments, error } = await supabase
-      .from(agendamentosTable)
-      .select("id, contato, nome_aluno, dia, horario, status, observacoes, session_id, numero")
-      .in("status", ["agendado", "confirmado", "pendente"])
-      .order("created_at", { ascending: false })
-      .limit(500)
+    const { data: appointments, error } = await fetchAppointmentsWithColumnFallback({
+      supabase,
+      table: agendamentosTable,
+    })
 
     if (error) {
-      if (error.message?.includes("does not exist")) {
+      if (isMissingTableMessage(error)) {
         result.errors.push(`Table ${agendamentosTable} not found`)
         return result
       }
-      throw error
+      result.errors.push(`Failed to query appointments from ${agendamentosTable}: ${String(error?.message || error)}`)
+      return result
     }
 
     if (!appointments || appointments.length === 0) {
@@ -355,7 +663,6 @@ export async function scheduleRemindersForTenant(
     }
 
     const now = new Date()
-    const taskQueueTable = "agent_task_queue"
 
     // Load already-scheduled reminders to avoid duplicates
     const existingReminders = new Set<string>()
@@ -369,8 +676,34 @@ export async function scheduleRemindersForTenant(
         .limit(2000)
 
       for (const row of existing || []) {
-        const key = row.payload?.reminder_key
-        if (key) existingReminders.add(key)
+        const payload = row?.payload && typeof row.payload === "object" ? row.payload : {}
+        const key = String(payload?.reminder_key || "").trim()
+        if (key) {
+          existingReminders.add(key)
+          continue
+        }
+
+        const legacyAppointmentId = String(payload?.appointment_id || "").trim()
+        const legacyReminderType = String(payload?.reminder_type || "").trim().toLowerCase() as OfficialReminderType
+        const legacyAppointmentDate = String(payload?.appointment_date || "").trim()
+        const legacyAppointmentTime = String(payload?.appointment_time || "").trim()
+
+        if (
+          legacyAppointmentId &&
+          OFFICIAL_REMINDER_TYPES.includes(legacyReminderType) &&
+          legacyAppointmentDate &&
+          legacyAppointmentTime
+        ) {
+          existingReminders.add(
+            buildReminderKey({
+              tenant,
+              appointmentId: legacyAppointmentId,
+              type: legacyReminderType,
+              appointmentDate: legacyAppointmentDate,
+              appointmentTime: legacyAppointmentTime,
+            }),
+          )
+        }
       }
     } catch {}
 
@@ -415,7 +748,13 @@ export async function scheduleRemindersForTenant(
       for (const rt of reminderTypes) {
         if (!rt.enabled) continue
 
-        const reminderKey = `${tenant}_${appointment.id}_${rt.type}`
+        const reminderKey = buildReminderKey({
+          tenant,
+          appointmentId: String(appointment.id || "").trim(),
+          type: rt.type,
+          appointmentDate: String(appointment.dia || "").trim(),
+          appointmentTime: String(appointment.horario || "").trim(),
+        })
 
         // Skip if already scheduled
         if (existingReminders.has(reminderKey)) continue
@@ -435,9 +774,13 @@ export async function scheduleRemindersForTenant(
         // Still in the past after adjustment? Skip
         if (sendAt.getTime() < now.getTime()) continue
 
+        // Avoid instant triggers right after scheduling sync.
+        if (sendAt.getTime() - now.getTime() < MINIMUM_LEAD_BEFORE_SEND_MS) continue
+
         // Render message
         const template = config.templates[rt.type] || DEFAULT_REMINDER_CONFIG.templates[rt.type]
-        const message = renderTemplate(template, appointment, appointmentDate)
+        const message = renderReminderTemplate(template, appointment, appointmentDate, config.timezone)
+        if (!message) continue
 
         if (options?.dryRun) {
           result.scheduled++
@@ -454,6 +797,7 @@ export async function scheduleRemindersForTenant(
             message,
             reminder_key: reminderKey,
             reminder_type: rt.type,
+            official_reminder: true,
             appointment_id: appointment.id,
             appointment_date: appointment.dia,
             appointment_time: appointment.horario,

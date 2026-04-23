@@ -8,6 +8,12 @@ import {
   parseTenantBusinessHours,
   type TenantBusinessHours,
 } from "@/lib/helpers/business-hours"
+import {
+  getReminderConfigForTenant,
+  OFFICIAL_REMINDER_TYPES,
+  renderOfficialReminderMessageFromConfig,
+  type OfficialReminderType,
+} from "@/lib/services/reminder-scheduler.service"
 import { GeminiService } from "@/lib/services/gemini.service"
 import { normalizePhoneNumber, normalizeSessionId, TenantChatHistoryService } from "./tenant-chat-history.service"
 import { TenantMessagingService } from "./tenant-messaging.service"
@@ -290,6 +296,38 @@ function normalizeLeadName(name?: string): string {
   return ""
 }
 
+function extractTrustedLeadNameFromHistory(
+  history: Array<{ role: "user" | "assistant"; content: string; createdAt?: string }>,
+): string {
+  const userMessages = history
+    .filter((entry) => entry.role === "user")
+    .map((entry) => String(entry.content || "").trim())
+    .filter(Boolean)
+    .slice(-30)
+
+  if (!userMessages.length) return ""
+
+  const patterns = [
+    /\bmeu nome\s*(?:e|é)\s+([A-Za-zÀ-ÖØ-öø-ÿ]{2,}(?:\s+[A-Za-zÀ-ÖØ-öø-ÿ]{2,}){0,2})\b/i,
+    /\bpode me chamar de\s+([A-Za-zÀ-ÖØ-öø-ÿ]{2,}(?:\s+[A-Za-zÀ-ÖØ-öø-ÿ]{2,}){0,2})\b/i,
+    /\bme chamo\s+([A-Za-zÀ-ÖØ-öø-ÿ]{2,}(?:\s+[A-Za-zÀ-ÖØ-öø-ÿ]{2,}){0,2})\b/i,
+    /\bsou o\s+([A-Za-zÀ-ÖØ-öø-ÿ]{2,}(?:\s+[A-Za-zÀ-ÖØ-öø-ÿ]{2,}){0,2})\b/i,
+    /\bsou a\s+([A-Za-zÀ-ÖØ-öø-ÿ]{2,}(?:\s+[A-Za-zÀ-ÖØ-öø-ÿ]{2,}){0,2})\b/i,
+  ]
+
+  for (let i = userMessages.length - 1; i >= 0; i -= 1) {
+    const message = userMessages[i]
+    for (const pattern of patterns) {
+      const match = message.match(pattern)
+      if (!match?.[1]) continue
+      const candidate = normalizeLeadName(match[1])
+      if (candidate) return candidate
+    }
+  }
+
+  return ""
+}
+
 function buildGreeting(leadName?: string): string {
   const normalized = normalizeLeadName(leadName)
   return normalized ? `Oi ${normalized}` : "Oi"
@@ -363,14 +401,14 @@ function isLikelyInternalTaskInstructionMessage(message: string): boolean {
   const text = normalizeComparableText(message)
   if (!text) return true
 
-  const startsWithInternalVerb = /^(verificar|checar|confirmar|validar|analisar|acompanhar|atualizar|revisar|monitorar|avaliar|registrar)\b/.test(
+  const startsWithInternalVerb = /^(verificar|checar|confirmar|validar|analisar|acompanhar|atualizar|revisar|monitorar|avaliar|registrar|retomar|reagendar|ligar|contactar|notificar|informar|solicitar|enviar mensagem|entrar em contato)\b/.test(
     text,
   )
   const startsAsChecklist = /^(\d+[\.\)]\s*|checklist\b|tarefa\b|acao\b|acao:\b|ação\b|ação:\b)/.test(
     text,
   )
   const mentionsSystemMeta =
-    /\b(lead|crm|pipeline|task|tarefas|cron|fila|queue|diagnostico na|diagnostico do|agendamento na)\b/.test(
+    /\b(lead|crm|pipeline|task|tarefas|cron|fila|queue|diagnostico na|diagnostico do|diagnostico no|diagnostico de|diagnostico da|agendamento na|agendamento do|agendar diagnostico)\b/.test(
       text,
     )
   const addressesLeadDirectly =
@@ -394,13 +432,19 @@ function isInternalReminderLeakMessage(message: string): boolean {
   const internalSignals = [
     "lead pediu retorno",
     "retomar atendimento",
+    "retomar contato",
     "validar pendencia",
     "atendente assumiu compromisso",
     "compromisso de retorno",
     "prazo combinado",
     "retornar contato",
+    "entrar em contato com",
     "para o lead",
     "conforme solicitado",
+    "conforme combinado",
+    "conforme acordado",
+    "para agendar",
+    "ligar para",
     "conversation listener",
     "queue",
     "fila",
@@ -904,7 +948,6 @@ export class AgentTaskQueueService {
   }): Promise<string> {
     const step = Math.max(1, Number(input.payload?.followup_step || 1))
     const totalSteps = Math.max(step, Number(input.payload?.followup_total_steps || step))
-    const payloadLeadName = String(input.payload?.lead_name || "").trim()
     const payloadUser = String(input.payload?.last_user_message || input.payload?.context_excerpt || "").trim()
     const payloadAgent = String(input.payload?.last_agent_message || "").trim()
     const runtime = await this.loadFollowupRuntimeConfig(input.tenant)
@@ -920,11 +963,15 @@ export class AgentTaskQueueService {
         }))
         .filter((turn) => turn.content && !isSystemNoiseForFollowup(turn.content))
 
+      const trustedLeadName = extractTrustedLeadNameFromHistory(cleaned)
+      // Regra global: follow-up so usa nome se o proprio lead confirmou no historico.
+      const leadNameForFollowup = trustedLeadName || ""
+
       if (!cleaned.length) {
         const fallback = buildRuntimeContextualFollowupMessage({
           step,
           totalSteps,
-          leadName: payloadLeadName,
+          leadName: "",
           lastUserMessage: payloadUser,
           lastAgentMessage: payloadAgent,
         })
@@ -951,7 +998,7 @@ export class AgentTaskQueueService {
         tenant: input.tenant,
         step,
         totalSteps,
-        leadName: payloadLeadName,
+        leadName: leadNameForFollowup,
         pendingQuestion,
         lastUserMessage,
         lastAgentMessage,
@@ -971,7 +1018,7 @@ export class AgentTaskQueueService {
       const fallback = buildRuntimeContextualFollowupMessage({
         step,
         totalSteps,
-        leadName: payloadLeadName,
+        leadName: leadNameForFollowup,
         pendingQuestion,
         lastUserMessage,
         lastAgentMessage,
@@ -990,7 +1037,7 @@ export class AgentTaskQueueService {
         return fallbackSanitized
       }
 
-      const greet = buildGreeting(payloadLeadName)
+      const greet = buildGreeting(leadNameForFollowup)
       const emergency = step <= 3
         ? `${greet}, seu atendimento esta em aberto aqui. Me avisa se posso dar sequencia?`
         : `${greet}, vou encerrar seu atendimento em breve. Qualquer coisa, e so me chamar.`
@@ -1003,7 +1050,7 @@ export class AgentTaskQueueService {
       const fallback = buildRuntimeContextualFollowupMessage({
         step,
         totalSteps,
-        leadName: payloadLeadName,
+        leadName: "",
         lastUserMessage: payloadUser,
         lastAgentMessage: payloadAgent,
       })
@@ -1011,7 +1058,7 @@ export class AgentTaskQueueService {
       if (!hasForbiddenIdentityDisclosure(fallbackSanitized)) {
         return fallbackSanitized
       }
-      const greet = buildGreeting(payloadLeadName)
+      const greet = buildGreeting("")
       return sanitizeFollowupText(`${greet}, se fizer sentido, seguimos seu atendimento por aqui.`, 280)
     }
   }
@@ -1279,7 +1326,7 @@ export class AgentTaskQueueService {
     }
   }
 
-  private async isLeadPaused(tenant: string, phone: string): Promise<boolean> {
+  public async isLeadPaused(tenant: string, phone: string): Promise<boolean> {
     try {
       const tables = getTablesForTenant(tenant)
       const normalized = normalizePhoneNumber(phone)
@@ -1356,6 +1403,34 @@ export class AgentTaskQueueService {
     if (!raw) return ""
     if (isInternalReminderLeakMessage(raw)) return ""
     return raw
+  }
+
+  private async resolveOfficialReminderMessage(input: {
+    tenant: string
+    payload: Record<string, any>
+  }): Promise<string | null> {
+    const reminderTypeRaw = String(input.payload?.reminder_type || "")
+      .trim()
+      .toLowerCase() as OfficialReminderType
+    if (!OFFICIAL_REMINDER_TYPES.includes(reminderTypeRaw)) return null
+
+    const appointmentDate = String(input.payload?.appointment_date || "").trim()
+    const appointmentTime = String(input.payload?.appointment_time || "").trim()
+    if (!appointmentDate || !appointmentTime) return null
+
+    const config = await getReminderConfigForTenant(input.tenant)
+    const message = renderOfficialReminderMessageFromConfig({
+      config,
+      reminderType: reminderTypeRaw,
+      appointment: {
+        nome_aluno: String(input.payload?.lead_name || input.payload?.nome_aluno || "").trim() || "voce",
+        dia: appointmentDate,
+        horario: appointmentTime,
+        observacoes: String(input.payload?.servico || input.payload?.observacoes || "").trim(),
+      },
+    })
+
+    return message || null
   }
 
   private async dispatchTaskMessage(input: {
@@ -1617,6 +1692,8 @@ export class AgentTaskQueueService {
       const sendToLead = payload?.send_to_lead !== false
       const isOfficialReminder =
         taskType === "reminder" && ["3days", "1day", "4hours"].includes(reminderType)
+      const isPostScheduleReminder =
+        taskType === "reminder" && reminderSource === "native_agent_post_schedule"
       const isConversationListenerTask =
         taskType === "reminder" &&
         (reminderSource === "conversation_listener_llm" ||
@@ -1690,7 +1767,7 @@ export class AgentTaskQueueService {
         runtimeConfig = await this.loadFollowupRuntimeConfig(tenant)
       }
 
-      if (taskType === "reminder" && !isOfficialReminder && !isConversationListenerTask) {
+      if (taskType === "reminder" && !isConversationListenerTask) {
         if (!isWithinBusinessHours(runtimeConfig?.businessHours)) {
           const deferredRunAt = adjustToBusinessHours(new Date(), runtimeConfig?.businessHours).toISOString()
           result.skipped += 1
@@ -1720,6 +1797,8 @@ export class AgentTaskQueueService {
         continue
       }
 
+      // post_schedule tasks fluem normalmente para dispatchTaskMessage
+
       let isFallbackReminder = false
       if (taskType === "reminder") {
         const raw = stripTaskPrefix(String(message).trim())
@@ -1733,9 +1812,14 @@ export class AgentTaskQueueService {
         this.isLeadTerminal(tenant, sessionId),
       ])
 
-      const isPostScheduleReminder = reminderSource === "native_agent_post_schedule"
-      const shouldCancelAsPaused = paused && !isOfficialReminder && !isPostScheduleReminder
-      const shouldCancelAsTerminal = terminal && !isOfficialReminder && !isPostScheduleReminder
+      // REGRA ABSOLUTA DE PAUSA:
+      // Leads pausados NÃO recebem NENHUMA interação da IA, exceto:
+      //   1. isOfficialReminder  → lembretes de pós-agendamento (3days, 1day, 4hours)
+      //   2. isPostScheduleReminder → mensagem automática de pós-agendamento
+      // Qualquer outro tipo (followup, disparo, reengagement, welcome, etc.) é BLOQUEADO.
+      const isExemptFromPause = isOfficialReminder || isPostScheduleReminder
+      const shouldCancelAsPaused = paused && !isExemptFromPause
+      const shouldCancelAsTerminal = terminal && !isExemptFromPause
 
       if (shouldCancelAsPaused || shouldCancelAsTerminal) {
         result.skipped += 1
@@ -1869,6 +1953,16 @@ export class AgentTaskQueueService {
           continue
         }
       } else if (taskType === "reminder") {
+        if (isOfficialReminder) {
+          const renderedOfficialMessage = await this.resolveOfficialReminderMessage({
+            tenant,
+            payload,
+          })
+          if (renderedOfficialMessage) {
+            message = renderedOfficialMessage
+          }
+        }
+
         message = this.resolveSafeReminderMessage({ message, payload })
         if (!message) {
           result.skipped += 1

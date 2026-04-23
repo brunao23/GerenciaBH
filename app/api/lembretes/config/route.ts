@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { resolveTenant } from "@/lib/helpers/resolve-tenant"
 import {
   getReminderConfigForTenant,
+  scheduleRemindersForTenant,
   saveReminderConfigForTenant,
   TEMPLATE_VARIABLES,
   type ReminderConfig,
@@ -47,7 +48,10 @@ export async function PATCH(req: Request) {
       businessDays: Array.isArray(body.businessDays)
         ? body.businessDays.filter((d: any) => typeof d === "number" && d >= 0 && d <= 6)
         : current.businessDays,
-      timezone: body.timezone || current.timezone,
+      timezone:
+        typeof body.timezone === "string" && body.timezone.trim().length > 0
+          ? body.timezone.trim()
+          : current.timezone,
       templates: {
         "3days": typeof body.templates?.["3days"] === "string"
           ? body.templates["3days"].slice(0, 1000)
@@ -62,8 +66,9 @@ export async function PATCH(req: Request) {
     }
 
     await saveReminderConfigForTenant(tenant, updated)
+    const sync = await scheduleRemindersForTenant(tenant, { force: true })
 
-    return NextResponse.json({ success: true, config: updated })
+    return NextResponse.json({ success: true, config: updated, sync })
   } catch (error: any) {
     return NextResponse.json(
       { error: error?.message || "Falha ao salvar configuracao" },

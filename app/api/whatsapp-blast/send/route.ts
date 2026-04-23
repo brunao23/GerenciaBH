@@ -315,6 +315,42 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "number is required" }, { status: 400 })
     }
 
+    // REGRA ABSOLUTA: leads pausados NÃO recebem disparos (blast).
+    // Exceções: nenhuma — blast nunca é pós-agendamento ou lembrete oficial.
+    try {
+      const supabase = createBiaSupabaseServerClient()
+      const { getTablesForTenant: _getTables } = require("@/lib/helpers/tenant")
+      const tables = _getTables(tenant)
+      const phoneWithoutCountry = phone.startsWith("55") ? phone.slice(2) : phone
+      const { data: pauseRow } = await supabase
+        .from(tables.pausar)
+        .select("pausar, paused_until")
+        .in("numero", [phone, phoneWithoutCountry])
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (pauseRow?.pausar === true || String(pauseRow?.pausar || "").toLowerCase() === "true") {
+        const pausedUntilStr = String(pauseRow?.paused_until || "").trim()
+        const pausedUntilDate = pausedUntilStr ? new Date(pausedUntilStr) : null
+        const isStillPaused =
+          !pausedUntilDate ||
+          (Number.isFinite(pausedUntilDate.getTime()) && pausedUntilDate.getTime() > Date.now())
+        if (isStillPaused) {
+          console.log(`[Blast] Lead ${phone} está PAUSADO. Mensagem ignorada (tenant: ${tenant}).`)
+          return NextResponse.json({
+            success: true,
+            skipped: true,
+            reason: "lead_paused",
+            phone,
+          })
+        }
+      }
+    } catch (pauseCheckError: any) {
+      // Falha silenciosa: se não conseguir checar a pausa, prossegue com cautela
+      console.warn(`[Blast] Falha ao verificar pausa do lead ${phone}:`, pauseCheckError?.message)
+    }
+
+
     const useAi = body?.useAi === true || body?.useAi === "true"
     const openaiApiKey = String(body?.openaiApiKey || process.env.OPENAI_API_KEY || "").trim()
 
