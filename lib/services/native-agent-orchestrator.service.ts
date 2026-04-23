@@ -3857,8 +3857,24 @@ export class NativeAgentOrchestratorService {
       "- PROIBIDO: usar 'dia 30/04', 'quinta-feira, 30 de abril' ou qualquer formato de data numerica. Use APENAS o dia da semana e o horario: 'quinta as 18h30'.",
     ] as (string | null)[]).filter((v): v is string => v !== null).join("\n")
 
+    const nowForPrompt = getNowPartsForTimezone(config.timezone || "America/Sao_Paulo")
+    const _weekdayNamesPt = ["domingo", "segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado"]
+    const _monthNamesPt = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"]
+    const _nowTzDate = new Date(`${nowForPrompt.year}-${String(nowForPrompt.month).padStart(2,"0")}-${String(nowForPrompt.day).padStart(2,"0")}T12:00:00Z`)
+    const _weekdayIndex = _nowTzDate.getUTCDay()
+    const currentDateTimeBlock = [
+      "CONTEXTO TEMPORAL ATUAL (dados em tempo real — use-os sempre que o lead perguntar sobre data, hora ou dia):",
+      `- Data de hoje: ${_weekdayNamesPt[_weekdayIndex]}, ${String(nowForPrompt.day).padStart(2, "0")} de ${_monthNamesPt[(nowForPrompt.month ?? 1) - 1] ?? ""} de ${nowForPrompt.year}`,
+      `- Hora atual: ${String(nowForPrompt.hour).padStart(2, "0")}:${String(nowForPrompt.minute).padStart(2, "0")}`,
+      `- Fuso horário: ${config.timezone || "America/Sao_Paulo"}`,
+      "- Use SEMPRE estes valores quando o lead perguntar que dia é hoje, que horas são, ou qualquer referência ao momento presente.",
+      "- PROIBIDO inventar ou deduzir datas com base no seu conhecimento de treinamento. Use exclusivamente os valores acima.",
+    ].join("\n")
+
     const pieces = [
       resolvedPromptBase,
+      "",
+      currentDateTimeBlock,
       "",
       schedulingAndFlowBlock,
       "",
