@@ -2741,13 +2741,17 @@ export class NativeAgentOrchestratorService {
         .catch(() => {})
     }
 
-    const blocks = hasSuccessfulSchedulingAction
+    const rawBlocks = hasSuccessfulSchedulingAction
       ? [responseText]
       : isInstagramCommentChannel
         ? [responseText]
         : config.splitLongMessagesEnabled
           ? splitLongMessageIntoBlocks(responseText, config.messageBlockMaxChars)
           : [responseText]
+    const allowEmojisInBlocks = config.moderateEmojiEnabled !== false
+    const blocks = rawBlocks.map((b) =>
+      allowEmojisInBlocks ? moveLeadingEmojisToEnd(b) : b,
+    )
     const contextualReplyDecision = decideContextualReplyUsage({
       enabled: config.replyEnabled !== false,
       replyToMessageId: input.replyToMessageId,
@@ -3637,7 +3641,7 @@ export class NativeAgentOrchestratorService {
       ? `- Frequência alvo de uso do primeiro nome: ${config.firstNameUsagePercent}% das respostas, sem exagerar.`
       : "- Frequência alvo de uso do primeiro nome: 0%."
     const emojiRule = config.moderateEmojiEnabled
-      ? "- USO DE EMOJIS (OBRIGATÓRIO): A unidade habilitou emojis. Você DEVE utilizar emojis nas suas respostas de forma equilibrada para gerar conexão. REGRA FIXA: emoji somente no final da frase, nunca no início. ATENÇÃO: NUNCA copie emojis do display name ou mensagens do lead — use apenas emojis escolhidos por você para o contexto."
+      ? "- USO DE EMOJIS: Você pode usar emojis nas respostas de forma equilibrada para gerar conexão. PROIBIDO ABSOLUTO: NUNCA coloque emoji no início de uma frase ou mensagem. Emoji vai SEMPRE ao final da frase, após o ponto final ou reticências. NUNCA copie emojis do display name ou mensagens do lead — use apenas emojis escolhidos por você para o contexto."
       : "- Não use emojis nas respostas. NUNCA reproduza emojis que apareçam no display name ou mensagens do lead."
     const reactionsRule = config.reactionsEnabled
       ? "- REAÇÕES (OBRIGATÓRIO): A unidade habilitou as reações. Quando o lead enviar foto, elogio, confirmação ou mensagem curta (ex: 'ok', 'perfeito'), você DEVE reagir enviando um emoji na chamada da ferramenta (se disponível)."
