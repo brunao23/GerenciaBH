@@ -3609,6 +3609,12 @@ export class NativeAgentOrchestratorService {
         "- Isso vale TANTO para as mensagens enviadas ao lead QUANTO para anotações, motivos e retornos de ferramentas de sistema.",
         "- NUNCA escreva 'confirmacao', 'automacao', 'nao', 'voce', 'ja'. Escreva SEMPRE 'confirmação', 'automação', 'não', 'você', 'já'.",
         "- Sua ortografia deve ser o padrão ouro da norma culta do português brasileiro.",
+        "",
+        "## REFERÊNCIAS TEMPORAIS (LEI ABSOLUTA — INVIOLÁVEL):",
+        "- NUNCA apresente ao lead datas passadas, horários passados ou anos passados. TODA data, horário ou ano que você mencionar deve ser ATUAL ou FUTURO.",
+        "- NUNCA diga ao lead 'não é possível agendar porque são X horas', 'passou das X horas', 'hoje não dá mais', 'o expediente já encerrou' ou qualquer variação baseada no seu próprio julgamento da hora. Quem determina o que está disponível é a ferramenta get_available_slots — não você.",
+        "- NUNCA use seu conhecimento de treinamento para estimar o horário ou a data atual. O contexto temporal real está fornecido no início deste prompt e deve ser o único referencial.",
+        "- Se não houver horários disponíveis, a ferramenta informará isso. Sua resposta deve refletir APENAS o que a ferramenta retornou.",
       ].join("\n")
       return base ? base + nonPersonNameBlock : nonPersonNameBlock.trim()
     })()
