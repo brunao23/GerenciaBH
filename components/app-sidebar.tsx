@@ -13,6 +13,7 @@ import {
   SidebarMenuItem,
   SidebarSeparator,
   SidebarRail,
+  useSidebar,
 } from "@/components/ui/sidebar"
 import { usePathname, useRouter } from "next/navigation"
 import {
@@ -50,6 +51,7 @@ const items = [
 ]
 
 export function AppSidebar() {
+  const { isMobile, setOpenMobile } = useSidebar()
   const pathname = usePathname()
   const router = useRouter()
   const [sessionData, setSessionData] = useState<any>(null)
@@ -154,7 +156,13 @@ export function AppSidebar() {
                         }
                       `}
                     >
-                      <Link href={item.url} className="flex items-center gap-3 w-full">
+                      <Link
+                        href={item.url}
+                        onClick={() => {
+                          if (isMobile) setOpenMobile(false)
+                        }}
+                        className="flex items-center gap-3 w-full"
+                      >
                         <Icon
                           className={`h-[18px] w-[18px] transition-colors duration-200 ${
                             active ? "text-[var(--accent-green)]" : ""

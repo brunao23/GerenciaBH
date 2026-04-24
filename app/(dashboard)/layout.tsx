@@ -19,8 +19,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <SidebarProvider>
       <AppSidebar />
-      <SidebarInset>
-          <header className="sticky top-0 z-10 flex h-14 sm:h-16 items-center gap-2 sm:gap-3 border-b border-border bg-card/90 px-3 sm:px-4 backdrop-blur-xl safe-area-top">
+      <SidebarInset className="min-h-dvh max-h-dvh overflow-hidden">
+          <header className="sticky top-0 z-20 flex h-14 sm:h-16 items-center gap-2 sm:gap-3 border-b border-border bg-card/90 px-3 sm:px-4 backdrop-blur-xl safe-area-top">
             <SidebarTrigger className="genial-hover border border-transparent hover:border-primary/30 hover:bg-primary/8 rounded-lg" />
             <div className="font-semibold text-primary font-display tracking-tight text-sm sm:text-base">GerencIA</div>
             <div className="ml-auto flex items-center gap-2">
@@ -36,7 +36,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </button>
             </div>
           </header>
-          <main className="p-3 sm:p-4 md:p-6 genial-scrollbar scroll-smooth-gpu overflow-auto safe-area-bottom">{children}</main>
+          <main className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-3 sm:p-4 md:p-6 pb-24 md:pb-6 genial-scrollbar scroll-smooth-gpu safe-area-bottom">
+            {children}
+          </main>
           <Suspense fallback={null}>
             <FeedbackWidget />
             <NotificationCenter />

@@ -30,7 +30,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Search, MessageSquare, Phone, User, Clock, AlertCircle, CheckCircle2, PauseCircle, PlayCircle, Calendar, UserMinus, Loader2, Briefcase, Target, Clock3, Sparkles, Zap, Download, ListChecks, XCircle, Send, Trash2, Edit2, DollarSign, Copy, RefreshCcw, GraduationCap } from "lucide-react"
+import { Search, MessageSquare, Phone, User, Clock, AlertCircle, CheckCircle2, PauseCircle, PlayCircle, Calendar, UserMinus, Loader2, Briefcase, Target, Clock3, Sparkles, Zap, Download, ListChecks, XCircle, Send, Trash2, Edit2, DollarSign, Copy, RefreshCcw, GraduationCap, ArrowLeft } from "lucide-react"
 import { useTenant } from "@/lib/contexts/TenantContext"
 import { resolveAvatarImageSrc } from "@/lib/helpers/avatar-proxy"
 import { toast } from "sonner"
@@ -862,6 +862,8 @@ export default function ConversasPage() {
     const result = sessions.find((s) => s.session_id === active)
     return result ? result : null
   }, [sessions, active])
+  const showListOnMobile = activeTab === "contatos" || !active
+  const showConversationOnMobile = activeTab !== "contatos" && Boolean(active)
 
   const selectedSessions = useMemo(() => {
     if (selectedIds.length === 0) return []
@@ -2082,10 +2084,10 @@ export default function ConversasPage() {
 
 
   return (
-    <div className="h-[calc(100vh-5rem)] flex flex-col lg:flex-row gap-4 overflow-hidden">
+    <div className="h-full min-h-0 flex flex-col lg:flex-row gap-0 lg:gap-4 overflow-hidden">
       {/* Sidebar - Lista de Sessões */}
-      <Card className="genial-card w-full lg:w-96 flex-shrink-0 flex flex-col overflow-hidden border-border-gray">
-        <CardHeader className="border-b border-border-gray pb-4 shrink-0">
+      <Card className={`genial-card w-full lg:w-96 min-h-0 flex flex-shrink-0 flex-col overflow-hidden border-border-gray ${showListOnMobile ? "flex" : "hidden lg:flex"}`}>
+        <CardHeader className="border-b border-border-gray pb-3 sm:pb-4 shrink-0 px-3 sm:px-6 pt-3 sm:pt-6">
           <div className="flex items-center justify-between">
             {isSelectionMode ? (
               <div className="flex items-center gap-2 w-full">
@@ -2143,7 +2145,7 @@ export default function ConversasPage() {
           </div>
 
           {activeTab !== "contatos" && (
-            <div className="mt-3 flex items-center gap-2">
+            <div className="mt-3 flex items-center gap-2 flex-wrap">
               <Button
                 type="button"
                 size="sm"
@@ -2222,9 +2224,9 @@ export default function ConversasPage() {
             </div>
           )}
         </CardHeader>
-        <CardContent className="p-0 flex-1 overflow-hidden">
+        <CardContent className="p-0 flex-1 min-h-0 overflow-hidden">
           {activeTab === "contatos" && (
-             <ScrollArea className="h-full genial-scrollbar p-4">
+             <ScrollArea className="h-full min-h-0 genial-scrollbar p-4">
                 <div className="space-y-4">
                    <h3 className="text-lg font-medium text-pure-white">Novo Contato</h3>
                    <div className="space-y-2">
@@ -2276,7 +2278,7 @@ export default function ConversasPage() {
           )}
 
           {activeTab !== "contatos" && (
-            <ScrollArea className="h-full genial-scrollbar">
+            <ScrollArea className="h-full min-h-0 genial-scrollbar">
               {loading ? (
                 <div className="flex items-center justify-center h-32">
                   <Loader2 className="w-6 h-6 animate-spin text-accent-green" />
@@ -2384,7 +2386,7 @@ export default function ConversasPage() {
                             </Badge>
                           )}
                         </div>
-                        <div className="flex gap-1 mt-2" onClick={(e) => e.stopPropagation()}>
+                <div className="flex gap-1 mt-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
                           <Button
                             size="sm"
                             variant="ghost"
@@ -2415,7 +2417,7 @@ export default function ConversasPage() {
                             <DollarSign className="w-3 h-3 mr-1" />Venda
                           </Button>
                         </div>
-                        <div className="flex gap-1 mt-1" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex gap-1 mt-1 flex-wrap" onClick={(e) => e.stopPropagation()}>
                           <Button
                             size="sm"
                             variant="ghost"
@@ -2449,12 +2451,21 @@ export default function ConversasPage() {
       </Card>
 
       {/* Main Chat Area */}
-      <Card className="genial-card flex-1 flex flex-col overflow-hidden border-border-gray">
+      <Card className={`genial-card flex-1 min-h-0 flex flex-col overflow-hidden border-border-gray ${showConversationOnMobile ? "flex" : "hidden lg:flex"}`}>
         {current ? (
           <>
-            <CardHeader className="border-b border-border-gray pb-4 shrink-0">
+            <CardHeader className="border-b border-border-gray pb-3 sm:pb-4 shrink-0 px-3 sm:px-6 pt-3 sm:pt-6">
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 sm:gap-3 min-w-0 w-full sm:w-auto">
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8 lg:hidden hover:bg-white/10 shrink-0"
+                    onClick={() => setActive(null)}
+                    title="Voltar para lista"
+                  >
+                    <ArrowLeft className="w-4 h-4 text-text-gray" />
+                  </Button>
                   <Avatar className="w-12 h-12 shrink-0 border border-border-gray/50">
                     {resolveAvatarImageSrc(current.profile_pic) ? (
                       <AvatarImage
@@ -2467,8 +2478,8 @@ export default function ConversasPage() {
                       {current.contact_name?.charAt(0).toUpperCase() || "L"}
                     </AvatarFallback>
                   </Avatar>
-                  <div>
-                    <h3 className="text-lg font-bold text-pure-white flex items-center gap-2">
+                  <div className="min-w-0">
+                    <h3 className="text-base sm:text-lg font-bold text-pure-white flex items-center gap-2 flex-wrap">
                        {current.contact_name || "Lead"}
                        <Badge
                          variant="outline"
@@ -2523,7 +2534,7 @@ export default function ConversasPage() {
                 </div>
 
                 {/* Controles de Pausa e Follow-up AI */}
-                <div className="flex flex-wrap gap-2">
+                <div className="flex w-full sm:w-auto flex-nowrap sm:flex-wrap gap-2 overflow-x-auto pb-1 sm:pb-0">
                   {pauseStatus && (
                     <>
                       <Button
@@ -2531,7 +2542,7 @@ export default function ConversasPage() {
                         variant="outline"
                         onClick={() => togglePauseParam("pausar")}
                         disabled={pauseLoading}
-                        className={`text-xs ${pauseStatus.pausar
+                        className={`shrink-0 text-xs ${pauseStatus.pausar
                           ? "bg-green-500/20 text-green-400 border-green-500/30"
                           : "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
                           }`}
@@ -2544,7 +2555,7 @@ export default function ConversasPage() {
                         variant="outline"
                         onClick={() => togglePauseParam("vaga")}
                         disabled={pauseLoading}
-                        className={`text-xs ${pauseStatus.vaga
+                        className={`shrink-0 text-xs ${pauseStatus.vaga
                           ? "bg-blue-500/20 text-blue-400 border-blue-500/30"
                           : "bg-gray-500/20 text-gray-400 border-gray-500/30"
                           }`}
@@ -2557,7 +2568,7 @@ export default function ConversasPage() {
                         variant="outline"
                         onClick={() => togglePauseParam("agendamento")}
                         disabled={pauseLoading}
-                        className={`text-xs ${pauseStatus.agendamento
+                        className={`shrink-0 text-xs ${pauseStatus.agendamento
                           ? "bg-purple-500/20 text-purple-400 border-purple-500/30"
                           : "bg-gray-500/20 text-gray-400 border-gray-500/30"
                           }`}
@@ -2573,7 +2584,7 @@ export default function ConversasPage() {
                       variant="outline"
                       onClick={toggleFollowupAI}
                       disabled={followupAILoading}
-                      className={`text-xs ${followupAIEnabled
+                      className={`shrink-0 text-xs ${followupAIEnabled
                         ? "bg-gradient-to-r from-blue-500/20 to-purple-500/20 text-blue-400 border-blue-500/30"
                         : "bg-gray-500/20 text-gray-400 border-gray-500/30"
                         }`}
@@ -2593,7 +2604,7 @@ export default function ConversasPage() {
                       size="sm"
                       variant="outline"
                       onClick={handleExportChat}
-                      className="text-xs bg-gray-500/10 text-gray-400 border-gray-500/30 hover:bg-gray-500/20 hover:text-white transition-colors"
+                      className="shrink-0 text-xs bg-gray-500/10 text-gray-400 border-gray-500/30 hover:bg-gray-500/20 hover:text-white transition-colors"
                       title="Baixar conversa em TXT"
                     >
                       <Download className="w-3 h-3 mr-1" />
@@ -2606,7 +2617,7 @@ export default function ConversasPage() {
                       variant="outline"
                       onClick={handleClearLeadMemory}
                       disabled={clearingMemory}
-                      className="text-xs bg-red-500/10 text-red-300 border-red-500/40 hover:bg-red-500/20 hover:text-red-100 transition-colors"
+                      className="shrink-0 text-xs bg-red-500/10 text-red-300 border-red-500/40 hover:bg-red-500/20 hover:text-red-100 transition-colors"
                       title="Apagar memoria completa do lead no sistema"
                     >
                       {clearingMemory ? (
@@ -2621,9 +2632,9 @@ export default function ConversasPage() {
               </div>
             </CardHeader>
 
-            <CardContent className="flex-1 overflow-hidden p-0">
-              <ScrollArea ref={scrollAreaRef} className="h-full genial-scrollbar">
-                <div className="p-4 space-y-4">
+            <CardContent className="flex-1 min-h-0 overflow-hidden p-0">
+              <ScrollArea ref={scrollAreaRef} className="h-full min-h-0 genial-scrollbar">
+                <div className="p-3 sm:p-4 space-y-4">
                   {/* Dados do Formulário */}
                   {current.formData && (
                     <div className="bg-secondary rounded-lg p-4 mb-4 border border-border-gray">
@@ -2705,7 +2716,7 @@ export default function ConversasPage() {
                         className={`flex w-full mb-4 ${isLead ? "justify-end" : "justify-start"}`}
                       >
                         <div
-                          className={`relative max-w-[75%] md:max-w-[65%] lg:max-w-[55%] rounded-2xl px-5 py-4 shadow-lg transition-all hover:shadow-xl ${isLead
+                          className={`relative max-w-[88%] sm:max-w-[75%] md:max-w-[65%] lg:max-w-[55%] rounded-2xl px-4 sm:px-5 py-3 sm:py-4 shadow-lg transition-all hover:shadow-xl ${isLead
                             ? "bg-gradient-to-br from-[#00ff88] to-[#00cc6a] text-black border border-[#00cc6a]/30"
                             : isHuman
                               ? "bg-gradient-to-br from-amber-900/55 to-amber-800/40 text-amber-50 border border-amber-500/50"
@@ -2760,7 +2771,7 @@ export default function ConversasPage() {
             </CardContent>
 
             {/* Footer de Envio de Mensagem */}
-            <div className="p-4 border-t border-border-gray bg-card">
+            <div className="p-3 sm:p-4 border-t border-border-gray bg-card safe-area-bottom">
               <div className="flex items-center gap-3 mb-3 flex-wrap">
                 <span className="text-xs text-text-gray font-medium flex items-center gap-1">
                   <PauseCircle className="w-3 h-3 text-green-500" />
@@ -2787,12 +2798,12 @@ export default function ConversasPage() {
                   {pauseStatus?.pausar ? "Tempo ativo" : takeoverLoading ? "Ativando..." : "Ativar tempo"}
                 </Button>
               </div>
-              <div className="flex gap-3">
+              <div className="flex gap-2 sm:gap-3">
                 <Textarea
                   value={messageInput}
                   onChange={e => setMessageInput(e.target.value)}
                   placeholder="Digite sua resposta aqui... (Enter envia)"
-                  className="min-h-[50px] max-h-[120px] bg-foreground/8 border-border-gray resize-none text-pure-white placeholder:text-gray-600 focus:border-accent-green genial-scrollbar"
+                  className="min-h-[48px] sm:min-h-[50px] max-h-[140px] bg-foreground/8 border-border-gray resize-none text-pure-white placeholder:text-gray-600 focus:border-accent-green genial-scrollbar"
                   onKeyDown={e => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault()
@@ -2800,12 +2811,12 @@ export default function ConversasPage() {
                     }
                   }}
                 />
-                <div className="flex flex-col gap-2 shrink-0">
+                <div className="flex flex-row sm:flex-col gap-2 shrink-0">
                   <Button
                     onClick={() => handleGenerateAiSuggestion(false)}
                     disabled={isGeneratingSuggestion || !current}
                     variant="outline"
-                    className="h-[50px] border-border-gray text-pure-white hover:bg-white/10"
+                    className="h-[48px] w-[48px] sm:h-[50px] sm:w-[50px] border-border-gray text-pure-white hover:bg-white/10"
                     title="Gerar resposta contextual com IA"
                   >
                     {isGeneratingSuggestion ? (
@@ -2818,7 +2829,7 @@ export default function ConversasPage() {
                     onClick={() => handleGenerateAiSuggestion(true)}
                     disabled={isGeneratingSuggestion || !current || (!messageInput.trim() && !lastSuggestedText)}
                     variant="outline"
-                    className="h-[50px] border-border-gray text-pure-white hover:bg-white/10"
+                    className="h-[48px] w-[48px] sm:h-[50px] sm:w-[50px] border-border-gray text-pure-white hover:bg-white/10"
                     title="Gerar outra versao da sugestao"
                   >
                     <RefreshCcw className="w-4 h-4" />
@@ -2827,7 +2838,7 @@ export default function ConversasPage() {
                     onClick={handleCopySuggestion}
                     disabled={!messageInput.trim()}
                     variant="outline"
-                    className="h-[50px] border-border-gray text-pure-white hover:bg-white/10"
+                    className="h-[48px] w-[48px] sm:h-[50px] sm:w-[50px] border-border-gray text-pure-white hover:bg-white/10"
                     title="Copiar sugestao"
                   >
                     <Copy className="w-4 h-4" />
@@ -2835,7 +2846,7 @@ export default function ConversasPage() {
                   <Button
                     onClick={handleSendMessage}
                     disabled={!messageInput.trim() || isSending}
-                    className="h-[50px] bg-accent-green hover:bg-green-600 shadow-lg shadow-green-900/20"
+                    className="h-[48px] w-[48px] sm:h-[50px] sm:w-[50px] bg-accent-green hover:bg-green-600 shadow-lg shadow-green-900/20"
                   >
                     {isSending ? (
                       <Loader2 className="w-5 h-5 animate-spin text-white" />

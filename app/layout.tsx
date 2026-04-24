@@ -1,5 +1,5 @@
 import type React from "react"
-import type { Metadata } from "next"
+import type { Metadata, Viewport } from "next"
 import { Manrope, Sora } from "next/font/google"
 import "./globals.css"
 
@@ -8,6 +8,14 @@ export const metadata: Metadata = {
   description:
     "Plataforma completa de gestão com IA para múltiplas unidades. CRM, agendamentos, follow-ups automáticos e relatórios em tempo real.",
   generator: "GerencIA by Genial Labs AI",
+}
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  userScalable: true,
+  maximumScale: 1,
 }
 
 import { TenantProvider } from '@/lib/contexts/TenantContext'
@@ -32,8 +40,8 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="pt-BR" suppressHydrationWarning>
-      <body className={`${manrope.variable} ${sora.variable} antialiased`} suppressHydrationWarning>
+    <html lang="pt-BR" className="h-full" suppressHydrationWarning>
+      <body className={`${manrope.variable} ${sora.variable} h-full min-h-dvh overflow-x-hidden antialiased`} suppressHydrationWarning>
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
           <TenantProvider>
             {children}
