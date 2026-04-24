@@ -87,6 +87,8 @@ type TenantNativeAgentConfig = {
   postScheduleMediaUrl: string
   postScheduleCaption: string
   postScheduleDocumentFileName: string
+  postScheduleWebhookEnabled: boolean
+  postScheduleWebhookUrl: string
   followupMessageMode: MessageMode
   followupMediaUrl: string
   followupCaption: string
@@ -207,6 +209,8 @@ const defaultConfig: TenantNativeAgentConfig = {
   postScheduleMediaUrl: "",
   postScheduleCaption: "",
   postScheduleDocumentFileName: "",
+  postScheduleWebhookEnabled: true,
+  postScheduleWebhookUrl: "https://webhook.iagoflow.com/webhook/pos_agendamento",
   followupMessageMode: "text",
   followupMediaUrl: "",
   followupCaption: "",
@@ -419,6 +423,8 @@ function normalizeConfig(raw: any): TenantNativeAgentConfig {
     postScheduleMediaUrl: String(source.postScheduleMediaUrl || ""),
     postScheduleCaption: String(source.postScheduleCaption || ""),
     postScheduleDocumentFileName: String(source.postScheduleDocumentFileName || ""),
+    postScheduleWebhookEnabled: source.postScheduleWebhookEnabled !== false,
+    postScheduleWebhookUrl: String(source.postScheduleWebhookUrl || "https://webhook.iagoflow.com/webhook/pos_agendamento"),
     followupMessageMode: normalizeMessageMode(source.followupMessageMode, "text"),
     followupMediaUrl: String(source.followupMediaUrl || ""),
     followupCaption: String(source.followupCaption || ""),
@@ -858,6 +864,8 @@ export default function AdminAgenteIAPage({ params }: { params: Promise<{ id: st
         postScheduleMediaUrl: toOptionalText(config.postScheduleMediaUrl),
         postScheduleCaption: toOptionalText(config.postScheduleCaption),
         postScheduleDocumentFileName: toOptionalText(config.postScheduleDocumentFileName),
+        postScheduleWebhookEnabled: config.postScheduleWebhookEnabled,
+        postScheduleWebhookUrl: toOptionalText(config.postScheduleWebhookUrl),
         followupMessageMode: config.followupMessageMode,
         followupMediaUrl: toOptionalText(config.followupMediaUrl),
         followupCaption: toOptionalText(config.followupCaption),
@@ -2129,6 +2137,45 @@ export default function AdminAgenteIAPage({ params }: { params: Promise<{ id: st
                 )}
               </div>
             )}
+            <div className="mt-4 space-y-3 border-t border-border pt-4">
+              <h4 className="text-sm font-medium">Webhook Pos-agendamento</h4>
+              <p className="text-xs text-muted-foreground">
+                Quando ativado, um POST e disparado para o webhook com os dados do agendamento.
+                O webhook substitui a mensagem automatica do sistema.
+              </p>
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Webhook ativado</Label>
+                  <Select
+                    value={config.postScheduleWebhookEnabled ? "on" : "off"}
+                    onValueChange={(v) =>
+                      setConfig((prev) => ({ ...prev, postScheduleWebhookEnabled: v === "on" }))
+                    }
+                    disabled={loading}
+                  >
+                    <SelectTrigger className="bg-secondary border-border">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-secondary border-border text-foreground">
+                      <SelectItem value="on">Ativado</SelectItem>
+                      <SelectItem value="off">Desativado</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>URL do Webhook</Label>
+                  <Input
+                    value={config.postScheduleWebhookUrl}
+                    onChange={(e) =>
+                      setConfig((prev) => ({ ...prev, postScheduleWebhookUrl: e.target.value }))
+                    }
+                    className="bg-secondary border-border text-foreground"
+                    placeholder="https://webhook.iagoflow.com/webhook/pos_agendamento"
+                    disabled={loading}
+                  />
+                </div>
+              </div>
+            </div>
           </div>
 
           <div className="grid md:grid-cols-2 gap-6">

@@ -956,6 +956,14 @@ export async function PATCH(req: NextRequest, context: { params: RouteParams }) 
         body?.postScheduleDocumentFileName !== undefined
           ? toOptionalText(body.postScheduleDocumentFileName)
           : current.postScheduleDocumentFileName,
+      postScheduleWebhookEnabled: toBool(
+        body?.postScheduleWebhookEnabled,
+        current.postScheduleWebhookEnabled === true,
+      ),
+      postScheduleWebhookUrl:
+        body?.postScheduleWebhookUrl !== undefined
+          ? toOptionalText(body.postScheduleWebhookUrl)
+          : current.postScheduleWebhookUrl,
       followupMessageMode: toMessageMode(
         body?.followupMessageMode,
         current.followupMessageMode || "text",

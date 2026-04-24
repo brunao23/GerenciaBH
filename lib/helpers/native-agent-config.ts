@@ -91,6 +91,8 @@ export interface NativeAgentConfig {
   postScheduleMediaUrl?: string
   postScheduleCaption?: string
   postScheduleDocumentFileName?: string
+  postScheduleWebhookEnabled: boolean
+  postScheduleWebhookUrl?: string
   followupMessageMode: NativeAgentMessageMode
   followupMediaUrl?: string
   followupCaption?: string
@@ -270,6 +272,8 @@ const DEFAULT_COLLECT_EMAIL_FOR_SCHEDULING = true
 const DEFAULT_GENERATE_MEET_FOR_ONLINE = false
 const DEFAULT_POST_SCHEDULE_AUTOMATION_ENABLED = false
 const DEFAULT_POST_SCHEDULE_DELAY_MINUTES = 2
+const DEFAULT_POST_SCHEDULE_WEBHOOK_ENABLED = true
+const DEFAULT_POST_SCHEDULE_WEBHOOK_URL = "https://webhook.iagoflow.com/webhook/pos_agendamento"
 const DEFAULT_POST_SCHEDULE_MESSAGE_MODE: NativeAgentMessageMode = "text"
 const DEFAULT_POST_SCHEDULE_TEXT_TEMPLATE =
   "Perfeito, seu agendamento esta confirmado. Se precisar de algo antes, estou por aqui."
@@ -956,6 +960,8 @@ function normalizeConfig(input: any): NativeAgentConfig {
     postScheduleMediaUrl: readString(raw.postScheduleMediaUrl),
     postScheduleCaption: readString(raw.postScheduleCaption),
     postScheduleDocumentFileName: readString(raw.postScheduleDocumentFileName),
+    postScheduleWebhookEnabled: readBoolean(raw.postScheduleWebhookEnabled, DEFAULT_POST_SCHEDULE_WEBHOOK_ENABLED),
+    postScheduleWebhookUrl: readString(raw.postScheduleWebhookUrl) || DEFAULT_POST_SCHEDULE_WEBHOOK_URL,
     followupMessageMode: readMessageMode(raw.followupMessageMode, DEFAULT_FOLLOWUP_MESSAGE_MODE),
     followupMediaUrl: readString(raw.followupMediaUrl),
     followupCaption: readString(raw.followupCaption),
@@ -1516,6 +1522,8 @@ export async function updateNativeAgentConfigForTenant(
       postScheduleMediaUrl: config.postScheduleMediaUrl,
       postScheduleCaption: config.postScheduleCaption,
       postScheduleDocumentFileName: config.postScheduleDocumentFileName,
+      postScheduleWebhookEnabled: config.postScheduleWebhookEnabled,
+      postScheduleWebhookUrl: config.postScheduleWebhookUrl,
       followupMessageMode: config.followupMessageMode,
       followupMediaUrl: config.followupMediaUrl,
       followupCaption: config.followupCaption,

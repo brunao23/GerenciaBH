@@ -5497,6 +5497,13 @@ export class NativeAgentOrchestratorService {
         sessionId: params.sessionId,
         contactName: params.contactName,
         config: params.config,
+        appointmentData: {
+          date,
+          time,
+          service: params.action.note,
+          appointmentId: String(existingId),
+          mode: appointmentMode,
+        },
       })
       .catch(() => {})
 
@@ -6054,6 +6061,13 @@ export class NativeAgentOrchestratorService {
         sessionId: params.sessionId,
         contactName: params.contactName,
         config: params.config,
+        appointmentData: {
+          date,
+          time,
+          service: params.action.note,
+          appointmentId: appointmentId,
+          mode: appointmentMode,
+        },
       })
       .catch((error) => {
         console.warn("[native-agent] post-schedule side effects failed:", error)
@@ -6483,6 +6497,13 @@ export class NativeAgentOrchestratorService {
     contactName?: string
     config: NativeAgentConfig
     skipPause?: boolean
+    appointmentData?: {
+      date?: string
+      time?: string
+      service?: string
+      appointmentId?: string
+      mode?: string
+    }
   }): Promise<void> {
     if (!params.skipPause) {
       await this.pauseLeadAfterScheduling(params.tenant, params.phone).catch(() => {})
@@ -6506,7 +6527,24 @@ export class NativeAgentOrchestratorService {
       }),
     ]
 
-    if (params.config.postScheduleAutomationEnabled) {
+    if (params.config.postScheduleWebhookEnabled && params.config.postScheduleWebhookUrl) {
+      tasks.push(
+        fetch(params.config.postScheduleWebhookUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            event: "appointment_scheduled",
+            tenant: params.tenant,
+            phone: params.phone,
+            sessionId: params.sessionId,
+            contactName: params.contactName,
+            ...params.appointmentData,
+          }),
+        }).catch((err) => {
+          console.warn("[native-agent] webhook pos-agendamento falhou:", err)
+        }),
+      )
+    } else if (params.config.postScheduleAutomationEnabled) {
       const delayMinutes = Math.max(0, Number(params.config.postScheduleDelayMinutes ?? 2))
       const runAt = new Date(Date.now() + delayMinutes * 60 * 1000).toISOString()
       const messageText = this.buildPostScheduleMessageTemplate(params.config, params.contactName)
