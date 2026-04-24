@@ -650,6 +650,7 @@ export class AgentTaskQueueService {
     agentGrammaticalGender: AgentGrammaticalGender
     toolNotificationsEnabled: boolean
     toolNotificationTargets: string[]
+    moderateEmojiEnabled: boolean
   }> {
     const now = Date.now()
     const cached = this.followupConfigCache.get(tenant)
@@ -678,6 +679,7 @@ export class AgentTaskQueueService {
         agentGrammaticalGender: cached.agentGrammaticalGender,
         toolNotificationsEnabled: cached.toolNotificationsEnabled,
         toolNotificationTargets: cached.toolNotificationTargets,
+        moderateEmojiEnabled: cached.moderateEmojiEnabled,
       }
     }
 
@@ -728,6 +730,7 @@ export class AgentTaskQueueService {
       toolNotificationTargets: Array.isArray(config?.toolNotificationTargets)
         ? config.toolNotificationTargets.map((value) => String(value || "").trim()).filter(Boolean)
         : [],
+      moderateEmojiEnabled: config?.moderateEmojiEnabled !== false,
     }
 
     this.followupConfigCache.set(tenant, { ...runtime, loadedAt: now })
@@ -1767,7 +1770,7 @@ export class AgentTaskQueueService {
         runtimeConfig = await this.loadFollowupRuntimeConfig(tenant)
       }
 
-      if (taskType === "reminder" && !isConversationListenerTask) {
+      if (taskType === "reminder" && !isConversationListenerTask && !isPostScheduleReminder) {
         if (!isWithinBusinessHours(runtimeConfig?.businessHours)) {
           const deferredRunAt = adjustToBusinessHours(new Date(), runtimeConfig?.businessHours).toISOString()
           result.skipped += 1
@@ -1985,6 +1988,10 @@ export class AgentTaskQueueService {
           })
           continue
         }
+      }
+
+      if (runtimeConfig && !runtimeConfig.moderateEmojiEnabled) {
+        message = message.replace(/[\p{Extended_Pictographic}\p{Emoji_Presentation}]/gu, "").replace(/\s{2,}/g, " ").trim()
       }
 
       const send = await this.dispatchTaskMessage({
