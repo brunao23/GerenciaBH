@@ -392,6 +392,20 @@ function isLikelyGenericFollowup(message: string): boolean {
     "poderia me informar seu nome",
     "com quem eu falo",
     "com quem estou falando",
+    "te envio agora",
+    "posso te enviar",
+    "vou te mandar",
+    "vou enviar",
+    "preparei para voce",
+    "ja preparei",
+    "pode te enviar",
+    "envio o material",
+    "mando o material",
+    "envio a proposta",
+    "mando a proposta",
+    "envio o documento",
+    "envio o pdf",
+    "envio o link",
   ]
 
   return blockedPatterns.some((pattern) => text.includes(pattern))
@@ -495,6 +509,16 @@ function toIsoFromNowRespectingBusinessHours(minutes: number, businessHours?: Te
   return adjustToBusinessHours(raw, businessHours).toISOString()
 }
 
+const DAY_NAMES_PT = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sab"]
+
+function formatBusinessHoursForPrompt(bh?: TenantBusinessHours): string {
+  if (!bh) return "nao configurado"
+  const days = bh.businessDays.map((d) => DAY_NAMES_PT[d] ?? "?").join(", ")
+  const start = `${String(bh.startHour).padStart(2, "0")}:${String(bh.startMinute).padStart(2, "0")}`
+  const end = `${String(bh.endHour).padStart(2, "0")}:${String(bh.endMinute).padStart(2, "0")}`
+  return `${days}, das ${start} as ${end}`
+}
+
 function buildContextualFollowupMessage(input: {
   step: number
   totalSteps: number
@@ -516,14 +540,14 @@ function buildContextualFollowupMessage(input: {
 
   // Etapa 2 (1h) — Relembrar conversa
   if (input.step === 2) {
-    if (topic) return `${greeting}, sobre ${topic} — tenho as informacoes que voce precisa. Posso te passar?`
+    if (topic) return `${greeting}, sobre ${topic} — posso continuar seu atendimento agora. Quer retomar?`
     return `${greeting}, ainda tenho seu atendimento em aberto aqui. Quer que eu continue de onde paramos?`
   }
 
   // Etapa 3 (6h) — Acompanhamento
   if (input.step === 3) {
-    if (topic) return `${greeting}, ja preparei os proximos passos sobre ${topic}. Te envio agora?`
-    return `${greeting}, ja tenho os proximos passos do seu atendimento. Quer que eu envie?`
+    if (topic) return `${greeting}, podemos avancar sobre ${topic} quando quiser. Quer continuar?`
+    return `${greeting}, podemos avancar no seu atendimento quando quiser. Me avisa.`
   }
 
   // Etapa 4 (1 dia) — Retomada do dia seguinte
@@ -574,8 +598,8 @@ function buildRuntimeContextualFollowupMessage(input: {
   // Prioridade 2: ha uma mensagem recente do lead que nao foi concluida
   if (userTopic) {
     if (input.step === 1) return `${greeting}, voce mencionou "${userTopic}" — posso continuar daqui?`
-    if (input.step === 2) return `${greeting}, sobre "${userTopic}", ja tenho a resposta. Quer que eu envie?`
-    if (input.step === 3) return `${greeting}, preparei os proximos passos sobre "${userTopic}". Te envio agora?`
+    if (input.step === 2) return `${greeting}, sobre "${userTopic}", consigo continuar o atendimento agora. Quer seguir?`
+    if (input.step === 3) return `${greeting}, podemos avancar sobre "${userTopic}" quando quiser. Me avisa?`
     if (input.step === 4) return `${greeting}, retomando: ainda consigo te ajudar com "${userTopic}". Me avisa se quiser continuar.`
     if (input.step <= 6) return `${greeting}, e minha ultima tentativa sobre "${userTopic}". Se quiser continuar, e so responder.`
     return `${greeting}, encerrando por aqui. Se quiser retomar sobre "${userTopic}", e so me chamar.`
@@ -623,6 +647,7 @@ export class AgentTaskQueueService {
       agentGrammaticalGender: AgentGrammaticalGender
       toolNotificationsEnabled: boolean
       toolNotificationTargets: string[]
+      moderateEmojiEnabled: boolean
     }
   >()
 
@@ -874,10 +899,10 @@ export class AgentTaskQueueService {
       "REGRAS ABSOLUTAS:",
       "1. Gere APENAS o texto da mensagem, sem aspas, sem JSON, sem explicacao.",
       "2. Maximo 250 caracteres. Curto e direto.",
-      "3. NUNCA use frases genericas: 'retomando de onde paramos', 'passando para confirmar', 'voltando aqui', 'sigo por aqui para concluirmos'.",
+      "3. NUNCA use frases genericas: 'retomando de onde paramos', 'passando para confirmar', 'voltando aqui', 'sigo por aqui para concluirmos', 'te envio agora', 'posso te passar', 'vou te mandar', 'vou enviar', 'preparei para voce'.",
       "3b. NUNCA use saudacoes baseadas no horario do dia: 'Bom dia', 'Boa tarde', 'Boa noite'. A mensagem e pre-gerada e pode ser entregue em horario diferente da geracao.",
-      "4. NUNCA repita ou parafraseie mensagens que a IA ja enviou (veja historico abaixo).",
-      "5. Referencie o ASSUNTO ESPECIFICO da conversa (produto, servico, duvida, agendamento, etc).",
+      "4. NUNCA repita ou parafraseie mensagens que a IA ja enviou (veja historico abaixo). Cada follow-up deve abordar o assunto de um angulo diferente.",
+      "5. Referencie o ASSUNTO ESPECIFICO da conversa (produto, servico, duvida, agendamento, etc). Use o contexto real — nunca invente assuntos.",
       leadName
         ? `6. O nome do lead e "${leadName}". Use-o de forma natural, sem forcar. ATENCAO: se esse nome for um cargo (Lider, Chefe, Gerente, Dono), profissao (Medico, Advogado, Coach, Dentista, Nutricionista, Personal), titulo (Treinador, Professor, Doutor, Amigo), generico (Lead, Cliente, Contato, Bot) ou termo religioso/possessivo (Deus, Jesus, Minha, Meu), NAO use — inicie a mensagem sem nome.`
         : "6. O nome do lead NAO esta disponivel. Nao use NENHUM nome, titulo, cargo ou pronome de tratamento. Proibido usar: cargos (Lider, Chefe, Dono, Gerente, Diretor, Supervisor), profissoes (Medico, Advogado, Dentista, Coach, Nutricionista, Personal, Engenheiro, Terapeuta), titulos (Treinador, Professor, Doutor, Mestre, Amigo), genericos (Lead, Cliente, Contato, Bot, Assistente, Suporte), religiosos/possessivos (Deus, Jesus, Minha, Meu, Nossa). Inicie a mensagem diretamente, sem qualquer forma de tratamento. NUNCA pergunte o nome.",
@@ -891,10 +916,14 @@ export class AgentTaskQueueService {
       runtime.promptBase
         ? `14. Personalidade base do agente (resumo): ${excerpt(runtime.promptBase, 260)}`
         : "14. Sem prompt base explicito: mantenha o texto humano, natural, educado e comercial.",
+      "15. NUNCA prometa enviar material, documento, proposta, PDF, planilha, link ou qualquer conteudo. Quem envia e realiza acoes fisicas e o CONSULTOR DA UNIDADE, nao voce. Voce apenas retoma o atendimento.",
+      "16. Voce representa o consultor da unidade. Fale em primeira pessoa como consultor humano. Se o assunto exigir envio de algo, diga que o consultor pode continuar o atendimento — nunca prometa acoes autonomas de envio.",
+      "17. NUNCA use 'agora', 'hoje', 'imediatamente' de forma que implique disponibilidade fora do horario de atendimento da unidade. Use linguagem temporal neutra quando necessario.",
       "",
       `CONTEXTO:`,
       `Etapa: ${input.step} de ${input.totalSteps}`,
       stageGuidance,
+      `Horario de atendimento da unidade: ${formatBusinessHoursForPrompt(runtime.businessHours)} (follow-ups so sao enviados dentro desse horario)`,
       "",
       `Ultimas mensagens do lead:`,
       topicSummary,
@@ -913,8 +942,12 @@ export class AgentTaskQueueService {
       const decision = await gemini.decideNextTurn({
         systemPrompt: [
           "Voce gera mensagens de follow-up curtas e contextuais para WhatsApp comercial em pt-BR.",
-          "Cada mensagem deve ser unica, natural e conectada ao assunto real da conversa.",
+          "Cada mensagem deve ser unica, natural e conectada ao assunto REAL da conversa — nunca invente temas.",
           "Voce NUNCA inventa informacoes. Se nao sabe o assunto, foque no atendimento em aberto de forma generica.",
+          "REGRA CRITICA DE PAPEL: voce representa o CONSULTOR HUMANO da unidade. Fale sempre em primeira pessoa como consultor. Quem vende, envia materiais, documentos, propostas ou realiza acoes fisicas e o consultor/equipe da unidade — nunca prometa essas acoes de forma autonoma.",
+          "REGRA CRITICA DE ENVIO: NUNCA prometa enviar material, documento, proposta, PDF, planilha, link ou qualquer conteudo. Use apenas 'posso continuar o atendimento', 'consigo te ajudar', 'podemos retomar' — nunca 'te envio', 'vou mandar', 'preparei para voce'.",
+          "REGRA CRITICA DE HORARIO: os follow-ups so sao disparados dentro do horario de atendimento da unidade. NUNCA use linguagem que implique disponibilidade 24/7 ou promessa de resposta imediata fora do horario.",
+          "REGRA CRITICA DE REPETICAO: cada follow-up deve abordar o assunto de um angulo diferente. NUNCA repita ou parafraseie o que a IA ja disse nas mensagens anteriores da conversa.",
           "NUNCA confunda seu papel (IA assistente) com o lead (cliente).",
           "NUNCA use o nome do lead como se fosse o seu.",
           "NUNCA pergunte o nome do lead em um follow-up. Se o nome nao esta disponivel, NUNCA invente nomes ou titulos. Nao use NADA, apenas inicie a mensagem.",
