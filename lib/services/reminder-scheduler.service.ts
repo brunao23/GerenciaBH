@@ -527,17 +527,28 @@ function adjustToBusinessHours(
   return new Date(targetDate)
 }
 
+function sanitizePersonName(raw: string): string {
+  const candidate = raw.split(" ")[0].trim()
+  // Rejeitar se não tiver pelo menos 2 letras reais (a-z ou acentuadas)
+  if (!/[a-zA-ZÀ-ɏ]{2,}/.test(candidate)) return ""
+  // Rejeitar se não tiver vogal
+  if (!/[aeiouáéíóúâêîôûàãõy]/i.test(candidate)) return ""
+  // Rejeitar se tiver caracteres que não sejam letras (ex: "D&C", "123", "@")
+  if (/[^a-zA-ZÀ-ɏ'-]/.test(candidate)) return ""
+  return candidate.slice(0, 1).toUpperCase() + candidate.slice(1).toLowerCase()
+}
+
 export function renderReminderTemplate(
   template: string,
   appointment: Appointment,
   appointmentDate: Date,
   timezone: string,
 ): string {
-  const nome = appointment.nome_aluno || "voce"
-  const primeiroNome = nome.split(" ")[0]
+  const nomeRaw = appointment.nome_aluno || ""
+  const primeiroNome = sanitizePersonName(nomeRaw) || "voce"
   const appointmentDateInfo = getDateInfoInTimezone(appointmentDate, timezone)
   const diaSemana = DIAS_SEMANA[appointmentDateInfo?.dayOfWeek ?? appointmentDate.getDay()] || ""
-  const hasLeadName = Boolean(primeiroNome && primeiroNome.toLowerCase() !== "voce")
+  const hasLeadName = primeiroNome !== "voce"
   const saudacaoOlaTudoBem = hasLeadName
     ? `Ola, ${primeiroNome}! Tudo bem? 😊`
     : "Ola! Tudo bem? 😊"
@@ -553,7 +564,7 @@ export function renderReminderTemplate(
     .replace(/\{saudacao_oi_tudo_bem\}/gi, saudacaoOiTudoBem)
     .replace(/\{saudacao_reforco_hoje\}/gi, saudacaoReforcoHoje)
     .replace(/\{nome\}/gi, primeiroNome)
-    .replace(/\{nome_completo\}/gi, nome)
+    .replace(/\{nome_completo\}/gi, hasLeadName ? nomeRaw : "voce")
     .replace(/\{data\}/gi, appointment.dia)
     .replace(/\{horario\}/gi, appointment.horario?.replace(/:00$/, "") || "")
     .replace(/\{dia_semana\}/gi, diaSemana)
