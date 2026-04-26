@@ -1,4 +1,4 @@
-import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
+﻿import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { normalizeTenant } from "@/lib/helpers/normalize-tenant"
 import { getTablesForTenant } from "@/lib/helpers/tenant"
 import { getNativeAgentConfigForTenant, type NativeAgentConfig } from "@/lib/helpers/native-agent-config"
@@ -14,6 +14,7 @@ import {
   renderOfficialReminderMessageFromConfig,
   type OfficialReminderType,
 } from "@/lib/services/reminder-scheduler.service"
+import { buildFollowupWeekdayConstraint, resolveEffectiveFollowupBusinessDays } from "@/lib/helpers/effective-followup-days"
 import { GeminiService } from "@/lib/services/gemini.service"
 import { normalizePhoneNumber, normalizeSessionId, TenantChatHistoryService } from "./tenant-chat-history.service"
 import { TenantMessagingService } from "./tenant-messaging.service"
@@ -103,12 +104,14 @@ function hasForbiddenIdentityDisclosure(message: string): boolean {
 
 function stripTaskPrefix(text: string): string {
   return String(text || "")
-    .replace(/^\s*(task|tarefa|acao|a[cç][aã]o)\s*:\s*/i, "")
+    .replace(/^\s*(task|tarefa|acao|a[cÃ§][aÃ£]o)\s*:\s*/i, "")
     .trim()
 }
 
 function normalizeComparableText(input: string): string {
   return String(input || "")
+    // Remove emojis e símbolos Unicode antes de normalizar
+    .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, " ")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
@@ -238,7 +241,11 @@ function extractLastQuestion(content: string): string {
 }
 
 function normalizeLeadName(name?: string): string {
-  const text = String(name || "").replace(/\s+/g, " ").trim()
+  // Remove prefixo ~ do WhatsApp (indica contato fora da agenda) e espaços extras
+  const text = String(name || "")
+    .replace(/^[~\s]+/, "")
+    .replace(/\s+/g, " ")
+    .trim()
   if (!text) return ""
 
   const blocked = new Set([
@@ -261,24 +268,28 @@ function normalizeLeadName(name?: string): string {
     "corretor", "corretora", "engenheiro", "engenheira", "arquiteto", "arquiteta",
     "vendedor", "vendedora", "gerente", "diretor", "diretora", "coordenador",
     "contador", "contadora", "motorista", "cozinheiro", "cozinheira",
-    // Expressões religiosas/motivacionais frequentes
+    // Expressões religiosas/motivacionais/sentimentais frequentes como nome no WhatsApp
     "deus", "jesus", "senhor", "nossa", "minha", "meu", "tua", "teu",
+    "gratidao", "gratidão", "amor", "paz", "fe", "fe em deus", "esperanca",
+    "alegria", "prosperidade", "abundancia", "bencao", "bencaos", "gloria",
+    "forca", "vida", "luz", "conquista", "vitoria", "sucesso", "crescimento",
+    "evolucao", "energia", "positividade", "felicidade", "sorriso",
   ])
 
-  // Texto sem acentos para checar padrões inválidos
+  // Texto sem acentos para checar padrÃµes invÃ¡lidos
   const flat = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, "")
 
   // Rejeitar risadas e onomatopeias (kkk, hahaha, rsrs, hehehs, hahahs)
   const laughRegex = /^(k+)(a|k|s)*$|^(h?a+h+)(a|h|s)*$|^(h?e+h+)(e|h|s)*$|^(rs)+s*$/i
   if (laughRegex.test(flat)) return ""
 
-  // Rejeitar se não tiver vogal alguma
+  // Rejeitar se nÃ£o tiver vogal alguma
   if (!/[aeiouy]/.test(flat)) return ""
 
-  // Rejeitar se tiver 3+ letras idênticas consecutivas (Hahahs, Aaaa, Kkkkk)
+  // Rejeitar se tiver 3+ letras idÃªnticas consecutivas (Hahahs, Aaaa, Kkkkk)
   if (/(.)\1{2,}/.test(flat)) return ""
 
-  // Quebra CamelCase: "GabriellaMoraes" → "Gabriella Moraes"
+  // Quebra CamelCase: "GabriellaMoraes" â†’ "Gabriella Moraes"
   const expanded = text.replace(/([a-z\u00C0-\u017E])([A-Z\u0178-\u024F])/g, "$1 $2")
   const parts = expanded.split(" ").map((p) => p.trim()).filter(Boolean)
 
@@ -288,8 +299,8 @@ function normalizeLeadName(name?: string): string {
     if (!/[a-zA-Z\u00C0-\u024F]/.test(part)) continue
     if (part.length < 2) continue
     // Rejeitar palavras sem vogal
-    if (!/[aeiouáéíóúâêîôûàãõy]/i.test(part)) continue
-    // Rejeitar palavras com 3+ letras idênticas consecutivas
+    if (!/[aeiouÃ¡Ã©Ã­Ã³ÃºÃ¢ÃªÃ®Ã´Ã»Ã Ã£Ãµy]/i.test(part)) continue
+    // Rejeitar palavras com 3+ letras idÃªnticas consecutivas
     if (/(.)\1{2,}/i.test(part)) continue
     return part.slice(0, 1).toUpperCase() + part.slice(1).toLowerCase()
   }
@@ -308,11 +319,11 @@ function extractTrustedLeadNameFromHistory(
   if (!userMessages.length) return ""
 
   const patterns = [
-    /\bmeu nome\s*(?:e|é)\s+([A-Za-zÀ-ÖØ-öø-ÿ]{2,}(?:\s+[A-Za-zÀ-ÖØ-öø-ÿ]{2,}){0,2})\b/i,
-    /\bpode me chamar de\s+([A-Za-zÀ-ÖØ-öø-ÿ]{2,}(?:\s+[A-Za-zÀ-ÖØ-öø-ÿ]{2,}){0,2})\b/i,
-    /\bme chamo\s+([A-Za-zÀ-ÖØ-öø-ÿ]{2,}(?:\s+[A-Za-zÀ-ÖØ-öø-ÿ]{2,}){0,2})\b/i,
-    /\bsou o\s+([A-Za-zÀ-ÖØ-öø-ÿ]{2,}(?:\s+[A-Za-zÀ-ÖØ-öø-ÿ]{2,}){0,2})\b/i,
-    /\bsou a\s+([A-Za-zÀ-ÖØ-öø-ÿ]{2,}(?:\s+[A-Za-zÀ-ÖØ-öø-ÿ]{2,}){0,2})\b/i,
+    /\bmeu nome\s*(?:e|é)\s+([\p{L}]{2,}(?:\s+[\p{L}]{2,}){0,2})\b/iu,
+    /\bpode me chamar de\s+([\p{L}]{2,}(?:\s+[\p{L}]{2,}){0,2})\b/iu,
+    /\bme chamo\s+([\p{L}]{2,}(?:\s+[\p{L}]{2,}){0,2})\b/iu,
+    /\bsou o\s+([\p{L}]{2,}(?:\s+[\p{L}]{2,}){0,2})\b/iu,
+    /\bsou a\s+([\p{L}]{2,}(?:\s+[\p{L}]{2,}){0,2})\b/iu,
   ]
 
   for (let i = userMessages.length - 1; i >= 0; i -= 1) {
@@ -397,6 +408,14 @@ function isLikelyGenericFollowup(message: string): boolean {
     "vou te mandar",
     "vou enviar",
     "preparei para voce",
+    "voce mencionou",
+    "vocÃª mencionou",
+    "voce disse",
+    "vocÃª disse",
+    "posso continuar daqui",
+    "continuar daqui",
+    "sobre o que voce disse",
+    "sobre o que vocÃª disse",
     "ja preparei",
     "pode te enviar",
     "envio o material",
@@ -418,7 +437,7 @@ function isLikelyInternalTaskInstructionMessage(message: string): boolean {
   const startsWithInternalVerb = /^(verificar|checar|confirmar|validar|analisar|acompanhar|atualizar|revisar|monitorar|avaliar|registrar|retomar|reagendar|ligar|contactar|notificar|informar|solicitar|enviar mensagem|entrar em contato)\b/.test(
     text,
   )
-  const startsAsChecklist = /^(\d+[\.\)]\s*|checklist\b|tarefa\b|acao\b|acao:\b|ação\b|ação:\b)/.test(
+  const startsAsChecklist = /^(\d+[\.\)]\s*|checklist\b|tarefa\b|acao\b|acao:\b|aÃ§Ã£o\b|aÃ§Ã£o:\b)/.test(
     text,
   )
   const mentionsSystemMeta =
@@ -426,8 +445,8 @@ function isLikelyInternalTaskInstructionMessage(message: string): boolean {
       text,
     )
   const addressesLeadDirectly =
-    /\b(voce|você|seu|sua|te|contigo|consigo|quer|prefere|posso|vamos)\b/.test(text) ||
-    /^(oi|ola|olá|bom dia|boa tarde|boa noite)\b/.test(text)
+    /\b(voce|vocÃª|seu|sua|te|contigo|consigo|quer|prefere|posso|vamos)\b/.test(text) ||
+    /^(oi|ola|olÃ¡|bom dia|boa tarde|boa noite)\b/.test(text)
   const startsAsInternalNote = /^verificar se o\b/.test(text)
 
   if (startsAsInternalNote) return true
@@ -528,51 +547,101 @@ function buildContextualFollowupMessage(input: {
 }): string {
   const name = normalizeLeadName(input.leadName)
   const greeting = name ? `Oi ${name}` : "Oi"
-  const topic = excerpt(input.lastUserMessage || "", 110)
-  const agentContext = excerpt(input.lastAgentMessage || "", 120)
+  // Nunca citar a mensagem bruta do lead — apenas verificar se existe contexto relevante
+  const hasUserContext = Boolean(input.lastUserMessage && !isLowSignalLeadUtterance(input.lastUserMessage))
 
   // Etapa 1 (10min) — Primeiro contato
   if (input.step === 1) {
-    if (topic) return `${greeting}, voce comentou ${topic} — consigo te ajudar com isso agora, quer continuar?`
-    if (agentContext) return `${greeting}, ficou pendente aqui: ${agentContext}. Quer que eu siga?`
+    if (hasUserContext) return `${greeting}, vi sua mensagem aqui e consigo te ajudar no proximo passo. Quer continuar?`
     return `${greeting}, sua mensagem ficou pendente aqui comigo. Posso dar sequencia?`
   }
 
   // Etapa 2 (1h) — Relembrar conversa
   if (input.step === 2) {
-    if (topic) return `${greeting}, sobre ${topic} — posso continuar seu atendimento agora. Quer retomar?`
-    return `${greeting}, ainda tenho seu atendimento em aberto aqui. Quer que eu continue de onde paramos?`
+    if (hasUserContext) return `${greeting}, consigo te ajudar com o que conversamos. Quer retomar agora?`
+    return `${greeting}, ainda tenho seu atendimento em aberto aqui. Quer que eu continue?`
   }
 
   // Etapa 3 (6h) — Acompanhamento
   if (input.step === 3) {
-    if (topic) return `${greeting}, podemos avancar sobre ${topic} quando quiser. Quer continuar?`
+    if (hasUserContext) return `${greeting}, podemos avancar nisso quando quiser. So me responde aqui.`
     return `${greeting}, podemos avancar no seu atendimento quando quiser. Me avisa.`
   }
 
   // Etapa 4 (1 dia) — Retomada do dia seguinte
   if (input.step === 4) {
-    if (topic) return `${greeting}, retomando aqui: consigo resolver ${topic} hoje se voce confirmar. O que acha?`
-    return `${greeting}, retomando nosso atendimento do dia anterior. Posso finalizar isso pra voce agora?`
+    if (hasUserContext) return `${greeting}, retomando: consigo resolver o que conversamos se voce confirmar. O que acha?`
+    return `${greeting}, retomando nosso atendimento. Posso finalizar isso pra voce?`
   }
 
   // Etapa 5 (2 dias) — Reforco de contexto
   if (input.step === 5) {
-    if (topic) return `${greeting}, passando para reforcar: ainda consigo te ajudar com ${topic}. Quer que eu siga?`
+    if (hasUserContext) return `${greeting}, ainda consigo te ajudar com o que discutimos. Quer que eu siga?`
     return `${greeting}, sigo disponivel para concluir seu atendimento. Me avisa se quiser continuar.`
   }
 
   // Etapa 6 (3 dias) — Tentativa final
   if (input.step === 6) {
-    if (topic) return `${greeting}, e minha ultima tentativa de contato sobre ${topic}. Se quiser continuar, e so responder aqui.`
-    return `${greeting}, e minha ultima tentativa de contato. Se quiser retomar, e so me chamar aqui.`
+    return `${greeting}, essa e minha ultima tentativa de contato. Se quiser retomar, e so me responder aqui.`
   }
 
   // Etapa 7 (5 dias) — Encerramento automatico
-  if (agentContext) {
-    return `${greeting}, estou encerrando seu atendimento por aqui. O ultimo ponto que tratamos foi: ${agentContext}. Quando quiser retomar, e so me chamar.`
-  }
   return `${greeting}, estou encerrando seu atendimento. Quando precisar, e so me enviar uma mensagem.`
+}
+
+function sanitizeLeadTopicForFollowup(input: string): string {
+  return String(input || "")
+    .replace(/^["'`“”]+|["'`“”]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function isLowSignalLeadUtterance(input: string): boolean {
+  // normalizeComparableText já remove emojis — texto como "Obrigada 🙏" vira "obrigada"
+  const text = normalizeComparableText(input)
+  if (!text) return true
+
+  const lowSignalPatterns = [
+    "ok",
+    "blz",
+    "beleza",
+    "entendi",
+    "obrigado",
+    "obrigada",
+    "obg",
+    "valeu",
+    "show",
+    "perfeito",
+    "certo",
+    "sim",
+    "nao",
+    "nao obrigado",
+    "nao obrigada",
+    "joia",
+    "de boa",
+    "bom dia",
+    "boa tarde",
+    "boa noite",
+    "ate mais",
+    "ate logo",
+    "tchau",
+    "flw",
+    "tmj",
+    "top",
+    "👍",
+    "😊",
+  ]
+
+  // Sem limite de comprimento: emojis já foram removidos na normalização,
+  // então "Obrigada 🙏" → "obrigada" e bate exatamente no padrão
+  if (lowSignalPatterns.some((pattern) => {
+    const pNorm = normalizeComparableText(pattern)
+    return text === pNorm || text.startsWith(`${pNorm} `) || text.endsWith(` ${pNorm}`)
+  })) {
+    return true
+  }
+
+  return false
 }
 
 function buildRuntimeContextualFollowupMessage(input: {
@@ -585,27 +654,28 @@ function buildRuntimeContextualFollowupMessage(input: {
 }): string {
   const greeting = buildGreeting(input.leadName)
   const pendingQuestion = sanitizeFollowupText(input.pendingQuestion || "", 180)
-  const userTopic = sanitizeFollowupText(input.lastUserMessage || "", 140)
+  const hasMeaningfulTopic =
+    Boolean(input.lastUserMessage) && !isLowSignalLeadUtterance(input.lastUserMessage || "")
 
-  // Prioridade 1: ha uma pergunta pendente da IA que o lead nao respondeu
+  // Pergunta pendente da IA (lead nao respondeu): referencia a pergunta, nao a resposta do lead
   if (pendingQuestion) {
-    if (input.step <= 2) return `${greeting}, ficou pendente aqui: ${pendingQuestion}`
+    if (input.step <= 2) return `${greeting}, ficou pendente: ${pendingQuestion}`
     if (input.step <= 4) return `${greeting}, consigo resolver isso agora se voce confirmar: ${pendingQuestion}`
-    if (input.step <= 6) return `${greeting}, antes de encerrar, so preciso da sua resposta sobre: ${pendingQuestion}`
-    return `${greeting}, vou encerrar por aqui. Se precisar, a pergunta que ficou pendente foi: ${pendingQuestion}`
+    if (input.step <= 6) return `${greeting}, antes de encerrar, so preciso da sua resposta: ${pendingQuestion}`
+    return `${greeting}, vou encerrar por aqui. Se precisar, retome quando quiser.`
   }
 
-  // Prioridade 2: ha uma mensagem recente do lead que nao foi concluida
-  if (userTopic) {
-    if (input.step === 1) return `${greeting}, voce mencionou "${userTopic}" — posso continuar daqui?`
-    if (input.step === 2) return `${greeting}, sobre "${userTopic}", consigo continuar o atendimento agora. Quer seguir?`
-    if (input.step === 3) return `${greeting}, podemos avancar sobre "${userTopic}" quando quiser. Me avisa?`
-    if (input.step === 4) return `${greeting}, retomando: ainda consigo te ajudar com "${userTopic}". Me avisa se quiser continuar.`
-    if (input.step <= 6) return `${greeting}, e minha ultima tentativa sobre "${userTopic}". Se quiser continuar, e so responder.`
-    return `${greeting}, encerrando por aqui. Se quiser retomar sobre "${userTopic}", e so me chamar.`
+  // Existe contexto real de conversa — nao citar o texto do lead, apenas sinalizar que viu
+  if (hasMeaningfulTopic) {
+    if (input.step === 1) return `${greeting}, vi sua mensagem e consigo te orientar no proximo passo. Quer continuar?`
+    if (input.step === 2) return `${greeting}, consigo te ajudar com o que discutimos de forma objetiva. Quer que eu siga?`
+    if (input.step === 3) return `${greeting}, se essa duvida ainda estiver aberta, consigo te direcionar agora.`
+    if (input.step === 4) return `${greeting}, continuo disponivel para te ajudar. Posso dar sequencia?`
+    if (input.step <= 6) return `${greeting}, essa e minha ultima tentativa. Se quiser seguir, me responde aqui.`
+    return `${greeting}, vou encerrar por aqui. Quando quiser retomar, e so me chamar.`
   }
 
-  // Fallback: usa template contextual estatico
+  // Sem contexto relevante — mensagem generica humanizada
   return buildContextualFollowupMessage({
     step: input.step,
     totalSteps: input.totalSteps,
@@ -642,6 +712,7 @@ export class AgentTaskQueueService {
       reminderMediaUrl?: string
       reminderCaption?: string
       reminderDocumentFileName?: string
+      remindersEnabled: boolean
       promptBase?: string
       conversationTone: NativeAgentConfig["conversationTone"]
       agentGrammaticalGender: AgentGrammaticalGender
@@ -670,6 +741,7 @@ export class AgentTaskQueueService {
     reminderMediaUrl?: string
     reminderCaption?: string
     reminderDocumentFileName?: string
+    remindersEnabled: boolean
     promptBase?: string
     conversationTone: NativeAgentConfig["conversationTone"]
     agentGrammaticalGender: AgentGrammaticalGender
@@ -699,6 +771,7 @@ export class AgentTaskQueueService {
         reminderMediaUrl: cached.reminderMediaUrl,
         reminderCaption: cached.reminderCaption,
         reminderDocumentFileName: cached.reminderDocumentFileName,
+        remindersEnabled: cached.remindersEnabled,
         promptBase: cached.promptBase,
         conversationTone: cached.conversationTone,
         agentGrammaticalGender: cached.agentGrammaticalGender,
@@ -709,10 +782,11 @@ export class AgentTaskQueueService {
     }
 
     const config = await getNativeAgentConfigForTenant(tenant).catch(() => null)
+    const effectiveFollowupDays = resolveEffectiveFollowupBusinessDays(config)
     const businessHours = parseTenantBusinessHours(
       config?.followupBusinessStart,
       config?.followupBusinessEnd,
-      config?.followupBusinessDays,
+      effectiveFollowupDays,
     )
     const runtime = {
       followupEnabled: config?.followupEnabled !== false,
@@ -748,6 +822,7 @@ export class AgentTaskQueueService {
       reminderMediaUrl: String(config?.reminderMediaUrl || "").trim() || undefined,
       reminderCaption: String(config?.reminderCaption || "").trim() || undefined,
       reminderDocumentFileName: String(config?.reminderDocumentFileName || "").trim() || undefined,
+      remindersEnabled: config?.remindersEnabled !== false,
       promptBase: String(config?.promptBase || "").trim() || undefined,
       conversationTone: config?.conversationTone || "consultivo",
       agentGrammaticalGender: inferAgentGrammaticalGender(config?.promptBase),
@@ -867,15 +942,19 @@ export class AgentTaskQueueService {
     const leadName = normalizeLeadName(input.leadName)
 
     // Detectar intencao/topico dominante das ultimas mensagens do lead
+    // Filtra mensagens de baixo sinal ("ok", "obrigada", emojis soltos, etc)
+    // e NUNCA envolve em aspas — isso induzia a IA a citar a mensagem do lead
     const recentLeadMessages = recentHistory
       .filter((entry) => entry.role === "user")
       .map((entry) => entry.content)
+      .filter((msg) => !isLowSignalLeadUtterance(msg))
       .slice(-5)
     const topicSummary = recentLeadMessages.length > 0
-      ? recentLeadMessages.map((msg) => `- "${excerpt(msg, 100)}"`).join("\n")
-      : "(sem mensagens do lead)"
+      ? recentLeadMessages.map((msg) => `- ${excerpt(msg, 100)}`).join("\n")
+      : "(sem mensagens relevantes do lead — use o contexto geral da conversa)"
     const toneSummary = describeConversationTone(runtime.conversationTone)
     const genderConstraint = buildGenderConstraint(runtime.agentGrammaticalGender)
+    const weekdayConstraint = buildFollowupWeekdayConstraint(runtime.businessHours?.businessDays)
 
     // Determinar tom baseado na etapa (7 etapas: 10min/1h/6h/1d/2d/3d/5d)
     let stageGuidance = ""
@@ -902,9 +981,9 @@ export class AgentTaskQueueService {
       "3. NUNCA use frases genericas: 'retomando de onde paramos', 'passando para confirmar', 'voltando aqui', 'sigo por aqui para concluirmos', 'te envio agora', 'posso te passar', 'vou te mandar', 'vou enviar', 'preparei para voce'.",
       "3b. NUNCA use saudacoes baseadas no horario do dia: 'Bom dia', 'Boa tarde', 'Boa noite'. A mensagem e pre-gerada e pode ser entregue em horario diferente da geracao.",
       "4. NUNCA repita ou parafraseie mensagens que a IA ja enviou (veja historico abaixo). Cada follow-up deve abordar o assunto de um angulo diferente.",
-      "5. Referencie o ASSUNTO ESPECIFICO da conversa (produto, servico, duvida, agendamento, etc). Use o contexto real — nunca invente assuntos.",
+      "5. Referencie o ASSUNTO ESPECIFICO da conversa (produto, servico, duvida, agendamento, etc). Use o contexto real â€” nunca invente assuntos.",
       leadName
-        ? `6. O nome do lead e "${leadName}". Use-o de forma natural, sem forcar. ATENCAO: se esse nome for um cargo (Lider, Chefe, Gerente, Dono), profissao (Medico, Advogado, Coach, Dentista, Nutricionista, Personal), titulo (Treinador, Professor, Doutor, Amigo), generico (Lead, Cliente, Contato, Bot) ou termo religioso/possessivo (Deus, Jesus, Minha, Meu), NAO use — inicie a mensagem sem nome.`
+        ? `6. O nome do lead e "${leadName}". Use-o de forma natural, sem forcar. ATENCAO: se esse nome for um cargo (Lider, Chefe, Gerente, Dono), profissao (Medico, Advogado, Coach, Dentista, Nutricionista, Personal), titulo (Treinador, Professor, Doutor, Amigo), generico (Lead, Cliente, Contato, Bot) ou termo religioso/possessivo (Deus, Jesus, Minha, Meu), NAO use â€” inicie a mensagem sem nome.`
         : "6. O nome do lead NAO esta disponivel. Nao use NENHUM nome, titulo, cargo ou pronome de tratamento. Proibido usar: cargos (Lider, Chefe, Dono, Gerente, Diretor, Supervisor), profissoes (Medico, Advogado, Dentista, Coach, Nutricionista, Personal, Engenheiro, Terapeuta), titulos (Treinador, Professor, Doutor, Mestre, Amigo), genericos (Lead, Cliente, Contato, Bot, Assistente, Suporte), religiosos/possessivos (Deus, Jesus, Minha, Meu, Nossa). Inicie a mensagem diretamente, sem qualquer forma de tratamento. NUNCA pergunte o nome.",
       "7. NUNCA se apresente pelo nome ou se identifique. Voce ja esta em uma conversa em andamento.",
       "8. Foque em fazer o lead RESPONDER com uma acao clara.",
@@ -917,8 +996,10 @@ export class AgentTaskQueueService {
         ? `14. Personalidade base do agente (resumo): ${excerpt(runtime.promptBase, 260)}`
         : "14. Sem prompt base explicito: mantenha o texto humano, natural, educado e comercial.",
       "15. NUNCA prometa enviar material, documento, proposta, PDF, planilha, link ou qualquer conteudo. Quem envia e realiza acoes fisicas e o CONSULTOR DA UNIDADE, nao voce. Voce apenas retoma o atendimento.",
-      "16. Voce representa o consultor da unidade. Fale em primeira pessoa como consultor humano. Se o assunto exigir envio de algo, diga que o consultor pode continuar o atendimento — nunca prometa acoes autonomas de envio.",
+      "16. Voce representa o consultor da unidade. Fale em primeira pessoa como consultor humano. Se o assunto exigir envio de algo, diga que o consultor pode continuar o atendimento â€” nunca prometa acoes autonomas de envio.",
       "17. NUNCA use 'agora', 'hoje', 'imediatamente' de forma que implique disponibilidade fora do horario de atendimento da unidade. Use linguagem temporal neutra quando necessario.",
+      `18. ${weekdayConstraint}`,
+      "19. NUNCA escreva 'voce mencionou', 'voce disse', 'voce comentou', 'voce perguntou'. NUNCA repita nem cite qualquer trecho da mensagem do lead, com ou sem aspas. NUNCA use 'posso continuar daqui?', 'posso te ajudar com isso?', 'sobre o que voce disse' ou qualquer frase que referencie diretamente o texto do lead. Inferir o assunto pelo historico e usar de forma indireta, natural, como um humano faria.",
       "",
       `CONTEXTO:`,
       `Etapa: ${input.step} de ${input.totalSteps}`,
@@ -942,10 +1023,10 @@ export class AgentTaskQueueService {
       const decision = await gemini.decideNextTurn({
         systemPrompt: [
           "Voce gera mensagens de follow-up curtas e contextuais para WhatsApp comercial em pt-BR.",
-          "Cada mensagem deve ser unica, natural e conectada ao assunto REAL da conversa — nunca invente temas.",
+          "Cada mensagem deve ser unica, natural e conectada ao assunto REAL da conversa â€” nunca invente temas.",
           "Voce NUNCA inventa informacoes. Se nao sabe o assunto, foque no atendimento em aberto de forma generica.",
-          "REGRA CRITICA DE PAPEL: voce representa o CONSULTOR HUMANO da unidade. Fale sempre em primeira pessoa como consultor. Quem vende, envia materiais, documentos, propostas ou realiza acoes fisicas e o consultor/equipe da unidade — nunca prometa essas acoes de forma autonoma.",
-          "REGRA CRITICA DE ENVIO: NUNCA prometa enviar material, documento, proposta, PDF, planilha, link ou qualquer conteudo. Use apenas 'posso continuar o atendimento', 'consigo te ajudar', 'podemos retomar' — nunca 'te envio', 'vou mandar', 'preparei para voce'.",
+          "REGRA CRITICA DE PAPEL: voce representa o CONSULTOR HUMANO da unidade. Fale sempre em primeira pessoa como consultor. Quem vende, envia materiais, documentos, propostas ou realiza acoes fisicas e o consultor/equipe da unidade â€” nunca prometa essas acoes de forma autonoma.",
+          "REGRA CRITICA DE ENVIO: NUNCA prometa enviar material, documento, proposta, PDF, planilha, link ou qualquer conteudo. Use apenas 'posso continuar o atendimento', 'consigo te ajudar', 'podemos retomar' â€” nunca 'te envio', 'vou mandar', 'preparei para voce'.",
           "REGRA CRITICA DE HORARIO: os follow-ups so sao disparados dentro do horario de atendimento da unidade. NUNCA use linguagem que implique disponibilidade 24/7 ou promessa de resposta imediata fora do horario.",
           "REGRA CRITICA DE REPETICAO: cada follow-up deve abordar o assunto de um angulo diferente. NUNCA repita ou parafraseie o que a IA ja disse nas mensagens anteriores da conversa.",
           "NUNCA confunda seu papel (IA assistente) com o lead (cliente).",
@@ -954,8 +1035,10 @@ export class AgentTaskQueueService {
           "JAMAIS abrevie ou encurte o nome do lead. Use sempre o nome EXATO como informado, sem criar apelidos (ex: Cah, Fer, Gabi, Rafa, Lu sao proibidos).",
           "NUNCA diga que e IA, sistema, assistente virtual, chatbot ou robo.",
           "NUNCA use saudacoes baseadas no horario: 'Bom dia', 'Boa tarde', 'Boa noite'. A mensagem pode chegar ao lead em horario diferente da criacao.",
-          "REGRA CRITICA DE NOMES NAO-PESSOA: o display name do WhatsApp frequentemente NAO e o nome real. NUNCA use como nome de lead: CARGOS (Lider, Chefe, Dono, Dona, Socio, Presidente, Supervisor, Gestor, Secretario, Coordenador, Subgerente, Funcionario, Colaborador, Estagiario), PROFISSOES (Barbeiro, Medico, Dentista, Advogado, Enfermeiro, Nutricionista, Personal, Coach, Terapeuta, Fisioterapeuta, Psicologo, Empresario, Corretor, Engenheiro, Arquiteto, Vendedor, Gerente, Diretor, Contador, Motorista, Cozinheiro), TITULOS (Treinador, Professor, Doutor, Dr, Dra, Mestre, Aluno, Amigo), GENERICOS (Contato, Usuario, Lead, Cliente, Bot, Assistente, Agente, Atendente, Robo, Suporte, Admin, Teste), RELIGIOSOS/POSSESSIVOS (Deus, Jesus, Senhor, Minha, Meu, Nossa, Tua) ou ONOMATOPEIAS (Kkkkk, Haha, Rsrs). Se o nome disponivel se enquadrar em qualquer dessas categorias, NAO use nome algum — inicie a mensagem diretamente.",
+          "NUNCA diga 'voce mencionou' nem 'voce disse', NUNCA repita texto do lead entre aspas e NUNCA use 'posso continuar daqui?'. Seja natural e direto.",
+          "REGRA CRITICA DE NOMES NAO-PESSOA: o display name do WhatsApp frequentemente NAO e o nome real. NUNCA use como nome de lead: CARGOS (Lider, Chefe, Dono, Dona, Socio, Presidente, Supervisor, Gestor, Secretario, Coordenador, Subgerente, Funcionario, Colaborador, Estagiario), PROFISSOES (Barbeiro, Medico, Dentista, Advogado, Enfermeiro, Nutricionista, Personal, Coach, Terapeuta, Fisioterapeuta, Psicologo, Empresario, Corretor, Engenheiro, Arquiteto, Vendedor, Gerente, Diretor, Contador, Motorista, Cozinheiro), TITULOS (Treinador, Professor, Doutor, Dr, Dra, Mestre, Aluno, Amigo), GENERICOS (Contato, Usuario, Lead, Cliente, Bot, Assistente, Agente, Atendente, Robo, Suporte, Admin, Teste), RELIGIOSOS/POSSESSIVOS (Deus, Jesus, Senhor, Minha, Meu, Nossa, Tua) ou ONOMATOPEIAS (Kkkkk, Haha, Rsrs). Se o nome disponivel se enquadrar em qualquer dessas categorias, NAO use nome algum â€” inicie a mensagem diretamente.",
           `REGRA DE GENERO: ${genderConstraint}`,
+          `REGRA DE DIAS DE ATENDIMENTO: ${weekdayConstraint}`,
           `REGRA DE TOM: siga o estilo ${toneSummary}.`,
         ].join(" "),
         conversation: [{ role: "user", content: prompt }],
@@ -1578,7 +1661,7 @@ export class AgentTaskQueueService {
     const leadRef = normalizePhoneNumber(input.phone)
     const reasonText = String(input.reason || "").trim()
 
-    // Erros e cancelamentos → webhook externo (nunca para o grupo do cliente)
+    // Erros e cancelamentos â†’ webhook externo (nunca para o grupo do cliente)
     if (input.kind === "cancelled" || input.kind === "failed") {
       await this.sendFollowupErrorWebhook({
         kind: input.kind,
@@ -1748,6 +1831,7 @@ export class AgentTaskQueueService {
         }
       }
       let runtimeConfig: Awaited<ReturnType<AgentTaskQueueService["loadFollowupRuntimeConfig"]>> | null = null
+      let reminderConfig: Awaited<ReturnType<typeof getReminderConfigForTenant>> | null = null
 
       if (taskType === "followup" && tenant && phone && sessionId) {
         runtimeConfig = await this.loadFollowupRuntimeConfig(tenant)
@@ -1803,9 +1887,108 @@ export class AgentTaskQueueService {
         runtimeConfig = await this.loadFollowupRuntimeConfig(tenant)
       }
 
+      const loadReminderConfig = async () => {
+        if (reminderConfig !== null) return reminderConfig
+        reminderConfig = await getReminderConfigForTenant(tenant).catch(() => null)
+        return reminderConfig
+      }
+
       if (taskType === "reminder" && !isConversationListenerTask && !isPostScheduleReminder) {
-        if (!isWithinBusinessHours(runtimeConfig?.businessHours)) {
-          const deferredRunAt = adjustToBusinessHours(new Date(), runtimeConfig?.businessHours).toISOString()
+        if (runtimeConfig?.remindersEnabled === false) {
+          result.skipped += 1
+          const reason = "reminder_cancelled_native_reminders_disabled"
+          await this.supabase
+            .from(this.table)
+            .update({
+              status: "cancelled",
+              attempts: Number(task.attempts || 0) + 1,
+              last_error: reason,
+            })
+            .eq("id", task.id)
+          await this.notifyTouchpoint({
+            tenant,
+            sessionId,
+            phone,
+            runtimeConfig,
+            kind: "cancelled",
+            taskType: notificationTaskType,
+            reason,
+            step: Number(payload?.followup_step || 0) || undefined,
+            totalSteps: Number(payload?.followup_total_steps || 0) || undefined,
+            taskId: String(task.id || ""),
+          })
+          continue
+        }
+
+        const loadedReminderConfig = await loadReminderConfig()
+        if (loadedReminderConfig && loadedReminderConfig.enabled === false) {
+          result.skipped += 1
+          const reason = "reminder_cancelled_config_disabled"
+          await this.supabase
+            .from(this.table)
+            .update({
+              status: "cancelled",
+              attempts: Number(task.attempts || 0) + 1,
+              last_error: reason,
+            })
+            .eq("id", task.id)
+          await this.notifyTouchpoint({
+            tenant,
+            sessionId,
+            phone,
+            runtimeConfig,
+            kind: "cancelled",
+            taskType: notificationTaskType,
+            reason,
+            step: Number(payload?.followup_step || 0) || undefined,
+            totalSteps: Number(payload?.followup_total_steps || 0) || undefined,
+            taskId: String(task.id || ""),
+          })
+          continue
+        }
+
+        if (isOfficialReminder && loadedReminderConfig) {
+          const reminderTypeEnabled =
+            (reminderType === "3days" && loadedReminderConfig.reminder3days) ||
+            (reminderType === "1day" && loadedReminderConfig.reminder1day) ||
+            (reminderType === "4hours" && loadedReminderConfig.reminder4hours)
+          if (!reminderTypeEnabled) {
+            result.skipped += 1
+            const reason = `reminder_cancelled_${reminderType || "type"}_disabled`
+            await this.supabase
+              .from(this.table)
+              .update({
+                status: "cancelled",
+                attempts: Number(task.attempts || 0) + 1,
+                last_error: reason,
+              })
+              .eq("id", task.id)
+            await this.notifyTouchpoint({
+              tenant,
+              sessionId,
+              phone,
+              runtimeConfig,
+              kind: "cancelled",
+              taskType: notificationTaskType,
+              reason,
+              step: Number(payload?.followup_step || 0) || undefined,
+              totalSteps: Number(payload?.followup_total_steps || 0) || undefined,
+              taskId: String(task.id || ""),
+            })
+            continue
+          }
+        }
+
+        const reminderBusinessHours = loadedReminderConfig
+          ? parseTenantBusinessHours(
+              loadedReminderConfig.businessStart,
+              loadedReminderConfig.businessEnd,
+              loadedReminderConfig.businessDays,
+            )
+          : runtimeConfig?.businessHours
+
+        if (!isWithinBusinessHours(reminderBusinessHours)) {
+          const deferredRunAt = adjustToBusinessHours(new Date(), reminderBusinessHours).toISOString()
           result.skipped += 1
           await this.supabase
             .from(this.table)
@@ -1841,10 +2024,10 @@ export class AgentTaskQueueService {
       ])
 
       // REGRA ABSOLUTA DE PAUSA:
-      // Leads pausados NÃO recebem NENHUMA interação da IA, exceto:
-      //   1. isOfficialReminder  → lembretes de pós-agendamento (3days, 1day, 4hours)
-      //   2. isPostScheduleReminder → mensagem automática de pós-agendamento
-      // Qualquer outro tipo (followup, disparo, reengagement, welcome, etc.) é BLOQUEADO.
+      // Leads pausados NÃƒO recebem NENHUMA interaÃ§Ã£o da IA, exceto:
+      //   1. isOfficialReminder  â†’ lembretes de pÃ³s-agendamento (3days, 1day, 4hours)
+      //   2. isPostScheduleReminder â†’ mensagem automÃ¡tica de pÃ³s-agendamento
+      // Qualquer outro tipo (followup, disparo, reengagement, welcome, etc.) Ã© BLOQUEADO.
       const isExemptFromPause = isOfficialReminder || isPostScheduleReminder
       const shouldCancelAsPaused = paused && !isExemptFromPause
       const shouldCancelAsTerminal = terminal && !isExemptFromPause
@@ -1991,7 +2174,7 @@ export class AgentTaskQueueService {
           }
         }
 
-        // Post-schedule messages are admin-configured, not AI-generated — skip internal leak filter
+        // Post-schedule messages are admin-configured, not AI-generated â€” skip internal leak filter
         if (!isPostScheduleReminder) {
           message = this.resolveSafeReminderMessage({ message, payload })
         }
@@ -2082,7 +2265,7 @@ export class AgentTaskQueueService {
         .update({
           status: isLastAttempt ? "error" : "pending",
           attempts,
-          // Avança run_at para evitar retry imediato no próximo ciclo do cron
+          // AvanÃ§a run_at para evitar retry imediato no prÃ³ximo ciclo do cron
           run_at: isLastAttempt
             ? undefined
             : toIsoFromNowRespectingBusinessHours(15, runtimeConfig?.businessHours),
@@ -2108,3 +2291,5 @@ export class AgentTaskQueueService {
     return result
   }
 }
+
+

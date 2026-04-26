@@ -128,6 +128,8 @@ interface MetaReport {
 }
 
 type RelPeriodo = "dia" | "semana" | "mes" | "ano"
+type LeadExportCategory = "ai_no_reply" | "scheduled" | "all_leads"
+type LeadExportFormat = "csv" | "xlsx"
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -317,6 +319,9 @@ export default function DashboardPage() {
   const [relPeriodo, setRelPeriodo] = useState<RelPeriodo>("semana")
   const [exportingCsv, setExportingCsv] = useState(false)
   const [exportingPdf, setExportingPdf] = useState(false)
+  const [leadExportCategory, setLeadExportCategory] = useState<LeadExportCategory>("ai_no_reply")
+  const [leadExportFormat, setLeadExportFormat] = useState<LeadExportFormat>("csv")
+  const [exportingLeadList, setExportingLeadList] = useState(false)
   const [metaReport, setMetaReport] = useState<MetaReport | null>(null)
   const [metaLoading, setMetaLoading] = useState(false)
   const [metaError, setMetaError] = useState<string | null>(null)
@@ -661,6 +666,41 @@ export default function DashboardPage() {
       toast.success("PDF gerado com sucesso")
     } catch (e: any) { toast.error(e.message || "Erro ao exportar PDF") }
     finally { setExportingPdf(false) }
+  }
+
+  const handleExportLeadsList = async () => {
+    if (!tenant) {
+      toast.error("Selecione uma unidade antes de exportar")
+      return
+    }
+
+    setExportingLeadList(true)
+    try {
+      const response = await fetch(
+        `/api/dashboard/leads/export?category=${encodeURIComponent(leadExportCategory)}&format=${encodeURIComponent(leadExportFormat)}`,
+      )
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}))
+        throw new Error(err?.error || "Erro ao exportar leads")
+      }
+
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      const disposition = response.headers.get("content-disposition") || ""
+      const fileNameMatch = disposition.match(/filename=\"([^\"]+)\"/)
+      link.href = url
+      link.download = fileNameMatch?.[1] || `leads_${leadExportCategory}_${new Date().toISOString().slice(0, 10)}.${leadExportFormat}`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+      toast.success("Lista de leads exportada")
+    } catch (error: any) {
+      toast.error(error?.message || "Erro ao exportar lista de leads")
+    } finally {
+      setExportingLeadList(false)
+    }
   }
 
   // ─── Computed ─────────────────────────────────────────────────────────────
@@ -1269,6 +1309,35 @@ export default function DashboardPage() {
                 <Button size="sm" onClick={handleExportPdf} disabled={!relatorio || exportingPdf} className="bg-accent-green text-black hover:bg-accent-green/90">
                   {exportingPdf ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
                   PDF
+                </Button>
+              </div>
+              <div className="flex flex-wrap gap-2 items-center">
+                <select
+                  value={leadExportCategory}
+                  onChange={(event) => setLeadExportCategory(event.target.value as LeadExportCategory)}
+                  className="h-9 rounded-md border border-border-gray bg-black/40 px-2 text-xs text-pure-white"
+                >
+                  <option value="ai_no_reply">IA interagiu e lead nao respondeu</option>
+                  <option value="scheduled">Leads agendados</option>
+                  <option value="all_leads">Todos os leads</option>
+                </select>
+                <select
+                  value={leadExportFormat}
+                  onChange={(event) => setLeadExportFormat(event.target.value as LeadExportFormat)}
+                  className="h-9 rounded-md border border-border-gray bg-black/40 px-2 text-xs text-pure-white"
+                >
+                  <option value="csv">CSV</option>
+                  <option value="xlsx">XLSX</option>
+                </select>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleExportLeadsList}
+                  disabled={exportingLeadList}
+                  className="border-border-gray text-text-gray hover:text-pure-white"
+                >
+                  {exportingLeadList ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
+                  Baixar lista de leads
                 </Button>
               </div>
             </div>

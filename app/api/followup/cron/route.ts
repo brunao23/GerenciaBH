@@ -13,6 +13,7 @@ import { processPauseDeleteQueue } from '@/lib/services/pause-delete-processor'
 import { AgentTaskQueueService } from '@/lib/services/agent-task-queue.service'
 import { getBusinessHoursDebugInfo, parseTenantBusinessHours } from '@/lib/helpers/business-hours'
 import { getNativeAgentConfigForTenant } from '@/lib/helpers/native-agent-config'
+import { resolveEffectiveFollowupBusinessDays } from '@/lib/helpers/effective-followup-days'
 import { createBiaSupabaseServerClient } from '@/lib/supabase/bia-client'
 
 export const runtime = 'nodejs'
@@ -102,11 +103,12 @@ export async function GET(req: Request) {
             try {
                 // Carregar config de horários do tenant
                 const config = await getNativeAgentConfigForTenant(tenant)
+                const effectiveFollowupDays = resolveEffectiveFollowupBusinessDays(config)
                 const tenantBH = config
                     ? parseTenantBusinessHours(
                         config.followupBusinessStart,
                         config.followupBusinessEnd,
-                        config.followupBusinessDays
+                        effectiveFollowupDays
                     )
                     : undefined
 

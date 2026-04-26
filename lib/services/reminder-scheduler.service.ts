@@ -8,6 +8,7 @@
 
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { resolveTenantRegistryPrefix } from "@/lib/helpers/tenant-resolution"
+import { getNativeAgentConfigForTenant } from "@/lib/helpers/native-agent-config"
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -49,7 +50,7 @@ export const DEFAULT_REMINDER_CONFIG: ReminderConfig = {
   reminder4hours: true,
   businessStart: "08:00",
   businessEnd: "20:00",
-  businessDays: [1, 2, 3, 4, 5, 6], // seg a sab
+  businessDays: [1, 2, 3, 4, 5, 6], // seg a sab — domingo (0) NUNCA incluso no default
   timezone: "America/Sao_Paulo",
   templates: DEFAULT_REMINDER_TEMPLATES,
 }
@@ -459,7 +460,10 @@ function adjustToBusinessHours(
   const businessDaysRaw = Array.isArray(config.businessDays) ? config.businessDays : []
   const businessDays = Array.from(
     new Set(
-      businessDaysRaw.filter((value): value is number => Number.isInteger(value) && value >= 0 && value <= 6),
+      businessDaysRaw.filter(
+        // Domingo (0) NUNCA pode receber lembretes — ignorado mesmo que configurado
+        (value): value is number => Number.isInteger(value) && value >= 1 && value <= 6,
+      ),
     ),
   )
   if (businessDays.length === 0) {
@@ -528,12 +532,18 @@ function adjustToBusinessHours(
 }
 
 function sanitizePersonName(raw: string): string {
-  const candidate = raw.split(" ")[0].trim()
-  // Rejeitar se não tiver pelo menos 2 letras reais (a-z ou acentuadas)
+  // Remove emojis e símbolos Unicode antes de qualquer validação
+  const cleaned = String(raw || "")
+    .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}\p{Symbol}\p{So}]/gu, "")
+    .replace(/[^a-zA-ZÀ-ɏ'\- ]/g, "")
+    .trim()
+  if (!cleaned) return ""
+  const candidate = cleaned.split(" ")[0].trim()
+  // Rejeitar se não tiver pelo menos 2 letras reais
   if (!/[a-zA-ZÀ-ɏ]{2,}/.test(candidate)) return ""
   // Rejeitar se não tiver vogal
   if (!/[aeiouáéíóúâêîôûàãõy]/i.test(candidate)) return ""
-  // Rejeitar se tiver caracteres que não sejam letras (ex: "D&C", "123", "@")
+  // Rejeitar se ainda tiver caracteres não-letra
   if (/[^a-zA-ZÀ-ɏ'-]/.test(candidate)) return ""
   return candidate.slice(0, 1).toUpperCase() + candidate.slice(1).toLowerCase()
 }
@@ -610,12 +620,14 @@ export async function scheduleRemindersForTenant(
 
   try {
     const config = await getReminderConfigForTenant(tenant)
+    const nativeAgentConfig = await getNativeAgentConfigForTenant(tenant).catch(() => null)
+    const nativeRemindersEnabled = nativeAgentConfig?.remindersEnabled !== false
     const supabase = createBiaSupabaseServerClient()
     const agendamentosTable = `${tenant}_agendamentos`
     const taskQueueTable = "agent_task_queue"
 
     // Force mode: cancel pending official reminders to resync templates/timing from current config
-    if (options?.force && !options?.dryRun) {
+    if ((options?.force || !config.enabled || !nativeRemindersEnabled) && !options?.dryRun) {
       try {
         const { data: pendingRows } = await supabase
           .from(taskQueueTable)
@@ -639,7 +651,12 @@ export async function scheduleRemindersForTenant(
             .from(taskQueueTable)
             .update({
               status: "cancelled",
-              last_error: "cancelled_by_reminder_config_resync",
+              last_error:
+                !nativeRemindersEnabled
+                  ? "cancelled_by_native_reminders_disabled"
+                  : !config.enabled
+                    ? "cancelled_by_reminder_config_disabled"
+                    : "cancelled_by_reminder_config_resync",
             })
             .in("id", idsToCancel)
         }
@@ -648,7 +665,7 @@ export async function scheduleRemindersForTenant(
       }
     }
 
-    if (!config.enabled) {
+    if (!config.enabled || !nativeRemindersEnabled) {
       result.success = true
       return result
     }

@@ -8,6 +8,7 @@ import { ZApiService } from './z-api.service'
 import { resolveChatHistoriesTable } from '@/lib/helpers/resolve-chat-table'
 import { isWithinBusinessHours, getNextFollowUpTime, adjustToBusinessHours, getBusinessHoursDebugInfo, parseTenantBusinessHours, type TenantBusinessHours } from '@/lib/helpers/business-hours'
 import { getNativeAgentConfigForTenant } from '@/lib/helpers/native-agent-config'
+import { resolveEffectiveFollowupBusinessDays } from '@/lib/helpers/effective-followup-days'
 import { getMessagingConfigForTenant } from '@/lib/helpers/messaging-config'
 import { createZApiServiceFromMessagingConfig } from '@/lib/helpers/zapi-messaging'
 import OpenAI from 'openai'
@@ -117,13 +118,14 @@ export class FollowUpAutomationService {
         try {
             const config = await getNativeAgentConfigForTenant(this.tenant)
             if (config) {
+                const effectiveFollowupDays = resolveEffectiveFollowupBusinessDays(config)
                 this.tenantBusinessHours = parseTenantBusinessHours(
                     config.followupBusinessStart,
                     config.followupBusinessEnd,
-                    config.followupBusinessDays
+                    effectiveFollowupDays
                 )
                 this.tenantFollowupIntervals = resolveFollowupIntervalsFromConfig(config)
-                console.log(`[FollowUp] Config horÃƒÂ¡rio ${this.tenant}: ${config.followupBusinessStart}-${config.followupBusinessEnd} dias=${config.followupBusinessDays?.join(',')}`)
+                console.log(`[FollowUp] Config horÃƒÂ¡rio ${this.tenant}: ${config.followupBusinessStart}-${config.followupBusinessEnd} dias=${effectiveFollowupDays?.join(',')}`)
                 return this.tenantBusinessHours
             }
         } catch (e) {
@@ -145,10 +147,11 @@ export class FollowUpAutomationService {
             if (config) {
                 hasExplicitFollowupPlan = Array.isArray((config as any).followupPlan)
                 if (!this.tenantBusinessHours) {
+                    const effectiveFollowupDays = resolveEffectiveFollowupBusinessDays(config)
                     this.tenantBusinessHours = parseTenantBusinessHours(
                         config.followupBusinessStart,
                         config.followupBusinessEnd,
-                        config.followupBusinessDays
+                        effectiveFollowupDays
                     )
                 }
                 this.tenantFollowupIntervals = resolveFollowupIntervalsFromConfig(config)

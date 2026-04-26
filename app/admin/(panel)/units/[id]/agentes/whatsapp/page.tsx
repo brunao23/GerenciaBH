@@ -141,7 +141,7 @@ export default function WhatsAppAgentePage({ params }: { params: Promise<{ id: s
     useEffect(() => {
         fetch(`/api/admin/units/${id}/native-agent-config`)
             .then((r) => r.json())
-            .then((data) => setCfg(normalize(data as Record<string, unknown>)))
+            .then((data) => setCfg(normalize((data?.config ?? data) as Record<string, unknown>)))
             .catch(() => toast.error("Erro ao carregar configuração"))
     }, [id])
 

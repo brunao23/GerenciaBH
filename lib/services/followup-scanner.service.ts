@@ -4,6 +4,7 @@ import { notifyFollowUpActive } from '@/lib/services/notifications'
 import { resolveChatHistoriesTable } from '@/lib/helpers/resolve-chat-table'
 import { adjustToBusinessHours, parseTenantBusinessHours } from '@/lib/helpers/business-hours'
 import { getNativeAgentConfigForTenant } from '@/lib/helpers/native-agent-config'
+import { resolveEffectiveFollowupBusinessDays } from '@/lib/helpers/effective-followup-days'
 
 export interface ScannerResult {
     scheduled: number
@@ -95,10 +96,11 @@ export class FollowUpScannerService {
             const tenantConfig = await getNativeAgentConfigForTenant(this.tenant)
             if (!tenantConfig) return
 
+            const effectiveFollowupDays = resolveEffectiveFollowupBusinessDays(tenantConfig)
             this.tenantBusinessHours = parseTenantBusinessHours(
                 tenantConfig.followupBusinessStart,
                 tenantConfig.followupBusinessEnd,
-                tenantConfig.followupBusinessDays
+                effectiveFollowupDays
             )
             this.tenantHasExplicitFollowupPlan = Array.isArray((tenantConfig as any).followupPlan)
             this.tenantFollowupIntervals = resolveFollowupIntervalsFromConfig(tenantConfig)

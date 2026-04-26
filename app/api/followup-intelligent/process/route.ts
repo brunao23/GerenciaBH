@@ -4,6 +4,7 @@ import { FollowUpScannerService } from "@/lib/services/followup-scanner.service"
 import { getBusinessHoursDebugInfo, parseTenantBusinessHours } from "@/lib/helpers/business-hours"
 import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
 import { getNativeAgentConfigForTenant } from "@/lib/helpers/native-agent-config"
+import { resolveEffectiveFollowupBusinessDays } from "@/lib/helpers/effective-followup-days"
 
 /**
  * API para sincronizar e processar follow-ups inteligentes para o tenant autenticado.
@@ -14,11 +15,12 @@ export async function POST() {
     const legacyPipelineEnabled =
       String(process.env.ENABLE_LEGACY_FOLLOWUP_SENDER || "").trim().toLowerCase() === "true"
     const config = await getNativeAgentConfigForTenant(tenant).catch(() => null)
+    const effectiveFollowupDays = resolveEffectiveFollowupBusinessDays(config)
     const tenantBH = config
       ? parseTenantBusinessHours(
         config.followupBusinessStart,
         config.followupBusinessEnd,
-        config.followupBusinessDays,
+        effectiveFollowupDays,
       )
       : undefined
     const bizHours = getBusinessHoursDebugInfo(tenantBH)
