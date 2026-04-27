@@ -33,11 +33,9 @@ export function resolveEffectiveFollowupBusinessDays(config: any): number[] | un
   )
 
   const calendarDays = extractEnabledCalendarDays(config?.calendarDaySchedule)
-  if (followupDays.length && calendarDays.length) {
-    const calendarSet = new Set(calendarDays)
-    const intersection = followupDays.filter((day) => calendarSet.has(day))
-    return intersection.length ? intersection : followupDays
-  }
+  // Regra de prioridade: follow-up obedece aos dias configurados no proprio fluxo.
+  // Se domingo (0) estiver ativo no follow-up, ele deve ser respeitado mesmo que
+  // a agenda de atendimento (calendarDaySchedule) esteja fechada no domingo.
   if (followupDays.length) return followupDays
   if (calendarDays.length) return calendarDays
   return undefined

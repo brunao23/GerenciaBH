@@ -1,4 +1,4 @@
-﻿import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
+import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { SemanticCacheService, type CacheHitResult } from "@/lib/services/semantic-cache.service"
 import { getTablesForTenant } from "@/lib/helpers/tenant"
 import { getTableColumns } from "@/lib/helpers/supabase-table-columns"
@@ -1402,7 +1402,9 @@ function resolveDailyBusinessWindow(
         .filter((day) => Number.isInteger(day) && day >= 1 && day <= 7)
     : []
 
-  const dayEnabled = dayConfig ? dayConfig.enabled !== false : businessDays.includes(weekday)
+  const inBusinessDays = businessDays.length ? businessDays.includes(weekday) : true
+  const dayScheduleEnabled = dayConfig ? dayConfig.enabled !== false : true
+  const dayEnabled = inBusinessDays && dayScheduleEnabled
   if (!dayEnabled) {
     return { enabled: false, start: defaultBusinessStart, end: defaultBusinessEnd }
   }
@@ -3435,32 +3437,32 @@ export class NativeAgentOrchestratorService {
 
     if (input.isEdit) {
       const lines = [
-        "ðŸ”„ *REAGENDAMENTO CONFIRMADO*",
+        "🔄 *REAGENDAMENTO CONFIRMADO*",
         "",
-        `ðŸ‘¤ *Cliente:* ${name}`,
-        `ðŸ“± *Contato:* ${contact}`,
-        oldWhen ? `âª *HorÃ¡rio anterior:* ${oldWhen}` : "",
-        `â° *Novo horÃ¡rio:* ${day} as ${time}`,
-        `ðŸ¢ *Modalidade:* ${mode}`,
+        `👤 *Cliente:* ${name}`,
+        `📱 *Contato:* ${contact}`,
+        oldWhen ? `⏪ *Horário anterior:* ${oldWhen}` : "",
+        `⏰ *Novo horário:* ${day} as ${time}`,
+        `🏢 *Modalidade:* ${mode}`,
       ]
-      if (notes) lines.push(`ðŸ“ *Obs:* ${notes}`)
-      if (meetLink) lines.push(`ðŸ’» *Google Meet:* ${meetLink}`)
-      if (calLink) lines.push(`ðŸ“… *CalendÃ¡rio:* ${calLink}`)
+      if (notes) lines.push(`📝 *Obs:* ${notes}`)
+      if (meetLink) lines.push(`💻 *Google Meet:* ${meetLink}`)
+      if (calLink) lines.push(`📅 *Calendário:* ${calLink}`)
       return lines.filter(Boolean).join("\n")
     }
 
     const lines = [
-      "âœ… *AGENDAMENTO CONFIRMADO*",
+      "✅ *AGENDAMENTO CONFIRMADO*",
       "",
-      `ðŸ‘¤ *Cliente:* ${name}`,
-      `ðŸ“± *Contato:* ${contact}`,
-      `ðŸ“… *Data:* ${day}`,
-      `â° *HorÃ¡rio:* ${time}`,
-      `ðŸ¢ *Modalidade:* ${mode}`,
+      `👤 *Cliente:* ${name}`,
+      `📱 *Contato:* ${contact}`,
+      `📅 *Data:* ${day}`,
+      `⏰ *Horário:* ${time}`,
+      `🏢 *Modalidade:* ${mode}`,
     ]
-    if (notes) lines.push(`ðŸ“ *Obs:* ${notes}`)
-    if (meetLink) lines.push(`ðŸ’» *Google Meet:* ${meetLink}`)
-    if (calLink) lines.push(`ðŸ“… *CalendÃ¡rio:* ${calLink}`)
+    if (notes) lines.push(`📝 *Obs:* ${notes}`)
+    if (meetLink) lines.push(`💻 *Google Meet:* ${meetLink}`)
+    if (calLink) lines.push(`📅 *Calendário:* ${calLink}`)
     return lines.filter(Boolean).join("\n")
   }
 
@@ -3477,17 +3479,17 @@ export class NativeAgentOrchestratorService {
     const notes = String(input.action.note || "").trim()
 
     const lines = [
-      "âŒ *FALHA NO AGENDAMENTO*",
+      "❌ *FALHA NO AGENDAMENTO*",
       "",
-      `ðŸ‘¤ *Cliente:* ${name}`,
-      `ðŸ“ž *Contato:* ${contact}`,
-      `ðŸ“… *Data solicitada:* ${day}`,
-      `ðŸ• *HorÃ¡rio solicitado:* ${time}`,
-      `âš ï¸ *Erro:* ${input.error}`,
+      `👤 *Cliente:* ${name}`,
+      `📞 *Contato:* ${contact}`,
+      `📅 *Data solicitada:* ${day}`,
+      `🕐 *Horário solicitado:* ${time}`,
+      `⚠️ *Erro:* ${input.error}`,
     ]
 
-    if (notes) lines.push(`ðŸ“ *Obs:* ${notes}`)
-    lines.push("", "âš ï¸ _Verifique o motivo e reagende manualmente se necessÃ¡rio._")
+    if (notes) lines.push(`📝 *Obs:* ${notes}`)
+    lines.push("", "⚠️ _Verifique o motivo e reagende manualmente se necessário._")
 
     return lines.join("\n")
   }
@@ -3502,13 +3504,13 @@ export class NativeAgentOrchestratorService {
     const notes = String(input.reason || "Lead solicitou apoio humano.").trim()
 
     return [
-      "ðŸ†˜ *LEAD PRECISA DE ATENDIMENTO HUMANO*",
+      "🆘 *LEAD PRECISA DE ATENDIMENTO HUMANO*",
       "",
-      `ðŸ‘¤ *Cliente:* ${name}`,
-      `ðŸ“ž *Contato:* ${contact}`,
-      `ðŸ’¬ *Motivo:* ${notes}`,
+      `👤 *Cliente:* ${name}`,
+      `📞 *Contato:* ${contact}`,
+      `💬 *Motivo:* ${notes}`,
       "",
-      "âš ï¸ _A automaÃ§Ã£o foi pausada. Responda o quanto antes._",
+      "⚠️ _A automação foi pausada. Responda o quanto antes._",
     ].join("\n")
   }
 
