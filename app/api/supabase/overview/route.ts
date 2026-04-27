@@ -1,4 +1,4 @@
-﻿import { NextResponse } from "next/server"
+import { NextResponse } from "next/server"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { createNotification } from "@/lib/services/notifications"
 import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
@@ -1066,15 +1066,15 @@ export async function GET(req: Request) {
 
     const resolveAgendamentoDate = (agendamento: any): Date | null =>
       parseDateMaybe(
-        agendamento?.created_at ||
         agendamento?.appointment_at ||
         agendamento?.start_at ||
-        agendamento?.inicio ||
-        agendamento?.data_hora ||
         agendamento?.data_agendamento ||
         agendamento?.dia ||
+        agendamento?.data_hora ||
+        agendamento?.inicio ||
         agendamento?.date ||
-        agendamento?.data,
+        agendamento?.data ||
+        agendamento?.created_at,
       )
 
     // FunÃƒÂ§ÃƒÂ£o para validar se o agendamento ÃƒÂ© explÃƒÂ­cito (mesma lÃƒÂ³gica do endpoint de agendamentos)
@@ -1267,7 +1267,10 @@ export async function GET(req: Request) {
 
     // Calcular mÃƒÂ©tricas finais
     const aiSuccessRate = aiMessages > 0 ? (aiSuccessMessages / aiMessages) * 100 : 0
-    const conversionRate = totalLeads > 0 ? (agendamentos / totalLeads) * 100 : 0
+    // Taxa de agendamento: usar conversasAtivas como base (leads com interacao real)
+    // Isso evita que leads de disparos que nunca responderam diluam a taxa
+    const conversionBase = conversasAtivas > 0 ? conversasAtivas : totalLeads
+    const conversionRate = conversionBase > 0 ? (agendamentos / conversionBase) * 100 : 0
     const errorRate = aiMessages > 0 ? (aiErrorMessages / aiMessages) * 100 : 0
 
     // Verificar se a taxa de conversÃƒÂ£o estÃƒÂ¡ abaixo de 5% e criar notificaÃƒÂ§ÃƒÂ£o se necessÃƒÂ¡rio
@@ -1449,7 +1452,8 @@ export async function GET(req: Request) {
             dailyStats.set(dateStr, { date: dateStr, total: 0, success: 0, error: 0 })
           }
           const stat = dailyStats.get(dateStr)!
-          stat.success += count // Adicionar aos "success" (leads vÃƒÂ¡lidos)
+          // Leads de disparos contam como 'total' mas NAO como 'success'
+          // (success = conversas com resultado positivo, nao apenas leads importados)
           stat.total += count
         }
 
