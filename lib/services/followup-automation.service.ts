@@ -78,6 +78,35 @@ function isFollowupHardBlockedStatus(status: string): boolean {
     return false
 }
 
+function normalizeLeadNameForFollowup(value: any): string | null {
+    const raw = String(value || '').trim()
+    if (!raw) return null
+    const firstToken = raw.split(/\s+/)[0] || ''
+    const sanitized = firstToken.replace(/[^\p{L}'-]/gu, '').trim()
+    if (!sanitized) return null
+    if (sanitized.length < 2 || sanitized.length > 24) return null
+    if (/\d/.test(sanitized)) return null
+
+    const lower = sanitized.toLowerCase()
+    const banned = new Set([
+        'lead',
+        'contato',
+        'cliente',
+        'usuario',
+        'user',
+        'sistema',
+        'ia',
+        'bot',
+        'whatsapp',
+        'instagram',
+        'unknown',
+        'teste',
+    ])
+    if (banned.has(lower)) return null
+
+    return lower.charAt(0).toUpperCase() + lower.slice(1)
+}
+
 export interface FollowUpContext {
     sessionId: string
     phoneNumber: string
@@ -316,6 +345,60 @@ export class FollowUpAutomationService {
         }
 
         return rows.filter((row) => allowedSessionIds.has(String(row?.session_id || '').trim()))
+    }
+
+    private async hasActiveScheduledAppointment(sessionId: string, phoneNumber: string): Promise<boolean> {
+        try {
+            const agendamentosTable = `${this.tenant}_agendamentos`
+            const statuses = ['agendado', 'confirmado']
+            const normalizedPhone = String(phoneNumber || '').replace(/\D/g, '')
+            const phoneVariants = Array.from(
+                new Set([
+                    normalizedPhone,
+                    normalizedPhone.startsWith('55') ? normalizedPhone.slice(2) : '',
+                    !normalizedPhone.startsWith('55') ? `55${normalizedPhone}` : '',
+                ].filter(Boolean))
+            )
+
+            const bySession = await this.supabase
+                .from(agendamentosTable)
+                .select('id,status,session_id')
+                .eq('session_id', sessionId)
+                .in('status', statuses)
+                .limit(1)
+
+            if (!bySession.error && Array.isArray(bySession.data) && bySession.data.length > 0) {
+                return true
+            }
+
+            if (phoneVariants.length > 0) {
+                const byContato = await this.supabase
+                    .from(agendamentosTable)
+                    .select('id,status,contato')
+                    .in('contato', phoneVariants)
+                    .in('status', statuses)
+                    .limit(1)
+
+                if (!byContato.error && Array.isArray(byContato.data) && byContato.data.length > 0) {
+                    return true
+                }
+
+                const byNumero = await this.supabase
+                    .from(agendamentosTable)
+                    .select('id,status,numero')
+                    .in('numero', phoneVariants)
+                    .in('status', statuses)
+                    .limit(1)
+
+                if (!byNumero.error && Array.isArray(byNumero.data) && byNumero.data.length > 0) {
+                    return true
+                }
+            }
+
+            return false
+        } catch {
+            return false
+        }
     }
 
     /**
@@ -881,7 +964,7 @@ Retorne JSON:
                 return
             }
 
-            // 2. Verificar status CRM (Agendado/Perdido/Ganhos)
+            // 2. Verificar status CRM terminal
             const crmStatusTable = `${this.tenant}_crm_lead_status`
             const { data: statusData } = await this.supabase
                 .from(crmStatusTable)
@@ -889,11 +972,26 @@ Retorne JSON:
                 .eq('lead_id', schedule.session_id)
                 .maybeSingle()
 
-            if (statusData && ['agendado', 'perdido', 'ganhos'].includes(statusData.status)) {
+            if (
+                statusData &&
+                ['agendado', 'confirmado', 'reagendado', 'perdido', 'ganhos', 'ganho', 'convertido', 'cancelado'].includes(
+                    String(statusData.status || '').toLowerCase()
+                )
+            ) {
                 console.log(`[FollowUp] Lead ${schedule.session_id} com status ${statusData.status}. Cancelando.`)
                 await this.supabase
                     .from('followup_schedule')
                     .update({ is_active: false, lead_status: `status_${statusData.status}`, updated_at: new Date().toISOString() })
+                    .eq('id', schedule.id)
+                return
+            }
+
+            const hasScheduledAppointment = await this.hasActiveScheduledAppointment(schedule.session_id, normalizedPhone)
+            if (hasScheduledAppointment) {
+                console.log(`[FollowUp] Lead ${schedule.session_id} com agendamento ativo. Cancelando follow-up.`)
+                await this.supabase
+                    .from('followup_schedule')
+                    .update({ is_active: false, lead_status: 'status_agendado', updated_at: new Date().toISOString() })
                     .eq('id', schedule.id)
                 return
             }
@@ -917,10 +1015,12 @@ Retorne JSON:
             // AnÃƒÂ¡lise IA com contexto completo
             const historyToUse = freshData.history || JSON.parse(schedule.conversation_context || '[]')
 
+            const safeLeadName = normalizeLeadNameForFollowup(schedule.lead_name) || undefined
+
             const context: FollowUpContext = {
                 sessionId: schedule.session_id,
                 phoneNumber: schedule.phone_number,
-                leadName: schedule.lead_name,
+                leadName: safeLeadName,
                 lastMessage: schedule.last_message,
                 conversationHistory: historyToUse,
                 funnelStage: schedule.funnel_stage,
@@ -944,18 +1044,14 @@ Retorne JSON:
             if (!messageText) {
                 messageText = this.buildContextualFallbackMessage({
                     attemptNumber,
-                    leadName: schedule.lead_name,
+                    leadName: safeLeadName,
                     history: historyToUse,
                     previousFollowUps,
                 })
             }
 
             // Garantia final: substitui placeholder se ainda existir (usa primeiro nome)
-            const rawSchedName = String(schedule.lead_name || '').trim()
-            const schedFirstName = rawSchedName
-              ? (rawSchedName.replace(/([a-z\u00C0-\u017E])([A-Z\u0178-\u024F])/g, '$1 $2').split(' ')[0].replace(/^(.)(.*)$/, (_, f, r) => f.toUpperCase() + r.toLowerCase()) || 'amigo(a)')
-              : 'amigo(a)'
-            const finalMessage = (messageText || '').replace(/\{nome\}/g, schedFirstName)
+            const finalMessage = (messageText || '').replace(/\{nome\}/g, safeLeadName || 'voce')
 
             // Regra rÃ­gida: nÃ£o disparar follow-up fora da janela 07:00-23:00 (SP).
             // Se virar o horÃ¡rio durante o processamento, reagenda para a prÃ³xima manhÃ£ comercial.
@@ -982,14 +1078,14 @@ Retorne JSON:
             // Log
             await this.supabase
                 .from('followup_logs')
-                .insert({
-                    followup_schedule_id: schedule.id,
-                    session_id: schedule.session_id,
-                    attempt_number: attemptNumber,
-                    message_sent: messageText,
-                    ai_context_analysis: analysis.reasoning,
-                    delivery_status: result.success ? 'delivered' : 'failed',
-                    evolution_api_response: result.data,
+                    .insert({
+                        followup_schedule_id: schedule.id,
+                        session_id: schedule.session_id,
+                        attempt_number: attemptNumber,
+                        message_sent: finalMessage,
+                        ai_context_analysis: analysis.reasoning,
+                        delivery_status: result.success ? 'delivered' : 'failed',
+                        evolution_api_response: result.data,
                     error_message: result.error
                 })
 

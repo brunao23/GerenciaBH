@@ -1,4 +1,4 @@
-
+﻿
 import { createBiaSupabaseServerClient } from '@/lib/supabase/bia-client'
 import { notifyFollowUpActive } from '@/lib/services/notifications'
 import { resolveChatHistoriesTable } from '@/lib/helpers/resolve-chat-table'
@@ -74,6 +74,35 @@ function isFollowupHardBlockedStatus(status: string): boolean {
     return false
 }
 
+function normalizeLeadNameForFollowup(value: any): string | null {
+    const raw = String(value || '').trim()
+    if (!raw) return null
+    const firstToken = raw.split(/\s+/)[0] || ''
+    const sanitized = firstToken.replace(/[^\p{L}'-]/gu, '').trim()
+    if (!sanitized) return null
+    if (sanitized.length < 2 || sanitized.length > 24) return null
+    if (/\d/.test(sanitized)) return null
+
+    const lower = sanitized.toLowerCase()
+    const banned = new Set([
+        'lead',
+        'contato',
+        'cliente',
+        'usuario',
+        'user',
+        'sistema',
+        'ia',
+        'bot',
+        'whatsapp',
+        'instagram',
+        'unknown',
+        'teste',
+    ])
+    if (banned.has(lower)) return null
+
+    return lower.charAt(0).toUpperCase() + lower.slice(1)
+}
+
 export class FollowUpScannerService {
     private supabase
     private tenant: string
@@ -86,6 +115,60 @@ export class FollowUpScannerService {
         // Usa as variáveis de ambiente padrão, assumindo que apontam para o DB correto
         this.supabase = createBiaSupabaseServerClient()
         this.tenant = tenant
+    }
+
+    private async hasActiveScheduledAppointment(sessionId: string, phoneNumber: string): Promise<boolean> {
+        try {
+            const agendamentosTable = `${this.tenant}_agendamentos`
+            const statuses = ['agendado', 'confirmado']
+            const normalizedPhone = String(phoneNumber || '').replace(/\D/g, '')
+            const phoneVariants = Array.from(
+                new Set([
+                    normalizedPhone,
+                    normalizedPhone.startsWith('55') ? normalizedPhone.slice(2) : '',
+                    !normalizedPhone.startsWith('55') ? `55${normalizedPhone}` : '',
+                ].filter(Boolean))
+            )
+
+            const bySession = await this.supabase
+                .from(agendamentosTable)
+                .select('id,status,session_id')
+                .eq('session_id', sessionId)
+                .in('status', statuses)
+                .limit(1)
+
+            if (!bySession.error && Array.isArray(bySession.data) && bySession.data.length > 0) {
+                return true
+            }
+
+            if (phoneVariants.length > 0) {
+                const byContato = await this.supabase
+                    .from(agendamentosTable)
+                    .select('id,status,contato')
+                    .in('contato', phoneVariants)
+                    .in('status', statuses)
+                    .limit(1)
+
+                if (!byContato.error && Array.isArray(byContato.data) && byContato.data.length > 0) {
+                    return true
+                }
+
+                const byNumero = await this.supabase
+                    .from(agendamentosTable)
+                    .select('id,status,numero')
+                    .in('numero', phoneVariants)
+                    .in('status', statuses)
+                    .limit(1)
+
+                if (!byNumero.error && Array.isArray(byNumero.data) && byNumero.data.length > 0) {
+                    return true
+                }
+            }
+
+            return false
+        } catch {
+            return false
+        }
     }
 
     private async loadTenantFollowupConfig(): Promise<void> {
@@ -151,7 +234,7 @@ export class FollowUpScannerService {
         let cancelled = 0
         let errors = 0
 
-        console.log('[Follow-up Scanner Service] Iniciando verificação de conversas...')
+        console.log('[Follow-up Scanner Service] Iniciando verificaÃ§Ã£o de conversas...')
 
         try {
             const paused = await this.isGloballyPaused()
@@ -173,7 +256,7 @@ export class FollowUpScannerService {
 
             await this.loadTenantFollowupConfig()
 
-            // 2. Agrupar por sessão
+            // 2. Agrupar por sessÃ£o
             const sessionMap = new Map<string, any[]>()
             allChats.forEach(chat => {
                 const sessionId = chat.session_id || 'unknown'
@@ -181,9 +264,9 @@ export class FollowUpScannerService {
                 sessionMap.get(sessionId)!.push(chat)
             })
 
-            console.log(`[Follow-up Scanner Service] ${sessionMap.size} sessões ativas encontradas`)
+            console.log(`[Follow-up Scanner Service] ${sessionMap.size} sessÃµes ativas encontradas`)
 
-            // 3. Analisar sessões
+            // 3. Analisar sessÃµes
             for (const [sessionId, messages] of sessionMap.entries()) {
                 try {
                     if (!messages || messages.length === 0) continue
@@ -208,7 +291,7 @@ export class FollowUpScannerService {
 
                     const phoneNumber = sessionId.replace('@s.whatsapp.net', '').replace(/[^\d]/g, '')
 
-                    // CHECK SEGURANÇA 1: Pausa Manual
+                    // CHECK SEGURANÃ‡A 1: Pausa Manual
                     const pausarTable = `${this.tenant}_pausar`
                     const { data: pauseData } = await this.supabase
                         .from(pausarTable)
@@ -221,7 +304,7 @@ export class FollowUpScannerService {
                         const pausedStatus = pauseReason
                             ? `paused_${pauseReason.replace(/[^a-z0-9_]/g, '_').slice(0, 64)}`
                             : 'paused_manual'
-                        // Se estiver pausado, garante que não tem schedule ativo
+                        // Se estiver pausado, garante que nÃ£o tem schedule ativo
                         const { data: existing } = await this.supabase
                             .from("followup_schedule")
                             .select("id, is_active")
@@ -236,7 +319,7 @@ export class FollowUpScannerService {
                         continue
                     }
 
-                    // CHECK SEGURANÇA 2: Status CRM
+                    // CHECK SEGURANÃ‡A 2: Status CRM
                     const crmStatusTable = `${this.tenant}_crm_lead_status`
                     const { data: statusData } = await this.supabase
                         .from(crmStatusTable)
@@ -244,7 +327,12 @@ export class FollowUpScannerService {
                         .eq('lead_id', sessionId)
                         .maybeSingle()
 
-                    if (statusData && ['agendado', 'perdido', 'ganhos'].includes(statusData.status)) {
+                    if (
+                        statusData &&
+                        ['agendado', 'confirmado', 'reagendado', 'perdido', 'ganhos', 'ganho', 'convertido', 'cancelado'].includes(
+                            String(statusData.status || '').toLowerCase()
+                        )
+                    ) {
                         // Se status terminal, garante inativo
                         const { data: existing } = await this.supabase
                             .from("followup_schedule")
@@ -255,6 +343,23 @@ export class FollowUpScannerService {
                         if (existing?.is_active) {
                             await this.supabase.from("followup_schedule")
                                 .update({ is_active: false, lead_status: `status_${statusData.status}` })
+                                .eq("id", existing.id)
+                        }
+                        continue
+                    }
+
+                    const hasScheduledAppointment = await this.hasActiveScheduledAppointment(sessionId, phoneNumber)
+                    if (hasScheduledAppointment) {
+                        const { data: existing } = await this.supabase
+                            .from("followup_schedule")
+                            .select("id, is_active")
+                            .eq("session_id", sessionId)
+                            .maybeSingle()
+
+                        if (existing?.is_active) {
+                            await this.supabase
+                                .from("followup_schedule")
+                                .update({ is_active: false, lead_status: "status_agendado", updated_at: new Date().toISOString() })
                                 .eq("id", existing.id)
                         }
                         continue
@@ -272,7 +377,7 @@ export class FollowUpScannerService {
                         continue
                     }
 
-                    // CENÁRIO A: Usuário respondeu -> Cancelar
+                    // CENÃRIO A: UsuÃ¡rio respondeu -> Cancelar
                     if (lastIsUser) {
                         if (existingFollowUp && (existingFollowUp.is_active || existingFollowUp.lead_status !== 'responded')) {
                             await this.supabase
@@ -285,12 +390,12 @@ export class FollowUpScannerService {
                                 .eq("id", existingFollowUp.id)
 
                             cancelled++
-                            console.log(`[Follow-up Scanner Service] Cancelado follow-up para ${sessionId} (Usuário respondeu)`)
+                            console.log(`[Follow-up Scanner Service] Cancelado follow-up para ${sessionId} (UsuÃ¡rio respondeu)`)
                         }
                         continue
                     }
 
-                    // CENÁRIO B: AI respondeu -> Agendar se necessário
+                    // CENÃRIO B: AI respondeu -> Agendar se necessÃ¡rio
                     if (lastIsAI) {
                         if (existingFollowUp && existingFollowUp.is_active) {
                             continue
@@ -318,13 +423,13 @@ export class FollowUpScannerService {
                             const phoneNumber = sessionId.replace('@s.whatsapp.net', '').replace(/[^\d]/g, '')
                             if (!phoneNumber || phoneNumber.length < 8) continue
 
-                            let leadName = existingFollowUp?.lead_name || "aí"
+                            let leadName = normalizeLeadNameForFollowup(existingFollowUp?.lead_name)
                             if (!existingFollowUp) {
                                 for (const msg of sortedMessages) {
                                     const content = String(msg.message?.content || "")
                                     const nameMatch = content.match(/"Nome"\s*:\s*"([^"]+)"/i) || content.match(/"PrimeiroNome"\s*:\s*"([^"]+)"/i)
                                     if (nameMatch && nameMatch[1]) {
-                                        leadName = nameMatch[1].trim()
+                                        leadName = normalizeLeadNameForFollowup(nameMatch[1])
                                         break
                                     }
                                 }
@@ -340,7 +445,7 @@ export class FollowUpScannerService {
                             const followUpData = {
                                 session_id: sessionId,
                                 phone_number: phoneNumber,
-                                lead_name: leadName,
+                                lead_name: leadName || null,
                                 last_message: String(lastMessage.message?.content || lastMessage.message?.text || '').substring(0, 500),
                                 last_interaction_at: lastInteractionDate.toISOString(),
                                 conversation_context: JSON.stringify(sortedMessages.slice(-20).map(m => {
@@ -385,7 +490,7 @@ export class FollowUpScannerService {
                             }
 
                             if (!existingFollowUp) {
-                                await notifyFollowUpActive(phoneNumber, leadName, 0).catch(() => { })
+                                await notifyFollowUpActive(phoneNumber, leadName || "lead", 0).catch(() => { })
                             }
 
                             scheduled++
@@ -394,7 +499,7 @@ export class FollowUpScannerService {
                     }
 
                 } catch (err) {
-                    console.error(`[Follow-up Scanner Service] Erro ao processar sessão ${sessionId}:`, err)
+                    console.error(`[Follow-up Scanner Service] Erro ao processar sessÃ£o ${sessionId}:`, err)
                     errors++
                 }
             }
@@ -407,3 +512,4 @@ export class FollowUpScannerService {
         }
     }
 }
+

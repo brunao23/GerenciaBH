@@ -111,11 +111,12 @@ const DEFAULT_SOCIAL_SELLER_KEYWORD_COMMENT_TEMPLATES = [
 ]
 
 const DEFAULT_SOCIAL_SELLER_KEYWORD_DM_TEMPLATES = [
-  "Oi {{lead_name}}! Vi seu comentario sobre \"{{keyword}}\" e te chamei aqui para te responder com contexto.",
-  "Oi {{lead_name}}! Recebi seu comentario e seguimos por aqui no Direct. Seu ponto foi: \"{{comment_excerpt}}\".",
+  "Oi {{lead_name}}! Vi seu comentario sobre \"{{keyword}}\" e ja te respondo por aqui com contexto.",
+  "Oi {{lead_name}}! Recebi seu comentario e sigo com voce a partir deste ponto: \"{{comment_excerpt}}\".",
 ]
 
 const igToWhatsappMemoryCache = new Map<string, InstagramWhatsappBridgeMemory>()
+const igInboundEventDedupCache = new Map<string, number>()
 
 function safeObject(value: any): Record<string, any> {
   if (value && typeof value === "object" && !Array.isArray(value)) return value
@@ -298,23 +299,6 @@ function buildInstagramContextSummary(params: {
   return lines.join(" ")
 }
 
-function buildDirectTriggerFromComment(params: {
-  intent: InstagramCommentIntent
-  text: string
-  senderName: string
-  contextSummary: string
-}): string {
-  const leadName = String(params.senderName || "").trim() || "lead"
-  return [
-    `gatilho_instagram_comentario_para_direct`,
-    `lead=${leadName}`,
-    `tipo=${params.intent}`,
-    `comentario="${params.text.slice(0, 280)}"`,
-    `contexto="${params.contextSummary.slice(0, 900)}"`,
-    `orientacao=envie DM contextual retomando exatamente do comentario e conduzindo o atendimento em privado`,
-  ].join(" | ")
-}
-
 function buildDirectFallbackMessage(params: {
   intent: InstagramCommentIntent
   senderName: string
@@ -324,44 +308,45 @@ function buildDirectFallbackMessage(params: {
   const greeting = leadName ? `Oi, ${leadName}.` : "Oi."
 
   if (params.intent === "vendas") {
-    return `${greeting} Vi seu comentario e te chamei aqui no Direct para te explicar os detalhes com calma. Me conta o que voce quer priorizar agora.`
+    return `${greeting} Vi seu comentario e ja posso te ajudar por aqui com todos os detalhes. Me conta o que voce quer priorizar agora.`
   }
   if (params.intent === "tecnico") {
-    return `${greeting} Te chamei no Direct para te responder com mais profundidade sobre o que voce comentou. Qual ponto tecnico voce quer ver primeiro.`
+    return `${greeting} Posso te responder com profundidade sobre o que voce comentou. Qual ponto tecnico voce quer ver primeiro.`
   }
   if (params.intent === "duvida") {
-    return `${greeting} Te chamei aqui no Direct para te responder de forma objetiva. Pode me mandar sua duvida completa que eu te ajudo.`
+    return `${greeting} Posso te responder de forma objetiva por aqui. Pode me mandar sua duvida completa que eu te ajudo.`
   }
   if (params.intent === "reclamacao") {
-    return `${greeting} Te chamei no Direct para cuidar disso com prioridade e resolver da melhor forma. Me conta o que aconteceu.`
+    return `${greeting} Vou tratar isso com prioridade e resolver da melhor forma. Me conta o que aconteceu.`
   }
   if (params.intent === "elogio") {
-    return `${greeting} Obrigado pelo comentario. Te chamei no Direct para continuar com voce por aqui.`
+    return `${greeting} Obrigado pelo comentario. Seguimos por aqui para te ajudar no proximo passo.`
   }
 
   const snippet = String(params.text || "").trim().slice(0, 120)
   return snippet
-    ? `${greeting} Te chamei no Direct para continuarmos a partir do seu comentario: "${snippet}".`
-    : `${greeting} Te chamei no Direct para continuarmos por aqui.`
+    ? `${greeting} Seguindo a partir do seu comentario: "${snippet}". Quer que eu te mostre o melhor caminho agora.`
+    : `${greeting} Seguimos por aqui. Quer que eu te mostre o melhor caminho agora.`
 }
 
 function buildCommentDmInviteMessage(params: { intent: InstagramCommentIntent; senderName: string }): string {
-  const leadName = String(params.senderName || "").trim()
-  const name = leadName ? `, ${leadName}` : ""
+  const leadName = String(params.senderName || '').trim()
+  const name = leadName ? ', ' + leadName : ''
 
-  if (params.intent === "vendas") {
-    return `Oi${name}! Me manda uma mensagem aqui no Direct pra eu te passar os detalhes com calma 😊`
+  if (params.intent === 'vendas') {
+    return 'Perfeito' + name + '! Te respondi no Direct com todos os detalhes.'
   }
-  if (params.intent === "tecnico") {
-    return `Oi${name}! Vai ser mais fácil eu te explicar pelo Direct, me chama lá 👋`
+  if (params.intent === 'tecnico') {
+    return 'Perfeito' + name + '! Te respondi no Direct com a explicacao tecnica.'
   }
-  if (params.intent === "reclamacao") {
-    return `Oi${name}! Me manda uma mensagem no Direct que eu cuido disso pra você rapidinho 🙏`
+  if (params.intent === 'reclamacao') {
+    return 'Perfeito' + name + '! Ja te respondi no Direct para resolver isso com prioridade.'
   }
-  if (params.intent === "duvida") {
-    return `Oi${name}! Manda sua dúvida no Direct que eu te respondo direitinho 😊`
+  if (params.intent === 'duvida') {
+    return 'Perfeito' + name + '! Ja te respondi no Direct com a resposta da sua duvida.'
   }
-  return `Oi${name}! Me manda uma mensagem no Direct pra continuarmos por lá 👋`
+
+  return 'Perfeito' + name + '! Ja te respondi no Direct para continuarmos por la.'
 }
 
 function normalizeBrazilPhone(value: string): string {
@@ -422,6 +407,29 @@ function normalizeTextList(value: unknown, fallback: string[]): string[] {
 function pickRandomItem<T>(items: T[]): T | undefined {
   if (!Array.isArray(items) || items.length === 0) return undefined
   return items[Math.floor(Math.random() * items.length)]
+}
+
+function isDuplicateInstagramInboundEvent(eventKey: string, withinMs: number = 120_000): boolean {
+  const key = String(eventKey || "").trim()
+  if (!key) return false
+
+  const now = Date.now()
+  const lastSeenAt = igInboundEventDedupCache.get(key)
+  if (lastSeenAt && now - lastSeenAt < withinMs) {
+    return true
+  }
+
+  igInboundEventDedupCache.set(key, now)
+
+  if (igInboundEventDedupCache.size > 5_000) {
+    for (const [cacheKey, seenAt] of igInboundEventDedupCache.entries()) {
+      if (now - seenAt > withinMs * 4) {
+        igInboundEventDedupCache.delete(cacheKey)
+      }
+    }
+  }
+
+  return false
 }
 
 function replaceTemplateVars(
@@ -827,22 +835,24 @@ async function resolveTenantByQueryParam(tenantParam: string | null): Promise<Te
 }
 
 // Cache in-memory para info de usuÃ¡rio do Instagram (1h TTL)
-const igSenderCache = new Map<string, { name: string; username: string; profilePic: string; expiresAt: number }>()
+const igSenderCache = new Map<string, { name: string; username: string; profilePic: string; bio: string; expiresAt: number }>()
 const igLeadMemoryCache = new Map<string, InstagramLeadMemorySnapshot>()
 
 async function fetchInstagramSenderInfo(
   senderId: string,
   accessToken: string,
   apiVersion: string,
-): Promise<{ name: string; username: string; profilePic: string }> {
-  const empty = { name: "", username: "", profilePic: "" }
+): Promise<{ name: string; username: string; profilePic: string; bio: string }> {
+  const empty = { name: "", username: "", profilePic: "", bio: "" }
   if (!senderId || !accessToken) return empty
   const cacheKey = `${senderId}:${accessToken.slice(-8)}`
   const cached = igSenderCache.get(cacheKey)
-  if (cached && cached.expiresAt > Date.now()) return { name: cached.name, username: cached.username, profilePic: cached.profilePic }
+  if (cached && cached.expiresAt > Date.now()) {
+    return { name: cached.name, username: cached.username, profilePic: cached.profilePic, bio: cached.bio }
+  }
   try {
     const res = await fetch(
-      `https://graph.instagram.com/${apiVersion}/${senderId}?fields=name,username,profile_pic&access_token=${accessToken}`,
+      `https://graph.instagram.com/${apiVersion}/${senderId}?fields=name,username,profile_pic,biography&access_token=${accessToken}`,
       { signal: AbortSignal.timeout(3000) },
     )
     if (!res.ok) return empty
@@ -851,6 +861,7 @@ async function fetchInstagramSenderInfo(
       name: String(json.name || "").trim(),
       username: String(json.username || "").trim(),
       profilePic: String(json.profile_pic || "").trim(),
+      bio: String(json.biography || "").trim(),
     }
     igSenderCache.set(cacheKey, { ...result, expiresAt: Date.now() + 3_600_000 })
     return result
@@ -1043,7 +1054,7 @@ async function fetchInstagramSenderProfileDetails(params: {
     params.senderId,
     params.accessToken,
     params.apiVersion,
-  ).catch(() => ({ name: "", username: "", profilePic: "" }))
+  ).catch(() => ({ name: "", username: "", profilePic: "", bio: "" }))
 
   const fallback: InstagramLeadProfile = {
     senderId: params.senderId,
@@ -1259,23 +1270,43 @@ async function runInstagramKeywordAutomation(params: {
 
   const publicReply = replaceTemplateVars(selectedCommentTemplate, vars)
   const dmReply = replaceTemplateVars(selectedDmTemplate, vars)
+  const chat = new TenantChatHistoryService(params.resolution.dataTenant)
+
+  const alreadySentPublicReply = await chat.hasRecentEquivalentMessage({
+    sessionId: params.sessionId,
+    content: publicReply,
+    role: "assistant",
+    fromMe: true,
+    withinSeconds: 900,
+  })
+  const alreadySentDmReply = await chat.hasRecentEquivalentMessage({
+    sessionId: params.sessionId,
+    content: dmReply,
+    role: "assistant",
+    fromMe: true,
+    withinSeconds: 900,
+  })
 
   const messaging = new TenantMessagingService()
-  const commentSend = await messaging.sendText({
-    tenant: params.resolution.dataTenant,
-    phone: `ig-comment:${params.commentId}:${params.senderId}`,
-    message: publicReply,
-    sessionId: params.sessionId,
-    source: "instagram-keyword-comment",
-  })
+  const commentSend = alreadySentPublicReply
+    ? { success: false, error: "duplicate_recent_comment_reply" }
+    : await messaging.sendText({
+        tenant: params.resolution.dataTenant,
+        phone: `ig-comment:${params.commentId}:${params.senderId}`,
+        message: publicReply,
+        sessionId: params.sessionId,
+        source: "instagram-keyword-comment",
+      })
 
-  const dmSend = await messaging.sendText({
-    tenant: params.resolution.dataTenant,
-    phone: `ig:${params.senderId}`,
-    message: dmReply,
-    sessionId: params.sessionId,
-    source: "instagram-keyword-dm",
-  })
+  const dmSend = alreadySentDmReply
+    ? { success: false, error: "duplicate_recent_dm_reply" }
+    : await messaging.sendText({
+        tenant: params.resolution.dataTenant,
+        phone: `ig:${params.senderId}`,
+        message: dmReply,
+        sessionId: params.sessionId,
+        source: "instagram-keyword-dm",
+      })
 
   return {
     handled: true,
@@ -1390,6 +1421,8 @@ async function persistInboundMessage(params: {
   content: string
   senderId: string
   senderName?: string
+  senderUsername?: string
+  senderBio?: string
   profilePicUrl?: string
   accountId?: string
   eventType: "direct_message" | "comment" | "mention"
@@ -1438,6 +1471,8 @@ async function persistInboundMessage(params: {
       instagram_event_type: params.eventType,
       instagram_sender_id: params.senderId || null,
       instagram_sender_name: params.senderName || null,
+      instagram_username: params.senderUsername || null,
+      instagram_bio: params.senderBio || null,
       profile_pic_url: params.profilePicUrl || null,
       instagram_account_id: params.accountId || null,
       instagram_comment_id: params.commentId || null,
@@ -1462,6 +1497,44 @@ async function persistInboundMessage(params: {
   })
 
   return "persisted"
+}
+
+async function isLeadPausedForInstagram(tenant: string, senderId: string): Promise<boolean> {
+  const normalizedTenant = normalizeTenant(tenant)
+  const normalizedSender = normalizeDigits(senderId)
+  if (!normalizedTenant || !normalizedSender) return false
+
+  const supabase = createBiaSupabaseServerClient()
+  const tables = getTablesForTenant(normalizedTenant)
+
+  try {
+    const { data } = await supabase
+      .from(tables.pausar)
+      .select("pausar, paused_until")
+      .eq("numero", normalizedSender)
+      .maybeSingle()
+
+    const paused = data?.pausar === true || String(data?.pausar || "").toLowerCase() === "true"
+    if (!paused) return false
+
+    const pausedUntilRaw = String(data?.paused_until || "").trim()
+    if (!pausedUntilRaw) return true
+
+    const pausedUntil = new Date(pausedUntilRaw)
+    if (!Number.isFinite(pausedUntil.getTime())) return true
+
+    if (pausedUntil.getTime() > Date.now()) return true
+
+    await supabase
+      .from(tables.pausar)
+      .update({ pausar: false, paused_until: null, updated_at: new Date().toISOString() })
+      .eq("numero", normalizedSender)
+      .then(null, () => {})
+
+    return false
+  } catch {
+    return false
+  }
 }
 
 async function processDirectEvent(params: {
@@ -1533,7 +1606,14 @@ async function processDirectEvent(params: {
   const timestampMs = Number(event.timestamp)
   const createdAt = Number.isFinite(timestampMs) ? new Date(timestampMs).toISOString() : new Date().toISOString()
   const messageId = readString(message.mid, event.mid)
+  const inboundEventKey = `ig-direct:${params.resolution.dataTenant}:${senderId}:${messageId || createdAt}`
+  if (isDuplicateInstagramInboundEvent(inboundEventKey, 120_000)) {
+    params.stats.duplicates += 1
+    return
+  }
   let resolvedName = readString(sender.name, sender.username)
+  let resolvedUsername = readString(sender.username)
+  let resolvedBio = ""
   let resolvedProfilePic = ""
   const accessToken = String(params.resolution.config?.metaAccessToken || "").trim()
   const apiVersion = String(params.resolution.config?.metaApiVersion || process.env.META_API_VERSION || "v25.0").trim()
@@ -1541,12 +1621,14 @@ async function processDirectEvent(params: {
   const hasGeminiApiKey = Boolean(String(nativeConfig?.geminiApiKey || "").trim())
   const chat = new TenantChatHistoryService(params.resolution.dataTenant)
 
-  // Instagram webhooks normalmente nao incluem sender.name - busca via API
-  if (!resolvedName) {
+  // Instagram webhooks normalmente nao incluem todos os metadados do perfil - busca via API
+  if (!resolvedName || !resolvedUsername || !resolvedProfilePic || !resolvedBio) {
     if (accessToken) {
       const userInfo = await fetchInstagramSenderInfo(senderId, accessToken, apiVersion)
-      resolvedName = readString(userInfo.name, userInfo.username)
-      resolvedProfilePic = userInfo.profilePic
+      resolvedName = readString(resolvedName, userInfo.name, userInfo.username)
+      resolvedUsername = readString(resolvedUsername, userInfo.username)
+      resolvedProfilePic = readString(resolvedProfilePic, userInfo.profilePic)
+      resolvedBio = readString(resolvedBio, userInfo.bio)
     }
   }
 
@@ -1561,6 +1643,13 @@ async function processDirectEvent(params: {
         chat,
       }).catch(() => "")
     : ""
+  const profileSnapshot = igLeadMemoryCache.get(`${params.resolution.dataTenant}:${senderId}`)?.profile
+  if (profileSnapshot) {
+    resolvedName = readString(resolvedName, profileSnapshot.name, profileSnapshot.username)
+    resolvedUsername = readString(resolvedUsername, profileSnapshot.username)
+    resolvedProfilePic = readString(resolvedProfilePic, profileSnapshot.profilePic)
+    resolvedBio = readString(resolvedBio, profileSnapshot.biography)
+  }
 
   let mediaAnalysis = ""
   let mediaAnalysisError = ""
@@ -1625,6 +1714,8 @@ async function processDirectEvent(params: {
     content,
     senderId,
     senderName: resolvedName || undefined,
+    senderUsername: resolvedUsername || undefined,
+    senderBio: resolvedBio || undefined,
     profilePicUrl: resolvedProfilePic || undefined,
     accountId: params.entryId,
     eventType: "direct_message",
@@ -1662,13 +1753,13 @@ async function processDirectEvent(params: {
 
   // ── Contatos pessoais ──────────────────────────────────────────────────────
   // Resolve username do remetente (pode não vir no webhook)
-  let resolvedUsername = readString(sender.username)
   if (!resolvedUsername && accessToken) {
     const usernameInfo = await fetchInstagramSenderInfo(senderId, accessToken, apiVersion)
-    resolvedUsername = usernameInfo.username || ""
+    resolvedUsername = readString(resolvedUsername, usernameInfo.username)
     if (!resolvedName) {
-      resolvedName = readString(usernameInfo.name, usernameInfo.username)
-      resolvedProfilePic = usernameInfo.profilePic
+      resolvedName = readString(resolvedName, usernameInfo.name, usernameInfo.username)
+      resolvedProfilePic = readString(resolvedProfilePic, usernameInfo.profilePic)
+      resolvedBio = readString(resolvedBio, usernameInfo.bio)
     }
   }
   const normalizedUsername = resolvedUsername.toLowerCase().replace(/^@/, "").trim()
@@ -1697,37 +1788,10 @@ async function processDirectEvent(params: {
 
   // 3. Disclosure: verifica pausa ativa antes de chamar orquestrador
   const disclosureEnabled = nativeConfig?.socialSellerPersonalDisclosureEnabled === true
-  if (disclosureEnabled && !isSpouse) {
-    const supabase = createBiaSupabaseServerClient()
-    const tables = getTablesForTenant(params.resolution.dataTenant)
-    let pauseRow: { pausar: any; paused_until: any } | null = null
-    try {
-      const { data } = await supabase
-        .from(tables.pausar)
-        .select("pausar, paused_until")
-        .eq("numero", senderId)
-        .maybeSingle()
-      pauseRow = data
-    } catch {}
-    const isPausedNow =
-      pauseRow?.pausar === true || String(pauseRow?.pausar || "").toLowerCase() === "true"
-    if (isPausedNow) {
-      const pausedUntilStr = String(pauseRow?.paused_until || "").trim()
-      const pausedUntilDate = pausedUntilStr ? new Date(pausedUntilStr) : null
-      const isStillPaused =
-        !pausedUntilDate ||
-        (Number.isFinite(pausedUntilDate.getTime()) && pausedUntilDate.getTime() > Date.now())
-      if (isStillPaused) {
-        params.stats.ignored += 1
-        return
-      }
-      // Pausa expirada — limpa
-      await supabase
-        .from(tables.pausar)
-        .update({ pausar: false, paused_until: null, updated_at: new Date().toISOString() })
-        .eq("numero", senderId)
-        .then(null, () => {})
-    }
+  const leadPaused = await isLeadPausedForInstagram(params.resolution.dataTenant, senderId)
+  if (leadPaused) {
+    params.stats.ignored += 1
+    return
   }
   // ── Fim contatos pessoais ─────────────────────────────────────────────────
 
@@ -1852,10 +1916,19 @@ async function processCommentOrMentionEvent(params: {
     return
   }
 
-  const senderName = readString(from.username, from.name)
-  const createdAt = new Date().toISOString()
-  const inboundMessageId = `${params.field}:${commentId}`
   const eventType = params.field === "mentions" ? "mention" : "comment"
+  const inboundEventKey = `ig-${eventType}:${params.resolution.dataTenant}:${commentId}:${senderId}`
+  if (isDuplicateInstagramInboundEvent(inboundEventKey, 120_000)) {
+    params.stats.duplicates += 1
+    return
+  }
+
+  let senderName = readString(from.username, from.name)
+  let senderUsername = readString(from.username)
+  let senderBio = ""
+  let senderProfilePic = ""
+  const createdAt = new Date().toISOString()
+  const inboundMessageId = `instagram-${eventType}:${commentId}`
   const commentIntent = classifyInstagramCommentIntent(text)
   const moveToDirect = shouldMoveCommentToDirect(commentIntent)
   const nativeConfig = await getNativeAgentConfigForTenant(params.resolution.dataTenant).catch(() => null)
@@ -1866,6 +1939,22 @@ async function processCommentOrMentionEvent(params: {
   const accessToken = String(params.resolution.config?.metaAccessToken || "").trim()
   const apiVersion = String(params.resolution.config?.metaApiVersion || process.env.META_API_VERSION || "v25.0").trim()
   const chat = new TenantChatHistoryService(params.resolution.dataTenant)
+
+  if ((!senderName || !senderUsername || !senderProfilePic || !senderBio) && accessToken) {
+    const userInfo = await fetchInstagramSenderInfo(senderId, accessToken, apiVersion)
+    senderName = readString(senderName, userInfo.name, userInfo.username)
+    senderUsername = readString(senderUsername, userInfo.username)
+    senderProfilePic = readString(senderProfilePic, userInfo.profilePic)
+    senderBio = readString(senderBio, userInfo.bio)
+  }
+
+  const profileSnapshot = igLeadMemoryCache.get(`${params.resolution.dataTenant}:${senderId}`)?.profile
+  if (profileSnapshot) {
+    senderName = readString(senderName, profileSnapshot.name, profileSnapshot.username)
+    senderUsername = readString(senderUsername, profileSnapshot.username)
+    senderProfilePic = readString(senderProfilePic, profileSnapshot.profilePic)
+    senderBio = readString(senderBio, profileSnapshot.biography)
+  }
   const leadProfileMemory = accessToken
     ? await getLeadProfileMemory({
         tenant: params.resolution.dataTenant,
@@ -1918,7 +2007,10 @@ async function processCommentOrMentionEvent(params: {
     createdAt,
     content: text,
     senderId,
-    senderName,
+    senderName: senderName || undefined,
+    senderUsername: senderUsername || undefined,
+    senderBio: senderBio || undefined,
+    profilePicUrl: senderProfilePic || undefined,
     accountId: params.entryId,
     eventType,
     commentId,
@@ -1932,6 +2024,12 @@ async function processCommentOrMentionEvent(params: {
   }
 
   params.stats.processed += 1
+
+  const leadPaused = await isLeadPausedForInstagram(params.resolution.dataTenant, senderId)
+  if (leadPaused) {
+    params.stats.ignored += 1
+    return
+  }
 
   if (!socialSellerEnabled || !socialSellerChannelEnabled) {
     return
@@ -1966,34 +2064,172 @@ async function processCommentOrMentionEvent(params: {
       contextText: `${text}\n${contextSummary}`,
       matchedKeyword: keywordAutomation.matchedKeyword,
     }).catch(() => {})
-
-    if (keywordAutomation.commentSent || keywordAutomation.dmSent) {
-      return
-    }
+    return
   }
 
   const orchestrator = new NativeAgentOrchestratorService()
   const inboundSource = params.field === "mentions" ? "instagram-mention" : "instagram-comment"
-  const result = await orchestrator.handleInboundMessage({
+  if (!moveToDirect) {
+    const result = await orchestrator.handleInboundMessage({
+      tenant: params.resolution.dataTenant,
+      message: text,
+      phone: `ig-comment:${commentId}:${senderId}`,
+      sessionId,
+      messageId: inboundMessageId,
+      source: inboundSource,
+      contactName: senderName || undefined,
+      senderName: senderName || undefined,
+      contextHint: leadProfileMemory || undefined,
+      hasMedia: Boolean(mediaType || mediaCaption || postContext.permalink),
+      mediaType,
+      mediaCaption: mediaCaption || undefined,
+      mediaAnalysis: contextSummary,
+      messageAlreadyPersisted: true,
+      raw: { ...value, __instagram_comment_intent: commentIntent, __move_to_direct: false },
+    })
+
+    if (result?.replied) {
+      params.stats.replied += 1
+    }
+
+    if (params.debug) {
+      const commentEvents = Array.isArray(params.debug.commentEvents) ? params.debug.commentEvents : []
+      if (commentEvents.length < 30) {
+        commentEvents.push({
+          sessionId,
+          senderId,
+          senderName: senderName || null,
+          commentId,
+          field: params.field,
+          commentIntent,
+          moveToDirect: false,
+          profileContextChars: leadProfileMemory.length,
+          postContextChars: contextSummary.length,
+          orchestratorReplied: Boolean(result?.replied),
+        })
+        params.debug.commentEvents = commentEvents
+      }
+    }
+
+    await runInstagramWhatsappBridge({
+      resolution: params.resolution,
+      nativeConfig,
+      senderId,
+      senderName: senderName || undefined,
+      sourceSessionId: sessionId,
+      contextText: `${text}\n${contextSummary}`,
+    }).catch(() => {})
+
+    return
+  }
+
+  await new Promise<void>((resolve) => setTimeout(resolve, 2500))
+
+  const dmContextHint = [
+    leadProfileMemory,
+    dmContextSummary,
+    "INSTRUCAO: voce ja esta em conversa privada com o lead. Nao diga para ir ao Direct e nao mencione migracao de canal.",
+  ]
+    .filter(Boolean)
+    .join("\n\n")
+
+  const dmResult = await orchestrator.handleInboundMessage({
     tenant: params.resolution.dataTenant,
     message: text,
-    phone: `ig-comment:${commentId}:${senderId}`,
+    phone: `ig:${senderId}`,
     sessionId,
-    messageId: inboundMessageId,
-    source: inboundSource,
+    messageId: `${inboundMessageId}:dm`,
+    source: "instagram",
     contactName: senderName || undefined,
     senderName: senderName || undefined,
-    contextHint: leadProfileMemory || undefined,
+    contextHint: dmContextHint || undefined,
     hasMedia: Boolean(mediaType || mediaCaption || postContext.permalink),
     mediaType,
     mediaCaption: mediaCaption || undefined,
-    mediaAnalysis: contextSummary,
+    mediaAnalysis: dmContextSummary,
     messageAlreadyPersisted: true,
-    raw: { ...value, __instagram_comment_intent: commentIntent, __move_to_direct: moveToDirect },
+    raw: {
+      ...value,
+      __instagram_comment_intent: commentIntent,
+      __instagram_handoff_to_dm: true,
+    },
   })
 
-  if (result?.replied) {
+  let dmSent = Boolean(dmResult?.replied)
+  if (dmSent) {
     params.stats.replied += 1
+    params.stats.dmHandoffs += 1
+  } else {
+    const fallbackMessage = buildDirectFallbackMessage({
+      intent: commentIntent,
+      senderName,
+      text,
+    })
+    const alreadySentFallback = await chat.hasRecentEquivalentMessage({
+      sessionId,
+      content: fallbackMessage,
+      role: "assistant",
+      fromMe: true,
+      withinSeconds: 900,
+    })
+
+    if (!alreadySentFallback) {
+      const messaging = new TenantMessagingService()
+      const fallbackSend = await messaging.sendText({
+        tenant: params.resolution.dataTenant,
+        phone: `ig:${senderId}`,
+        message: fallbackMessage,
+        sessionId,
+        source: "instagram-handoff-fallback",
+      })
+
+      if (fallbackSend.success) {
+        dmSent = true
+        params.stats.replied += 1
+        params.stats.dmHandoffs += 1
+      } else {
+        await chat
+          .persistMessage({
+            sessionId,
+            role: "system",
+            type: "status",
+            content: "instagram_dm_handoff_fallback_failed",
+            source: "instagram-webhook",
+            additional: {
+              debug_event: "instagram_dm_handoff_fallback_failed",
+              debug_severity: "warning",
+              error: fallbackSend.error || "send_failed",
+              intent: commentIntent,
+              sender_id: senderId,
+            },
+          })
+          .catch(() => {})
+      }
+    }
+  }
+
+  if (dmSent) {
+    const inviteMessage = buildCommentDmInviteMessage({ intent: commentIntent, senderName })
+    const alreadySentInvite = await chat.hasRecentEquivalentMessage({
+      sessionId,
+      content: inviteMessage,
+      role: "assistant",
+      fromMe: true,
+      withinSeconds: 1200,
+    })
+    if (!alreadySentInvite) {
+      const messaging = new TenantMessagingService()
+      const inviteSend = await messaging.sendText({
+        tenant: params.resolution.dataTenant,
+        phone: `ig-comment:${commentId}:${senderId}`,
+        message: inviteMessage,
+        sessionId,
+        source: "instagram-comment-dm-invite",
+      })
+      if (inviteSend.success) {
+        params.stats.replied += 1
+      }
+    }
   }
 
   if (params.debug) {
@@ -2006,109 +2242,12 @@ async function processCommentOrMentionEvent(params: {
         commentId,
         field: params.field,
         commentIntent,
-        moveToDirect,
+        moveToDirect: true,
         profileContextChars: leadProfileMemory.length,
         postContextChars: contextSummary.length,
-        orchestratorReplied: Boolean(result?.replied),
+        dmReplied: dmSent,
       })
       params.debug.commentEvents = commentEvents
-    }
-  }
-
-  if (moveToDirect) {
-    await new Promise<void>((resolve) => setTimeout(resolve, 10_000))
-
-    const dmTrigger = buildDirectTriggerFromComment({
-      intent: commentIntent,
-      text,
-      senderName,
-      contextSummary,
-    })
-
-    const dmResult = await orchestrator.handleInboundMessage({
-      tenant: params.resolution.dataTenant,
-      message: dmTrigger,
-      phone: `ig:${senderId}`,
-      sessionId,
-      messageId: `${inboundMessageId}:dm-handoff`,
-      source: "instagram",
-      contactName: senderName || undefined,
-      senderName: senderName || undefined,
-      contextHint: leadProfileMemory || undefined,
-      fromMeTrigger: true,
-      fromMeTriggerContent: dmTrigger,
-      hasMedia: Boolean(mediaType || mediaCaption || postContext.permalink),
-      mediaType,
-      mediaCaption: mediaCaption || undefined,
-      mediaAnalysis: dmContextSummary,
-      messageAlreadyPersisted: true,
-      raw: {
-        ...value,
-        __instagram_comment_intent: commentIntent,
-        __instagram_handoff_to_dm: true,
-      },
-    })
-
-    if (dmResult?.replied) {
-      params.stats.replied += 1
-      params.stats.dmHandoffs += 1
-    } else {
-      const fallbackMessage = buildDirectFallbackMessage({
-        intent: commentIntent,
-        senderName,
-        text,
-      })
-      const alreadySentFallback = await chat.hasRecentEquivalentMessage({
-        sessionId,
-        content: fallbackMessage,
-        role: "assistant",
-        fromMe: true,
-        withinSeconds: 600,
-      })
-
-      if (!alreadySentFallback) {
-        const messaging = new TenantMessagingService()
-        const fallbackSend = await messaging.sendText({
-          tenant: params.resolution.dataTenant,
-          phone: `ig:${senderId}`,
-          message: fallbackMessage,
-          sessionId,
-          source: "instagram-handoff-fallback",
-        })
-
-        if (fallbackSend.success) {
-          params.stats.replied += 1
-          params.stats.dmHandoffs += 1
-        } else {
-          const commentFallbackMsg = buildCommentDmInviteMessage({ intent: commentIntent, senderName })
-          const messagingFallback = new TenantMessagingService()
-          await messagingFallback
-            .sendText({
-              tenant: params.resolution.dataTenant,
-              phone: `ig-comment:${commentId}:${senderId}`,
-              message: commentFallbackMsg,
-              sessionId,
-              source: "instagram-comment-dm-invite",
-            })
-            .catch(() => {})
-          await chat
-            .persistMessage({
-              sessionId,
-              role: "system",
-              type: "status",
-              content: "instagram_dm_handoff_fallback_failed",
-              source: "instagram-webhook",
-              additional: {
-                debug_event: "instagram_dm_handoff_fallback_failed",
-                debug_severity: "warning",
-                error: fallbackSend.error || "send_failed",
-                intent: commentIntent,
-                sender_id: senderId,
-              },
-            })
-            .catch(() => {})
-        }
-      }
     }
   }
 
@@ -2227,4 +2366,3 @@ export async function POST(req: NextRequest) {
     )
   }
 }
-

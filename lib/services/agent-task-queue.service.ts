@@ -1231,6 +1231,14 @@ export class AgentTaskQueueService {
       }
 
       const runtimeConfig = await this.loadFollowupRuntimeConfig(tenant)
+      const [paused, terminal] = await Promise.all([
+        this.isLeadPaused(tenant, phone),
+        this.isLeadTerminal(tenant, sessionId, phone),
+      ])
+      if (paused || terminal) {
+        await this.cancelPendingFollowups({ tenant, sessionId, phone }).catch(() => {})
+        return { ok: true, count: 0 }
+      }
 
       await this.cancelPendingFollowups({ tenant, sessionId, phone })
 
@@ -1497,7 +1505,68 @@ export class AgentTaskQueueService {
     }
   }
 
-  private async isLeadTerminal(tenant: string, sessionId: string): Promise<boolean> {
+  private async hasActiveScheduledAppointment(input: {
+    tenant: string
+    sessionId?: string
+    phone?: string
+  }): Promise<boolean> {
+    try {
+      const tables = getTablesForTenant(input.tenant)
+      const statuses = ["agendado", "confirmado"]
+      const sessionId = normalizeSessionId(input.sessionId || "")
+      const normalizedPhone = normalizePhoneNumber(input.phone || "")
+      const phoneVariants = Array.from(
+        new Set([
+          normalizedPhone,
+          normalizedPhone.startsWith("55") ? normalizedPhone.slice(2) : "",
+          !normalizedPhone.startsWith("55") ? `55${normalizedPhone}` : "",
+        ].filter(Boolean)),
+      )
+
+      if (sessionId) {
+        const bySession = await this.supabase
+          .from(tables.agendamentos)
+          .select("id,status,session_id")
+          .eq("session_id", sessionId)
+          .in("status", statuses)
+          .limit(1)
+
+        if (!bySession.error && Array.isArray(bySession.data) && bySession.data.length > 0) {
+          return true
+        }
+      }
+
+      if (phoneVariants.length > 0) {
+        const byContato = await this.supabase
+          .from(tables.agendamentos)
+          .select("id,status,contato")
+          .in("contato", phoneVariants)
+          .in("status", statuses)
+          .limit(1)
+
+        if (!byContato.error && Array.isArray(byContato.data) && byContato.data.length > 0) {
+          return true
+        }
+
+        const byNumero = await this.supabase
+          .from(tables.agendamentos)
+          .select("id,status,numero")
+          .in("numero", phoneVariants)
+          .in("status", statuses)
+          .limit(1)
+
+        if (!byNumero.error && Array.isArray(byNumero.data) && byNumero.data.length > 0) {
+          return true
+        }
+      }
+
+      return false
+    } catch {
+      return false
+    }
+  }
+
+  private async isLeadTerminal(tenant: string, sessionId: string, phone?: string): Promise<boolean> {
     try {
       const tables = getTablesForTenant(tenant)
       const { data, error } = await this.supabase
@@ -1506,9 +1575,18 @@ export class AgentTaskQueueService {
         .eq("lead_id", sessionId)
         .maybeSingle()
 
-      if (error || !data) return false
-      const status = String((data as any).status || "").toLowerCase().trim()
-      return ["agendado", "perdido", "ganhos", "convertido", "ganho", "cancelado"].includes(status)
+      if (!error && data) {
+        const status = String((data as any).status || "").toLowerCase().trim()
+        if (
+          ["agendado", "confirmado", "reagendado", "perdido", "ganhos", "convertido", "ganho", "cancelado"].includes(
+            status,
+          )
+        ) {
+          return true
+        }
+      }
+
+      return await this.hasActiveScheduledAppointment({ tenant, sessionId, phone })
     } catch {
       return false
     }
@@ -1527,14 +1605,60 @@ export class AgentTaskQueueService {
   private async resolveOfficialReminderMessage(input: {
     tenant: string
     payload: Record<string, any>
+    phone?: string
+    sessionId?: string
   }): Promise<string | null> {
     const reminderTypeRaw = String(input.payload?.reminder_type || "")
       .trim()
       .toLowerCase() as OfficialReminderType
     if (!OFFICIAL_REMINDER_TYPES.includes(reminderTypeRaw)) return null
 
-    const appointmentDate = String(input.payload?.appointment_date || "").trim()
-    const appointmentTime = String(input.payload?.appointment_time || "").trim()
+    const appointmentId = String(input.payload?.appointment_id || "").trim()
+    let appointmentDate = String(input.payload?.appointment_date || "").trim()
+    let appointmentTime = String(input.payload?.appointment_time || "").trim()
+    let leadName = String(input.payload?.lead_name || input.payload?.nome_aluno || "").trim()
+    let observacoes = String(input.payload?.servico || input.payload?.observacoes || "").trim()
+
+    if (appointmentId) {
+      try {
+        const tables = getTablesForTenant(input.tenant)
+        const liveAppointment = await this.supabase
+          .from(tables.agendamentos)
+          .select("id,status,dia,horario,nome_aluno,observacoes,contato,numero,session_id")
+          .eq("id", appointmentId)
+          .maybeSingle()
+
+        if (!liveAppointment.error && liveAppointment.data) {
+          const row: any = liveAppointment.data
+          const rowStatus = String(row?.status || "").toLowerCase().trim()
+          if (rowStatus && !["agendado", "confirmado"].includes(rowStatus)) {
+            return null
+          }
+
+          const payloadSessionId = normalizeSessionId(String(input.sessionId || ""))
+          const payloadPhone = normalizePhoneNumber(String(input.phone || ""))
+          const rowSessionId = normalizeSessionId(String(row?.session_id || ""))
+          const rowPhone = normalizePhoneNumber(String(row?.contato || row?.numero || ""))
+          const phoneMatches =
+            !payloadPhone ||
+            !rowPhone ||
+            rowPhone === payloadPhone ||
+            rowPhone === (payloadPhone.startsWith("55") ? payloadPhone.slice(2) : `55${payloadPhone}`)
+          const sessionMatches = !payloadSessionId || !rowSessionId || rowSessionId === payloadSessionId
+          if (!phoneMatches && !sessionMatches) {
+            return null
+          }
+
+          const liveDate = String(row?.dia || "").trim()
+          const liveTime = String(row?.horario || "").trim()
+          if (liveDate) appointmentDate = liveDate
+          if (liveTime) appointmentTime = liveTime
+          leadName = String(row?.nome_aluno || leadName || "").trim()
+          observacoes = String(row?.observacoes || observacoes || "").trim()
+        }
+      } catch {}
+    }
+
     if (!appointmentDate || !appointmentTime) return null
 
     const config = await getReminderConfigForTenant(input.tenant)
@@ -1542,10 +1666,10 @@ export class AgentTaskQueueService {
       config,
       reminderType: reminderTypeRaw,
       appointment: {
-        nome_aluno: String(input.payload?.lead_name || input.payload?.nome_aluno || "").trim() || "voce",
+        nome_aluno: leadName || "voce",
         dia: appointmentDate,
         horario: appointmentTime,
-        observacoes: String(input.payload?.servico || input.payload?.observacoes || "").trim(),
+        observacoes,
       },
     })
 
@@ -2020,7 +2144,7 @@ export class AgentTaskQueueService {
 
       const [paused, terminal] = await Promise.all([
         this.isLeadPaused(tenant, phone),
-        this.isLeadTerminal(tenant, sessionId),
+        this.isLeadTerminal(tenant, sessionId, phone),
       ])
 
       // REGRA ABSOLUTA DE PAUSA:
@@ -2168,6 +2292,8 @@ export class AgentTaskQueueService {
           const renderedOfficialMessage = await this.resolveOfficialReminderMessage({
             tenant,
             payload,
+            phone,
+            sessionId,
           })
           if (renderedOfficialMessage) {
             message = renderedOfficialMessage

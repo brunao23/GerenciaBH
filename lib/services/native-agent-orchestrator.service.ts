@@ -1,4 +1,4 @@
-import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
+﻿import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { SemanticCacheService, type CacheHitResult } from "@/lib/services/semantic-cache.service"
 import { getTablesForTenant } from "@/lib/helpers/tenant"
 import { getTableColumns } from "@/lib/helpers/supabase-table-columns"
@@ -3969,7 +3969,15 @@ export class NativeAgentOrchestratorService {
       "- NUNCA pergunte se o lead quer agendar em um horario fora do expediente configurado. Respeite rigorosamente os horarios acima.",
       "- LEI DO MESMO HORARIO: quando 'allowOverlappingAppointments' estiver desativado, horario ocupado e BLOQUEADO. Se houver conflito ('time_slot_unavailable' ou 'google_calendar_conflict'), nunca insistir no mesmo horario; oferecer proximos horarios livres.",
       "- Quando fizer sentido retomar depois, acione create_followup ou create_reminder.",
-      "- Se precisar transferir para humano, acione handoff_human.",
+      "- Se precisar transferir para humano (SOMENTE para casos que NAO envolvam agendamento), acione handoff_human.",
+      "",
+      "REGRA CRITICA DE AUTONOMIA EM AGENDAMENTO/REAGENDAMENTO (TODAS AS UNIDADES - SEM EXCECAO):",
+      "- [LEI INVIOLAVEL] Voce e 100% AUTONOMA para agendar, reagendar e cancelar. NUNCA transfira para humano (handoff_human) quando o assunto for agendamento, reagendamento, remarcacao, mudanca de horario ou cancelamento.",
+      "- [PROIBIDO ABSOLUTO] NUNCA diga 'vou chamar o time', 'vou transferir para a equipe', 'vou acionar o time comercial', 'vou pedir para alguem da equipe', 'vou notificar o time', 'um atendente vai te ajudar com o agendamento' ou qualquer variacao que sugira que outra pessoa fara o agendamento/reagendamento.",
+      "- [PROIBIDO ABSOLUTO] NUNCA use handoff_human para resolver questoes de agenda, horarios, datas ou remarcacao. Use EXCLUSIVAMENTE as ferramentas: get_available_slots, schedule_appointment, edit_appointment, cancel_appointment.",
+      "- [FLUXO OBRIGATORIO DE REAGENDAMENTO] Quando o lead pedir para mudar, remarcar, trocar dia ou horario: (1) chame get_available_slots para ver opcoes; (2) pergunte qual novo dia/horario; (3) chame edit_appointment com o novo horario. RESOLVA tudo na conversa, sem intermediarios.",
+      "- [FLUXO OBRIGATORIO DE CANCELAMENTO + NOVO AGENDAMENTO] Se edit_appointment falhar ou nao encontrar o agendamento anterior: (1) tente cancel_appointment; (2) crie novo agendamento via schedule_appointment. NUNCA desista e transfira para humano.",
+      "- [UNICO CASO DE HANDOFF] Use handoff_human SOMENTE quando: o lead pedir para falar com humano sobre assunto NAO relacionado a agenda, houver violacao de guardrail, ou o assunto for completamente fora do escopo do negocio.",
       config.unitLatitude !== undefined && config.unitLongitude !== undefined
         ? "- Se o lead perguntar onde fica a unidade, como chegar, o endereco ou a localizacao: acione send_location IMEDIATAMENTE (sem pedir confirmacao). Se a tool nao retornar ok=true, envie o link do Google Maps com o endereco textual. NUNCA envie o link de texto diretamente sem antes tentar send_location."
         : null,
@@ -4377,7 +4385,7 @@ export class NativeAgentOrchestratorService {
       {
         name: "handoff_human",
         description:
-          "Transfere atendimento para humano quando o caso exigir decisao manual.",
+          "Transfere atendimento para humano quando o caso exigir decisao manual. IMPORTANTE: NUNCA use para agendamento, reagendamento, remarcacao ou cancelamento - para isso use schedule_appointment, edit_appointment ou cancel_appointment. Use handoff_human SOMENTE para assuntos NAO relacionados a agenda.",
         parameters: {
           type: "object",
           properties: {
@@ -4831,6 +4839,45 @@ export class NativeAgentOrchestratorService {
 
     if (name === "handoff_human") {
       const reason = args.reason ? String(args.reason) : undefined
+      const reasonNormalized = normalizeComparableMessage(reason || "")
+
+      // GUARDRAIL: bloquear handoff para assuntos de agendamento/reagendamento
+      const schedulingHandoffPatterns = [
+        "agendamento", "reagendamento", "remarcacao", "remarcar", "reagendar",
+        "agendar", "horario", "mudar horario", "trocar horario", "cancelar agendamento",
+        "mudar dia", "trocar dia", "nao conseguiu agendar", "nao agendou",
+        "agenda", "calendario", "slot", "vaga",
+      ]
+      const isSchedulingHandoff = schedulingHandoffPatterns.some((p) =>
+        reasonNormalized.includes(normalizeComparableMessage(p)),
+      )
+
+      if (isSchedulingHandoff) {
+        // Bloqueia o handoff e instrui o agente a resolver via tools de scheduling
+        await params.chat.persistMessage({
+          sessionId: params.sessionId,
+          role: "system",
+          type: "status",
+          content: "handoff_blocked_scheduling_autonomy",
+          source: "native-agent",
+          additional: {
+            blocked_reason: reason || null,
+            instruction: "Agente tentou handoff para assunto de agendamento. Bloqueado. Deve usar edit_appointment/schedule_appointment.",
+          },
+        })
+
+        return {
+          ok: false,
+          action: { type: "handoff_human" as AgentActionPlan["type"], note: reason },
+          error: "handoff_blocked_use_scheduling_tools",
+          response: {
+            ok: false,
+            handoff: false,
+            reason: "Voce e 100% autonoma para resolver agendamentos. Use get_available_slots para consultar horarios, edit_appointment para reagendar, schedule_appointment para novo agendamento ou cancel_appointment para cancelar. Resolva diretamente com o lead sem transferir.",
+          },
+        }
+      }
+
       const action: AgentActionPlan = {
         type: "handoff_human",
         note: reason,

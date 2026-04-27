@@ -189,6 +189,50 @@ const isGenericSessionName = (value?: string | null) => {
   return /^lead(?:\s*#?\d+)?$/i.test(text) || /^instagram(?:\s*#?\d+)?$/i.test(text)
 }
 
+const inferInstagramHandle = (session: ChatSession) => {
+  const explicit = String(session.instagram_username || "").trim().replace(/^@+/, "")
+  if (explicit && /^[a-zA-Z0-9._]{2,50}$/.test(explicit)) return explicit
+
+  const fromName = String(session.contact_name || "").trim().replace(/^@+/, "")
+  if (!fromName) return ""
+
+  const normalized = fromName
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9._\s]/g, "")
+    .replace(/\s+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "")
+
+  return /^[a-z0-9._]{2,50}$/.test(normalized) ? normalized : ""
+}
+
+const cleanInstagramTransportText = (value?: string | null, mode: "preview" | "message" = "message") => {
+  const original = String(value || "")
+  if (!original) return ""
+
+  let text = original.replace(/\r\n/g, "\n")
+  text = text.replace(/\[(?:midia|media|audio|video|imagem|documento)_recebido_no_direct\]/gi, "")
+  text = text.replace(/\*\*([^*]+)\*\*/g, "$1")
+  text = text.replace(/__([^_]+)__/g, "$1")
+  text = text.replace(/`{1,3}([^`]+)`{1,3}/g, "$1")
+  text = text.replace(/^\s*[-*]\s+/gm, "")
+  text = text.replace(/\s+\n/g, "\n")
+  text = text.replace(/\n{3,}/g, "\n\n")
+  text = text.trim()
+
+  if (!text) {
+    return "Midia recebida no Direct."
+  }
+
+  if (mode === "preview") {
+    return text.replace(/\s+/g, " ").trim().slice(0, 160)
+  }
+
+  return text
+}
+
 const dedupeSessionsById = (sessions: ChatSession[]): ChatSession[] => {
   const byId = new Map<string, ChatSession>()
 
@@ -1072,11 +1116,15 @@ export default function ConversasPage() {
     return `/api/agent/webhooks/zapi?tenant=${encodeURIComponent(tenant.prefix)}`
   }, [nativeAgentOverview?.webhookPrimaryUrl, tenant?.prefix])
 
-  const fetchPauseStatus = useCallback(async (numero: string) => {
-    if (!numero || !tenant) return
+  const currentPauseIdentity = useMemo(() => {
+    return String(current?.numero || current?.session_id || "").trim()
+  }, [current?.numero, current?.session_id])
+
+  const fetchPauseStatus = useCallback(async (targetIdentity: string) => {
+    if (!targetIdentity || !tenant) return
     const defaultStatus = { pausar: false, vaga: true, agendamento: true }
     try {
-      const response = await fetch(`/api/pausar?numero=${encodeURIComponent(numero)}`)
+      const response = await fetch(`/api/pausar?numero=${encodeURIComponent(targetIdentity)}`)
       if (!response.ok) {
         setPauseStatus(defaultStatus)
         return
@@ -1180,7 +1228,7 @@ export default function ConversasPage() {
 
   const togglePauseParam = useCallback(
     async (param: keyof PauseStatus) => {
-      if (!current?.numero || pauseLoading) return
+      if (!currentPauseIdentity || pauseLoading) return
 
       setPauseLoading(true)
       try {
@@ -1191,7 +1239,7 @@ export default function ConversasPage() {
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
-            numero: current.numero,
+            numero: currentPauseIdentity,
             pausar: param === "pausar" ? newValue : (pauseStatus?.pausar ?? false),
             vaga: param === "vaga" ? newValue : (pauseStatus?.vaga ?? true),
             agendamento: param === "agendamento" ? newValue : (pauseStatus?.agendamento ?? true),
@@ -1211,7 +1259,7 @@ export default function ConversasPage() {
         setPauseLoading(false)
       }
     },
-    [current, pauseStatus, pauseLoading],
+    [currentPauseIdentity, pauseStatus, pauseLoading],
   )
 
   const fetchSessionDetails = useCallback(async (sessionId: string) => {
@@ -1249,6 +1297,14 @@ export default function ConversasPage() {
             : currentIsGeneric && detailedName
               ? detailedName
               : currentName
+          const nextIsGeneric =
+            /^lead(?:\s*#?\d+)?$/i.test(String(nextName || "").trim()) ||
+            /^instagram(?:\s*#?\d+)?$/i.test(String(nextName || "").trim())
+          const fallbackInstagramName =
+            String(session.channel || detailed.channel || "").toLowerCase() === "instagram"
+              ? String(session.instagram_username || detailed.instagram_username || "").trim()
+              : ""
+          const resolvedName = nextIsGeneric && fallbackInstagramName ? fallbackInstagramName : nextName
           const currentPic = String(session.profile_pic || "").trim()
           const detailedPic = String(detailed.profile_pic || "").trim()
           const currentPicLooksValid = /^https?:\/\//i.test(currentPic) || /^data:image\//i.test(currentPic)
@@ -1257,7 +1313,7 @@ export default function ConversasPage() {
           return {
             ...session,
             ...detailed,
-            contact_name: nextName || session.contact_name || detailed.contact_name,
+            contact_name: resolvedName || session.contact_name || detailed.contact_name,
             profile_pic: nextPic || undefined,
             instagram_username: session.instagram_username || detailed.instagram_username,
             instagram_bio: session.instagram_bio || detailed.instagram_bio,
@@ -1307,14 +1363,18 @@ export default function ConversasPage() {
   }, [])
 
   useEffect(() => {
-    if (current?.numero) {
-      fetchPauseStatus(current.numero)
-      fetchFollowupAIStatus(current.numero, current.session_id)
+    if (currentPauseIdentity) {
+      fetchPauseStatus(currentPauseIdentity)
+      if (current?.numero) {
+        fetchFollowupAIStatus(current.numero, current.session_id)
+      } else {
+        setFollowupAIEnabled(false)
+      }
     } else {
       setPauseStatus(null)
       setFollowupAIEnabled(false)
     }
-  }, [current?.numero, current?.session_id, fetchPauseStatus, fetchFollowupAIStatus])
+  }, [currentPauseIdentity, current?.numero, current?.session_id, fetchPauseStatus, fetchFollowupAIStatus])
 
   useEffect(() => {
     setLastSuggestedText("")
@@ -2301,8 +2361,12 @@ export default function ConversasPage() {
                     key={session.session_id}
                     onClick={() => setActive(session.session_id)}
                     className={`w-full p-4 text-left transition-all hover:bg-hover-gray ${active === session.session_id
-                      ? "bg-accent-green/10 border-l-4 border-accent-green"
-                      : "border-l-4 border-transparent"
+                      ? session.channel === "instagram"
+                        ? "bg-pink-500/10 border-l-4 border-pink-400"
+                        : "bg-accent-green/10 border-l-4 border-accent-green"
+                      : session.channel === "instagram"
+                        ? "border-l-4 border-pink-500/30 bg-pink-500/[0.04]"
+                        : "border-l-4 border-transparent"
                       }`}
                   >
                     <div className="flex items-start gap-3">
@@ -2345,11 +2409,11 @@ export default function ConversasPage() {
                             {highlightText(session.numero || "Sem número", query)}
                           </p>
                         )}
-                        {session.channel === "instagram" && (session.instagram_username || session.instagram_bio) && (
+                        {session.channel === "instagram" && (
                           <div className="mb-1 space-y-0.5">
-                            {session.instagram_username && (
+                            {inferInstagramHandle(session) && (
                               <p className="text-[11px] text-pink-300 truncate">
-                                @{highlightText(session.instagram_username, query)}
+                                @{highlightText(inferInstagramHandle(session), query)}
                               </p>
                             )}
                             {session.instagram_bio && (
@@ -2361,9 +2425,18 @@ export default function ConversasPage() {
                         )}
                         <p className="text-xs text-text-gray/70 truncate">
                           {highlightText(
-                            (session.last_message_preview ||
-                              session.messages[session.messages.length - 1]?.content ||
-                              "...").substring(0, 80),
+                            (
+                              session.channel === "instagram"
+                                ? cleanInstagramTransportText(
+                                    session.last_message_preview ||
+                                      session.messages[session.messages.length - 1]?.content ||
+                                      "...",
+                                    "preview",
+                                  )
+                                : (session.last_message_preview ||
+                                    session.messages[session.messages.length - 1]?.content ||
+                                    "...")
+                            ).substring(0, 80),
                             query,
                           )}
                         </p>
@@ -2511,7 +2584,9 @@ export default function ConversasPage() {
                       <Phone className="w-3 h-3" />
                       <span className="font-mono">
                         {current.channel === "instagram"
-                          ? `IG ${current.session_id.replace(/^ig_/, "")}`
+                          ? inferInstagramHandle(current)
+                            ? `@${inferInstagramHandle(current)}`
+                            : `IG ${current.session_id.replace(/^ig_/, "")}`
                           : current.numero || "Sem número"}
                       </span>
                       <span>•</span>
@@ -2520,10 +2595,10 @@ export default function ConversasPage() {
                         {current.messages_count ?? current.messages.length} mensagens
                       </span>
                     </div>
-                    {current.channel === "instagram" && (current.instagram_username || current.instagram_bio) && (
+                    {current.channel === "instagram" && (inferInstagramHandle(current) || current.instagram_bio) && (
                       <div className="mt-1 space-y-0.5">
-                        {current.instagram_username && (
-                          <p className="text-xs text-pink-300">@{current.instagram_username}</p>
+                        {inferInstagramHandle(current) && (
+                          <p className="text-xs text-pink-300">@{inferInstagramHandle(current)}</p>
                         )}
                         {current.instagram_bio && (
                           <p className="text-xs text-text-gray line-clamp-2">{current.instagram_bio}</p>
@@ -2754,7 +2829,12 @@ export default function ConversasPage() {
                             </span>
                           </div>
                           <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
-                            {highlightText(msg.content, query)}
+                            {highlightText(
+                              current.channel === "instagram"
+                                ? cleanInstagramTransportText(msg.content, "message")
+                                : msg.content,
+                              query,
+                            )}
                           </p>
                           <div className="flex items-center gap-2 mt-3 pt-2 border-t border-current/10 text-xs opacity-75">
                             <Clock className="w-3 h-3 flex-shrink-0" />
