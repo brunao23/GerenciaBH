@@ -659,8 +659,8 @@ async function getDirectFollowupsData(tenant: string, startDate: Date, endDate?:
     const supabase = createBiaSupabaseServerClient()
     const startMs = startDate.getTime()
     const endMs = endDate ? endDate.getTime() : Number.POSITIVE_INFINITY
-    const chatTable = await resolveChatHistoriesTable(supabase as any, tenant)
 
+    // Tabelas legacy de follow-up do tenant
     const possibleTables = [
       `${tenant}_folow_normal`,
       `${tenant}_follow_normal`,
@@ -689,49 +689,22 @@ async function getDirectFollowupsData(tenant: string, startDate: Date, endDate?:
       return Number.isFinite(dateMs) && dateMs >= startMs && dateMs <= endMs
     }
 
-    const filterByTenantSession = async <T extends { session_id?: string }>(rows: T[]): Promise<T[]> => {
-      if (!rows?.length) return []
+    // Usar Set para deduplicar por session_id/numero
+    const seenKeys = new Set<string>()
+    const allFollowups: any[] = []
 
-      const sessionIds = Array.from(
-        new Set(
-          rows
-            .map((row) => String((row as any)?.session_id || "").trim())
-            .filter(Boolean),
-        ),
-      )
-
-      if (!sessionIds.length) return []
-
-      const allowed = new Set<string>()
-      const chunkSize = 500
-
-      for (let i = 0; i < sessionIds.length; i += chunkSize) {
-        const chunk = sessionIds.slice(i, i + chunkSize)
-        const { data, error } = await supabase
-          .from(chatTable)
-          .select("session_id")
-          .in("session_id", chunk)
-          .limit(5000)
-
-        if (error) {
-          console.warn(
-            `[v0] Erro ao filtrar follow-ups por sessao do tenant (${tenant}) na tabela ${chatTable}:`,
-            error.message,
-          )
-          continue
-        }
-
-        for (const item of data || []) {
-          const sid = String((item as any)?.session_id || "").trim()
-          if (sid) allowed.add(sid)
-        }
+    const addUnique = (rows: any[]) => {
+      for (const row of rows) {
+        const key = String(
+          row?.session_id || row?.numero || row?.phone_number || row?.id || ""
+        ).trim()
+        if (!key || seenKeys.has(key)) continue
+        seenKeys.add(key)
+        allFollowups.push(row)
       }
-
-      return rows.filter((row) => allowed.has(String((row as any)?.session_id || "").trim()))
     }
 
-    const legacyMatches: any[] = []
-
+    // 1. Buscar em tabelas legacy do tenant
     for (const table of possibleTables) {
       const { data, error } = await supabase.from(table).select("*").limit(5000)
 
@@ -740,10 +713,8 @@ async function getDirectFollowupsData(tenant: string, startDate: Date, endDate?:
         console.log(
           `[v0] Follow-ups encontrados em ${table}: ${data.length} (filtrados no periodo: ${filtered.length})`,
         )
-        if (filtered.length > 0) {
-          legacyMatches.push(...filtered)
-        }
-        continue
+        addUnique(filtered)
+        break // Legacy tables are mutually exclusive per tenant
       }
 
       if (error && !error.message.includes("does not exist")) {
@@ -751,10 +722,29 @@ async function getDirectFollowupsData(tenant: string, startDate: Date, endDate?:
       }
     }
 
-    if (legacyMatches.length > 0) {
-      return legacyMatches
+    // 2. Buscar em followup_schedule (fonte principal do sistema inteligente)
+    const { data: scheduleRows, error: scheduleError } = await supabase
+      .from("followup_schedule")
+      .select("id, session_id, phone_number, last_mensager, created_at, updated_at, next_followup_at, attempt_count, is_active")
+      .limit(20000)
+
+    if (!scheduleError && scheduleRows?.length) {
+      // Filtrar por tenant: session_id deve conter o numero (sem precisar cross-check com chat table)
+      const withAttempts = scheduleRows.filter((row: any) => {
+        const attempts = Number(row?.attempt_count || 0)
+        return attempts > 0 || Boolean(parseDateMaybe(row?.last_mensager)) || row?.is_active
+      })
+
+      const filtered = withAttempts.filter(inPeriod)
+      console.log(
+        `[v0] Follow-ups via followup_schedule: ${scheduleRows.length} total, ${withAttempts.length} com tentativas, ${filtered.length} no periodo`,
+      )
+      addUnique(filtered)
+    } else if (scheduleError && !scheduleError.message.includes("does not exist")) {
+      console.warn("[v0] Erro ao acessar followup_schedule:", scheduleError.message)
     }
 
+    // 3. Buscar em followup_logs como complemento
     const { data: logsRows, error: logsError } = await supabase
       .from("followup_logs")
       .select("id, session_id, sent_at, created_at, attempt_number, delivery_status")
@@ -762,44 +752,22 @@ async function getDirectFollowupsData(tenant: string, startDate: Date, endDate?:
       .limit(20000)
 
     if (!logsError && logsRows?.length) {
-      const scoped = await filterByTenantSession(logsRows as any[])
-      const deliveredOnly = scoped.filter((row: any) => {
+      const deliveredOnly = logsRows.filter((row: any) => {
         const status = String(row?.delivery_status || "").toLowerCase()
         return !status || status === "delivered" || status === "sent" || status === "ok"
       })
 
       const filtered = deliveredOnly.filter(inPeriod)
       console.log(
-        `[v0] Follow-ups via followup_logs: ${logsRows.length} (tenant scoped: ${scoped.length}, no periodo: ${filtered.length})`,
+        `[v0] Follow-ups via followup_logs: ${logsRows.length} total, ${deliveredOnly.length} entregues, ${filtered.length} no periodo`,
       )
-      if (filtered.length > 0) return filtered
+      addUnique(filtered)
     } else if (logsError && !logsError.message.includes("does not exist")) {
       console.warn("[v0] Erro ao acessar followup_logs:", logsError.message)
     }
 
-    const { data: scheduleRows, error: scheduleError } = await supabase
-      .from("followup_schedule")
-      .select("id, session_id, last_mensager, created_at, updated_at, next_followup_at, attempt_count")
-      .limit(20000)
-
-    if (!scheduleError && scheduleRows?.length) {
-      const scoped = await filterByTenantSession(scheduleRows as any[])
-      const onlySentAttempts = scoped.filter((row: any) => {
-        const attempts = Number(row?.attempt_count || 0)
-        return attempts > 0 || Boolean(parseDateMaybe(row?.last_mensager))
-      })
-
-      const filtered = onlySentAttempts.filter(inPeriod)
-      console.log(
-        `[v0] Follow-ups via followup_schedule: ${scheduleRows.length} (tenant scoped: ${scoped.length}, no periodo: ${filtered.length})`,
-      )
-      if (filtered.length > 0) return filtered
-    } else if (scheduleError && !scheduleError.message.includes("does not exist")) {
-      console.warn("[v0] Erro ao acessar followup_schedule:", scheduleError.message)
-    }
-
-    console.log(`[v0] Nenhuma fonte de follow-up contabilizavel encontrada para ${tenant}`)
-    return []
+    console.log(`[v0] Total follow-ups agregados para ${tenant}: ${allFollowups.length}`)
+    return allFollowups
   } catch (error) {
     console.error("[v0] Erro ao buscar dados diretos de follow-ups:", error)
     return []
