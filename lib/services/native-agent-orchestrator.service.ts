@@ -159,23 +159,72 @@ function firstName(name?: string): string | null {
   const clean = String(name || "")
     .normalize("NFKC")
     .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    // Remove emojis antes de qualquer processamento
+    .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, " ")
     .replace(/[^\p{L}\p{N}\s'-]/gu, " ")
     .replace(/\s+/g, " ")
     .trim()
 
   if (!clean) return null
 
+  // Remove prefixo ~ do WhatsApp (indica contato fora da agenda)
+  const cleanNoTilde = clean.replace(/^[~\s]+/, "").trim()
+  if (!cleanNoTilde) return null
+
   const blocked = new Set([
+    // Genéricos e sistêmicos
     "contato", "usuario", "lead", "cliente", "whatsapp", "unknown",
     "bot", "ia", "assistente", "agente", "sistema", "automacao",
     "atendente", "robo", "chatbot", "suporte", "admin", "teste",
+    // Títulos que não são nomes próprios
+    "treinador", "professor", "doutor", "dr", "dra", "amigo", "mestre", "aluno",
+    // Cargos e papéis de liderança
+    "lider", "chefe", "dono", "dona", "socio", "socia", "presidente", "vice",
+    "supervisor", "supervisora", "responsavel", "gestor", "gestora",
+    "secretario", "secretaria", "estagiario", "estagiaria",
+    "funcionario", "funcionaria", "colaborador", "colaboradora",
+    "coordenadora", "coordenador", "subgerente",
+    // Profissões comuns usadas como nome no WhatsApp
+    "barbeiro", "barbeira", "medico", "medica", "dentista", "advogado", "advogada",
+    "enfermeiro", "enfermeira", "nutricionista", "personal", "coach", "terapeuta",
+    "fisioterapeuta", "psicologo", "psicologa", "empresario", "empresaria",
+    "corretor", "corretora", "engenheiro", "engenheira", "arquiteto", "arquiteta",
+    "vendedor", "vendedora", "gerente", "diretor", "diretora",
+    "contador", "contadora", "motorista", "cozinheiro", "cozinheira",
+    // Expressões religiosas/motivacionais/sentimentais
+    "deus", "jesus", "senhor", "nossa", "minha", "meu", "tua", "teu",
+    "gratidao", "amor", "paz", "fe", "esperanca",
+    "alegria", "prosperidade", "abundancia", "bencao", "gloria",
+    "forca", "vida", "luz", "conquista", "vitoria", "sucesso",
+    "evolucao", "energia", "positividade", "felicidade", "sorriso",
   ])
-  const parts = clean.split(" ").map((part) => part.trim()).filter(Boolean)
+
+  // Texto sem acentos para checar padrões inválidos
+  const flat = cleanNoTilde.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, "")
+
+  // Rejeitar risadas e onomatopeias (kkk, hahaha, rsrs)
+  const laughRegex = /^(k+)(a|k|s)*$|^(h?a+h+)(a|h|s)*$|^(h?e+h+)(e|h|s)*$|^(rs)+s*$/i
+  if (laughRegex.test(flat)) return null
+
+  // Rejeitar se não tiver vogal alguma
+  if (!/[aeiouy]/.test(flat)) return null
+
+  // Rejeitar se tiver 3+ letras idênticas consecutivas (Aaaa, Kkkkk, Caaah)
+  if (/(.)\1{2,}/.test(flat)) return null
+
+  // Quebra CamelCase: "GabriellaMoraes" -> "Gabriella Moraes"
+  const expanded = cleanNoTilde.replace(/([a-z\u00C0-\u017E])([A-Z\u0178-\u024F])/g, "$1 $2")
+  const parts = expanded.split(" ").map((p) => p.trim()).filter(Boolean)
+
   for (const part of parts) {
-    const normalized = part.toLowerCase()
-    if (blocked.has(normalized)) continue
+    const partFlat = part.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+    if (blocked.has(partFlat)) continue
     if (!/[a-zA-Z\u00C0-\u024F]/.test(part)) continue
     if (part.length < 2) continue
+    // Rejeitar palavras sem vogal
+    if (!/[aeiou\u00e1\u00e9\u00ed\u00f3\u00fa\u00e2\u00ea\u00ee\u00f4\u00fb\u00e0\u00e3\u00f5y]/i.test(part)) continue
+    // Rejeitar palavras com 3+ letras idênticas consecutivas
+    if (/(.)\1{2,}/i.test(part)) continue
     return `${part.charAt(0).toUpperCase()}${part.slice(1).toLowerCase()}`
   }
 
@@ -2239,9 +2288,42 @@ export class NativeAgentOrchestratorService {
           .catch(() => {})
       }
 
+      // Envia mensagem de compreensao ao lead antes de pausar
+      // JAMAIS dispensar o lead — sempre demonstrar respeito e deixar porta aberta
+      let comprehensionMessage = ""
+      if (negativeIntent.category === "opt_out") {
+        comprehensionMessage = "Entendo e respeito sua decisao. Se precisar de algo no futuro, estaremos aqui para ajudar. Desejo tudo de bom!"
+      } else if (negativeIntent.category === "dissatisfaction") {
+        comprehensionMessage = "Lamento muito que tenha tido essa experiencia. Sua opiniao e muito importante para nos. Se quiser, posso conectar voce com um responsavel para resolver essa situacao da melhor forma."
+      }
+      // bot_message nao recebe resposta (e mensagem automatica, nao tem humano)
+
+      if (comprehensionMessage && phone) {
+        await this.messaging.sendText({
+          tenant,
+          phone,
+          message: comprehensionMessage,
+          sessionId,
+          source: "native-agent-comprehension",
+        }).catch(() => {})
+
+        await chat.persistMessage({
+          sessionId,
+          role: "assistant",
+          type: "text",
+          content: comprehensionMessage,
+          source: "native-agent",
+          additional: {
+            auto_comprehension: true,
+            category: negativeIntent.category,
+          },
+        }).catch(() => {})
+      }
+
       return {
         processed: true,
-        replied: false,
+        replied: !!comprehensionMessage,
+        responseText: comprehensionMessage || undefined,
         actions: [{ type: "handoff_human" as AgentActionPlan["type"], ok: true, details: { autoPaused: true, category: negativeIntent.category } }],
         reason: "lead_auto_paused_negative_intent",
       }
@@ -4143,7 +4225,14 @@ export class NativeAgentOrchestratorService {
         : `- Como voce ainda NAO sabe o nome do lead: pergunte UMA UNICA VEZ apenas se ainda nao perguntou neste historico. Se ja perguntou, NAO repita. Se o lead nao responder, siga o atendimento normalmente. ZERO tolerancia para loop de pergunta de nome.`,
       `- JAMAIS abrevie, encurte, diminua ou crie apelidos a partir do nome do lead. Use SEMPRE o primeiro nome EXATO, sem modificacoes. Exemplos PROIBIDOS: "Cah" para Camila, "Fer" para Fernanda, "Gabi" para Gabriela, "Rafa" para Rafael, "Lu" para Lucas, "JP" para Joao Pedro, "AC" para Ana Clara, "Dani" para Daniela, "Lari" para Larissa, "Nath" para Nathalia, "Bru" para Bruno â€” ZERO tolerancia para abreviacoes e diminutivos. Se o nome tiver mais de uma palavra (ex: 'Joao Pedro', 'Ana Clara', 'Maria Luiza'), use APENAS o primeiro nome ('Joao', 'Ana', 'Maria'): NUNCA use iniciais combinadas, NUNCA invente apelido. Se o nome do WhatsApp parecer apelido ou deformado (ex: 'Caaah', 'Feer', 'Jooao', 'Anndre'), NAO use â€” trate por 'voce' ate confirmar o nome real.`,
       "",
-      "## INTELIGENCIA E APRENDIZAGEM AUTOMATICA (MEMORIA COMPARTILHADA)",
+      "## REGRA CRITICA: JAMAIS DISPENSAR LEAD (PRIORIDADE MAXIMA)",
+      "- [LEI INVIOLAVEL] NUNCA dispense, descarte, encerre ou abandone um lead. Mesmo que o lead demonstre desinteresse, diga que nao quer agendar ou que nao precisa, NUNCA diga adeus definitivo.",
+      "- Se o lead disser que nao quer mais receber mensagens: responda com COMPREENSAO e RESPEITO. Exemplo: 'Entendo e respeito sua decisao. Se precisar de algo no futuro, estaremos aqui para ajudar.' NUNCA ignore ou silencie.",
+      "- Se o lead demonstrar insatisfacao: responda com EMPATIA. Exemplo: 'Lamento muito. Sua opiniao e muito importante para nos.' NUNCA descarte o lead.",
+      "- PROIBIDO ABSOLUTO: frases como 'entendo que nao tem interesse, tudo bem', 'sem problemas, boa sorte', 'ok entao nao vou mais te incomodar', 'tudo bem, encerrando atendimento'. Essas frases DISPENSAM o lead e sao proibidas.",
+      "- A UNICA resposta correta para desinteresse e: demonstrar compreensao + deixar a porta aberta + encerrar cordialmente SEM dispensar.",
+      "",
+            "## INTELIGENCIA E APRENDIZAGEM AUTOMATICA (MEMORIA COMPARTILHADA)",
       "- VOCE E UM SISTEMA ULTRA INTELIGENTE EM EVOLUCAO CONSTANTE A CADA DIA.",
       "- Acesse a 'memoria compartilhada' e o historico de chat para identificar padroes, preferencias e respostas passadas do lead.",
       "- NUNCA faca uma pergunta que o lead ja respondeu no passado. Use a aprendizagem automatica para deduzir o contexto e mostrar que voce lembra dele.",

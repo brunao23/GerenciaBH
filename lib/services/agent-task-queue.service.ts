@@ -243,6 +243,7 @@ function extractLastQuestion(content: string): string {
 function normalizeLeadName(name?: string): string {
   // Remove prefixo ~ do WhatsApp (indica contato fora da agenda) e espaços extras
   const text = String(name || "")
+    .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, " ")
     .replace(/^[~\s]+/, "")
     .replace(/\s+/g, " ")
     .trim()
@@ -2186,6 +2187,40 @@ export class AgentTaskQueueService {
       }
 
       if (taskType === "followup") {
+        // REGRA ABSOLUTA: leads com agendamento ativo JAMAIS recebem follow-up
+        const hasAppointment = await this.hasActiveScheduledAppointment({
+          tenant,
+          sessionId,
+          phone,
+        })
+        if (hasAppointment) {
+          result.skipped += 1
+          const reason = "followup_cancelled_lead_has_active_appointment"
+          await this.supabase
+            .from(this.table)
+            .update({
+              status: "cancelled",
+              attempts: Number(task.attempts || 0) + 1,
+              last_error: reason,
+            })
+            .eq("id", task.id)
+          // Cancela TODOS os followups pendentes desse lead
+          await this.cancelPendingFollowups({ tenant, sessionId, phone }).catch(() => {})
+          await this.notifyTouchpoint({
+            tenant,
+            sessionId,
+            phone,
+            runtimeConfig: runtimeConfig!,
+            kind: "cancelled",
+            taskType: notificationTaskType,
+            reason,
+            step: Number(payload?.followup_step || 0) || undefined,
+            totalSteps: Number(payload?.followup_total_steps || 0) || undefined,
+            taskId: String(task.id || ""),
+          })
+          continue
+        }
+
         const [configValidation, replied, recentAssistantFollowup] = await Promise.all([
           this.validateFollowupTaskAgainstCurrentConfig({
             tenant,
