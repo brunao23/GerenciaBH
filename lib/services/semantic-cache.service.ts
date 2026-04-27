@@ -49,8 +49,8 @@ const EMBEDDING_MODEL = "text-embedding-004"
 const EMBEDDING_DIMS = 768
 const EMBEDDING_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 
-const DEFAULT_SIMILARITY_THRESHOLD = 0.82
-const DEFAULT_TTL_HOURS = 168 // 7 days
+const DEFAULT_SIMILARITY_THRESHOLD = 0.88
+const DEFAULT_TTL_HOURS = 336 // 14 days
 
 // Patterns that indicate the message should NOT be cached
 const PII_PATTERNS = [
@@ -122,6 +122,32 @@ const CATEGORY_PATTERNS: Array<{ category: string; patterns: RegExp[] }> = [
       /achei\s+caro/i, /fora\s+do\s+or[cç]amento/i, /n[aã]o\s+tenho\s+certeza/i,
     ],
   },
+  {
+    category: "greeting",
+    patterns: [
+      /^oi$/i, /^ol[aá]$/i, /^bom\s+dia$/i, /^boa\s+tarde$/i, /^boa\s+noite$/i,
+      /^oi[,!.]\s/i, /^ol[aá][,!.]\s/i, /^bom\s+dia[,!.]/i,
+      /quero\s+(?:saber|conhecer)\s+mais/i, /quero\s+informa[cç]/i,
+      /pode\s+me\s+ajudar/i, /gostaria\s+de\s+saber/i,
+    ],
+  },
+  {
+    category: "services",
+    patterns: [
+      /quais?\s+(?:sao|s[aã]o)?\s*(?:os\s+)?servi[cç]os/i,
+      /o\s+que\s+voc[eê]s?\s+(?:fazem|oferecem|tem)/i,
+      /quais?\s+(?:os\s+)?(?:tratamentos?|procedimentos?|cursos?|planos?)/i,
+      /lista\s+de\s+servi[cç]os/i, /card[aá]pio/i,
+    ],
+  },
+  {
+    category: "payment",
+    patterns: [
+      /forma(?:s)?\s+de\s+pagamento/i, /aceita(?:m)?\s+pix/i,
+      /paga(?:r|mento)\s+com/i, /cart[aã]o\s+de\s+cr[eé]dito/i,
+      /boleto/i, /transferen[cç]ia/i, /parcel(?:a|ar|amento)/i,
+    ],
+  },
 ]
 
 // ─── Helpers ──────────────────────────────────────────────────────
@@ -181,28 +207,36 @@ export class SemanticCacheService {
 
     const url = `${EMBEDDING_API_BASE}/${EMBEDDING_MODEL}:embedContent?key=${encodeURIComponent(geminiApiKey)}`
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: `models/${EMBEDDING_MODEL}`,
-        content: { parts: [{ text: normalized }] },
-      }),
-    })
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 5000)
 
-    if (!response.ok) {
-      const errText = await response.text().catch(() => "")
-      throw new Error(`Embedding API error ${response.status}: ${errText.slice(0, 200)}`)
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: `models/${EMBEDDING_MODEL}`,
+          content: { parts: [{ text: normalized }] },
+        }),
+        signal: controller.signal,
+      })
+
+      if (!response.ok) {
+        const errText = await response.text().catch(() => "")
+        throw new Error(`Embedding API error ${response.status}: ${errText.slice(0, 200)}`)
+      }
+
+      const data = await response.json()
+      const values = data?.embedding?.values
+
+      if (!Array.isArray(values) || values.length !== EMBEDDING_DIMS) {
+        throw new Error(`Embedding returned ${values?.length || 0} dims, expected ${EMBEDDING_DIMS}`)
+      }
+
+      return values
+    } finally {
+      clearTimeout(timeout)
     }
-
-    const data = await response.json()
-    const values = data?.embedding?.values
-
-    if (!Array.isArray(values) || values.length !== EMBEDDING_DIMS) {
-      throw new Error(`Embedding returned ${values?.length || 0} dims, expected ${EMBEDDING_DIMS}`)
-    }
-
-    return values
   }
 
   // ── Cache Lookup ─────────────────────────────────────────────
@@ -329,7 +363,8 @@ export class SemanticCacheService {
 
     // Detect category early — categories de alto valor relaxam regras
     const category = detectCategory(input.message)
-    const isHighValueCategory = category === "price" || category === "faq" || category === "location" || category === "hours"
+    const HIGH_VALUE_CATEGORIES = new Set(["price", "faq", "location", "hours", "greeting", "services", "payment", "objection"])
+    const isHighValueCategory = !!category && HIGH_VALUE_CATEGORIES.has(category)
 
     // Never cache PII (mas preços são OK)
     if (hasPII(input.message) || hasPII(input.responseText)) {

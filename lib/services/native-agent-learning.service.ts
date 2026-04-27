@@ -481,6 +481,22 @@ export class NativeAgentLearningService {
           ? adaptiveRaw.avoidRules.map((item: any) => String(item || "").trim()).filter(Boolean).slice(0, 8)
           : [],
       },
+      humanStyleProfile: raw.humanStyleProfile && typeof raw.humanStyleProfile === "object"
+        ? {
+            sampleCount: Number(raw.humanStyleProfile.sampleCount || 0),
+            avgMessageLength: Number(raw.humanStyleProfile.avgMessageLength || 0),
+            emojiFrequency: Number(raw.humanStyleProfile.emojiFrequency || 0),
+            formalityScore: Number(raw.humanStyleProfile.formalityScore || 0),
+            commonGreetings: Array.isArray(raw.humanStyleProfile.commonGreetings)
+              ? raw.humanStyleProfile.commonGreetings.map((g: any) => String(g)).filter(Boolean).slice(0, 5)
+              : [],
+            commonClosings: Array.isArray(raw.humanStyleProfile.commonClosings)
+              ? raw.humanStyleProfile.commonClosings.map((c: any) => String(c)).filter(Boolean).slice(0, 5)
+              : [],
+            informalMarkers: Number(raw.humanStyleProfile.informalMarkers || 0),
+            formalMarkers: Number(raw.humanStyleProfile.formalMarkers || 0),
+          }
+        : defaultHumanStyleProfile(),
     }
   }
 
@@ -495,14 +511,19 @@ export class NativeAgentLearningService {
         enabled: state.enabled !== false,
         updatedAt: state.updatedAt || new Date().toISOString(),
         stats: state.stats,
-        samples: state.samples.slice(-40),
-        signals: state.signals.slice(-80),
+        samples: state.samples.slice(-60),
+        signals: state.signals.slice(-120),
         strategyScores: state.strategyScores,
         adaptivePrompt: state.adaptivePrompt,
+        humanStyleProfile: state.humanStyleProfile,
       },
     }
 
-    await this.supabase.from("units_registry").update({ metadata: nextMetadata }).eq("id", unitId)
+    // Fire-and-forget: não bloqueia o fluxo principal
+    void this.supabase.from("units_registry").update({ metadata: nextMetadata }).eq("id", unitId)
+      .then(({ error }) => {
+        if (error) console.warn("[learning] saveState error:", error.message)
+      })
   }
 
   private rebuildAdaptivePromptSnapshot(state: LearningState): AdaptivePromptSnapshot {

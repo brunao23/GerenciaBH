@@ -2567,9 +2567,26 @@ export class NativeAgentOrchestratorService {
           topP: Number(config.samplingTopP),
           topK: Number(config.samplingTopK),
         }
-    const learningPrompt = config.autoLearningEnabled
-      ? await this.learning.buildLearningPrompt(tenant).catch(() => "")
-      : ""
+    // ── Parallel: Learning Prompt + Semantic Cache Embedding ────────
+    let cacheHit: CacheHitResult | null = null
+    let cacheEmbedding: number[] | null = null
+    const cacheEnabled = config.semanticCacheEnabled && !!config.geminiApiKey
+    const effectiveMessage = effectiveLeadMessage || content
+    const shouldDoCache = cacheEnabled && conversation.length >= 2
+
+    // Paraleliza learning prompt + embedding para reduzir latência
+    const [learningPrompt, embeddingResult] = await Promise.all([
+      config.autoLearningEnabled
+        ? this.learning.buildLearningPrompt(tenant).catch(() => "")
+        : Promise.resolve(""),
+      shouldDoCache
+        ? this.semanticCache.generateEmbedding(effectiveMessage, config.geminiApiKey!)
+            .catch((err: any) => { console.warn("[native-agent][semantic-cache] embedding failed:", err); return null })
+        : Promise.resolve(null),
+    ])
+
+    cacheEmbedding = embeddingResult
+
     const basePrompt = this.buildSystemPrompt(config, {
       contactName: input.contactName,
       phone,
@@ -2590,24 +2607,15 @@ export class NativeAgentOrchestratorService {
       tenant,
     })
 
-    // Ã¢"â‚¬Ã¢"â‚¬ Semantic Cache: lookup Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬
-    let cacheHit: CacheHitResult | null = null
-    let cacheEmbedding: number[] | null = null
-    const cacheEnabled = config.semanticCacheEnabled && !!config.geminiApiKey
-    const effectiveMessage = effectiveLeadMessage || content
-
+    // ── Semantic Cache: lookup ──────────────────────────────────────
     if (!cacheEnabled) {
       console.log(`[native-agent][semantic-cache] DISABLED tenant=${tenant} enabled=${config.semanticCacheEnabled} hasKey=${!!config.geminiApiKey}`)
     } else if (conversation.length < 2) {
       console.log(`[native-agent][semantic-cache] SKIP tenant=${tenant} convLen=${conversation.length} (min=2)`)
     }
 
-    if (cacheEnabled && conversation.length >= 2) {
+    if (shouldDoCache && cacheEmbedding) {
       try {
-        cacheEmbedding = await this.semanticCache.generateEmbedding(
-          effectiveMessage,
-          config.geminiApiKey!,
-        )
         cacheHit = await this.semanticCache.findCachedResponse({
           tenant,
           message: effectiveMessage,
@@ -2620,7 +2628,7 @@ export class NativeAgentOrchestratorService {
           )
         } else {
           console.log(
-            `[native-agent][semantic-cache] MISS tenant=${tenant} threshold=${config.semanticCacheSimilarityThreshold ?? 0.92}`,
+            `[native-agent][semantic-cache] MISS tenant=${tenant} threshold=${config.semanticCacheSimilarityThreshold ?? 0.88}`,
           )
         }
       } catch (cacheErr) {
