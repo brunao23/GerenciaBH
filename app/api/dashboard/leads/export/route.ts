@@ -191,7 +191,7 @@ function csvEscape(value: any): string {
 function toCsv(rows: Record<string, any>[]): string {
   if (!rows.length) return "categoria;mensagem\nvazio;Nenhum lead encontrado para o filtro informado."
   const headers = Array.from(
-    rows.reduce((acc, row) => {
+    (rows as any[]).reduce((acc: Set<string>, row: any) => {
       Object.keys(row || {}).forEach((key) => acc.add(key))
       return acc
     }, new Set<string>()),
@@ -279,7 +279,7 @@ async function fetchChatRows(supabase: ReturnType<typeof createBiaSupabaseServer
       throw error
     }
 
-    const batch = (data || []) as ChatRow[]
+    const batch = (data || []) as unknown as ChatRow[]
     if (!batch.length) break
     rows.push(...batch)
     if (batch.length < chunkSize) break

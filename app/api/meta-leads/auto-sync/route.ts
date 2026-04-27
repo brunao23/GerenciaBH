@@ -191,7 +191,7 @@ export async function GET(req: Request) {
 
         const { data: insertedLead, error: insertError } = await supabase
           .from(campaignTable)
-          .insert(payload, { onConflict: "leadgen_id", ignoreDuplicates: true })
+          .upsert(payload, { onConflict: "leadgen_id", ignoreDuplicates: true })
           .select("id")
           .maybeSingle()
 

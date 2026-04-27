@@ -257,11 +257,12 @@ export async function PUT(req: Request) {
     if (existing) {
       // Verificar status anterior
       const oldStatusSelect = hasIsStudentColumn ? "status, is_student" : "status"
-      const { data: oldStatus } = await supabase
+      const { data: oldStatusRaw } = await supabase
         .from(statusTable)
         .select(oldStatusSelect)
         .eq("id", existing.id)
         .single()
+      const oldStatus = oldStatusRaw as any
 
       const isGanho = requestedStatus === 'ganhos' || requestedStatus === 'ganho'
       const wasGanho = oldStatus?.status === 'ganhos' || oldStatus?.status === 'ganho'
@@ -426,8 +427,8 @@ export async function GET(req: Request) {
     }
 
     return NextResponse.json({
-      status: data?.status || null,
-      isStudent: hasIsStudentColumn ? (data?.is_student ?? null) : null,
+      status: (data as any)?.status || null,
+      isStudent: hasIsStudentColumn ? ((data as any)?.is_student ?? null) : null,
     })
   } catch (error: any) {
     console.error("[CRM Status] Erro:", error)

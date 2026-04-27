@@ -959,7 +959,7 @@ export async function GET(req: Request) {
                         break
                     }
 
-                    for (const row of statusRows || []) {
+                    for (const row of (statusRows || []) as any[]) {
                         statusMap.set(row.lead_id, {
                             status: row.status || null,
                             isStudent: hasIsStudentColumn && typeof row.is_student === "boolean" ? row.is_student : null,

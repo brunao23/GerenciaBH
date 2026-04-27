@@ -113,6 +113,7 @@ export default function FollowUpAgentePage({ params }: { params: Promise<{ id: s
         setCfg((p) => ({ ...p!, [k]: v }))
 
     function addInterval() {
+        if (!cfg) return
         const val = Number(newInterval)
         if (!Number.isFinite(val) || val < 10) return
         if (cfg.followupIntervalsMinutes.includes(val)) return
@@ -121,11 +122,13 @@ export default function FollowUpAgentePage({ params }: { params: Promise<{ id: s
     }
 
     function removeInterval(val: number) {
+        if (!cfg) return
         if (cfg.followupIntervalsMinutes.length <= 1) return
         set("followupIntervalsMinutes", cfg.followupIntervalsMinutes.filter((v) => v !== val))
     }
 
     function toggleDay(day: number) {
+        if (!cfg) return
         const current = cfg.followupBusinessDays
         if (current.includes(day)) {
             if (current.length <= 1) return

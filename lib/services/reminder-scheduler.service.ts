@@ -163,7 +163,7 @@ async function fetchAppointmentsWithColumnFallback(input: {
 
     if (!query.error) {
       return {
-        data: (Array.isArray(query.data) ? query.data : []) as Appointment[],
+        data: (Array.isArray(query.data) ? query.data : []) as unknown as Appointment[],
         error: null,
       }
     }
@@ -575,7 +575,7 @@ export function renderReminderTemplate(
     .replace(/\{saudacao_reforco_hoje\}/gi, saudacaoReforcoHoje)
     .replace(/\{nome\}/gi, primeiroNome)
     .replace(/\{nome_completo\}/gi, hasLeadName ? nomeRaw : "voce")
-    .replace(/\{data\}/gi, appointment.dia)
+    .replace(/\{data\}/gi, String(appointment.dia || ""))
     .replace(/\{horario\}/gi, appointment.horario?.replace(/:00$/, "") || "")
     .replace(/\{dia_semana\}/gi, diaSemana)
     .replace(/\{servico\}/gi, appointment.observacoes || "atendimento")
@@ -590,8 +590,8 @@ export function renderOfficialReminderMessageFromConfig(input: {
   appointment: Pick<Appointment, "nome_aluno" | "dia" | "horario" | "observacoes">
 }): string {
   const appointmentDate = parseAppointmentDateTime(
-    input.appointment.dia,
-    input.appointment.horario,
+    String(input.appointment.dia || ""),
+    String(input.appointment.horario || ""),
     input.config.timezone,
   )
 
@@ -749,8 +749,8 @@ export async function scheduleRemindersForTenant(
       result.scanned++
 
       const appointmentDate = parseAppointmentDateTime(
-        appointment.dia,
-        appointment.horario,
+        String(appointment.dia || ""),
+        String(appointment.horario || ""),
         config.timezone,
       )
 

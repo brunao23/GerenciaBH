@@ -1,4 +1,4 @@
-﻿import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
+import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { SemanticCacheService, type CacheHitResult } from "@/lib/services/semantic-cache.service"
 import { getTablesForTenant } from "@/lib/helpers/tenant"
 import { getTableColumns } from "@/lib/helpers/supabase-table-columns"
@@ -2176,7 +2176,7 @@ export class NativeAgentOrchestratorService {
     if (phone) {
       const isPaused = await this.taskQueue.isLeadPaused(tenant, phone)
       if (isPaused) {
-        const isReschedule = !isFromMeTrigger && detectsSchedulingIntent(content)
+        const isReschedule = !(input.fromMeTrigger === true) && detectsSchedulingIntent(content)
         if (!isReschedule) {
           await chat.persistMessage({
             sessionId,
@@ -2200,11 +2200,14 @@ export class NativeAgentOrchestratorService {
         } else {
           // Lead is paused but showed scheduling intent (reschedule). Unpause automatically!
           const { pausar: pauseTable } = getTablesForTenant(tenant)
-          await this.supabase
-            .from(pauseTable)
-            .update({ pausar: false, vaga: false, agendamento: false, paused_until: null })
-            .eq("numero", phone)
-            .catch(() => {})
+          try {
+            await this.supabase
+              .from(pauseTable)
+              .update({ pausar: false, vaga: false, agendamento: false, paused_until: null })
+              .eq("numero", phone)
+          } catch {
+            // silently ignore unpause errors
+          }
         }
       }
     }
@@ -2731,7 +2734,7 @@ export class NativeAgentOrchestratorService {
     }
 
     if (!Array.isArray(decision.executions)) {
-      decision.executions = []
+      decision.executions = [] as GeminiToolExecution[]
     }
     if (!Array.isArray(decision.actions)) {
       decision.actions = [{ type: "none" }]
@@ -2762,7 +2765,7 @@ export class NativeAgentOrchestratorService {
               ? { ok: true }
               : { ok: false, error: handled?.error || "tool_execution_failed" }
 
-          decision.executions.push({
+          ;(decision.executions as any[]).push({
             call: inlineHandoff,
             action: handled?.action || { type: "handoff_human", note: inlineHandoff.args?.reason },
             ok,
@@ -2774,7 +2777,7 @@ export class NativeAgentOrchestratorService {
             decision.handoff = true
           }
         } catch (inlineToolError: any) {
-          decision.executions.push({
+          ;(decision.executions as any[]).push({
             call: inlineHandoff,
             action: { type: "handoff_human", note: inlineHandoff.args?.reason },
             ok: false,
