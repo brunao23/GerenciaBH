@@ -1,6 +1,7 @@
-﻿import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
+import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { type NextRequest, NextResponse } from "next/server"
 import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
+import { AgentTaskQueueService } from "@/lib/services/agent-task-queue.service"
 
 /**
  * Normaliza número de telefone removendo caracteres não numéricos
@@ -130,7 +131,7 @@ export async function GET(request: NextRequest) {
 // POST - Criar novo registro de pausa ou atualizar existente (upsert)
 export async function POST(request: NextRequest) {
   try {
-    const { tables } = await getTenantFromRequest()
+    const { tables, tenant } = await getTenantFromRequest()
     const { pausar: pausarTable } = tables
     const body = await request.json()
     const { numero, pausar, vaga, agendamento, paused_until } = body
@@ -240,6 +241,54 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`[Pausar API POST] Registro salvo com sucesso para ${targetNumero}`)
+
+    // CANCELAMENTO IMEDIATO DE FOLLOWUPS PENDENTES
+    // Quando o humano pausa um lead via painel, todos os followups agendados
+    // são cancelados imediatamente — sem depender do ciclo do cron.
+    if (pausarBool) {
+      try {
+        const taskQueue = new AgentTaskQueueService()
+        // Tenta recuperar sessionIds do histórico de chat para cancelamento preciso
+        let sessionIds: string[] = []
+        try {
+          const { data: chatRows } = await supabase
+            .from(`${tenant}n8n_chat_histories`)
+            .select("session_id")
+            .or(`session_id.eq.${targetNumero},session_id.ilike.%${targetNumero}%`)
+            .order("id", { ascending: false })
+            .limit(5)
+          sessionIds = Array.from(
+            new Set(
+              (Array.isArray(chatRows) ? chatRows : [])
+                .map((r: any) => String(r?.session_id || "").trim())
+                .filter(Boolean)
+            )
+          )
+        } catch {
+          // sessionIds fica vazio — cancelamento será feito só por número
+        }
+        // Cancela via número + primeiro sessionId (cobertura máxima)
+        await taskQueue.cancelPendingFollowups({
+          tenant,
+          sessionId: sessionIds[0] || targetNumero,
+          phone: targetNumero,
+        }).catch((err: any) =>
+          console.warn("[Pausar API POST] cancelPendingFollowups error:", err?.message)
+        )
+        // Se tiver múltiplos sessionIds, cancela todos
+        for (const sid of sessionIds.slice(1)) {
+          await taskQueue.cancelPendingFollowups({
+            tenant,
+            sessionId: sid,
+            phone: targetNumero,
+          }).catch(() => {})
+        }
+        console.log(`[Pausar API POST] Followups pendentes cancelados para ${targetNumero} (${sessionIds.length} sessões)`)
+      } catch (cancelErr: any) {
+        // Não bloqueia a resposta — pausa já foi salva no banco
+        console.warn("[Pausar API POST] Erro ao cancelar followups:", cancelErr?.message)
+      }
+    }
 
     return NextResponse.json({
       success: true,

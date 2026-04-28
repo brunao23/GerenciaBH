@@ -2288,11 +2288,17 @@ export class NativeAgentOrchestratorService {
         } else {
           // Lead is paused but showed scheduling intent (reschedule). Unpause automatically!
           const { pausar: pauseTable } = getTablesForTenant(tenant)
+          // Normalizar phone para garantir match exato com coluna "numero" da tabela
+          const _normalizedPhoneForUnpause = normalizePhoneNumber(phone)
+          const _unpauseVariants = Array.from(new Set([
+            _normalizedPhoneForUnpause,
+            _normalizedPhoneForUnpause.startsWith("55") ? _normalizedPhoneForUnpause.slice(2) : `55${_normalizedPhoneForUnpause}`,
+          ].filter(Boolean)))
           try {
             await this.supabase
               .from(pauseTable)
               .update({ pausar: false, vaga: false, agendamento: false, paused_until: null, pause_reason: null })
-              .eq("numero", phone)
+              .in("numero", _unpauseVariants)
           } catch {
             // silently ignore unpause errors
           }

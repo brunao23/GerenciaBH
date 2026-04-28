@@ -1727,13 +1727,18 @@ export class AgentTaskQueueService {
       }
 
       if (phone) {
+        // Variantes com/sem DDI 55 — cobertura máxima de formatos de telefone na fila
+        const phoneVariants = Array.from(new Set([
+          phone,
+          phone.startsWith("55") ? phone.slice(2) : `55${phone}`,
+        ].filter(Boolean)))
         let query: any = this.supabase
           .from(this.table)
           .update({ status: "cancelled", last_error: "cancelled_by_new_message" })
           .eq("tenant", tenant)
           .eq("task_type", "followup")
           .eq("status", "pending")
-          .eq("phone_number", phone)
+          .in("phone_number", phoneVariants)
         if (sessionId) {
           query = query.neq("session_id", sessionId)
         }
