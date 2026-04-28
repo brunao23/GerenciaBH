@@ -29,7 +29,7 @@ import {
   type SendTenantAudioResult,
   type SendTenantTextResult,
 } from "@/lib/services/tenant-messaging.service"
-import { AgentTaskQueueService } from "@/lib/services/agent-task-queue.service"
+import { AgentTaskQueueService, buildFollowupGroupActionToken } from "@/lib/services/agent-task-queue.service"
 import { normalizeTenant } from "@/lib/helpers/normalize-tenant"
 import { NativeAgentLearningService } from "@/lib/services/native-agent-learning.service"
 import { createNotification } from "@/lib/services/notifications"
@@ -2601,7 +2601,8 @@ export class NativeAgentOrchestratorService {
         .catch(() => {})
     }
 
-    const conversationRows = await chat.loadConversation(sessionId, 30)
+    // Janela de memória ampliada para 60 turnos — reduz alucinação em conversas longas
+    const conversationRows = await chat.loadConversation(sessionId, 60)
     const conversation: GeminiConversationMessage[] = conversationRows.map((turn) => ({
       role: turn.role,
       content: turn.content,
@@ -3510,10 +3511,35 @@ export class NativeAgentOrchestratorService {
             isEdit,
           })
           const dedupeKind = isEdit ? "reschedule" : "schedule"
+          // Botoes de controle rapido para o grupo: pausar/despausar o lead
+          const notifyPhone = normalizePhoneNumber(params.phone)
+          const scheduleControlButtons = notifyPhone
+            ? (() => {
+                const expiresAt = Date.now() + 3 * 24 * 60 * 60 * 1000
+                const pauseToken = buildFollowupGroupActionToken({
+                  tenant: params.tenant,
+                  phone: notifyPhone,
+                  action: "pause",
+                  expiresAt,
+                })
+                const unpauseToken = buildFollowupGroupActionToken({
+                  tenant: params.tenant,
+                  phone: notifyPhone,
+                  action: "unpause",
+                  expiresAt,
+                })
+                if (!pauseToken || !unpauseToken) return []
+                return [
+                  { id: `fupctl:pause:${pauseToken}`, label: "Pausar Lead" },
+                  { id: `fupctl:unpause:${unpauseToken}`, label: "Retomar Lead" },
+                ]
+              })()
+            : []
           const notifyResult = await this.sendToolNotifications(params.tenant, targets, message, {
             anchorSessionId: params.sessionId,
             dedupeKey: `schedule_success:${dedupeKind}:${params.phone}:${execution.action?.date || ""}:${execution.action?.time || ""}`,
             dedupeWindowSeconds: 3600,
+            buttons: scheduleControlButtons,
           })
           if (notifyResult.failed > 0) {
             await this
@@ -3567,6 +3593,19 @@ export class NativeAgentOrchestratorService {
             anchorSessionId: params.sessionId,
             dedupeKey: `handoff:${params.sessionId}:${params.phone}`,
             dedupeWindowSeconds: 3600,
+            // Botoes de controle: pausar e retomar o lead apos handoff
+            buttons: (() => {
+              const hp = normalizePhoneNumber(params.phone)
+              if (!hp) return []
+              const exp = Date.now() + 3 * 24 * 60 * 60 * 1000
+              const pt = buildFollowupGroupActionToken({ tenant: params.tenant, phone: hp, action: "pause", expiresAt: exp })
+              const upt = buildFollowupGroupActionToken({ tenant: params.tenant, phone: hp, action: "unpause", expiresAt: exp })
+              if (!pt || !upt) return []
+              return [
+                { id: `fupctl:pause:${pt}`, label: "Pausar Lead" },
+                { id: `fupctl:unpause:${upt}`, label: "Retomar Lead" },
+              ]
+            })(),
           })
         if (notifyResult.failed > 0) {
           await this
@@ -3597,7 +3636,7 @@ export class NativeAgentOrchestratorService {
     }
   }
 
-    private async sendToolNotifications(
+  private async sendToolNotifications(
     tenant: string,
     targets: string[],
     message: string,
@@ -3605,6 +3644,7 @@ export class NativeAgentOrchestratorService {
       anchorSessionId?: string
       dedupeKey?: string
       dedupeWindowSeconds?: number
+      buttons?: Array<{ id: string; label: string }>
     },
   ): Promise<{ sent: number; failed: number; failures: Array<{ target: string; error: string }> }> {
     // Safety: only send to groups, never to individual leads
@@ -3619,6 +3659,7 @@ export class NativeAgentOrchestratorService {
       source: "native-agent-tools",
       message,
       targets: safeTargets,
+      buttons: options?.buttons,
       dedupeKey: String(options?.dedupeKey || "").trim() || undefined,
       dedupeWindowSeconds: options?.dedupeWindowSeconds,
     })

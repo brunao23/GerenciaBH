@@ -80,7 +80,7 @@ function resolveGroupActionSecret(): string {
   )
 }
 
-function buildFollowupGroupActionToken(input: {
+export function buildFollowupGroupActionToken(input: {
   tenant: string
   phone: string
   action: FollowupGroupAction
@@ -2279,7 +2279,7 @@ export class AgentTaskQueueService {
       header = `ðŸŸ¡ *${input.taskType.toUpperCase()} ENVIADO*`
     }
 
-    if (input.kind === "cancelled") {
+    if ((input.kind as string) === "cancelled") {
       if (input.taskType === "followup") {
         header = "*FOLLOW-UP CANCELADO*"
       } else if (input.taskType === "official_reminder" || input.taskType === "reminder") {
