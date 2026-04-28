@@ -74,6 +74,9 @@ export default function FollowUpAgentePage() {
     const [cfg, setCfg] = useState<Config | null>(null)
     const [saving, setSaving] = useState(false)
     const [newInterval, setNewInterval] = useState("")
+    const newIntervalNum = parseInt(newInterval, 10)
+    const newIntervalValid = Number.isFinite(newIntervalNum) && newIntervalNum >= 10 && !cfg?.followupIntervalsMinutes.includes(newIntervalNum)
+    const newIntervalPreview = Number.isFinite(newIntervalNum) && newIntervalNum >= 1 ? ` = ${minutesToLabel(newIntervalNum)}` : ""
 
     useEffect(() => {
         fetch("/api/tenant/native-agent-config")
@@ -113,7 +116,7 @@ export default function FollowUpAgentePage() {
 
     function addInterval() {
         if (!cfg) return
-        const val = Number(newInterval)
+        const val = parseInt(newInterval, 10)
         if (!Number.isFinite(val) || val < 10) return
         if (cfg.followupIntervalsMinutes.includes(val)) return
         set("followupIntervalsMinutes", [...cfg.followupIntervalsMinutes, val].sort((a, b) => a - b))
@@ -201,18 +204,30 @@ export default function FollowUpAgentePage() {
                             </div>
                         ))}
                     </div>
-                    <div className="flex items-center gap-2">
-                        <Input
-                            type="number"
-                            min={10}
-                            placeholder="Ex: 1440"
-                            value={newInterval}
-                            onChange={(e) => setNewInterval(e.target.value)}
-                            onKeyDown={(e) => e.key === "Enter" && addInterval()}
-                            className="w-32"
-                        />
-                        <span className="text-sm text-muted-foreground">min</span>
-                        <Button type="button" variant="outline" size="sm" onClick={addInterval}>
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <div className="relative flex items-center">
+                            <Input
+                                type="text"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
+                                placeholder="Ex: 1440"
+                                value={newInterval}
+                                onChange={(e) => setNewInterval(e.target.value.replace(/\D/g, ""))}
+                                onKeyDown={(e) => e.key === "Enter" && newIntervalValid && addInterval()}
+                                className="w-28 pr-10 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            />
+                            <span className="absolute right-2 text-xs text-muted-foreground pointer-events-none">min</span>
+                        </div>
+                        {newIntervalPreview && (
+                            <span className="text-sm text-[var(--accent-green)] font-medium">{newIntervalPreview}</span>
+                        )}
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={addInterval}
+                            disabled={!newIntervalValid}
+                        >
                             <Plus className="h-4 w-4 mr-1" />
                             Adicionar
                         </Button>
@@ -362,33 +377,43 @@ export default function FollowUpAgentePage() {
                         <div className="space-y-2">
                             <Label>Temperature</Label>
                             <Input
-                                type="number"
-                                step="0.05"
-                                min={0}
-                                max={2}
+                                type="text"
+                                inputMode="decimal"
+                                placeholder="0.55"
                                 value={cfg.followupSamplingTemperature}
-                                onChange={(e) => set("followupSamplingTemperature", Number(e.target.value))}
+                                onChange={(e) => {
+                                    const v = e.target.value.replace(/[^0-9.]/g, "")
+                                    set("followupSamplingTemperature", v === "" ? 0.55 : Number(v))
+                                }}
+                                className="[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                             />
                         </div>
                         <div className="space-y-2">
                             <Label>Top-P</Label>
                             <Input
-                                type="number"
-                                step="0.05"
-                                min={0}
-                                max={1}
+                                type="text"
+                                inputMode="decimal"
+                                placeholder="0.9"
                                 value={cfg.followupSamplingTopP}
-                                onChange={(e) => set("followupSamplingTopP", Number(e.target.value))}
+                                onChange={(e) => {
+                                    const v = e.target.value.replace(/[^0-9.]/g, "")
+                                    set("followupSamplingTopP", v === "" ? 0.9 : Number(v))
+                                }}
+                                className="[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                             />
                         </div>
                         <div className="space-y-2">
                             <Label>Top-K</Label>
                             <Input
-                                type="number"
-                                min={1}
-                                max={100}
+                                type="text"
+                                inputMode="numeric"
+                                placeholder="40"
                                 value={cfg.followupSamplingTopK}
-                                onChange={(e) => set("followupSamplingTopK", Number(e.target.value))}
+                                onChange={(e) => {
+                                    const v = e.target.value.replace(/\D/g, "")
+                                    set("followupSamplingTopK", v === "" ? 40 : Number(v))
+                                }}
+                                className="[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                             />
                         </div>
                     </div>
