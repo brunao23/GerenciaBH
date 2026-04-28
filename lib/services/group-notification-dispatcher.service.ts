@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto"
+﻿import { createHash } from "node:crypto"
 import {
   normalizeSessionId,
   TenantChatHistoryService,
@@ -11,6 +11,7 @@ export interface GroupNotificationDispatchInput {
   source: string
   message: string
   targets: string[]
+  buttons?: Array<{ id: string; label: string }>
   dedupeKey?: string
   dedupeWindowSeconds?: number
 }
@@ -24,11 +25,24 @@ export interface GroupNotificationDispatchResult {
 
 function normalizeGroupTargets(values: string[]): string[] {
   if (!Array.isArray(values)) return []
-  return values
-    .map((value) => String(value || "").trim())
+  const normalized = values
+    .map((value) => {
+      const text = String(value || "").trim()
+      if (!text) return ""
+      if (/@g\.us$/i.test(text)) return text
+      if (/-group$/i.test(text)) {
+        const base = text.replace(/-group$/i, "").replace(/[^0-9-]/g, "")
+        return base ? `${base}-group` : ""
+      }
+      const groupCandidate = text.replace(/[^0-9-]/g, "")
+      if (/^\d{8,}-\d{2,}$/.test(groupCandidate)) {
+        return `${groupCandidate}-group`
+      }
+      return ""
+    })
     .filter(Boolean)
-    .filter((value) => /@g\.us$/i.test(value) || /-group$/i.test(value))
-    .slice(0, 100)
+
+  return Array.from(new Set(normalized)).slice(0, 100)
 }
 
 function toMarker(input: {
@@ -59,6 +73,15 @@ export class GroupNotificationDispatcherService {
       ? Math.max(30, Math.min(86400, Math.floor(Number(input.dedupeWindowSeconds))))
       : 300
     const dedupeKey = String(input.dedupeKey || message).trim()
+    const buttons = Array.isArray(input.buttons)
+      ? input.buttons
+          .map((button) => ({
+            id: String(button?.id || "").trim(),
+            label: String(button?.label || "").trim(),
+          }))
+          .filter((button) => button.id && button.label)
+          .slice(0, 3)
+      : []
 
     const anchorSessionId = normalizeSessionId(input.anchorSessionId || "")
     const chat = new TenantChatHistoryService(input.tenant)
@@ -88,19 +111,61 @@ export class GroupNotificationDispatcherService {
         continue
       }
 
-      const sentResult = await this.messaging
-        .sendText({
-          tenant: input.tenant,
-          phone: target,
-          sessionId: target,
-          message,
-          source: input.source,
-          persistInHistory: false,
-        })
-        .catch((error: any) => ({
-          success: false,
-          error: error?.message || "failed_to_send_group_notification",
-        }))
+      let sentResult:
+        | { success: boolean; error?: string }
+        | undefined
+
+      if (buttons.length > 0) {
+        sentResult = await this.messaging
+          .sendButtonList({
+            tenant: input.tenant,
+            phone: target,
+            sessionId: target,
+            message,
+            buttons,
+            source: input.source,
+            persistInHistory: false,
+          })
+          .catch((error: any) => ({
+            success: false,
+            error: error?.message || "failed_to_send_group_button_notification",
+          }))
+      }
+
+      if (!sentResult?.success) {
+        const fallbackCommands =
+          buttons.length > 0
+            ? buttons
+                .map((button) => {
+                  const match = button.id.match(/^fupctl:(pause|unpause):([A-Za-z0-9_-]{20,})$/i)
+                  if (!match?.[1] || !match?.[2]) {
+                    return `- ${button.label}: ${button.id}`
+                  }
+                  const action = String(match[1]).toLowerCase() === "unpause" ? "despausar" : "pausar"
+                  return `- /${action} ${match[2]}`
+                })
+                .join("\n")
+            : ""
+
+        const fallbackMessage =
+          buttons.length > 0
+            ? `${message}\n\nAcoes rapidas:\n${fallbackCommands}`
+            : message
+
+        sentResult = await this.messaging
+          .sendText({
+            tenant: input.tenant,
+            phone: target,
+            sessionId: target,
+            message: fallbackMessage,
+            source: input.source,
+            persistInHistory: false,
+          })
+          .catch((error: any) => ({
+            success: false,
+            error: error?.message || "failed_to_send_group_notification",
+          }))
+      }
 
       if (sentResult?.success) {
         sent += 1
@@ -135,3 +200,4 @@ export class GroupNotificationDispatcherService {
     return { sent, skipped, failed, failures }
   }
 }
+

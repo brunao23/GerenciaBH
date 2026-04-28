@@ -90,6 +90,19 @@ export interface SendTenantReactionInput {
 
 export type SendTenantReactionResult = { success: boolean; error?: string }
 
+export interface SendTenantButtonListInput {
+  tenant: string
+  phone: string
+  message: string
+  buttons: Array<{ id: string; label: string }>
+  sessionId?: string
+  source?: string
+  persistInHistory?: boolean
+  zapiDelayMessageSeconds?: number
+}
+
+export type SendTenantButtonListResult = SendTenantTextResult
+
 const WINDOWS_1252_EXTENSION_MAP: Record<number, number> = {
   0x20AC: 0x80,
   0x201A: 0x82,
@@ -509,6 +522,89 @@ export class TenantMessagingService {
     } catch (error: any) {
       console.warn("[TenantMessaging] sendReaction failed:", error)
       return { success: false, error: error?.message || "Erro ao enviar reacao" }
+    }
+  }
+
+  async sendButtonList(input: SendTenantButtonListInput): Promise<SendTenantButtonListResult> {
+    const tenant = normalizeTenant(input.tenant)
+    if (!tenant) return { success: false, error: "Invalid tenant" }
+
+    const phone = this.normalizeRecipient(input.phone)
+    const message = sanitizeOutgoingMessageText(String(input.message || ""))
+    const buttons = Array.isArray(input.buttons)
+      ? input.buttons
+          .map((button) => ({
+            id: String(button?.id || "").trim(),
+            label: sanitizeOutgoingMessageText(String(button?.label || "")),
+          }))
+          .filter((button) => button.id && button.label)
+          .slice(0, 3)
+      : []
+
+    if (!phone || !message || !buttons.length) {
+      return { success: false, error: "phone, message e buttons sao obrigatorios" }
+    }
+
+    const config = await getMessagingConfigForTenant(tenant)
+    if (!config || config.isActive === false) {
+      return { success: false, error: "WhatsApp config missing or disabled" }
+    }
+
+    if (config.provider !== "zapi") {
+      return {
+        success: false,
+        provider: config.provider,
+        error: `Button list not supported for provider ${String(config.provider)}`,
+      }
+    }
+
+    const hasFullUrl = Boolean(config.sendTextUrl)
+    const hasParts = Boolean(config.apiUrl && config.instanceId && config.token)
+    if (!config.clientToken || (!hasFullUrl && !hasParts)) {
+      return { success: false, error: "Invalid Z-API config", provider: config.provider }
+    }
+
+    const zapi = new ZApiService({
+      instanceId: config.instanceId || "ZAPI",
+      token: config.token || "",
+      clientToken: config.clientToken,
+      apiUrl: config.sendTextUrl || config.apiUrl,
+    })
+
+    const sent = await zapi.sendButtonListMessage({
+      phone,
+      message,
+      buttons,
+      delayMessage: input.zapiDelayMessageSeconds,
+    })
+
+    if (!sent.success) {
+      return {
+        success: false,
+        provider: config.provider,
+        error: sent.error || "Failed to send button list",
+      }
+    }
+
+    const messageId = String(sent.messageId || sent.id || "")
+    if (input.persistInHistory === true) {
+      await this.persistOutgoingMessage({
+        tenant,
+        sessionId: input.sessionId || phone,
+        message,
+        messageId,
+        source: input.source || "native-agent",
+        additional: {
+          button_list: true,
+          buttons: buttons.map((button) => ({ id: button.id, label: button.label })),
+        },
+      })
+    }
+
+    return {
+      success: true,
+      provider: config.provider,
+      messageId: messageId || undefined,
     }
   }
 

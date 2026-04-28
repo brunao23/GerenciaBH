@@ -34,6 +34,18 @@ export interface SendMediaParams {
   delayTyping?: number
 }
 
+export interface SendButtonListButton {
+  id: string
+  label: string
+}
+
+export interface SendButtonListParams {
+  phone: string
+  message: string
+  buttons: SendButtonListButton[]
+  delayMessage?: number
+}
+
 export interface SendDocumentParams extends SendMediaParams {
   fileName?: string
 }
@@ -75,6 +87,7 @@ export class ZApiService {
   private senderLocationUrl: string
   private senderDocumentUrl: string
   private senderReactionUrl: string
+  private senderButtonListUrl: string
   private statusUrl: string
   private deviceUrl: string
   private qrCodeBytesUrl: string
@@ -95,6 +108,7 @@ export class ZApiService {
       this.senderLocationUrl = `${baseUrl}/send-location`
       this.senderDocumentUrl = `${baseUrl}/send-document`
       this.senderReactionUrl = `${baseUrl}/send-reaction`
+      this.senderButtonListUrl = `${baseUrl}/send-button-list`
       this.statusUrl = `${baseUrl}/status`
       this.deviceUrl = `${baseUrl}/device`
       this.qrCodeBytesUrl = `${baseUrl}/qr-code`
@@ -114,6 +128,7 @@ export class ZApiService {
     this.senderLocationUrl = `${root}/send-location`
     this.senderDocumentUrl = `${root}/send-document`
     this.senderReactionUrl = `${root}/send-reaction`
+    this.senderButtonListUrl = `${root}/send-button-list`
     this.statusUrl = `${root}/status`
     this.deviceUrl = `${root}/device`
     this.qrCodeBytesUrl = `${root}/qr-code`
@@ -137,6 +152,153 @@ export class ZApiService {
       return JSON.parse(raw)
     } catch {
       return { raw }
+    }
+  }
+
+  private firstString(values: any[]): string | undefined {
+    for (const value of values) {
+      const text = String(value ?? "").trim()
+      if (text) return text
+    }
+    return undefined
+  }
+
+  private extractSendIdentifiers(data: any): { id?: string; messageId?: string } {
+    const id = this.firstString([
+      data?.id,
+      data?.data?.id,
+      data?.data?.data?.id,
+      data?.messageId,
+      data?.data?.messageId,
+      data?.data?.data?.messageId,
+      data?.zaapId,
+      data?.data?.zaapId,
+      data?.data?.data?.zaapId,
+    ])
+    const messageId = this.firstString([
+      data?.messageId,
+      data?.data?.messageId,
+      data?.data?.data?.messageId,
+      data?.id,
+      data?.data?.id,
+      data?.data?.data?.id,
+      data?.zaapId,
+      data?.data?.zaapId,
+      data?.data?.data?.zaapId,
+    ])
+    return { id, messageId }
+  }
+
+  private extractErrorMessage(data: any): string | undefined {
+    const fromObject = this.firstString([
+      data?.error,
+      data?.message,
+      data?.msg,
+      data?.detail,
+      data?.details,
+      data?.data?.error,
+      data?.data?.message,
+      data?.data?.msg,
+      data?.raw,
+    ])
+    if (fromObject) return fromObject
+    if (typeof data === "string") {
+      const text = data.trim()
+      return text || undefined
+    }
+    return undefined
+  }
+
+  private hasFailureSignal(data: any): boolean {
+    if (!data) return false
+    if (typeof data === "object") {
+      if (data.success === false || data.ok === false || data.sent === false) return true
+      const statuses = [
+        data?.status,
+        data?.result,
+        data?.state,
+        data?.data?.status,
+        data?.data?.result,
+        data?.data?.state,
+      ]
+      const normalizedStatuses = statuses
+        .map((value) => String(value ?? "").trim().toLowerCase())
+        .filter(Boolean)
+      if (
+        normalizedStatuses.some((status) =>
+          ["error", "failed", "failure", "denied", "forbidden", "invalid", "unauthorized"].includes(status),
+        )
+      ) {
+        return true
+      }
+    }
+
+    const errorText = this.extractErrorMessage(data)
+    if (!errorText) return false
+    return /(error|erro|failed|falha|forbidden|denied|invalid|unauthori|not\s+allowed|bloquead|blocked)/i.test(
+      errorText,
+    )
+  }
+
+  private hasSuccessSignal(data: any): boolean {
+    if (!data) return false
+    if (typeof data === "object") {
+      if (data.success === true || data.ok === true || data.sent === true) return true
+      const statuses = [
+        data?.status,
+        data?.result,
+        data?.state,
+        data?.data?.status,
+        data?.data?.result,
+        data?.data?.state,
+      ]
+      const normalizedStatuses = statuses
+        .map((value) => String(value ?? "").trim().toLowerCase())
+        .filter(Boolean)
+      if (
+        normalizedStatuses.some((status) =>
+          ["ok", "success", "sent", "accepted", "queued", "delivered", "open", "connected"].includes(status),
+        )
+      ) {
+        return true
+      }
+    }
+
+    const ids = this.extractSendIdentifiers(data)
+    return Boolean(ids.id || ids.messageId)
+  }
+
+  private normalizeSendResult(response: Response, data: any): ZApiResponse {
+    if (!response.ok) {
+      return {
+        success: false,
+        error:
+          this.extractErrorMessage(data) ||
+          (typeof data === "string" ? data : undefined) ||
+          `Erro HTTP ${response.status}`,
+        data,
+      }
+    }
+
+    const ids = this.extractSendIdentifiers(data)
+    const hasFailure = this.hasFailureSignal(data)
+    const hasSuccess = this.hasSuccessSignal(data)
+
+    if (!hasSuccess || (hasFailure && !ids.id && !ids.messageId)) {
+      return {
+        success: false,
+        error:
+          this.extractErrorMessage(data) ||
+          "Resposta da Z-API sem confirmacao de envio (messageId/id ausente)",
+        data,
+      }
+    }
+
+    return {
+      success: true,
+      id: ids.id,
+      messageId: ids.messageId,
+      data,
     }
   }
 
@@ -296,17 +458,11 @@ export class ZApiService {
         })
 
         const data = await this.parseResponse(response)
-        if (response.ok) {
-          return {
-            success: true,
-            id: data?.id || data?.messageId,
-            messageId: data?.messageId || data?.id,
-            data,
-          }
-        }
+        const normalized = this.normalizeSendResult(response, data)
+        if (normalized.success) return normalized
 
-        lastError = data?.message || (typeof data === "string" ? data : undefined) || `Erro HTTP ${response.status}`
-        lastData = data
+        lastError = normalized.error || data?.message || (typeof data === "string" ? data : undefined)
+        lastData = normalized.data ?? data
       }
 
       return {
@@ -394,17 +550,11 @@ export class ZApiService {
           })
 
           const data = await this.parseResponse(response)
-          if (response.ok) {
-            return {
-              success: true,
-              id: data?.id || data?.messageId,
-              messageId: data?.messageId || data?.id,
-              data,
-            }
-          }
+          const normalized = this.normalizeSendResult(response, data)
+          if (normalized.success) return normalized
 
-          lastError = data?.message || (typeof data === "string" ? data : undefined) || `Erro HTTP ${response.status}`
-          lastData = data
+          lastError = normalized.error || data?.message || (typeof data === "string" ? data : undefined)
+          lastData = normalized.data ?? data
         }
       }
 
@@ -495,17 +645,11 @@ export class ZApiService {
         })
 
         const data = await this.parseResponse(response)
-        if (response.ok) {
-          return {
-            success: true,
-            id: data?.id || data?.messageId,
-            messageId: data?.messageId || data?.id,
-            data,
-          }
-        }
+        const normalized = this.normalizeSendResult(response, data)
+        if (normalized.success) return normalized
 
-        lastError = data?.message || (typeof data === "string" ? data : undefined) || `Erro HTTP ${response.status}`
-        lastData = data
+        lastError = normalized.error || data?.message || (typeof data === "string" ? data : undefined)
+        lastData = normalized.data ?? data
       }
 
       return {
@@ -554,6 +698,76 @@ export class ZApiService {
     } catch (error: any) {
       console.error("[Z-API] Erro ao enviar reacao:", error)
       return { success: false, error: error?.message || "Erro desconhecido" }
+    }
+  }
+
+  /**
+   * POST /send-button-list
+   * Docs: https://developer.z-api.io/en/message/send-button-list
+   */
+  async sendButtonListMessage(params: SendButtonListParams): Promise<ZApiResponse> {
+    try {
+      const message = String(params.message || "").trim()
+      if (!message) return { success: false, error: "message obrigatoria para botoes" }
+
+      const rawButtons = Array.isArray(params.buttons) ? params.buttons : []
+      const buttons = rawButtons
+        .map((button) => ({
+          id: String(button?.id || "").trim(),
+          label: String(button?.label || "").trim(),
+        }))
+        .filter((button) => button.id && button.label)
+        .slice(0, 3)
+
+      if (!buttons.length) {
+        return { success: false, error: "buttons obrigatorios para send-button-list" }
+      }
+
+      const uniqueTargets = this.buildTargets(params.phone)
+      if (!uniqueTargets.length) {
+        return { success: false, error: "Destino invalido para envio" }
+      }
+
+      const delayMessage = Number.isFinite(Number(params.delayMessage))
+        ? Math.max(1, Math.min(15, Math.floor(Number(params.delayMessage))))
+        : 1
+
+      let lastError: string | undefined
+      let lastData: any = null
+
+      for (const target of uniqueTargets) {
+        const payload = {
+          phone: target,
+          message,
+          buttonList: { buttons },
+          delayMessage,
+        }
+
+        const response = await fetch(this.senderButtonListUrl, {
+          method: "POST",
+          headers: this.buildHeaders(),
+          body: JSON.stringify(payload),
+        })
+
+        const data = await this.parseResponse(response)
+        const normalized = this.normalizeSendResult(response, data)
+        if (normalized.success) return normalized
+
+        lastError = normalized.error || data?.message || (typeof data === "string" ? data : undefined)
+        lastData = normalized.data ?? data
+      }
+
+      return {
+        success: false,
+        error: lastError || "Falha ao enviar botoes na Z-API",
+        data: lastData,
+      }
+    } catch (error: any) {
+      console.error("[Z-API] Erro ao enviar lista de botoes:", error)
+      return {
+        success: false,
+        error: error?.message || "Erro desconhecido",
+      }
     }
   }
 
@@ -829,18 +1043,11 @@ export class ZApiService {
         })
 
         const data = await this.parseResponse(response)
-        if (response.ok) {
-          return {
-            success: true,
-            id: data?.id || data?.messageId,
-            messageId: data?.messageId || data?.id,
-            data,
-          }
-        }
+        const normalized = this.normalizeSendResult(response, data)
+        if (normalized.success) return normalized
 
-        lastError =
-          data?.message || (typeof data === "string" ? data : undefined) || `Erro HTTP ${response.status}`
-        lastData = data
+        lastError = normalized.error || data?.message || (typeof data === "string" ? data : undefined)
+        lastData = normalized.data ?? data
       }
 
       return {

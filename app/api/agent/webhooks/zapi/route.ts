@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { timingSafeEqual } from "node:crypto"
+import { createHash, timingSafeEqual } from "node:crypto"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { getTablesForTenant } from "@/lib/helpers/tenant"
 import { normalizeTenant } from "@/lib/helpers/normalize-tenant"
@@ -903,6 +903,144 @@ function normalizeNotificationGroupTargets(values: any): string[] {
     })
     .filter(Boolean)
     .slice(0, 50)
+}
+
+const FOLLOWUP_GROUP_ACTION_TOKEN_PREFIX = "fupctl"
+type FollowupGroupAction = "pause" | "unpause"
+
+function resolveFollowupGroupActionSecret(): string {
+  return (
+    String(process.env.FOLLOWUP_GROUP_ACTION_SECRET || "").trim() ||
+    String(process.env.JWT_SECRET || "").trim() ||
+    String(process.env.CRON_SECRET || "").trim() ||
+    "followup-group-action-default-secret"
+  )
+}
+
+function normalizeGroupIdForComparison(value: any): string {
+  const text = String(value || "").trim()
+  if (!text) return ""
+  const base = text
+    .replace(/@g\.us$/i, "")
+    .replace(/-group$/i, "")
+    .replace(/[^0-9-]/g, "")
+  return /^\d{8,}-\d{2,}$/.test(base) ? base : ""
+}
+
+function extractEventGroupId(event: ZapiMessageEvent): string {
+  const raw = asObject(event.raw)
+  const rawData = asObject(raw.data)
+  const candidates = [
+    event.sessionId,
+    event.phone,
+    raw.chatId,
+    rawData.chatId,
+    raw.remoteJid,
+    rawData.remoteJid,
+    raw.jid,
+    rawData.jid,
+    raw.message?.key?.remoteJid,
+    rawData.message?.key?.remoteJid,
+  ]
+
+  for (const candidate of candidates) {
+    const normalized = normalizeGroupIdForComparison(candidate)
+    if (normalized) return normalized
+  }
+  return ""
+}
+
+function parseFollowupGroupActionToken(rawToken: string): {
+  action: FollowupGroupAction
+  tenant: string
+  phone: string
+  expiresAt: number
+} | null {
+  const token = String(rawToken || "").trim()
+  if (!token) return null
+
+  try {
+    const decoded = Buffer.from(token, "base64url").toString("utf8")
+    const parts = decoded.split("|")
+    if (parts.length < 5) return null
+
+    const [actionRaw, tenantRaw, phoneRaw, expiresRaw, signatureRaw] = parts
+    const action = actionRaw === "pause" || actionRaw === "unpause" ? actionRaw : null
+    const tenant = normalizeTenant(tenantRaw)
+    const phone = normalizeLikelyWhatsappPhone(phoneRaw)
+    const expiresAt = Number(expiresRaw)
+    const signature = String(signatureRaw || "").trim()
+
+    if (!action || !tenant || !phone || !Number.isFinite(expiresAt) || !signature) return null
+    if (Date.now() > expiresAt) return null
+
+    const payload = `${action}|${tenant}|${phone}|${Math.floor(expiresAt)}`
+    const expectedSignature = createHash("sha256")
+      .update(`${resolveFollowupGroupActionSecret()}|${payload}`)
+      .digest("hex")
+      .slice(0, 16)
+
+    if (!sameSecret(expectedSignature, signature)) return null
+
+    return { action, tenant, phone, expiresAt }
+  } catch {
+    return null
+  }
+}
+
+function extractFollowupGroupActionRequest(event: ZapiMessageEvent): {
+  action: FollowupGroupAction
+  token: string
+} | null {
+  const raw = asObject(event.raw)
+  const rawData = asObject(raw.data)
+  const rawMessage = asObject(raw.message)
+  const rawDataMessage = asObject(rawData.message)
+
+  const selectedId = readString(
+    raw.selectedButtonId,
+    rawData.selectedButtonId,
+    rawMessage.buttonsResponseMessage?.selectedButtonId,
+    rawDataMessage.buttonsResponseMessage?.selectedButtonId,
+    rawMessage.listResponseMessage?.singleSelectReply?.selectedRowId,
+    rawDataMessage.listResponseMessage?.singleSelectReply?.selectedRowId,
+    rawMessage.templateButtonReplyMessage?.selectedId,
+    rawDataMessage.templateButtonReplyMessage?.selectedId,
+  )
+
+  const parsePrefixedId = (value: string): { action: FollowupGroupAction; token: string } | null => {
+    const match = String(value || "")
+      .trim()
+      .match(new RegExp(`^${FOLLOWUP_GROUP_ACTION_TOKEN_PREFIX}:(pause|unpause):([A-Za-z0-9_-]{20,})$`, "i"))
+    if (!match?.[1] || !match?.[2]) return null
+    const actionRaw = String(match[1] || "").toLowerCase()
+    const action = actionRaw === "pause" ? "pause" : actionRaw === "unpause" ? "unpause" : null
+    if (!action) return null
+    return { action, token: String(match[2] || "") }
+  }
+
+  const parsedFromId = parsePrefixedId(selectedId)
+  if (parsedFromId) return parsedFromId
+
+  const text = String(event.text || "").trim()
+  if (!text) return null
+
+  const parsedFromTextAsId = parsePrefixedId(text)
+  if (parsedFromTextAsId) return parsedFromTextAsId
+
+  const commandMatch = text.match(
+    /(?:^|\s)(?:\/|#)?(pausar|pause|despausar|despause|unpause)\s+([A-Za-z0-9_-]{20,})(?:\s|$)/i,
+  )
+  if (!commandMatch?.[1] || !commandMatch?.[2]) return null
+
+  const rawAction = String(commandMatch[1] || "").toLowerCase()
+  const action: FollowupGroupAction =
+    rawAction === "despausar" || rawAction === "despause" || rawAction === "unpause" ? "unpause" : "pause"
+
+  return {
+    action,
+    token: String(commandMatch[2] || ""),
+  }
 }
 
 function extractLeadDisplayName(event: ZapiMessageEvent): string {
@@ -2812,8 +2950,9 @@ export async function POST(req: NextRequest) {
       canonicalPhone || routing.sessionId || resolveSessionForPersistence(event),
     )
     const shouldTriggerFromExternalStarter = canTriggerFromExternalStarter(event)
+    const groupActionRequest = event.isGroup ? extractFollowupGroupActionRequest(event) : null
 
-    if (event.isGroup) {
+    if (event.isGroup && (!groupActionRequest || event.callbackType !== "received" || event.fromMe === true)) {
       return NextResponse.json({
         received: true,
         ignored: true,
@@ -2882,6 +3021,85 @@ export async function POST(req: NextRequest) {
         },
         { status: 401 },
       )
+    }
+
+    if (event.isGroup && groupActionRequest) {
+      const allowedGroups = normalizeNotificationGroupTargets(config.toolNotificationTargets)
+      const eventGroupBase = extractEventGroupId(event)
+      const allowedGroupBases = allowedGroups
+        .map((value) => normalizeGroupIdForComparison(value))
+        .filter(Boolean)
+
+      if (!eventGroupBase || !allowedGroupBases.includes(eventGroupBase)) {
+        return NextResponse.json({
+          received: true,
+          ignored: true,
+          reason: "group_action_not_allowed_group",
+          tenant,
+        })
+      }
+
+      const parsedToken = parseFollowupGroupActionToken(groupActionRequest.token)
+      if (!parsedToken || parsedToken.tenant !== tenant || parsedToken.action !== groupActionRequest.action) {
+        return NextResponse.json({
+          received: true,
+          ignored: true,
+          reason: "group_action_invalid_token",
+          tenant,
+        })
+      }
+
+      const targetPhone = normalizeLikelyWhatsappPhone(parsedToken.phone)
+      if (!targetPhone) {
+        return NextResponse.json({
+          received: true,
+          ignored: true,
+          reason: "group_action_invalid_phone",
+          tenant,
+        })
+      }
+
+      if (parsedToken.action === "pause") {
+        await pauseAiForLead(tenant, targetPhone, {
+          minutes: 24 * 60,
+          reason: "group_manual_pause",
+        })
+        await new AgentTaskQueueService()
+          .cancelPendingFollowups({
+            tenant,
+            sessionId: targetPhone,
+            phone: targetPhone,
+          })
+          .catch(() => {})
+      } else {
+        await unpauseAiForLead(tenant, targetPhone)
+      }
+
+      const actionLabel = parsedToken.action === "pause" ? "pausado" : "despausado"
+      const confirmationText =
+        parsedToken.action === "pause"
+          ? `Lead ${targetPhone} pausado via grupo. Follow-ups deste lead foram cancelados.`
+          : `Lead ${targetPhone} despausado via grupo. A IA pode voltar a atender normalmente.`
+
+      await new TenantMessagingService()
+        .sendText({
+          tenant,
+          phone: `${eventGroupBase}-group`,
+          sessionId: `${eventGroupBase}-group`,
+          message: confirmationText,
+          source: "group-followup-action",
+          persistInHistory: false,
+        })
+        .catch(() => {})
+
+      return NextResponse.json({
+        received: true,
+        tenant,
+        handled: true,
+        reason: `group_action_${actionLabel}`,
+        action: parsedToken.action,
+        phone: targetPhone,
+      })
     }
 
     if (isDeletedPlaceholderEvent(event)) {

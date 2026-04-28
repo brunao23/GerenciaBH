@@ -6,6 +6,7 @@ import { resolveTenantDataPrefix } from "@/lib/helpers/tenant-resolution"
 import { getMessagingConfigForTenant, type MessagingConfig } from "@/lib/helpers/messaging-config"
 import { getNativeAgentConfigForTenant } from "@/lib/helpers/native-agent-config"
 import { getTablesForTenant } from "@/lib/helpers/tenant"
+import { resolveChatHistoriesTable } from "@/lib/helpers/resolve-chat-table"
 import { MetaInstagramService } from "@/lib/services/meta-instagram.service"
 import { resolveMetaWebhookVerifyToken } from "@/lib/helpers/meta-webhook"
 import { GeminiService } from "@/lib/services/gemini.service"
@@ -105,9 +106,9 @@ const DEFAULT_SOCIAL_SELLER_WHATSAPP_BRIDGE_TEMPLATE =
   "Oi {{lead_name}}! Vi seu contato no Instagram e te chamei por aqui para continuarmos com contexto. No Instagram, voce comentou: \"{{last_context}}\". Se preferir, seguimos por WhatsApp a partir deste ponto."
 
 const DEFAULT_SOCIAL_SELLER_KEYWORD_COMMENT_TEMPLATES = [
-  "Perfeito, {{lead_name}}. Te respondi no Direct para te explicar com contexto.",
-  "Boa, {{lead_name}}. Acabei de te chamar na DM para seguirmos por la.",
-  "Obrigado pelo comentario, {{lead_name}}. Te mandei uma mensagem no Direct com os detalhes.",
+  "Perfeito, {{lead_name}}. Posso te explicar com contexto no Direct.",
+  "Boa, {{lead_name}}. Me chama no Direct que sigo com voce por la.",
+  "Obrigado pelo comentario, {{lead_name}}. Te explico os detalhes no Direct.",
 ]
 
 const DEFAULT_SOCIAL_SELLER_KEYWORD_DM_TEMPLATES = [
@@ -329,24 +330,10 @@ function buildDirectFallbackMessage(params: {
     : `${greeting} Seguimos por aqui. Quer que eu te mostre o melhor caminho agora.`
 }
 
-function buildCommentDmInviteMessage(params: { intent: InstagramCommentIntent; senderName: string }): string {
-  const leadName = String(params.senderName || '').trim()
-  const name = leadName ? ', ' + leadName : ''
-
-  if (params.intent === 'vendas') {
-    return 'Perfeito' + name + '! Te respondi no Direct com todos os detalhes.'
-  }
-  if (params.intent === 'tecnico') {
-    return 'Perfeito' + name + '! Te respondi no Direct com a explicacao tecnica.'
-  }
-  if (params.intent === 'reclamacao') {
-    return 'Perfeito' + name + '! Ja te respondi no Direct para resolver isso com prioridade.'
-  }
-  if (params.intent === 'duvida') {
-    return 'Perfeito' + name + '! Ja te respondi no Direct com a resposta da sua duvida.'
-  }
-
-  return 'Perfeito' + name + '! Ja te respondi no Direct para continuarmos por la.'
+function buildCommentDirectNudgeMessage(params: { senderName: string }): string {
+  const leadName = String(params.senderName || "").trim()
+  const name = leadName ? `, ${leadName}` : ""
+  return `Perfeito${name}. Me chama no Direct que sigo com voce por la com os detalhes.`
 }
 
 function normalizeBrazilPhone(value: string): string {
@@ -356,6 +343,44 @@ function normalizeBrazilPhone(value: string): string {
   if (digits.startsWith("55")) return digits
   if (digits.length >= 10 && digits.length <= 13) return `55${digits}`
   return ""
+}
+
+async function canSendInstagramDirectNow(params: {
+  tenant: string
+  sessionId: string
+  senderId: string
+  windowHours?: number
+}): Promise<boolean> {
+  const tenant = normalizeTenant(params.tenant)
+  const senderId = normalizeDigits(params.senderId)
+  const sessionId = normalizeSession(params.sessionId || params.senderId)
+  if (!tenant || !senderId || !sessionId) return false
+
+  const windowHours = Number.isFinite(Number(params.windowHours))
+    ? Math.max(1, Math.min(168, Math.floor(Number(params.windowHours))))
+    : 24
+  const thresholdIso = new Date(Date.now() - windowHours * 60 * 60 * 1000).toISOString()
+
+  try {
+    const supabase = createBiaSupabaseServerClient()
+    const chatTable = await resolveChatHistoriesTable(supabase as any, tenant)
+    const sessionVariants = [sessionId, `ig_${senderId}`, `ig:${senderId}`]
+
+    const { data, error } = await supabase
+      .from(chatTable)
+      .select("id")
+      .in("session_id", sessionVariants)
+      .eq("message->>channel", "instagram")
+      .eq("message->>instagram_event_type", "direct_message")
+      .eq("message->>fromMe", "false")
+      .gte("created_at", thresholdIso)
+      .limit(1)
+
+    if (error) return false
+    return Array.isArray(data) && data.length > 0
+  } catch {
+    return false
+  }
 }
 
 function extractBrazilPhonesFromText(text: string): string[] {
@@ -648,7 +673,27 @@ function buildDirectFallbackText(media?: InstagramDirectInboundMedia): string {
           : media.mediaType === "document"
             ? "documento"
             : "midia"
-  return `[${mediaLabel}_recebido_no_direct]`
+  return `Lead enviou ${mediaLabel} no Direct.`
+}
+
+function sanitizeDirectMediaNarrative(value: string): string {
+  let text = String(value || "").replace(/\r\n/g, "\n").trim()
+  if (!text) return ""
+
+  text = text.replace(/\[(?:midia|media|audio|video|imagem|documento)_recebido_no_direct\]/gi, "")
+  text = text.replace(/\*\*([^*]+)\*\*/g, "$1")
+  text = text.replace(/__([^_]+)__/g, "$1")
+  text = text.replace(/`{1,3}([^`]+)`{1,3}/g, "$1")
+  text = text.replace(/^\s*[-*]\s+/gm, "")
+  text = text.replace(/\s+\n/g, "\n")
+  text = text.replace(/\n{3,}/g, "\n\n")
+  text = text.replace(/^resumo da m[ií]dia:\s*/i, "")
+  text = text.replace(/^contexto identificado:\s*/i, "")
+  text = text.replace(/^com base (na|no|nos|nas) [^:]{2,80}:\s*/i, "")
+  text = text.replace(/^aqui est[aá] o resumo\s*(para [^:]{0,120})?:\s*/i, "")
+  text = text.replace(/^lead enviou (audio|video|imagem|documento|midia) no direct\.?\s*/i, "")
+
+  return text.trim().slice(0, 1800)
 }
 
 function buildDirectMediaAnalysisContext(params: {
@@ -668,10 +713,10 @@ function buildDirectMediaAnalysisContext(params: {
           : media.mediaType === "document"
             ? "documento"
             : "midia"
-  const analysis = String(params.analysis || "").trim()
-  const transcription = String(params.transcription || "").trim()
-  const caption = String(media.mediaCaption || "").trim()
-  const fileName = String(media.mediaFileName || "").trim()
+  const analysis = sanitizeDirectMediaNarrative(String(params.analysis || ""))
+  const transcription = sanitizeDirectMediaNarrative(String(params.transcription || ""))
+  const caption = sanitizeDirectMediaNarrative(String(media.mediaCaption || ""))
+  const fileName = sanitizeDirectMediaNarrative(String(media.mediaFileName || ""))
   if (media.mediaType === "audio" && transcription) {
     return `Lead enviou audio no Direct. Transcricao: "${transcription.slice(0, 1800)}"`
   }
@@ -679,7 +724,7 @@ function buildDirectMediaAnalysisContext(params: {
   if (!source) {
     return `Lead enviou ${mediaLabel} no Direct sem conteudo legivel.`
   }
-  return `Lead enviou ${mediaLabel} no Direct. Contexto identificado: ${source}`
+  return `Lead enviou ${mediaLabel} no Direct. Resumo: ${source}`
 }
 
 function isValidSignature(secret: string, body: string, signatureHeader: string | null): boolean {
@@ -1226,6 +1271,7 @@ async function runInstagramKeywordAutomation(params: {
   postMediaId?: string
   commentText: string
   contextSummary: string
+  allowDirectMessage?: boolean
 }): Promise<{ handled: boolean; commentSent: boolean; dmSent: boolean; matchedKeyword: string }> {
   const enabled = params.nativeConfig?.socialSellerKeywordAgentEnabled === true
   if (!enabled) return { handled: false, commentSent: false, dmSent: false, matchedKeyword: "" }
@@ -1298,15 +1344,18 @@ async function runInstagramKeywordAutomation(params: {
         source: "instagram-keyword-comment",
       })
 
-  const dmSend = alreadySentDmReply
-    ? { success: false, error: "duplicate_recent_dm_reply" }
-    : await messaging.sendText({
-        tenant: params.resolution.dataTenant,
-        phone: `ig:${params.senderId}`,
-        message: dmReply,
-        sessionId: params.sessionId,
-        source: "instagram-keyword-dm",
-      })
+  const dmSend =
+    params.allowDirectMessage === false
+      ? { success: false, error: "instagram_dm_window_closed" }
+      : alreadySentDmReply
+        ? { success: false, error: "duplicate_recent_dm_reply" }
+        : await messaging.sendText({
+            tenant: params.resolution.dataTenant,
+            phone: `ig:${params.senderId}`,
+            message: dmReply,
+            sessionId: params.sessionId,
+            source: "instagram-keyword-dm",
+          })
 
   return {
     handled: true,
@@ -1700,11 +1749,12 @@ async function processDirectEvent(params: {
   })
 
   if (!content) {
-    content = buildDirectFallbackText(directInbound)
+    content = mediaContext || buildDirectFallbackText(directInbound)
   }
-  if (mediaContext && !content.includes(mediaContext)) {
+  if (mediaContext && content && !content.includes(mediaContext)) {
     content = content ? `${content}\n${mediaContext}` : mediaContext
   }
+  content = sanitizeDirectMediaNarrative(content)
 
   const persisted = await persistInboundMessage({
     tenant: params.resolution.dataTenant,
@@ -1999,6 +2049,14 @@ async function processCommentOrMentionEvent(params: {
     : contextSummary
   const mediaType = mapInstagramMediaType(postContext.mediaType)
   const mediaCaption = readString(postContext.caption, postContext.description)
+  const allowDirectMessage = moveToDirect
+    ? await canSendInstagramDirectNow({
+        tenant: params.resolution.dataTenant,
+        sessionId,
+        senderId,
+        windowHours: 24,
+      })
+    : false
 
   const persisted = await persistInboundMessage({
     tenant: params.resolution.dataTenant,
@@ -2035,6 +2093,26 @@ async function processCommentOrMentionEvent(params: {
     return
   }
 
+  if (moveToDirect && !allowDirectMessage) {
+    await chat
+      .persistMessage({
+        sessionId,
+        role: "system",
+        type: "status",
+        content: "instagram_dm_window_closed_comment_only",
+        source: "instagram-webhook",
+        additional: {
+          channel: "instagram",
+          sender_type: "system",
+          instagram_sender_id: senderId,
+          instagram_comment_id: commentId,
+          instagram_event_type: eventType,
+          debug_event: "instagram_dm_window_closed_comment_only",
+        },
+      })
+      .catch(() => {})
+  }
+
   const keywordAutomation = await runInstagramKeywordAutomation({
     resolution: params.resolution,
     nativeConfig,
@@ -2046,6 +2124,7 @@ async function processCommentOrMentionEvent(params: {
     postMediaId: postContext.mediaId,
     commentText: text,
     contextSummary,
+    allowDirectMessage,
   })
 
   if (keywordAutomation.handled) {
@@ -2069,7 +2148,13 @@ async function processCommentOrMentionEvent(params: {
 
   const orchestrator = new NativeAgentOrchestratorService()
   const inboundSource = params.field === "mentions" ? "instagram-mention" : "instagram-comment"
-  if (!moveToDirect) {
+  const shouldUseDirectFlow = moveToDirect && allowDirectMessage
+  if (!shouldUseDirectFlow) {
+    const contextSummaryForComment =
+      moveToDirect && !allowDirectMessage
+        ? `${contextSummary} INSTRUCAO: janela de Direct indisponivel no momento. Nao diga que ja enviou DM e nao prometa envio imediato. Convide o lead a chamar no Direct para continuar. Use 1 frase curta e natural.`
+        : contextSummary
+
     const result = await orchestrator.handleInboundMessage({
       tenant: params.resolution.dataTenant,
       message: text,
@@ -2083,9 +2168,14 @@ async function processCommentOrMentionEvent(params: {
       hasMedia: Boolean(mediaType || mediaCaption || postContext.permalink),
       mediaType,
       mediaCaption: mediaCaption || undefined,
-      mediaAnalysis: contextSummary,
+      mediaAnalysis: contextSummaryForComment,
       messageAlreadyPersisted: true,
-      raw: { ...value, __instagram_comment_intent: commentIntent, __move_to_direct: false },
+      raw: {
+        ...value,
+        __instagram_comment_intent: commentIntent,
+        __move_to_direct: false,
+        __instagram_dm_window_open: allowDirectMessage,
+      },
     })
 
     if (result?.replied) {
@@ -2103,6 +2193,7 @@ async function processCommentOrMentionEvent(params: {
           field: params.field,
           commentIntent,
           moveToDirect: false,
+          directWindowOpen: allowDirectMessage,
           profileContextChars: leadProfileMemory.length,
           postContextChars: contextSummary.length,
           orchestratorReplied: Boolean(result?.replied),
@@ -2123,7 +2214,29 @@ async function processCommentOrMentionEvent(params: {
     return
   }
 
-  await new Promise<void>((resolve) => setTimeout(resolve, 2500))
+  const directNudge = buildCommentDirectNudgeMessage({ senderName: senderName || "" })
+  const alreadySentDirectNudge = await chat.hasRecentEquivalentMessage({
+    sessionId,
+    content: directNudge,
+    role: "assistant",
+    fromMe: true,
+    withinSeconds: 1200,
+  })
+  if (!alreadySentDirectNudge) {
+    const messaging = new TenantMessagingService()
+    const nudgeSend = await messaging.sendText({
+      tenant: params.resolution.dataTenant,
+      phone: `ig-comment:${commentId}:${senderId}`,
+      message: directNudge,
+      sessionId,
+      source: "instagram-comment-direct-nudge",
+    })
+    if (nudgeSend.success) {
+      params.stats.replied += 1
+    }
+  }
+
+  await new Promise<void>((resolve) => setTimeout(resolve, 900))
 
   const dmContextHint = [
     leadProfileMemory,
@@ -2208,29 +2321,7 @@ async function processCommentOrMentionEvent(params: {
     }
   }
 
-  if (dmSent) {
-    const inviteMessage = buildCommentDmInviteMessage({ intent: commentIntent, senderName })
-    const alreadySentInvite = await chat.hasRecentEquivalentMessage({
-      sessionId,
-      content: inviteMessage,
-      role: "assistant",
-      fromMe: true,
-      withinSeconds: 1200,
-    })
-    if (!alreadySentInvite) {
-      const messaging = new TenantMessagingService()
-      const inviteSend = await messaging.sendText({
-        tenant: params.resolution.dataTenant,
-        phone: `ig-comment:${commentId}:${senderId}`,
-        message: inviteMessage,
-        sessionId,
-        source: "instagram-comment-dm-invite",
-      })
-      if (inviteSend.success) {
-        params.stats.replied += 1
-      }
-    }
-  }
+  // Comentario publico ja foi respondido antes do DM.
 
   if (params.debug) {
     const commentEvents = Array.isArray(params.debug.commentEvents) ? params.debug.commentEvents : []

@@ -1,4 +1,4 @@
-﻿import { NextResponse } from "next/server"
+import { NextResponse } from "next/server"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { getTablesForTenant } from "@/lib/helpers/tenant"
 import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
@@ -1015,6 +1015,8 @@ function cleanAnyMessage(text: string) {
   // Remove linhas que são só caracteres especiais ou estruturas de dados
   s = s.replace(/^[,\s\[\]\(\)\-\.]+$/gm, "").trim()
   s = s.replace(/\n[,\s\[\]\(\)\-\.]+\n/g, "\n").trim()
+  s = s.replace(/\[\s*\]/g, "").trim()
+  s = s.replace(/\(\s*\)/g, "").trim()
 
   const cleaned = s.trim()
   if (cleaned.length < 3) return ""
