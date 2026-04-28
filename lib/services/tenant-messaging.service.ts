@@ -1,4 +1,4 @@
-import {
+﻿import {
   getMessagingConfigForTenant,
   updateMessagingConfigForTenant,
   validateMessagingConfig,
@@ -196,6 +196,9 @@ function tryRepairMojibake(value: string): string {
 function sanitizeOutgoingMessageText(value: string): string {
   const repaired = tryRepairMojibake(value)
   return String(repaired || "")
+    .replace(/\\r\\n/g, "\n")
+    .replace(/\\n/g, "\n")
+    .replace(/\\t/g, " ")
     .replace(/\r/g, "")
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
     .replace(/\n{3,}/g, "\n\n")
