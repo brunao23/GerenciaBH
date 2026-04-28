@@ -1,4 +1,4 @@
-﻿import { createHash } from "node:crypto"
+import { createHash } from "node:crypto"
 import {
   normalizeSessionId,
   TenantChatHistoryService,
@@ -111,18 +111,29 @@ export class GroupNotificationDispatcherService {
         continue
       }
 
+      // ESTRATEGIA DE ENVIO PARA GRUPOS:
+      // IDs de botao precisam ter <= 20 chars para Z-API nao descartar silenciosamente.
+      // Se sendButtonList falhar OU nao houver botoes, cai no sendText como fallback garantido.
       let sentResult:
         | { success: boolean; error?: string }
         | undefined
 
-      if (buttons.length > 0) {
+      // Truncar IDs para 20 chars — limite seguro da Z-API
+      const safeButtons = buttons
+        .map((b) => ({
+          id: String(b.id || "").trim().slice(0, 20),
+          label: String(b.label || "").trim(),
+        }))
+        .filter((b) => b.id && b.label)
+
+      if (safeButtons.length > 0) {
         sentResult = await this.messaging
           .sendButtonList({
             tenant: input.tenant,
             phone: target,
             sessionId: target,
             message,
-            buttons,
+            buttons: safeButtons,
             source: input.source,
             persistInHistory: false,
           })
@@ -132,6 +143,7 @@ export class GroupNotificationDispatcherService {
           }))
       }
 
+      // Fallback texto — SEMPRE roda se sendButtonList falhar
       if (!sentResult?.success) {
         const fallbackCommands =
           buttons.length > 0
@@ -139,7 +151,7 @@ export class GroupNotificationDispatcherService {
                 .map((button) => {
                   const match = button.id.match(/^fupctl:(pause|unpause):([A-Za-z0-9_-]{20,})$/i)
                   if (!match?.[1] || !match?.[2]) {
-                    return `- ${button.label}: ${button.id}`
+                    return `- ${button.label}`
                   }
                   const action = String(match[1]).toLowerCase() === "unpause" ? "despausar" : "pausar"
                   return `- /${action} ${match[2]}`
@@ -200,4 +212,3 @@ export class GroupNotificationDispatcherService {
     return { sent, skipped, failed, failures }
   }
 }
-
