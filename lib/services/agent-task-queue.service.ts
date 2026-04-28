@@ -1,4 +1,4 @@
-﻿import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
+import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { createHash } from "node:crypto"
 import { normalizeTenant } from "@/lib/helpers/normalize-tenant"
 import { getTablesForTenant } from "@/lib/helpers/tenant"
@@ -542,9 +542,44 @@ function extractTrustedLeadNameFromHistory(
   return ""
 }
 
+/**
+ * Retorna a saudação correta baseada na hora atual em Brasília.
+ * Bom dia:   00h-11h59
+ * Boa tarde: 12h-17h59
+ * Boa noite: 18h-23h59
+ * O follow-up SÓ é enviado dentro do horário comercial, portanto
+ * a saudação corresponde ao momento real de entrega.
+ */
+function getBrasiliaHour(): number {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    hour: "2-digit",
+    hour12: false,
+  })
+  const parts = formatter.formatToParts(new Date())
+  return Number(parts.find((p) => p.type === "hour")?.value ?? 12)
+}
+
+function buildPeriodSaudacao(): string {
+  const h = getBrasiliaHour()
+  if (h >= 0 && h < 12) return "Bom dia"
+  if (h >= 12 && h < 18) return "Boa tarde"
+  return "Boa noite"
+}
+
 function buildGreeting(leadName?: string): string {
   const normalized = normalizeLeadName(leadName)
   return normalized ? `Oi ${normalized}` : "Oi"
+}
+
+/**
+ * Saudação com período do dia (bom dia/boa tarde/boa noite).
+ * Usada apenas quando a mensagem é enviada no momento certo (não pré-gerada).
+ */
+function buildTimeAwareGreeting(leadName?: string): string {
+  const normalized = normalizeLeadName(leadName)
+  const periodo = buildPeriodSaudacao()
+  return normalized ? `${periodo}, ${normalized}` : periodo
 }
 
 const MIN_FOLLOWUP_INTERVAL_MINUTES = 10
@@ -728,27 +763,36 @@ function isInternalReminderLeakMessage(message: string): boolean {
   return isLikelyInternalTaskInstructionMessage(cleaned) || internalSignals.some((signal) => normalized.includes(signal))
 }
 
+/**
+ * Verifica se a mensagem candidata é muito similar a alguma mensagem anterior.
+ * Threshold conservador 0.55 para rejeitar repetições parciais mais agressivamente.
+ * Compara palavras com 3+ chars (não 4+) para pegar mais sobreposições.
+ */
 function isTooSimilarToAny(candidate: string, previousMessages: string[]): boolean {
   const normalizedCandidate = normalizeComparableText(candidate)
   if (!normalizedCandidate) return false
 
-  const candidateWords = new Set(normalizedCandidate.split(" ").filter((word) => word.length > 3))
+  // Palavras significativas: 3+ chars (mais sensível)
+  const candidateWords = new Set(normalizedCandidate.split(" ").filter((word) => word.length >= 3))
   for (const previous of previousMessages) {
     const normalizedPrevious = normalizeComparableText(previous)
     if (!normalizedPrevious) continue
+    // Igualdade exata
     if (normalizedPrevious === normalizedCandidate) return true
+    // Substring direta
     if (normalizedCandidate.includes(normalizedPrevious) || normalizedPrevious.includes(normalizedCandidate)) {
       return true
     }
 
-    const previousWords = new Set(normalizedPrevious.split(" ").filter((word) => word.length > 3))
+    const previousWords = new Set(normalizedPrevious.split(" ").filter((word) => word.length >= 3))
     if (!candidateWords.size || !previousWords.size) continue
     let overlap = 0
     for (const word of candidateWords) {
       if (previousWords.has(word)) overlap += 1
     }
     const similarity = overlap / Math.max(candidateWords.size, previousWords.size)
-    if (similarity >= 0.72) return true
+    // Threshold mais agressivo: 0.55 (era 0.72)
+    if (similarity >= 0.55) return true
   }
 
   return false
@@ -1265,7 +1309,8 @@ export class AgentTaskQueueService {
     const previousAssistantMessages = input.history
       .filter((entry) => entry.role === "assistant")
       .map((entry) => entry.content)
-      .slice(-8)
+      // Ampliado de 8 para 16 para cobrir histórico maior e evitar repetição
+      .slice(-16)
 
     const leadName = normalizeLeadName(input.leadName)
 
@@ -1500,7 +1545,8 @@ export class AgentTaskQueueService {
       const previousAssistantMessages = cleaned
         .filter((entry) => entry.role === "assistant")
         .map((entry) => entry.content)
-        .slice(-8)
+        // Ampliado de 8 para 16 para cobrir histórico maior e evitar repetição
+        .slice(-16)
       if (
         !isTooSimilarToAny(fallbackSanitized, previousAssistantMessages) &&
         !isLikelyGenericFollowup(fallbackSanitized) &&
@@ -1592,11 +1638,18 @@ export class AgentTaskQueueService {
       }
 
       const runtimeConfig = await this.loadFollowupRuntimeConfig(tenant)
-      const [paused, terminal] = await Promise.all([
+
+      // BLOQUEIO TRIPLO NA ORIGEM — impede enfileirar followups para leads que:
+      // (1) estão pausados, (2) estão em status terminal no CRM,
+      // (3) têm agendamento ativo na tabela de agendamentos.
+      const [paused, terminal, hasAppointmentAtEnqueue] = await Promise.all([
         this.isLeadPaused(tenant, phone),
         this.isLeadTerminal(tenant, sessionId, phone),
+        this.hasActiveScheduledAppointment({ tenant, sessionId, phone }),
       ])
-      if (paused || terminal) {
+      if (paused || terminal || hasAppointmentAtEnqueue) {
+        const reason = paused ? "lead_paused" : terminal ? "lead_terminal" : "lead_has_active_appointment"
+        console.log(`[AgentTaskQueue] enqueueFollowupSequence bloqueado: tenant=${tenant} phone=${phone} reason=${reason}`)
         await this.cancelPendingFollowups({ tenant, sessionId, phone }).catch(() => {})
         return { ok: true, count: 0 }
       }

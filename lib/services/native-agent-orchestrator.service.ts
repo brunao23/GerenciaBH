@@ -4444,7 +4444,7 @@ export class NativeAgentOrchestratorService {
       `CONTEXTO DA SESSAO ATUAL (nao misture com outras sessoes):`,
       `- Data/hora atual ISO: ${now}`,
       `- Data/hora local da unidade (${timezone}): ${nowLocalIso}`,
-      `- Saudacao apropriada para o momento atual: "${periodoDoDia}" (use esta saudacao se for iniciar a conversa, NUNCA use outra).`,
+      `- [LEI INVIOLAVEL] SAUDACAO OBRIGATORIA: A hora local da unidade e ${String(nowLocalParts.hour).padStart(2, "0")}:${String(nowLocalParts.minute).padStart(2, "0")}. O periodo e "${periodoDoDia}". Se for a PRIMEIRA mensagem da conversa ou uma saudacao, use EXCLUSIVAMENTE "${periodoDoDia}". PROIBIDO usar "bom dia" fora da manha (00h-11h59), "boa tarde" fora da tarde (12h-17h59) ou "boa noite" fora da noite (18h-23h59). PROIBIDO misturar periodos ou inventar a hora.`,
       `- Hoje (local): ${todayIso} = ${todayBr} = ${todayWeekdayPt}`,
       `- Amanhã (local): ${tomorrowIso} = ${tomorrowBr} = ${tomorrowWeekdayPt}`,
       `- Depois de amanha (local): ${dayAfterTomorrowIso} = ${dayAfterTomorrowBr} = ${dayAfterTomorrowWeekdayPt}`,
