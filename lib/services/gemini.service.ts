@@ -1,4 +1,6 @@
-﻿export interface GeminiConversationMessage {
+import { createHash } from "crypto"
+
+export interface GeminiConversationMessage {
   role: "user" | "assistant"
   content: string
 }
@@ -307,12 +309,36 @@ function buildUniqueModelList(values: string[]): string[] {
   return result
 }
 
+type ExplicitCacheEntry = {
+  name: string
+  expiresAt: number
+}
+
+type PreparedGeminiPayload = {
+  payload: Record<string, any>
+  usedCachedContent: boolean
+  cacheKey?: string
+}
+
 export class GeminiService {
   private readonly apiKey: string
   private readonly model: string
   private static readonly FALLBACK_MODEL = "gemini-2.5-flash"
   private static readonly MODELS_LIST_CACHE_MS = 10 * 60 * 1000
+  private static readonly EXPLICIT_CACHE_ENABLED =
+    String(process.env.GEMINI_EXPLICIT_CACHE_ENABLED || "true").trim().toLowerCase() !== "false"
+  private static readonly EXPLICIT_CACHE_TTL_SECONDS = Math.max(
+    300,
+    Math.min(86400, Number(process.env.GEMINI_EXPLICIT_CACHE_TTL_SECONDS || 1800) || 1800),
+  )
+  private static readonly EXPLICIT_CACHE_MIN_SYSTEM_CHARS = Math.max(
+    200,
+    Math.min(20000, Number(process.env.GEMINI_EXPLICIT_CACHE_MIN_SYSTEM_CHARS || 1200) || 1200),
+  )
+  private static readonly EXPLICIT_CACHE_COOLDOWN_MS = 5 * 60 * 1000
   private static readonly modelsCache = new Map<string, { expiresAt: number; models: Set<string> }>()
+  private static readonly explicitCache = new Map<string, ExplicitCacheEntry>()
+  private static readonly explicitCacheCooldown = new Map<string, number>()
   private static readonly MODEL_ALIASES: Record<string, string[]> = {
     "gemini-3.1-pro-preview": ["gemini-3-pro-preview", "gemini-2.5-pro"],
     "gemini-3.1-pro": ["gemini-3-pro-preview", "gemini-2.5-pro"],
@@ -336,6 +362,212 @@ export class GeminiService {
 
   private endpointForModel(model: string): string {
     return `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(this.apiKey)}`
+  }
+
+  private extractSystemInstructionText(payload: Record<string, any>): string {
+    const parts = Array.isArray(payload?.systemInstruction?.parts) ? payload.systemInstruction.parts : []
+    return parts
+      .map((part: any) => (typeof part?.text === "string" ? part.text : ""))
+      .filter(Boolean)
+      .join("\n")
+      .trim()
+  }
+
+  private payloadHasInlineData(payload: Record<string, any>): boolean {
+    const contents = Array.isArray(payload?.contents) ? payload.contents : []
+    for (const content of contents) {
+      const parts = Array.isArray(content?.parts) ? content.parts : []
+      for (const part of parts) {
+        if (part?.inlineData || part?.fileData) return true
+      }
+    }
+    return false
+  }
+
+  private shouldUseExplicitCache(payload: Record<string, any>, model: string): boolean {
+    if (!GeminiService.EXPLICIT_CACHE_ENABLED) return false
+    if (!this.apiKey) return false
+    if (String(payload?.cachedContent || "").trim()) return false
+    if (this.payloadHasInlineData(payload)) return false
+
+    const normalizedModel = normalizeModelCode(model)
+    const modelSupportsCache =
+      normalizedModel.startsWith("gemini-2.5") ||
+      normalizedModel.startsWith("gemini-3")
+    if (!modelSupportsCache) return false
+
+    const systemText = this.extractSystemInstructionText(payload)
+    if (!systemText) return false
+    if (systemText.length < GeminiService.EXPLICIT_CACHE_MIN_SYSTEM_CHARS) return false
+
+    return true
+  }
+
+  private buildExplicitCacheKey(model: string, systemText: string): string {
+    const normalizedModel = normalizeModelCode(model)
+    const fingerprint = createHash("sha256").update(systemText).digest("hex")
+    const apiSuffix = this.apiKey.slice(-8) || this.apiKey
+    return `${apiSuffix}:${normalizedModel}:${fingerprint}`
+  }
+
+  private getCachedContentCreateEndpoint(): string {
+    return `https://generativelanguage.googleapis.com/v1beta/cachedContents?key=${encodeURIComponent(this.apiKey)}`
+  }
+
+  private parseExplicitCacheExpiry(rawExpireTime: any): number {
+    const parsed = Date.parse(String(rawExpireTime || ""))
+    if (Number.isFinite(parsed) && parsed > Date.now()) {
+      return parsed
+    }
+    return Date.now() + GeminiService.EXPLICIT_CACHE_TTL_SECONDS * 1000
+  }
+
+  private async createExplicitCachedContent(
+    model: string,
+    payload: Record<string, any>,
+  ): Promise<ExplicitCacheEntry | null> {
+    const normalizedModel = normalizeModelCode(model)
+    if (!normalizedModel) return null
+
+    const response = await fetch(this.getCachedContentCreateEndpoint(), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: `models/${normalizedModel}`,
+        displayName: `native-agent-${normalizedModel}`,
+        systemInstruction: payload.systemInstruction,
+        ttl: `${GeminiService.EXPLICIT_CACHE_TTL_SECONDS}s`,
+      }),
+    })
+
+    const rawText = await response.text()
+    let data: any = null
+    try {
+      data = rawText ? JSON.parse(rawText) : null
+    } catch {
+      data = null
+    }
+
+    if (!response.ok) {
+      const errorMessage =
+        String(data?.error?.message || rawText || "").trim() || `status_${response.status}`
+      console.warn(
+        `[gemini][explicit-cache] create failed model=${normalizedModel} status=${response.status} error=${errorMessage.slice(0, 220)}`,
+      )
+      return null
+    }
+
+    const name = String(data?.name || "").trim()
+    if (!name) return null
+
+    return {
+      name,
+      expiresAt: this.parseExplicitCacheExpiry(data?.expireTime),
+    }
+  }
+
+  private async preparePayloadWithExplicitCache(
+    payload: Record<string, any>,
+    model: string,
+  ): Promise<PreparedGeminiPayload> {
+    if (!this.shouldUseExplicitCache(payload, model)) {
+      return {
+        payload,
+        usedCachedContent: false,
+      }
+    }
+
+    const systemText = this.extractSystemInstructionText(payload)
+    const cacheKey = this.buildExplicitCacheKey(model, systemText)
+    const now = Date.now()
+
+    const cooldownUntil = GeminiService.explicitCacheCooldown.get(cacheKey)
+    if (cooldownUntil && cooldownUntil > now) {
+      return {
+        payload,
+        usedCachedContent: false,
+        cacheKey,
+      }
+    }
+
+    const existing = GeminiService.explicitCache.get(cacheKey)
+    let cacheEntry = existing && existing.expiresAt > now ? existing : null
+
+    if (!cacheEntry) {
+      const created = await this.createExplicitCachedContent(model, payload)
+      if (!created) {
+        GeminiService.explicitCacheCooldown.set(
+          cacheKey,
+          now + GeminiService.EXPLICIT_CACHE_COOLDOWN_MS,
+        )
+        return {
+          payload,
+          usedCachedContent: false,
+          cacheKey,
+        }
+      }
+      GeminiService.explicitCache.set(cacheKey, created)
+      cacheEntry = created
+      GeminiService.explicitCacheCooldown.delete(cacheKey)
+    }
+
+    const preparedPayload: Record<string, any> = {
+      ...payload,
+      cachedContent: cacheEntry.name,
+    }
+    delete preparedPayload.systemInstruction
+
+    return {
+      payload: preparedPayload,
+      usedCachedContent: true,
+      cacheKey,
+    }
+  }
+
+  private shouldRetryWithoutCachedContent(status: number, data: any, rawText: string): boolean {
+    const message = String(data?.error?.message || rawText || "").toLowerCase()
+    if (!message) return status === 404
+    if (status === 404) return true
+    if (status !== 400 && status !== 422) return false
+
+    return (
+      message.includes("cachedcontent") ||
+      message.includes("cached content") ||
+      (
+        message.includes("cache") &&
+        (
+          message.includes("not found") ||
+          message.includes("invalid") ||
+          message.includes("minimum") ||
+          message.includes("too few") ||
+          message.includes("small")
+        )
+      )
+    )
+  }
+
+  private disableExplicitCache(cacheKey?: string): void {
+    if (!cacheKey) return
+    GeminiService.explicitCache.delete(cacheKey)
+    GeminiService.explicitCacheCooldown.set(cacheKey, Date.now() + GeminiService.EXPLICIT_CACHE_COOLDOWN_MS)
+  }
+
+  private logUsageMetadata(data: any, model: string, usedCachedContent: boolean): void {
+    const usage = data?.usageMetadata
+    if (!usage) return
+
+    const cachedTokenCount = Number(usage?.cachedContentTokenCount ?? 0)
+    if (!usedCachedContent && (!Number.isFinite(cachedTokenCount) || cachedTokenCount <= 0)) {
+      return
+    }
+
+    const totalTokenCount = Number(usage?.totalTokenCount ?? 0)
+    const inputTokenCount = Number(usage?.promptTokenCount ?? 0)
+    console.log(
+      `[gemini][usage] model=${normalizeModelCode(model)} cached_tokens=${Number.isFinite(cachedTokenCount) ? cachedTokenCount : 0} input_tokens=${Number.isFinite(inputTokenCount) ? inputTokenCount : 0} total_tokens=${Number.isFinite(totalTokenCount) ? totalTokenCount : 0}`,
+    )
   }
 
   private shouldRetryWithFallbackModel(status: number, data: any, rawText: string, attemptedModel: string): boolean {
@@ -430,34 +662,51 @@ export class GeminiService {
     payload: Record<string, any>,
     model: string,
   ): Promise<{ ok: true; data: any } | { ok: false; status: number; data: any; rawText: string }> {
-    const response = await fetch(this.endpointForModel(model), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    })
+    const prepared = await this.preparePayloadWithExplicitCache(payload, model)
 
-    const rawText = await response.text()
-    let data: any = null
-    try {
-      data = rawText ? JSON.parse(rawText) : null
-    } catch {
-      data = null
+    const executeRequest = async (requestPayload: Record<string, any>) => {
+      const response = await fetch(this.endpointForModel(model), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(requestPayload),
+      })
+
+      const rawText = await response.text()
+      let data: any = null
+      try {
+        data = rawText ? JSON.parse(rawText) : null
+      } catch {
+        data = null
+      }
+
+      return { response, rawText, data }
     }
 
-    if (!response.ok) {
+    let attempt = await executeRequest(prepared.payload)
+    if (
+      !attempt.response.ok &&
+      prepared.usedCachedContent &&
+      this.shouldRetryWithoutCachedContent(attempt.response.status, attempt.data, attempt.rawText)
+    ) {
+      this.disableExplicitCache(prepared.cacheKey)
+      attempt = await executeRequest(payload)
+    }
+
+    if (!attempt.response.ok) {
       return {
         ok: false,
-        status: response.status,
-        data,
-        rawText,
+        status: attempt.response.status,
+        data: attempt.data,
+        rawText: attempt.rawText,
       }
     }
 
+    this.logUsageMetadata(attempt.data || {}, model, prepared.usedCachedContent)
     return {
       ok: true,
-      data: data || {},
+      data: attempt.data || {},
     }
   }
 

@@ -10,10 +10,10 @@ interface FunnelColumn {
   color?: string
 }
 
-// GET - Buscar configuraÃ§Ã£o do funil
+// GET - Buscar configuração do funil
 export async function GET(req: Request) {
   try {
-    // Identificar Unidade (Tenant) da sessÃ£o JWT
+    // Identificar Unidade (Tenant) da sessão JWT
     let tenant: string
     try {
       tenant = await resolveTenant(req)
@@ -23,14 +23,14 @@ export async function GET(req: Request) {
 
     // Validar tenant
     if (!isValidTenant(tenant)) {
-      return NextResponse.json({ error: 'Tenant invÃ¡lido' }, { status: 400 })
+      return NextResponse.json({ error: 'Tenant inválido' }, { status: 400 })
     }
 
     const funnelConfigTable = `${tenant}_crm_funnel_config`
 
     const supabase = createBiaSupabaseServerClient()
 
-    // Buscar configuraÃ§Ã£o salva ou retornar padrÃ£o
+    // Buscar configuração salva ou retornar padrão
     const { data: config, error } = await supabase
       .from(funnelConfigTable)
       .select("*")
@@ -38,12 +38,12 @@ export async function GET(req: Request) {
       .limit(1)
       .maybeSingle()
 
-    // Se erro e nÃ£o for "nÃ£o encontrado" ou "tabela nÃ£o existe", loga
+    // Se erro e não for "não encontrado" ou "tabela não existe", loga
     if (error && error.code !== 'PGRST116' && !error.message?.includes('does not exist')) {
-      console.error(`[CRM Funnel] Erro ao buscar configuraÃ§Ã£o (${tenant}):`, error)
+      console.error(`[CRM Funnel] Erro ao buscar configuração (${tenant}):`, error)
     }
 
-    // Se nÃ£o tem configuraÃ§Ã£o, retorna padrÃ£o
+    // Se não tem configuração, retorna padrão
     if (!config) {
       const defaultColumns: FunnelColumn[] = [
         { id: 'entrada', title: 'Entrada', order: 0, color: '#3b82f6' },
@@ -74,7 +74,7 @@ export async function GET(req: Request) {
   }
 }
 
-// POST - Salvar configuraÃ§Ã£o do funil
+// POST - Salvar configuração do funil
 export async function POST(req: Request) {
   try {
     const body = await req.json()
@@ -82,30 +82,30 @@ export async function POST(req: Request) {
 
     if (!columns || !Array.isArray(columns)) {
       return NextResponse.json(
-        { error: "Colunas sÃ£o obrigatÃ³rias" },
+        { error: "Colunas são obrigatórias" },
         { status: 400 }
       )
     }
 
-    // Identificar Unidade (Tenant) da sessÃ£o JWT
+    // Identificar Unidade (Tenant) da sessão JWT
     let tenant: string
     try {
       tenant = await resolveTenant(req)
     } catch (error: any) {
       return NextResponse.json({ error: error?.message || "Unauthorized" }, { status: 401 })
     }
-    console.log(`[CRM Funnel] Salvando configuraÃ§Ã£o... Unidade: ${tenant}`)
+    console.log(`[CRM Funnel] Salvando configuração... Unidade: ${tenant}`)
 
     // Validar tenant
     if (!isValidTenant(tenant)) {
-      return NextResponse.json({ error: 'Tenant invÃ¡lido' }, { status: 400 })
+      return NextResponse.json({ error: 'Tenant inválido' }, { status: 400 })
     }
 
     const funnelConfigTable = `${tenant}_crm_funnel_config`
 
     const supabase = createBiaSupabaseServerClient()
 
-    // Buscar configuraÃ§Ã£o existente
+    // Buscar configuração existente
     const { data: existing, error: fetchError } = await supabase
       .from(funnelConfigTable)
       .select("id")
@@ -113,9 +113,9 @@ export async function POST(req: Request) {
       .limit(1)
       .maybeSingle()
 
-    // Se erro e nÃ£o for "nÃ£o encontrado" ou "tabela nÃ£o existe", lanÃ§a erro
+    // Se erro e não for "não encontrado" ou "tabela não existe", lança erro
     if (fetchError && fetchError.code !== 'PGRST116' && !fetchError.message?.includes('does not exist')) {
-      console.error(`[CRM Funnel] Erro ao buscar configuraÃ§Ã£o existente (${tenant}):`, fetchError)
+      console.error(`[CRM Funnel] Erro ao buscar configuração existente (${tenant}):`, fetchError)
       throw fetchError
     }
 
@@ -134,7 +134,7 @@ export async function POST(req: Request) {
         if (error.message?.includes('does not exist')) {
           return NextResponse.json({
             success: false,
-            error: "Tabela nÃ£o encontrada. Execute a migraÃ§Ã£o SQL primeiro.",
+            error: "Tabela não encontrada. Execute a migração SQL primeiro.",
             details: error.message
           }, { status: 400 })
         }
@@ -157,7 +157,7 @@ export async function POST(req: Request) {
         if (error.message?.includes('does not exist')) {
           return NextResponse.json({
             success: false,
-            error: "Tabela nÃ£o encontrada. Execute a migraÃ§Ã£o SQL primeiro.",
+            error: "Tabela não encontrada. Execute a migração SQL primeiro.",
             details: error.message
           }, { status: 400 })
         }

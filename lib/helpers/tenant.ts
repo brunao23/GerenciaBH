@@ -57,7 +57,7 @@ function getChatHistoriesTableName(tenant: string): string {
     // Tenants conhecidos com underscore
     const defaultWithUnderscore = ['vox_maceio', 'vox_es']
 
-    // Permite extender sem alterar cÃ³digo:
+    // Permite extender sem alterar código:
     // CHAT_HISTORY_UNDERSCORE_TENANTS=tenant_a,tenant_b
     const envWithUnderscore = String(process.env.CHAT_HISTORY_UNDERSCORE_TENANTS || '')
         .split(',')

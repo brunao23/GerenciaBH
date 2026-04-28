@@ -206,7 +206,7 @@ function cleanHumanMessage(text: string): string {
     try {
         let s = String(text).replace(/\r/g, '')
 
-        // LEI INVIOLÃVEL: Remove COMPLETAMENTE qualquer bloco JSON que contenha prompt/regras
+        // LEI INVIOLÁVEL: Remove COMPLETAMENTE qualquer bloco JSON que contenha prompt/regras
         while (s.includes('"rules"') || s.includes('"inviolaveis"') || s.includes('"prompt"') || s.includes('"variaveis"') || s.includes('"contexto"') || s.includes('"geracao_de_mensagem"') || s.includes('"modelos_de_saida"')) {
             s = s.replace(/\{[\s\S]{0,50000}?"rules"[\s\S]{0,50000}?\}/gi, "")
             s = s.replace(/\{[\s\S]{0,50000}?"inviolaveis"[\s\S]{0,50000}?\}/gi, "")
@@ -219,12 +219,12 @@ function cleanHumanMessage(text: string): string {
             if (!s.includes('"rules"') && !s.includes('"inviolaveis"') && !s.includes('"prompt"') && !s.includes('"variaveis"')) break
         }
 
-        // Remove TODAS as seÃ§Ãµes de regras
+        // Remove TODAS as seções de regras
         s = s.replace(/inviolaveis[\s\S]{0,10000}?\]/gi, "")
         s = s.replace(/Sempre chame[\s\S]{0,5000}?/gi, "")
         s = s.replace(/Use no maximo[\s\S]{0,500}?caracteres[\s\S]{0,500}?/gi, "")
         s = s.replace(/Use emojis[\s\S]{0,500}?/gi, "")
-        s = s.replace(/Use vÃ­cios[\s\S]{0,500}?/gi, "")
+        s = s.replace(/Use vícios[\s\S]{0,500}?/gi, "")
         s = s.replace(/Nunca use[\s\S]{0,500}?/gi, "")
         s = s.replace(/Sempre finalize[\s\S]{0,500}?/gi, "")
         s = s.replace(/Sempre diga[\s\S]{0,500}?/gi, "")
@@ -232,17 +232,17 @@ function cleanHumanMessage(text: string): string {
         s = s.replace(/Jamais[\s\S]{0,500}?/gi, "")
         s = s.replace(/maior escola[\s\S]{0,500}?/gi, "")
 
-        // LEI INVIOLÃVEL: Remove resquÃ­cios especÃ­ficos de prompts/formulÃ¡rios
+        // LEI INVIOLÁVEL: Remove resquícios específicos de prompts/formulários
         s = s.replace(/por\s+mensagem[.\s]*[-]{2,}[,\s]*\}?/gi, "")
         s = s.replace(/por\s+mensagem[.\s]*\}?/gi, "")
         s = s.replace(/[-]{3,}[,\s]*\}?/g, "")
         s = s.replace(/^[-\s,\.]+$/gm, "")
         s = s.replace(/,\s*\}\s*$/g, "")
         s = s.replace(/\}\s*$/g, "")
-        s = s.replace(/^[^a-zA-ZÃ¡Ã Ã¢Ã£Ã©ÃªÃ­Ã³Ã´ÃµÃºÃ§ÃÃ€Ã‚ÃƒÃ‰ÃŠÃÃ“Ã”Ã•ÃšÃ‡]*$/gm, "")
+        s = s.replace(/^[^a-zA-ZáàâãéêíóôõúçÁÀÂÃÃ‰ÃŠÃÃ“Ã”ÕÃšÃ‡]*$/gm, "")
 
         // Tenta extrair mensagem do cliente
-        const messageMatch = s.match(/Mensagem do cliente\/lead:\s*(.*?)(?:\s+Para \d{4}|\s+Sua mem[Ã³o]ria|\s+Hor[Ã¡a]rio|\s+Dia da semana|\s+lembre-se|\s+\{|por\s+mensagem|[-]{2,}|$)/is)
+        const messageMatch = s.match(/Mensagem do cliente\/lead:\s*(.*?)(?:\s+Para \d{4}|\s+Sua mem[óo]ria|\s+Hor[áa]rio|\s+Dia da semana|\s+lembre-se|\s+\{|por\s+mensagem|[-]{2,}|$)/is)
         if (messageMatch && messageMatch[1]) {
             s = messageMatch[1].trim()
             s = s.replace(/por\s+mensagem[.\s]*[-]{2,}[,\s]*\}?/gi, "")
@@ -250,13 +250,13 @@ function cleanHumanMessage(text: string): string {
             s = s.replace(/,\s*\}\s*$/g, "")
             s = s.replace(/\}\s*$/g, "")
             if (s.length > 0 && !s.match(/^(rules|inviolaveis|Sempre|Nunca|Use|Jamais|por\s+mensagem)/i)) {
-                const cleaned = s.replace(/^Sua mem[Ã³o]ria:\s*/gi, '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').replace(/\s{2,}/g, ' ').trim()
+                const cleaned = s.replace(/^Sua mem[óo]ria:\s*/gi, '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').replace(/\s{2,}/g, ' ').trim()
                 if (cleaned.match(/^[-\s,\.\}]+$/) || cleaned.length < 3) return ""
                 return cleaned
             }
         }
 
-        const altMatch = s.match(/Mensagem do cliente\/usuÃ¡rio\/lead:\s*(.*?)(?:\s+Para \d{4}|\s+Sua mem[Ã³o]ria|\s+Hor[Ã¡a]rio|\s+Dia da semana|\s+lembre-se|\s+\{|por\s+mensagem|[-]{2,}|$)/is)
+        const altMatch = s.match(/Mensagem do cliente\/usuário\/lead:\s*(.*?)(?:\s+Para \d{4}|\s+Sua mem[óo]ria|\s+Hor[áa]rio|\s+Dia da semana|\s+lembre-se|\s+\{|por\s+mensagem|[-]{2,}|$)/is)
         if (altMatch && altMatch[1]) {
             s = altMatch[1].trim()
             s = s.replace(/por\s+mensagem[.\s]*[-]{2,}[,\s]*\}?/gi, "")
@@ -264,23 +264,23 @@ function cleanHumanMessage(text: string): string {
             s = s.replace(/,\s*\}\s*$/g, "")
             s = s.replace(/\}\s*$/g, "")
             if (s.length > 0 && !s.match(/^(rules|inviolaveis|Sempre|Nunca|Use|Jamais|por\s+mensagem)/i)) {
-                const cleaned = s.replace(/^Sua mem[Ã³o]ria:\s*/gi, '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').replace(/\s{2,}/g, ' ').trim()
+                const cleaned = s.replace(/^Sua mem[óo]ria:\s*/gi, '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').replace(/\s{2,}/g, ' ').trim()
                 if (cleaned.match(/^[-\s,\.\}]+$/) || cleaned.length < 3) return ""
                 return cleaned
             }
         }
 
         // Limpeza final
-        s = s.replace(/^Sua mem[Ã³o]ria:\s*/gi, '')
+        s = s.replace(/^Sua mem[óo]ria:\s*/gi, '')
         s = s.replace(/\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?[+-]\d{2}:\d{2}\b/g, '')
         s = s.replace(/,\s*(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s*\.?/gi, '')
-        s = s.replace(/^Nome do cliente\/usuÃ¡rio\/lead:.*$/gim, '')
-        s = s.replace(/^Para \d{4} no cartÃ£o de memÃ³ria:.*$/gim, '')
-        s = s.replace(/^HorÃ¡rio mensagem:.*$/gim, '')
+        s = s.replace(/^Nome do cliente\/usuário\/lead:.*$/gim, '')
+        s = s.replace(/^Para \d{4} no cartão de memória:.*$/gim, '')
+        s = s.replace(/^Horário mensagem:.*$/gim, '')
         s = s.replace(/^Dia da semana:.*$/gim, '')
-        s = s.replace(/lembre-se\s*dessa\s*informaÃ§Ã£o:.*$/gim, '')
+        s = s.replace(/lembre-se\s*dessa\s*informação:.*$/gim, '')
 
-        // LEI INVIOLÃVEL: Remove resquÃ­cios finais de prompts/formulÃ¡rios
+        // LEI INVIOLÁVEL: Remove resquícios finais de prompts/formulários
         s = s.replace(/por\s+mensagem[.\s]*[-]{2,}[,\s]*\}?/gi, "")
         s = s.replace(/[-]{3,}[,\s]*\}?/g, "")
         s = s.replace(/,\s*\}\s*$/g, "")
@@ -289,12 +289,12 @@ function cleanHumanMessage(text: string): string {
 
         s = s.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').replace(/\s{2,}/g, ' ').trim()
 
-        // VALIDAÃ‡ÃƒO FINAL: Se encontrar QUALQUER resquÃ­cio de prompt, retorna VAZIO
-        if (s.match(/(rules|inviolaveis|Sempre chame|Sempre diga|Sempre utilize|Nunca use|Sempre finalize|Use emojis|Use vÃ­cios|Jamais|maior escola|AmÃ©rica Latina|Use no maximo|caracteres por mensagem|por\s+mensagem)/i)) {
+        // VALIDAÃ‡ÃO FINAL: Se encontrar QUALQUER resquício de prompt, retorna VAZIO
+        if (s.match(/(rules|inviolaveis|Sempre chame|Sempre diga|Sempre utilize|Nunca use|Sempre finalize|Use emojis|Use vícios|Jamais|maior escola|América Latina|Use no maximo|caracteres por mensagem|por\s+mensagem)/i)) {
             return ""
         }
 
-        // LEI INVIOLÃVEL: Se a mensagem final Ã© sÃ³ caracteres especiais ou resquÃ­cios, retorna vazio
+        // LEI INVIOLÁVEL: Se a mensagem final é só caracteres especiais ou resquícios, retorna vazio
         if (s.match(/^[-\s,\.\}]+$/) || s.match(/^por\s+mensagem/i) || s.length < 3) {
             return ""
         }
@@ -312,8 +312,8 @@ function cleanAIMessage(text: string): string {
     try {
         let s = String(text).replace(/\r/g, '')
 
-        // LEI INVIOLÃVEL: Remove TODAS as chamadas de ferramentas/tools da IA
-        // Remove blocos [Used tools: ...] com loop atÃ© remover tudo
+        // LEI INVIOLÁVEL: Remove TODAS as chamadas de ferramentas/tools da IA
+        // Remove blocos [Used tools: ...] com loop até remover tudo
         let iterations = 0
         while ((s.includes('[Used tools') || s.includes('[Tool:') || s.includes('Input:') || s.includes('Result:')) && iterations < 10) {
             s = s.replace(/\[Used\s+tools?[\s\S]{0,50000}?\]/gi, "")
@@ -337,13 +337,13 @@ function cleanAIMessage(text: string): string {
         s = s.replace(/\["[\d:]+"(?:,"[\d:]+")*\]/g, "")
         s = s.replace(/Quinta\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
         s = s.replace(/Sexta\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
-        s = s.replace(/SÃ¡bado\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
+        s = s.replace(/Sábado\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
         s = s.replace(/Segunda\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
-        s = s.replace(/TerÃ§a\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
+        s = s.replace(/Terça\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
         s = s.replace(/Quarta\s*-\s*\d{2}\/\d{2}\/\d{4}[\s\S]{0,500}?\]/gi, "")
 
-        // Limpeza padrÃ£o
-        s = s.replace(/Hoje Ã©:\s*[^.]+\./gi, '')
+        // Limpeza padrão
+        s = s.replace(/Hoje é:\s*[^.]+\./gi, '')
         s = s.replace(/Dia da semana:\s*[^.]+\./gi, '')
         s = s.replace(/,\s*\./g, '.')
         s = s.replace(/\.{2,}/g, '.')
@@ -351,7 +351,7 @@ function cleanAIMessage(text: string): string {
         s = s.replace(/\n{3,}/g, '\n\n')
         s = s.replace(/\s{2,}/g, ' ')
 
-        // Se ainda contÃ©m estruturas de ferramentas, tenta extrair apenas a mensagem real
+        // Se ainda contém estruturas de ferramentas, tenta extrair apenas a mensagem real
         if (s.match(/\[Used\s+tools?|\[Tool:|Input:|Result:|"disponiveis"/i)) {
             // Divide por linhas e filtra apenas linhas conversacionais
             const lines = s.split(/\n/)
@@ -384,7 +384,7 @@ function cleanAIMessage(text: string): string {
             }
         }
 
-        // ValidaÃ§Ã£o final: se muito curta ou sÃ³ caracteres especiais, retorna vazio
+        // Validação final: se muito curta ou só caracteres especiais, retorna vazio
         const cleaned = s.trim()
         if (cleaned.length < 3) return ""
         if (cleaned.match(/^[\d\s:,\[\]\{\}"]+$/)) return ""
@@ -396,7 +396,7 @@ function cleanAIMessage(text: string): string {
     }
 }
 
-// Extrai informaÃ§Ãµes estruturadas do formulÃ¡rio quando presente no prompt
+// Extrai informações estruturadas do formulário quando presente no prompt
 function extractFormData(text: string): {
     nome?: string
     primeiroNome?: string
@@ -565,13 +565,13 @@ function resolveLeadDisplayName(
     return `Lead ${lastDigits || "novo"}`
 }
 
-// LEI INVIOLÃVEL: Extrai data do TEXTO com 100% de precisÃ£o
+// LEI INVIOLÁVEL: Extrai data do TEXTO com 100% de precisão
 function extractDateFromText(text: string): Date | null {
     if (!text || typeof text !== 'string') return null
 
     try {
 
-        // Remove timestamps de prompts para nÃ£o pegar data errada
+        // Remove timestamps de prompts para não pegar data errada
         if (text.match(/(rules|inviolaveis|Sempre chame|por\s+mensagem)/i)) {
             const promptSection = text.match(/(rules|inviolaveis|Sempre chame|por\s+mensagem)[\s\S]*?$/i)
             if (promptSection) {
@@ -580,15 +580,15 @@ function extractDateFromText(text: string): Date | null {
             }
         }
 
-        // 1) "HorÃ¡rio mensagem: 2025-08-05T08:30:39.578-03:00" (mais especÃ­fico)
-        const m1 = text.match(/Hor[Ã¡a]rio(?:\s+da)?\s+mensagem:\s*([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,3})?(?:[+-][0-9]{2}:[0-9]{2}|Z)?)/i)
+        // 1) "Horário mensagem: 2025-08-05T08:30:39.578-03:00" (mais específico)
+        const m1 = text.match(/Hor[áa]rio(?:\s+da)?\s+mensagem:\s*([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,3})?(?:[+-][0-9]{2}:[0-9]{2}|Z)?)/i)
         if (m1?.[1]) {
             const d = new Date(m1[1])
             if (!isNaN(d.getTime()) && d.getFullYear() >= 2020 && d.getFullYear() <= 2100) return d
         }
 
-        // 2) "Hoje Ã©: 2025-08-05T08:30:39.578-03:00"
-        const m2 = text.match(/Hoje\s*[Ã©e]:\s*([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,3})?(?:[+-][0-9]{2}:[0-9]{2}|Z)?)/i)
+        // 2) "Hoje é: 2025-08-05T08:30:39.578-03:00"
+        const m2 = text.match(/Hoje\s*[ée]:\s*([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,3})?(?:[+-][0-9]{2}:[0-9]{2}|Z)?)/i)
         if (m2?.[1]) {
             const d = new Date(m2[1])
             if (!isNaN(d.getTime()) && d.getFullYear() >= 2020 && d.getFullYear() <= 2100) return d
@@ -640,17 +640,17 @@ function extractDateFromText(text: string): Date | null {
     return null
 }
 
-// SOLUÃ‡ÃƒO: Extrai data do TEXTO da Ãºltima mensagem do lead
+// SOLUÃ‡ÃO: Extrai data do TEXTO da última mensagem do lead
 function getLastLeadMessageTimestamp(messages: any[], debug: boolean = false): string {
     if (!messages || messages.length === 0) {
         return new Date().toISOString()
     }
 
     const sorted = [...messages]
-        .filter(m => m && m.id != null) // Filtra mensagens invÃ¡lidas
+        .filter(m => m && m.id != null) // Filtra mensagens inválidas
         .sort((a, b) => (a.id || 0) - (b.id || 0))
 
-    // Procura Ãºltima mensagem do LEAD
+    // Procura última mensagem do LEAD
     for (let i = sorted.length - 1; i >= 0; i--) {
         const msg = sorted[i]
         if (!msg || !msg.message) continue
@@ -663,13 +663,13 @@ function getLastLeadMessageTimestamp(messages: any[], debug: boolean = false): s
                 if (debug) {
                     console.log('\n[getLastLeadMessageTimestamp] Ãšltima mensagem do LEAD')
                     console.log('ID:', msg.id)
-                    console.log('ConteÃºdo (300 chars):', content.substring(0, 300))
+                    console.log('Conteúdo (300 chars):', content.substring(0, 300))
                 }
 
                 // Extrai data do TEXTO
                 const extractedDate = extractDateFromText(content)
                 if (extractedDate) {
-                    if (debug) console.log('âœ“ Data extraÃ­da do TEXTO:', extractedDate.toISOString())
+                    if (debug) console.log('âœ“ Data extraída do TEXTO:', extractedDate.toISOString())
                     return extractedDate.toISOString()
                 }
 
@@ -685,18 +685,18 @@ function getLastLeadMessageTimestamp(messages: any[], debug: boolean = false): s
         }
     }
 
-    // Fallback: Ãºltima mensagem qualquer
+    // Fallback: última mensagem qualquer
     if (sorted.length > 0) {
         try {
             const last = sorted[sorted.length - 1]
             if (last && last.message) {
                 const content = String(last.message?.content || last.message?.text || '')
 
-                if (debug) console.log('\n[Fallback] Usando Ãºltima mensagem qualquer')
+                if (debug) console.log('\n[Fallback] Usando última mensagem qualquer')
 
                 const extractedDate = extractDateFromText(content)
                 if (extractedDate) {
-                    if (debug) console.log('âœ“ Data extraÃ­da do TEXTO:', extractedDate.toISOString())
+                    if (debug) console.log('âœ“ Data extraída do TEXTO:', extractedDate.toISOString())
                     return extractedDate.toISOString()
                 }
 
@@ -716,7 +716,7 @@ export async function GET(req: Request) {
     try {
         const supabase = createBiaSupabaseServerClient()
 
-        // 1. Identificar Unidade (Tenant) da sessÃ£o JWT
+        // 1. Identificar Unidade (Tenant) da sessão JWT
         let tenant: string
         try {
             tenant = await resolveTenant(req)
@@ -726,7 +726,7 @@ export async function GET(req: Request) {
         console.log(`[CRM] Iniciando busca de TODOS os leads... Unidade: ${tenant}`)
 
         // Validar tenant
-        if (!isValidTenant(tenant)) return NextResponse.json({ error: 'Tenant invÃ¡lido' }, { status: 400 })
+        if (!isValidTenant(tenant)) return NextResponse.json({ error: 'Tenant inválido' }, { status: 400 })
 
         // Detectar automaticamente o nome correto da tabela de chat
         const chatTable = await resolveChatHistoriesTable(supabase as any, tenant)
@@ -734,10 +734,10 @@ export async function GET(req: Request) {
 
         const statusTable = `${tenant}_crm_lead_status`
         const funnelConfigTable = `${tenant}_crm_funnel_config`
-        // Follow-up Schedule Ã© genÃ©rica (tabela pÃºblica nÃ£o particionada ainda OU a migration nÃ£o foi pedida).
-        // Manter fallback para 'followup_schedule' para evitar quebras se a tabela tenant nÃ£o existir.
+        // Follow-up Schedule é genérica (tabela pública não particionada ainda OU a migration não foi pedida).
+        // Manter fallback para 'followup_schedule' para evitar quebras se a tabela tenant não existir.
         const followupTable = `followup_schedule`
-        const pauseTable = `${tenant}_pausar` // CorreÃ§Ã£o: de pausar_robsonvox para {tenant}_pausar
+        const pauseTable = `${tenant}_pausar` // Correção: de pausar_robsonvox para {tenant}_pausar
 
         let savedFunnelColumns: FunnelColumn[] = []
 
@@ -828,7 +828,7 @@ export async function GET(req: Request) {
 
         console.log(`[CRM] Total de registros carregados: ${totalRecords}`)
 
-        console.log(`[CRM] Total de sessÃµes Ãºnicas: ${sessionMap.size}`)
+        console.log(`[CRM] Total de sessões únicas: ${sessionMap.size}`)
 
         const sessionIds = Array.from(sessionMap.keys())
         const followUpPhoneCandidates = new Set<string>()
@@ -871,7 +871,7 @@ export async function GET(req: Request) {
                     if (followUpError) {
                         if (isMissingTableError(followUpError)) {
                             followUpTableAvailable = false
-                            console.warn(`[CRM] Tabela de followup ${followupTable} nÃ£o encontrada.`)
+                            console.warn(`[CRM] Tabela de followup ${followupTable} não encontrada.`)
                         } else {
                             console.warn(`[CRM] Erro ao buscar follow-ups por session_id:`, followUpError.message)
                         }
@@ -903,7 +903,7 @@ export async function GET(req: Request) {
 
                     if (followUpError) {
                         if (isMissingTableError(followUpError)) {
-                            console.warn(`[CRM] Tabela de followup ${followupTable} nÃ£o encontrada.`)
+                            console.warn(`[CRM] Tabela de followup ${followupTable} não encontrada.`)
                         } else {
                             console.warn(`[CRM] Erro ao buscar follow-ups por phone_number:`, followUpError.message)
                         }
@@ -952,7 +952,7 @@ export async function GET(req: Request) {
                     if (statusError) {
                         if (isMissingTableError(statusError)) {
                             statusTableAvailable = false
-                            console.warn(`[CRM] Tabela de status ${statusTable} nÃ£o encontrada. Ignorando status salvos.`)
+                            console.warn(`[CRM] Tabela de status ${statusTable} não encontrada. Ignorando status salvos.`)
                             break
                         }
                         console.warn(`[CRM] Erro ao buscar status em lote:`, statusError.message)
@@ -1010,7 +1010,7 @@ export async function GET(req: Request) {
                 continue
             }
 
-            // Extrai dados do formulÃ¡rio da primeira mensagem que contÃ©m prompt
+            // Extrai dados do formulário da primeira mensagem que contém prompt
             let formData: any = null
             try {
                 for (const msg of messages) {
@@ -1026,17 +1026,17 @@ export async function GET(req: Request) {
                             }
                         }
                     } catch (e) {
-                        console.warn(`[CRM] Erro ao extrair formData da mensagem da sessÃ£o ${sessionId}:`, e)
+                        console.warn(`[CRM] Erro ao extrair formData da mensagem da sessão ${sessionId}:`, e)
                         continue
                     }
                 }
             } catch (e) {
-                console.warn(`[CRM] Erro ao processar formData da sessÃ£o ${sessionId}:`, e)
+                console.warn(`[CRM] Erro ao processar formData da sessão ${sessionId}:`, e)
             }
 
             const enableDebug = debugCount < 3
             if (enableDebug) {
-                console.log(`\nDEBUG SESSÃƒO ${debugCount + 1}: ${sessionId} (${tenant})`)
+                console.log(`\nDEBUG SESSÃO ${debugCount + 1}: ${sessionId} (${tenant})`)
             }
 
             const lastTimeStr = getLastLeadMessageTimestamp(messages, enableDebug)
@@ -1074,8 +1074,8 @@ export async function GET(req: Request) {
 
             // Define variaveis de classificacao no escopo correto
             const isSuccess = /agendad|confirmad|marcad|fechad|contrat/i.test(fullText)
-            const isNegociacao = /negoci|proposta|orÃ§amento|valor|preÃ§o|investimento/i.test(fullText)
-            const isPerdido = /nÃ£o.*interess|desist|cancel|nÃ£o.*quero|nÃ£o.*vou/i.test(fullText)
+            const isNegociacao = /negoci|proposta|orçamento|valor|preço|investimento/i.test(fullText)
+            const isPerdido = /não.*interess|desist|cancel|não.*quero|não.*vou/i.test(fullText)
 
             // IA-first com estabilidade: se o lead ja tem status salvo, mantemos o status salvo.
             // A IA classifica apenas leads sem status persistido.
@@ -1132,16 +1132,16 @@ export async function GET(req: Request) {
             const name = resolveLeadDisplayName(messages, formData, numero)
 
             let sentiment: 'positive' | 'neutral' | 'negative' = 'neutral'
-            if (/Ã³timo|excelente|bom|gostei/i.test(fullText)) sentiment = 'positive'
-            if (/ruim|pÃ©ssimo|nÃ£o quero|pare/i.test(fullText)) sentiment = 'negative'
+            if (/ótimo|excelente|bom|gostei/i.test(fullText)) sentiment = 'positive'
+            if (/ruim|péssimo|não quero|pare/i.test(fullText)) sentiment = 'negative'
 
             const messageHistory = messages
                 .slice(-10)
-                .filter(m => m && m.message) // Filtra mensagens invÃ¡lidas
+                .filter(m => m && m.message) // Filtra mensagens inválidas
                 .map(m => {
                     try {
                         const rawContent = String(m.message?.content || m.message?.text || '')
-                        // LEI INVIOLÃVEL: NormalizaÃ§Ã£o robusta de role
+                        // LEI INVIOLÁVEL: Normalização robusta de role
                         const type = String(m.message?.type ?? "").toLowerCase()
                         const roleStr = String(m.message?.role ?? "").toLowerCase()
                         const isUser = type === "human" || type === "user" || roleStr === "user" || roleStr === "human"
@@ -1149,7 +1149,7 @@ export async function GET(req: Request) {
 
                         const cleanedContent = isUser ? cleanHumanMessage(rawContent) : cleanAIMessage(rawContent)
 
-                        // Remove mensagens vazias ou invÃ¡lidas
+                        // Remove mensagens vazias ou inválidas
                         if (!cleanedContent || cleanedContent.trim().length < 3) return null
 
                         const timestamp = extractDateFromText(rawContent) || new Date(m.created_at || new Date())
@@ -1201,7 +1201,7 @@ export async function GET(req: Request) {
                     const type = String(msg.message?.type ?? "").toLowerCase()
                     const roleStr = String(msg.message?.role ?? "").toLowerCase()
 
-                    // Identificar se Ã© mensagem do lead (human/user) ou da IA
+                    // Identificar se é mensagem do lead (human/user) ou da IA
                     const isFromLead = type === "human" || type === "user" ||
                         roleStr === "user" || roleStr === "human" ||
                         (!type.includes("ai") && !type.includes("bot") && !type.includes("assistant") &&
@@ -1240,8 +1240,8 @@ export async function GET(req: Request) {
             debugCount++
         }
 
-        // LEI INVIOLÃVEL: DeduplicaÃ§Ã£o por nÃºmero de telefone - cada lead aparece apenas UMA vez no status mais recente
-        console.log(`[CRM] Total de cards antes da deduplicaÃ§Ã£o: ${cards.length}`)
+        // LEI INVIOLÁVEL: Deduplicação por número de telefone - cada lead aparece apenas UMA vez no status mais recente
+        console.log(`[CRM] Total de cards antes da deduplicação: ${cards.length}`)
         const leadMap = new Map<string, CRMCard>()
 
         // Agrupa por telefone e mantem o card mais util (mais recente e com nome real)
@@ -1249,7 +1249,7 @@ export async function GET(req: Request) {
             const normalizedPhone = normalizePhone(card.numero)
 
             if (!normalizedPhone || normalizedPhone.length < 8) {
-                // Se nÃ£o conseguiu normalizar, mantÃ©m como estÃ¡ (pode ser sessionId estranho)
+                // Se não conseguiu normalizar, mantém como está (pode ser sessionId estranho)
                 const key = card.id
                 if (!leadMap.has(key)) {
                     leadMap.set(key, card)
@@ -1283,7 +1283,7 @@ export async function GET(req: Request) {
 
         // Converte de volta para array
         const deduplicatedCards = Array.from(leadMap.values())
-        console.log(`[CRM] Total de cards apÃ³s deduplicaÃ§Ã£o: ${deduplicatedCards.length} (removidos: ${cards.length - deduplicatedCards.length})`)
+        console.log(`[CRM] Total de cards após deduplicação: ${deduplicatedCards.length} (removidos: ${cards.length - deduplicatedCards.length})`)
 
         // ── Injetar leads do Kommo CRM ──────────────────────────────────────
         // Leads do Kommo que têm telefone resolvido já entram pelo chat history

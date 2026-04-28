@@ -1,8 +1,8 @@
 ﻿/**
- * API: ConfiguraÃ§Ã£o do Agente AI por Empresa
+ * API: Configuração do Agente AI por Empresa
  * 
- * GET /api/empresas/[empresaId]/agente - Obter configuraÃ§Ã£o
- * PUT /api/empresas/[empresaId]/agente - Atualizar configuraÃ§Ã£o
+ * GET /api/empresas/[empresaId]/agente - Obter configuração
+ * PUT /api/empresas/[empresaId]/agente - Atualizar configuração
  * POST /api/empresas/[empresaId]/agente/preview - Preview do prompt
  * POST /api/empresas/[empresaId]/agente - Preview do prompt
  */
@@ -21,24 +21,24 @@ interface RouteParams {
 }
 
 /**
- * GET: Obter configuraÃ§Ã£o atual do agente
+ * GET: Obter configuração atual do agente
  */
 export async function GET(req: NextRequest, { params }: RouteParams) {
     try {
         const { empresaId } = await params;
 
-        // Buscar configuraÃ§Ã£o
+        // Buscar configuração
         const { data: config, error } = await supabaseAdmin
             .from('empresa_agente_config')
             .select('*')
             .eq('empresa_id', empresaId)
             .single();
 
-        if (error && error.code !== 'PGRST116') { // PGRST116 = nÃ£o encontrado
+        if (error && error.code !== 'PGRST116') { // PGRST116 = não encontrado
             return NextResponse.json({ error: error.message }, { status: 500 });
         }
 
-        // Se nÃ£o existe, retornar config padrÃ£o
+        // Se não existe, retornar config padrão
         if (!config) {
             // Buscar dados da empresa para preencher defaults
             const { data: empresa } = await supabaseAdmin
@@ -57,11 +57,11 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
                     unidade_email: empresa?.email,
                     unidade_telefone: empresa?.telefone,
                     unidade_endereco_completo: empresa?.endereco,
-                    servico_gratuito_nome: 'DiagnÃ³stico EstratÃ©gico',
+                    servico_gratuito_nome: 'Diagnóstico Estratégico',
                     servico_gratuito_duracao: '30 a 40 minutos',
                     preco_texto_apresentacao: 'a partir de R$ 315 mensais',
                 },
-                mensagem: 'ConfiguraÃ§Ã£o nÃ£o encontrada. Use os defaults para criar.'
+                mensagem: 'Configuração não encontrada. Use os defaults para criar.'
             });
         }
 
@@ -76,18 +76,18 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 }
 
 /**
- * PUT: Atualizar configuraÃ§Ã£o do agente
+ * PUT: Atualizar configuração do agente
  */
 export async function PUT(req: NextRequest, { params }: RouteParams) {
     try {
         const { empresaId } = await params;
         const body = await req.json();
 
-        // Validar campos obrigatÃ³rios
+        // Validar campos obrigatórios
         const validacao = validarConfig(body);
         if (!validacao.valido) {
             return NextResponse.json({
-                error: 'ConfiguraÃ§Ã£o invÃ¡lida',
+                error: 'Configuração inválida',
                 campos_faltando: validacao.erros,
             }, { status: 400 });
         }
@@ -100,7 +100,7 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
             agente_nome: body.agente_nome,
             agente_genero: body.agente_genero || 'feminino',
             agente_cargo: body.agente_cargo || 'Consultor(a) Especialista',
-            agente_personalidade: body.agente_personalidade || 'empÃ¡tica, profissional, consultiva',
+            agente_personalidade: body.agente_personalidade || 'empática, profissional, consultiva',
 
             // Unidade
             unidade_nome: body.unidade_nome,
@@ -113,7 +113,7 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
             unidade_telefone: body.unidade_telefone,
             unidade_email: body.unidade_email,
 
-            // HorÃ¡rios
+            // Horários
             horario_segunda_a_sexta_inicio: body.horario_segunda_a_sexta_inicio || '09:00',
             horario_segunda_a_sexta_fim: body.horario_segunda_a_sexta_fim || '20:00',
             horario_sabado_inicio: body.horario_sabado_inicio || '08:00',
@@ -134,16 +134,16 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
             produto_duracao_media: body.produto_duracao_media,
             produto_modalidades: body.produto_modalidades || [],
 
-            // ServiÃ§o gratuito
-            servico_gratuito_nome: body.servico_gratuito_nome || 'DiagnÃ³stico EstratÃ©gico',
+            // Serviço gratuito
+            servico_gratuito_nome: body.servico_gratuito_nome || 'Diagnóstico Estratégico',
             servico_gratuito_descricao: body.servico_gratuito_descricao,
             servico_gratuito_duracao: body.servico_gratuito_duracao || '30 minutos',
 
-            // PreÃ§os
+            // Preços
             preco_minimo: body.preco_minimo,
             preco_maximo: body.preco_maximo,
             preco_texto_apresentacao: body.preco_texto_apresentacao || 'a partir de R$ 315 mensais',
-            formas_pagamento: body.formas_pagamento || ['CartÃ£o de CrÃ©dito', 'Boleto', 'Pix'],
+            formas_pagamento: body.formas_pagamento || ['Cartão de Crédito', 'Boleto', 'Pix'],
 
             // Cursos
             cursos: body.cursos || [],
@@ -160,11 +160,11 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
             regras_negocio: body.regras_negocio || [],
 
             // Linguagem
-            frases_proibidas: body.frases_proibidas || ['tipo', 'show', 'valeu', 'nÃ©'],
+            frases_proibidas: body.frases_proibidas || ['tipo', 'show', 'valeu', 'né'],
             frases_permitidas: body.frases_permitidas || ['Perfeito', 'Combinado', 'Faz sentido'],
-            vocabulario_chave: body.vocabulario_chave || ['TransformaÃ§Ã£o', 'Destravar', 'ConfianÃ§a'],
+            vocabulario_chave: body.vocabulario_chave || ['Transformação', 'Destravar', 'Confiança'],
             usar_emojis: body.usar_emojis !== false,
-            tom_de_voz: body.tom_de_voz || 'profissional e empÃ¡tico',
+            tom_de_voz: body.tom_de_voz || 'profissional e empático',
 
             // Custom
             prompt_customizado: body.prompt_customizado,
@@ -189,7 +189,7 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
 
         return NextResponse.json({
             success: true,
-            message: 'ConfiguraÃ§Ã£o salva com sucesso!',
+            message: 'Configuração salva com sucesso!',
             config,
             prompt_preview: promptGerado,
             proximo_passo: 'Configuração salva com sucesso!',
@@ -211,7 +211,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         const validacao = validarConfig(body);
         if (!validacao.valido) {
             return NextResponse.json({
-                error: 'ConfiguraÃ§Ã£o incompleta',
+                error: 'Configuração incompleta',
                 campos_faltando: validacao.erros,
             }, { status: 400 });
         }

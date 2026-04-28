@@ -1,8 +1,8 @@
 ﻿/**
- * API Admin: ConfiguraÃ§Ã£o do Agente AI por Empresa
+ * API Admin: Configuração do Agente AI por Empresa
  * 
- * GET /api/admin/empresas/[id]/agente - Obter configuraÃ§Ã£o
- * PUT /api/admin/empresas/[id]/agente - Atualizar configuraÃ§Ã£o
+ * GET /api/admin/empresas/[id]/agente - Obter configuração
+ * PUT /api/admin/empresas/[id]/agente - Atualizar configuração
  * POST /api/admin/empresas/[id]/agente - Sincronizar com N8N
  */
 
@@ -23,7 +23,7 @@ interface RouteParams {
 }
 
 /**
- * Verifica se o usuÃ¡rio Ã© admin
+ * Verifica se o usuário é admin
  */
 async function verificarAdmin(req: NextRequest): Promise<{ isAdmin: boolean; userId?: string }> {
     try {
@@ -61,7 +61,7 @@ async function verificarAdmin(req: NextRequest): Promise<{ isAdmin: boolean; use
 }
 
 /**
- * GET: Obter configuraÃ§Ã£o do agente de uma empresa especÃ­fica
+ * GET: Obter configuração do agente de uma empresa específica
  */
 export async function GET(req: NextRequest, { params }: RouteParams) {
     try {
@@ -80,10 +80,10 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
             .single();
 
         if (!empresa) {
-            return NextResponse.json({ error: 'Empresa nÃ£o encontrada' }, { status: 404 });
+            return NextResponse.json({ error: 'Empresa não encontrada' }, { status: 404 });
         }
 
-        // Buscar configuraÃ§Ã£o
+        // Buscar configuração
         const { data: config, error } = await supabaseAdmin
             .from('empresa_agente_config')
             .select('*')
@@ -103,7 +103,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
                 agente_cargo: 'Consultor(a) Especialista',
                 unidade_nome: empresa.nome,
                 unidade_email: empresa.email,
-                servico_gratuito_nome: 'DiagnÃ³stico EstratÃ©gico',
+                servico_gratuito_nome: 'Diagnóstico Estratégico',
                 servico_gratuito_duracao: '30 a 40 minutos',
                 preco_texto_apresentacao: 'a partir de R$ 315 mensais',
             } : null,
@@ -115,7 +115,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 }
 
 /**
- * PUT: Atualizar configuraÃ§Ã£o do agente
+ * PUT: Atualizar configuração do agente
  */
 export async function PUT(req: NextRequest, { params }: RouteParams) {
     try {
@@ -135,14 +135,14 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
             .single();
 
         if (!empresa) {
-            return NextResponse.json({ error: 'Empresa nÃ£o encontrada' }, { status: 404 });
+            return NextResponse.json({ error: 'Empresa não encontrada' }, { status: 404 });
         }
 
-        // Validar campos obrigatÃ³rios
+        // Validar campos obrigatórios
         const validacao = validarConfig(body);
         if (!validacao.valido) {
             return NextResponse.json({
-                error: 'ConfiguraÃ§Ã£o invÃ¡lida',
+                error: 'Configuração inválida',
                 campos_faltando: validacao.erros,
             }, { status: 400 });
         }
@@ -153,7 +153,7 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
             agente_nome: body.agente_nome,
             agente_genero: body.agente_genero || 'feminino',
             agente_cargo: body.agente_cargo || 'Consultor(a) Especialista',
-            agente_personalidade: body.agente_personalidade || 'empÃ¡tica, profissional, consultiva',
+            agente_personalidade: body.agente_personalidade || 'empática, profissional, consultiva',
             unidade_nome: body.unidade_nome,
             unidade_endereco_completo: body.unidade_endereco_completo,
             unidade_bairro: body.unidade_bairro,
@@ -178,24 +178,24 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
             produto_descricao: body.produto_descricao,
             produto_duracao_media: body.produto_duracao_media,
             produto_modalidades: body.produto_modalidades || [],
-            servico_gratuito_nome: body.servico_gratuito_nome || 'DiagnÃ³stico EstratÃ©gico',
+            servico_gratuito_nome: body.servico_gratuito_nome || 'Diagnóstico Estratégico',
             servico_gratuito_descricao: body.servico_gratuito_descricao,
             servico_gratuito_duracao: body.servico_gratuito_duracao || '30 minutos',
             preco_minimo: body.preco_minimo,
             preco_maximo: body.preco_maximo,
             preco_texto_apresentacao: body.preco_texto_apresentacao || 'a partir de R$ 315 mensais',
-            formas_pagamento: body.formas_pagamento || ['CartÃ£o de CrÃ©dito', 'Boleto', 'Pix'],
+            formas_pagamento: body.formas_pagamento || ['Cartão de Crédito', 'Boleto', 'Pix'],
             cursos: body.cursos || [],
             diferenciais: body.diferenciais || [],
             contexto_regional: body.contexto_regional,
             estacionamento_info: body.estacionamento_info,
             transporte_publico_info: body.transporte_publico_info,
             regras_negocio: body.regras_negocio || [],
-            frases_proibidas: body.frases_proibidas || ['tipo', 'show', 'valeu', 'nÃ©'],
+            frases_proibidas: body.frases_proibidas || ['tipo', 'show', 'valeu', 'né'],
             frases_permitidas: body.frases_permitidas || ['Perfeito', 'Combinado', 'Faz sentido'],
-            vocabulario_chave: body.vocabulario_chave || ['TransformaÃ§Ã£o', 'Destravar', 'ConfianÃ§a'],
+            vocabulario_chave: body.vocabulario_chave || ['Transformação', 'Destravar', 'Confiança'],
             usar_emojis: body.usar_emojis !== false,
-            tom_de_voz: body.tom_de_voz || 'profissional e empÃ¡tico',
+            tom_de_voz: body.tom_de_voz || 'profissional e empático',
             prompt_customizado: body.prompt_customizado,
             ativo: true,
             updated_at: new Date().toISOString(),
@@ -228,7 +228,7 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
 
         return NextResponse.json({
             success: true,
-            message: `ConfiguraÃ§Ã£o de "${empresa.nome}" salva com sucesso!`,
+            message: `Configuração de "${empresa.nome}" salva com sucesso!`,
             config,
             prompt_preview: promptGerado,
         });

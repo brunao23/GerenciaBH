@@ -1,6 +1,6 @@
 /**
  * Follow-up Automation Service
- * Gerencia o sistema de follow-up automatizado com anÃƒÂ¡lise contextual de IA
+ * Gerencia o sistema de follow-up automatizado com anÃÂ¡lise contextual de IA
  */
 
 import { createBiaSupabaseServerClient } from '@/lib/supabase/bia-client'
@@ -139,7 +139,7 @@ export class FollowUpAutomationService {
     }
 
     /**
-     * Carrega os horÃƒÂ¡rios de follow-up do tenant a partir da NativeAgentConfig
+     * Carrega os horÃÂ¡rios de follow-up do tenant a partir da NativeAgentConfig
      */
     private async loadTenantBusinessHours(): Promise<TenantBusinessHours | undefined> {
         if (this.tenantBusinessHours) return this.tenantBusinessHours
@@ -154,7 +154,7 @@ export class FollowUpAutomationService {
                     effectiveFollowupDays
                 )
                 this.tenantFollowupIntervals = resolveFollowupIntervalsFromConfig(config)
-                console.log(`[FollowUp] Config horÃƒÂ¡rio ${this.tenant}: ${config.followupBusinessStart}-${config.followupBusinessEnd} dias=${effectiveFollowupDays?.join(',')}`)
+                console.log(`[FollowUp] Config horÃÂ¡rio ${this.tenant}: ${config.followupBusinessStart}-${config.followupBusinessEnd} dias=${effectiveFollowupDays?.join(',')}`)
                 return this.tenantBusinessHours
             }
         } catch (e) {
@@ -209,7 +209,7 @@ export class FollowUpAutomationService {
                 return { success: false, error: 'followup_plan_disabled' }
             }
             const nextMinutes = intervals[0] || 15
-            // Garante que o follow-up caia em horÃƒÂ¡rio comercial do tenant
+            // Garante que o follow-up caia em horÃÂ¡rio comercial do tenant
             const tenantBH = await this.loadTenantBusinessHours()
             const nextFollowupAt = getNextFollowUpTime(nextMinutes, tenantBH)
             const payload = {
@@ -284,7 +284,7 @@ export class FollowUpAutomationService {
     }
 
     /**
-     * Inicializa o serviÃƒÂ§o de Z-API
+     * Inicializa o serviÃÂ§o de Z-API
      */
     private async initZAPI(): Promise<boolean> {
         if (this.zApi) return true
@@ -350,7 +350,10 @@ export class FollowUpAutomationService {
     private async hasActiveScheduledAppointment(sessionId: string, phoneNumber: string): Promise<boolean> {
         try {
             const agendamentosTable = `${this.tenant}_agendamentos`
-            const statuses = ['agendado', 'confirmado']
+            const cancelledStatuses = [
+                'cancelado', 'cancelled', 'canceled', 'desistiu', 'nao_compareceu',
+                'no_show', 'perdido',
+            ]
             const normalizedPhone = String(phoneNumber || '').replace(/\D/g, '')
             const phoneVariants = Array.from(
                 new Set([
@@ -360,14 +363,23 @@ export class FollowUpAutomationService {
                 ].filter(Boolean))
             )
 
+            const checkRows = (rows: any[]): boolean => {
+                if (!rows || rows.length === 0) return false
+                return rows.some((row: any) => {
+                    const status = String(row?.status || '').trim().toLowerCase()
+                    if (!status) return true
+                    if (cancelledStatuses.includes(status)) return false
+                    return true
+                })
+            }
+
             const bySession = await this.supabase
                 .from(agendamentosTable)
                 .select('id,status,session_id')
                 .eq('session_id', sessionId)
-                .in('status', statuses)
-                .limit(1)
+                .limit(5)
 
-            if (!bySession.error && Array.isArray(bySession.data) && bySession.data.length > 0) {
+            if (!bySession.error && checkRows(bySession.data)) {
                 return true
             }
 
@@ -376,10 +388,9 @@ export class FollowUpAutomationService {
                     .from(agendamentosTable)
                     .select('id,status,contato')
                     .in('contato', phoneVariants)
-                    .in('status', statuses)
-                    .limit(1)
+                    .limit(5)
 
-                if (!byContato.error && Array.isArray(byContato.data) && byContato.data.length > 0) {
+                if (!byContato.error && checkRows(byContato.data)) {
                     return true
                 }
 
@@ -387,10 +398,9 @@ export class FollowUpAutomationService {
                     .from(agendamentosTable)
                     .select('id,status,numero')
                     .in('numero', phoneVariants)
-                    .in('status', statuses)
-                    .limit(1)
+                    .limit(5)
 
-                if (!byNumero.error && Array.isArray(byNumero.data) && byNumero.data.length > 0) {
+                if (!byNumero.error && checkRows(byNumero.data)) {
                     return true
                 }
             }
@@ -410,7 +420,7 @@ export class FollowUpAutomationService {
         history?: any[];
     }> {
         try {
-            // Busca as ÃƒÂºltimas 20 mensagens
+            // Busca as ÃÂºltimas 20 mensagens
             const chatTable = await resolveChatHistoriesTable(this.supabase as any, this.tenant)
             const { data: messages, error } = await this.supabase
                 .from(chatTable)
@@ -420,7 +430,7 @@ export class FollowUpAutomationService {
                 .limit(20)
 
             if (error) {
-                console.error('[FollowUp] Erro ao buscar histÃƒÂ³rico recente:', error)
+                console.error('[FollowUp] Erro ao buscar histÃÂ³rico recente:', error)
                 return { hasUserReplied: false }
             }
 
@@ -436,7 +446,7 @@ export class FollowUpAutomationService {
                 return { hasUserReplied: false }
             }
 
-            // Verifica se a ÃƒÂºltima mensagem ÃƒÂ© do usuÃƒÂ¡rio
+            // Verifica se a ÃÂºltima mensagem ÃÂ© do usuÃÂ¡rio
             const msgType = String(lastMessage.message.type ?? "").toLowerCase()
             const msgRole = String(lastMessage.message.role ?? "").toLowerCase()
             const fromMe = lastMessage.message?.fromMe ?? lastMessage.message?.key?.fromMe
@@ -449,7 +459,7 @@ export class FollowUpAutomationService {
                 fromMe === false
             const isHumanOperator = senderType === "human"
 
-            // Formata o histÃƒÂ³rico para o formato esperado pelo contexto
+            // Formata o histÃÂ³rico para o formato esperado pelo contexto
             const history = sortedMessages.map(m => {
                 const mType = String(m.message?.type ?? "").toLowerCase()
                 const mRole = String(m.message?.role ?? "").toLowerCase()
@@ -485,13 +495,13 @@ export class FollowUpAutomationService {
             }
 
         } catch (error) {
-            console.error('[FollowUp] Erro ao verificar resposta do usuÃƒÂ¡rio:', error)
+            console.error('[FollowUp] Erro ao verificar resposta do usuÃÂ¡rio:', error)
             return { hasUserReplied: false }
         }
     }
 
     /**
-     * Busca follow-ups jÃƒÂ¡ enviados para esta sessÃƒÂ£o (para evitar repetiÃƒÂ§ÃƒÂ£o)
+     * Busca follow-ups jÃÂ¡ enviados para esta sessÃÂ£o (para evitar repetiÃÂ§ÃÂ£o)
      */
     private async getPreviousFollowUpMessages(sessionId: string): Promise<string[]> {
         try {
@@ -510,7 +520,7 @@ export class FollowUpAutomationService {
     }
 
     /**
-     * Extrai a ÃƒÂºltima mensagem REAL do lead (nÃƒÂ£o da IA) do histÃƒÂ³rico
+     * Extrai a ÃÂºltima mensagem REAL do lead (nÃÂ£o da IA) do histÃÂ³rico
      */
     private extractLastLeadMessage(history: Array<{ role: string; content: string }>): string {
         for (let i = history.length - 1; i >= 0; i--) {
@@ -557,7 +567,7 @@ export class FollowUpAutomationService {
     }
 
     /**
-     * Verifica se uma mensagem ÃƒÂ© muito similar a uma jÃƒÂ¡ enviada anteriormente
+     * Verifica se uma mensagem ÃÂ© muito similar a uma jÃÂ¡ enviada anteriormente
      */
     private isTooSimilar(newMessage: string, previousMessages: string[]): boolean {
         const normalize = (text: string) =>
@@ -570,13 +580,13 @@ export class FollowUpAutomationService {
             const prevNorm = normalize(prev)
             if (!prevNorm) continue
 
-            // VerificaÃƒÂ§ÃƒÂ£o exata
+            // VerificaÃÂ§ÃÂ£o exata
             if (newNorm === prevNorm) return true
 
-            // VerificaÃƒÂ§ÃƒÂ£o: uma contÃƒÂ©m a outra
+            // VerificaÃÂ§ÃÂ£o: uma contÃÂ©m a outra
             if (newNorm.includes(prevNorm) || prevNorm.includes(newNorm)) return true
 
-            // VerificaÃƒÂ§ÃƒÂ£o de similaridade por palavras (>70% overlap)
+            // VerificaÃÂ§ÃÂ£o de similaridade por palavras (>70% overlap)
             const newWords = new Set(newNorm.split(' ').filter(w => w.length > 3))
             const prevWords = new Set(prevNorm.split(' ').filter(w => w.length > 3))
             if (newWords.size === 0 || prevWords.size === 0) continue
@@ -658,33 +668,33 @@ export class FollowUpAutomationService {
     }
 
     /**
-     * Analisa o contexto da conversa com IA Ã¢â‚¬â€ 100% contextual, sem repetiÃƒÂ§ÃƒÂ£o
+     * Analisa o contexto da conversa com IA ââ‚¬” 100% contextual, sem repetiÃÂ§ÃÂ£o
      */
     async analyzeConversationContext(
         context: FollowUpContext,
         attemptNumber: number,
         previousFollowUps: string[] = []
     ): Promise<AIAnalysisResult> {
-        // Follow-ups agora sÃ£o gerados exclusivamente via Gemini (agent-task-queue).
-        // Este serviÃ§o OpenAI foi desativado intencionalmente.
+        // Follow-ups agora são gerados exclusivamente via Gemini (agent-task-queue).
+        // Este serviço OpenAI foi desativado intencionalmente.
         console.log('[FollowUp-OpenAI] Desativado. Follow-ups via Gemini nativo (agent-task-queue).')
         return {
             shouldSendFollowup: false,
             contextualMessage: undefined,
-            reasoning: 'ServiÃ§o OpenAI desativado â€” follow-ups via Gemini nativo',
+            reasoning: 'Serviço OpenAI desativado â€” follow-ups via Gemini nativo',
             sentiment: 'neutral',
             urgency: 'low'
         }
 
-        // --- CÃ³digo OpenAI original desativado abaixo ---
+        // --- Código OpenAI original desativado abaixo ---
         try {
             const apiKey = process.env.OPENAI_API_KEY
             if (!apiKey) {
-                console.warn('[FollowUp] OPENAI_API_KEY nÃƒÂ£o configurada. Usando fallback contextual.')
+                console.warn('[FollowUp] OPENAI_API_KEY nÃÂ£o configurada. Usando fallback contextual.')
                 return {
                     shouldSendFollowup: true,
                     contextualMessage: undefined,
-                    reasoning: 'API Key da IA nÃƒÂ£o configurada',
+                    reasoning: 'API Key da IA nÃÂ£o configurada',
                     sentiment: 'neutral',
                     urgency: 'medium'
                 }
@@ -718,44 +728,44 @@ export class FollowUpAutomationService {
             const topic = this.extractConversationTopic(recentHistory)
 
             const previousFollowUpsText = previousFollowUps.length > 0
-                ? `\n\nFOLLOW-UPS JÃƒÂ ENVIADOS (NUNCA REPITA ESTES):\n${previousFollowUps.map((m, i) => `${i + 1}. "${m}"`).join('\n')}`
+                ? `\n\nFOLLOW-UPS JÃÂ ENVIADOS (NUNCA REPITA ESTES):\n${previousFollowUps.map((m, i) => `${i + 1}. "${m}"`).join('\n')}`
                 : ''
 
-            // EstratÃƒÂ©gia por tentativa para variar a abordagem
+            // EstratÃÂ©gia por tentativa para variar a abordagem
             const strategyByAttempt: Record<number, string> = {
-                1: 'ESTRATÃƒâ€°GIA: Mensagem super curta (1-2 linhas). Apenas um toque leve, como se passasse para ver se o lead viu a mensagem. Pode usar emoji sutil. Exemplo de tom: "Oi {nome}! Viu minha mensagem? Ã°Å¸ËœÅ "',
-                2: 'ESTRATÃƒâ€°GIA: Abordar por um Ãƒâ€šNGULO DIFERENTE. Se antes falou de agenda, agora fale de um benefÃƒÂ­cio ou curiosidade. Se falou de preÃƒÂ§o, fale sobre resultado. Nunca repita a pergunta anterior. MÃƒÂ¡ximo 2 linhas.',
-                3: 'ESTRATÃƒâ€°GIA: Criar senso de urgÃƒÂªncia ou escassez sutil. Mencione vagas limitadas, agenda apertada do profissional, ou oportunidade que estÃƒÂ¡ passando. MÃƒÂ¡ximo 2 linhas. Tom: "As vagas desta semana estÃƒÂ£o quase fechando Ã°Å¸â€˜â‚¬"',
-                4: 'ESTRATÃƒâ€°GIA: Use prova social ou resultado. Mencione que outras pessoas da mesma ÃƒÂ¡rea jÃƒÂ¡ fizeram, ou que o diagnÃƒÂ³stico jÃƒÂ¡ ajudou X pessoas. MÃƒÂ¡ximo 2 linhas.',
-                5: 'ESTRATÃƒâ€°GIA: Seja direto e objetivo. Pergunte simplesmente se ainda tem interesse ou se prefere que nÃƒÂ£o entre mais em contato. Tom respeitoso, sem pressÃƒÂ£o. MÃƒÂ¡ximo 2 linhas.',
-                6: 'ESTRATÃƒâ€°GIA: ÃƒÅ¡ltima tentativa. Mensagem de despedida educada, dizendo que vai parar de enviar mas que a porta estÃƒÂ¡ aberta. Tom: "Sem problemas, {nome}! Se mudar de ideia, ÃƒÂ© sÃƒÂ³ chamar Ã°Å¸Â¤Â"',
+                1: 'ESTRATÃâ€°GIA: Mensagem super curta (1-2 linhas). Apenas um toque leve, como se passasse para ver se o lead viu a mensagem. Pode usar emoji sutil. Exemplo de tom: "Oi {nome}! Viu minha mensagem? Ã°Å¸ËœÅ "',
+                2: 'ESTRATÃâ€°GIA: Abordar por um Ãâ€šNGULO DIFERENTE. Se antes falou de agenda, agora fale de um benefÃÂ­cio ou curiosidade. Se falou de preÃÂ§o, fale sobre resultado. Nunca repita a pergunta anterior. MÃÂ¡ximo 2 linhas.',
+                3: 'ESTRATÃâ€°GIA: Criar senso de urgÃÂªncia ou escassez sutil. Mencione vagas limitadas, agenda apertada do profissional, ou oportunidade que estÃÂ¡ passando. MÃÂ¡ximo 2 linhas. Tom: "As vagas desta semana estÃÂ£o quase fechando Ã°Å¸â€˜â‚¬"',
+                4: 'ESTRATÃâ€°GIA: Use prova social ou resultado. Mencione que outras pessoas da mesma ÃÂ¡rea jÃÂ¡ fizeram, ou que o diagnÃÂ³stico jÃÂ¡ ajudou X pessoas. MÃÂ¡ximo 2 linhas.',
+                5: 'ESTRATÃâ€°GIA: Seja direto e objetivo. Pergunte simplesmente se ainda tem interesse ou se prefere que nÃÂ£o entre mais em contato. Tom respeitoso, sem pressÃÂ£o. MÃÂ¡ximo 2 linhas.',
+                6: 'ESTRATÃâ€°GIA: ÃÅ¡ltima tentativa. Mensagem de despedida educada, dizendo que vai parar de enviar mas que a porta estÃÂ¡ aberta. Tom: "Sem problemas, {nome}! Se mudar de ideia, ÃÂ© sÃÂ³ chamar Ã°Å¸Â¤Â"',
             }
 
             const strategy = strategyByAttempt[attemptNumber] || strategyByAttempt[5]
 
-            const prompt = `VocÃƒÂª ÃƒÂ© um especialista em conversÃƒÂ£o de leads via WhatsApp.
-Seu trabalho ÃƒÂ© criar UMA mensagem de follow-up que seja 100% ORIGINAL e DIFERENTE de qualquer mensagem jÃƒÂ¡ enviada.
+            const prompt = `VocÃÂª ÃÂ© um especialista em conversÃÂ£o de leads via WhatsApp.
+Seu trabalho ÃÂ© criar UMA mensagem de follow-up que seja 100% ORIGINAL e DIFERENTE de qualquer mensagem jÃÂ¡ enviada.
 
-=== INFORMAÃƒâ€¡Ãƒâ€¢ES ===
+=== INFORMAÃâ€¡Ãâ€¢ES ===
 Nome do lead: ${context.leadName || 'Cliente'}
 Tema da conversa: ${topic}
-ÃƒÅ¡ltima interaÃƒÂ§ÃƒÂ£o: ${new Date(context.lastInteractionAt).toLocaleString('pt-BR')}
+ÃÅ¡ltima interaÃÂ§ÃÂ£o: ${new Date(context.lastInteractionAt).toLocaleString('pt-BR')}
 Tentativa: ${attemptNumber} de 7
-ÃƒÅ¡ltima mensagem DO LEAD (o que ele disse por ÃƒÂºltimo): "${lastLeadMsg || 'Nenhuma mensagem do lead encontrada'}"
+ÃÅ¡ltima mensagem DO LEAD (o que ele disse por ÃÂºltimo): "${lastLeadMsg || 'Nenhuma mensagem do lead encontrada'}"
 Mensagens recentes enviadas por HUMANO da equipe: ${humanMessages.length}
 
-=== HISTÃƒâ€œRICO COMPLETO ===
+=== HISTÃ“RICO COMPLETO ===
 ${historyText}
 ${previousFollowUpsText}
 
 === ${strategy} ===
 
-=== REGRAS OBRIGATÃƒâ€œRIAS ===
-1. NUNCA copie, reformule ou repita frases de mensagens anteriores da IA ou de follow-ups jÃƒÂ¡ enviados
-2. NUNCA use padrÃƒÂµes como "retomando de onde paramos:", "sigo por aqui para concluirmos:", "passando para lembrar"
-3. NUNCA inclua o conteÃƒÂºdo de mensagens anteriores dentro da sua nova mensagem
-4. A mensagem deve ser CURTA (mÃƒÂ¡ximo 2-3 linhas de WhatsApp)
-5. Use o nome "${context.leadName || ''}" diretamente, NÃƒÆ’O use placeholder {nome}
+=== REGRAS OBRIGATÃ“RIAS ===
+1. NUNCA copie, reformule ou repita frases de mensagens anteriores da IA ou de follow-ups jÃÂ¡ enviados
+2. NUNCA use padrÃÂµes como "retomando de onde paramos:", "sigo por aqui para concluirmos:", "passando para lembrar"
+3. NUNCA inclua o conteÃÂºdo de mensagens anteriores dentro da sua nova mensagem
+4. A mensagem deve ser CURTA (mÃÂ¡ximo 2-3 linhas de WhatsApp)
+5. Use o nome "${context.leadName || ''}" diretamente, NÃÆ’O use placeholder {nome}
 6. Estilo WhatsApp informal: emojis opcionais, sem formalidades
 7. Se o lead demonstrou desinteresse claro, shouldSendFollowup = false
 8. Cada tentativa DEVE ter uma abordagem completamente diferente da anterior
@@ -766,7 +776,7 @@ Retorne JSON:
 {
   "shouldSendFollowup": boolean,
   "contextualMessage": "mensagem exata para enviar",
-  "reasoning": "motivo da decisÃƒÂ£o em 1 frase",
+  "reasoning": "motivo da decisÃÂ£o em 1 frase",
   "sentiment": "positive|neutral|negative",
   "urgency": "low|medium|high"
 }`
@@ -776,14 +786,14 @@ Retorne JSON:
                 messages: [
                     {
                         role: 'system',
-                        content: 'VocÃƒÂª gera mensagens de follow-up de WhatsApp. Cada mensagem deve ser ÃƒÅ¡NICA, CURTA e DIFERENTE de qualquer mensagem anterior. NUNCA repita ou concatene mensagens anteriores. Responda APENAS em JSON vÃƒÂ¡lido.'
+                        content: 'VocÃÂª gera mensagens de follow-up de WhatsApp. Cada mensagem deve ser ÃÅ¡NICA, CURTA e DIFERENTE de qualquer mensagem anterior. NUNCA repita ou concatene mensagens anteriores. Responda APENAS em JSON vÃÂ¡lido.'
                     },
                     {
                         role: 'user',
                         content: prompt
                     }
                 ],
-                temperature: 0.85, // Mais criatividade para evitar repetiÃƒÂ§ÃƒÂ£o
+                temperature: 0.85, // Mais criatividade para evitar repetiÃÂ§ÃÂ£o
                 response_format: { type: 'json_object' }
             })
 
@@ -809,7 +819,7 @@ Retorne JSON:
                 }
             }
 
-            console.log('[FollowUp] AnÃƒÂ¡lise IA concluÃƒÂ­da:', {
+            console.log('[FollowUp] AnÃÂ¡lise IA concluÃÂ­da:', {
                 sessionId: context.sessionId,
                 shouldSend: analysis.shouldSendFollowup,
                 messageLength: analysis.contextualMessage?.length || 0,
@@ -819,11 +829,11 @@ Retorne JSON:
             return analysis
 
         } catch (error: any) {
-            console.error('[FollowUp] Erro na anÃƒÂ¡lise contextual:', error)
+            console.error('[FollowUp] Erro na anÃÂ¡lise contextual:', error)
             return {
                 shouldSendFollowup: true,
                 contextualMessage: undefined,
-                reasoning: 'AnÃƒÂ¡lise IA falhou, usando fallback contextual',
+                reasoning: 'AnÃÂ¡lise IA falhou, usando fallback contextual',
                 sentiment: 'neutral',
                 urgency: 'medium'
             }
@@ -831,19 +841,19 @@ Retorne JSON:
     }
 
     /**
-     * Processa follow-ups que estÃƒÂ£o vencidos
+     * Processa follow-ups que estÃÂ£o vencidos
      */
     async processQueuedFollowUps(): Promise<void> {
         try {
-            // Carregar horÃƒÂ¡rios do tenant
+            // Carregar horÃÂ¡rios do tenant
             const tenantBH = await this.loadTenantBusinessHours()
             const bizHours = getBusinessHoursDebugInfo(tenantBH)
-            console.log(`[FollowUp] [${this.tenant}] HorÃƒÂ¡rio SP: ${bizHours.currentHourSP}:${String(bizHours.currentMinuteSP).padStart(2,'0')} | ${bizHours.businessStart}-${bizHours.businessEnd}: ${bizHours.isBusinessHours ? 'SIM' : 'NÃƒÆ’O'}`)
+            console.log(`[FollowUp] [${this.tenant}] HorÃÂ¡rio SP: ${bizHours.currentHourSP}:${String(bizHours.currentMinuteSP).padStart(2,'0')} | ${bizHours.businessStart}-${bizHours.businessEnd}: ${bizHours.isBusinessHours ? 'SIM' : 'NÃÆ’O'}`)
 
             if (!bizHours.isBusinessHours) {
-                console.log(`[FollowUp] [${this.tenant}] Ã¢ÂÂ° Fora do horÃƒÂ¡rio comercial (${bizHours.businessStart}-${bizHours.businessEnd}). Postergando...`)
+                console.log(`[FollowUp] [${this.tenant}] âÂÂ° Fora do horÃÂ¡rio comercial (${bizHours.businessStart}-${bizHours.businessEnd}). Postergando...`)
 
-                // Posterga todos os follow-ups vencidos para 07:00 do prÃƒÂ³ximo dia
+                // Posterga todos os follow-ups vencidos para 07:00 do prÃÂ³ximo dia
                 const { data: overdue } = await this.supabase
                     .from('followup_schedule')
                     .select('id, next_followup_at, session_id')
@@ -891,7 +901,7 @@ Retorne JSON:
             // Inicializa Z-API
             const canSend = await this.initZAPI()
             if (!canSend) {
-                console.error('[FollowUp] Z-API nÃƒÂ£o configurada. Abortando.')
+                console.error('[FollowUp] Z-API nÃÂ£o configurada. Abortando.')
                 return
             }
 
@@ -900,7 +910,7 @@ Retorne JSON:
                 await new Promise(resolve => setTimeout(resolve, 2000))
             }
 
-            console.log('[FollowUp] Processamento concluÃƒÂ­do')
+            console.log('[FollowUp] Processamento concluÃÂ­do')
 
         } catch (error: any) {
             console.error('[FollowUp] Erro no processamento:', error)
@@ -908,7 +918,7 @@ Retorne JSON:
     }
 
     /**
-     * Processa um ÃƒÂºnico follow-up
+     * Processa um ÃÂºnico follow-up
      */
     private async processSingleFollowUp(schedule: any): Promise<void> {
         try {
@@ -1008,11 +1018,11 @@ Retorne JSON:
                 return
             }
 
-            // Buscar follow-ups jÃƒÂ¡ enviados para evitar repetiÃƒÂ§ÃƒÂ£o
+            // Buscar follow-ups jÃÂ¡ enviados para evitar repetiÃÂ§ÃÂ£o
             const previousFollowUps = await this.getPreviousFollowUpMessages(schedule.session_id)
-            console.log(`[FollowUp] ${previousFollowUps.length} follow-ups anteriores encontrados para anti-repetiÃƒÂ§ÃƒÂ£o`)
+            console.log(`[FollowUp] ${previousFollowUps.length} follow-ups anteriores encontrados para anti-repetiÃÂ§ÃÂ£o`)
 
-            // AnÃƒÂ¡lise IA com contexto completo
+            // AnÃÂ¡lise IA com contexto completo
             const historyToUse = freshData.history || JSON.parse(schedule.conversation_context || '[]')
 
             const safeLeadName = normalizeLeadNameForFollowup(schedule.lead_name) || undefined
@@ -1030,7 +1040,7 @@ Retorne JSON:
             const analysis = await this.analyzeConversationContext(context, attemptNumber, previousFollowUps)
 
             if (!analysis.shouldSendFollowup) {
-                console.log(`[FollowUp] IA decidiu NÃƒÆ’O enviar follow-up: ${analysis.reasoning}`)
+                console.log(`[FollowUp] IA decidiu NÃÆ’O enviar follow-up: ${analysis.reasoning}`)
                 await this.supabase
                     .from('followup_schedule')
                     .update({ is_active: false, lead_status: 'stopped', updated_at: new Date().toISOString() })
@@ -1038,7 +1048,7 @@ Retorne JSON:
                 return
             }
 
-            // SeleÃƒÂ§ÃƒÂ£o de Mensagem Ã¢â‚¬â€ prioriza IA, fallback contextual sem repetiÃƒÂ§ÃƒÂ£o
+            // SeleÃÂ§ÃÂ£o de Mensagem ââ‚¬” prioriza IA, fallback contextual sem repetiÃÂ§ÃÂ£o
             let messageText = analysis.contextualMessage
 
             if (!messageText) {
@@ -1053,8 +1063,8 @@ Retorne JSON:
             // Garantia final: substitui placeholder se ainda existir (usa primeiro nome)
             const finalMessage = (messageText || '').replace(/\{nome\}/g, safeLeadName || 'voce')
 
-            // Regra rÃ­gida: nÃ£o disparar follow-up fora da janela 07:00-23:00 (SP).
-            // Se virar o horÃ¡rio durante o processamento, reagenda para a prÃ³xima manhÃ£ comercial.
+            // Regra rígida: não disparar follow-up fora da janela 07:00-23:00 (SP).
+            // Se virar o horário durante o processamento, reagenda para a próxima manhã comercial.
             const tenantBHBeforeSend = await this.loadTenantBusinessHours()
             if (!isWithinBusinessHours(tenantBHBeforeSend)) {
                 const nextBusinessTime = adjustToBusinessHours(new Date(), tenantBHBeforeSend).toISOString()
@@ -1093,7 +1103,7 @@ Retorne JSON:
                 const nextAttemptIndex = attemptNumber
                 if (nextAttemptIndex < configuredIntervals.length) {
                     const minutesToAdd = configuredIntervals[nextAttemptIndex]
-                    // Garante horÃƒÂ¡rio comercial do tenant para prÃƒÂ³xima tentativa
+                    // Garante horÃÂ¡rio comercial do tenant para prÃÂ³xima tentativa
                     const tenantBH = await this.loadTenantBusinessHours()
                     const nextFollowupAt = new Date(getNextFollowUpTime(minutesToAdd, tenantBH))
 
@@ -1106,7 +1116,7 @@ Retorne JSON:
                         })
                         .eq('id', schedule.id)
 
-                    console.log(`[FollowUp] Ã¢Å“â€œ Enviado (Z-API)! PrÃƒÂ³ximo em ${minutesToAdd} min`)
+                    console.log(`[FollowUp] âÅ““ Enviado (Z-API)! PrÃÂ³ximo em ${minutesToAdd} min`)
                 } else {
                     await this.supabase
                         .from('followup_schedule')
@@ -1117,10 +1127,10 @@ Retorne JSON:
                             updated_at: new Date().toISOString()
                         })
                         .eq('id', schedule.id)
-                    console.log(`[FollowUp] Ã¢Å“â€œ ÃƒÅ¡ltima tentativa enviada. Finalizado.`)
+                    console.log(`[FollowUp] âÅ““ ÃÅ¡ltima tentativa enviada. Finalizado.`)
                 }
             } else {
-                console.error(`[FollowUp] Ã¢Å“â€” Falha no envio Z-API:`, result.error)
+                console.error(`[FollowUp] âÅ“â€” Falha no envio Z-API:`, result.error)
             }
 
         } catch (error: any) {

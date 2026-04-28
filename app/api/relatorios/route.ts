@@ -4,12 +4,12 @@ import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
 import { resolveChatHistoriesTable } from "@/lib/helpers/resolve-chat-table"
 
-// DDDs por regiÃ£o (vox_disparos Ã© compartilhada entre BH e SP)
+// DDDs por região (vox_disparos é compartilhada entre BH e SP)
 const DDD_BH = ["31", "32", "33", "34", "35", "37", "38"] // Minas Gerais
-const DDD_SP = ["11", "12", "13", "14", "15", "16", "17", "18", "19"] // SÃ£o Paulo
+const DDD_SP = ["11", "12", "13", "14", "15", "16", "17", "18", "19"] // São Paulo
 const DDD_RIO = ["21", "22", "24"] // Rio de Janeiro
-const DDD_ES = ["27", "28"] // EspÃ­rito Santo
-const DDD_MACEIO = ["82"] // Alagoas (MaceiÃ³)
+const DDD_ES = ["27", "28"] // Espírito Santo
+const DDD_MACEIO = ["82"] // Alagoas (Maceió)
 
 interface RelatorioData {
   periodo: string

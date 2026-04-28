@@ -94,8 +94,8 @@ export default function FollowupsPage() {
   }, [activeTab])
 
   const cleanPhoneNumber = (numero: string | null) => {
-    if (!numero) return "Sem nÃºmero"
-    // Remove sufixos do WhatsApp e limpa caracteres nÃ£o numÃ©ricos se necessÃ¡rio
+    if (!numero) return "Sem número"
+    // Remove sufixos do WhatsApp e limpa caracteres não numéricos se necessário
     return numero.split("@")[0]
   }
 
@@ -175,7 +175,7 @@ export default function FollowupsPage() {
         minute: "2-digit",
       })
     } catch {
-      return "Data invÃ¡lida"
+      return "Data inválida"
     }
   }
 
@@ -330,7 +330,7 @@ export default function FollowupsPage() {
             className="bg-accent-green hover:bg-accent-green/90 text-bg-black font-medium"
           >
             <Settings className="h-4 w-4 mr-2" />
-            ConfiguraÃ§Ãµes
+            Configurações
           </Button>
           <Button
             onClick={fetchFollowups}
@@ -390,7 +390,7 @@ export default function FollowupsPage() {
         </CardContent>
       </Card>
 
-      {/* Cards de MÃ©tricas */}
+      {/* Cards de Métricas */}
       <div className="grid gap-4 md:grid-cols-6 shrink-0">
         {[
           { key: 'contatos', icon: Users, label: 'Contatos', value: followups.length, color: 'text-pure-white' },

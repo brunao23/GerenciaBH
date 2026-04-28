@@ -772,7 +772,7 @@ async function findTenantByInstagramAccountId(accountId: string): Promise<Tenant
   }
 
   // Ãšltimo recurso: verifica via API qual tenant tem acesso a esse account ID.
-  // entry.id do webhook Ã© o Business Account ID â€” deve ser consultado via graph.facebook.com.
+  // entry.id do webhook é o Business Account ID â€” deve ser consultado via graph.facebook.com.
   const apiVersion = String(process.env.META_API_VERSION || "v25.0").trim()
   const fbBase = `https://graph.facebook.com/${apiVersion}`
   for (const unit of allUnits) {
@@ -807,7 +807,7 @@ async function findTenantByInstagramAccountId(accountId: string): Promise<Tenant
         console.log("[IGWebhook] resolved tenant via API token verification:", unit.unit_prefix)
         const tenant = normalizeTenant(String(unit.unit_prefix || ""))
         if (!tenant) continue
-        // Atualiza o ID armazenado para evitar verificaÃ§Ãµes futuras
+        // Atualiza o ID armazenado para evitar verificações futuras
         const supabaseUpdate = createBiaSupabaseServerClient()
         const { data: unitRow } = await supabaseUpdate.from("units_registry").select("id, metadata").eq("unit_prefix", unit.unit_prefix).maybeSingle()
         if (unitRow) {
@@ -819,7 +819,7 @@ async function findTenantByInstagramAccountId(accountId: string): Promise<Tenant
         return { tenant, dataTenant, config: { provider: "meta" as const, ...config, metaInstagramAccountId: normalizedAccountId } }
       }
     } catch {
-      // ignora erros individuais de verificaÃ§Ã£o
+      // ignora erros individuais de verificação
     }
   }
 
@@ -834,7 +834,7 @@ async function resolveTenantByQueryParam(tenantParam: string | null): Promise<Te
   return { tenant, dataTenant, config }
 }
 
-// Cache in-memory para info de usuÃ¡rio do Instagram (1h TTL)
+// Cache in-memory para info de usuário do Instagram (1h TTL)
 const igSenderCache = new Map<string, { name: string; username: string; profilePic: string; bio: string; expiresAt: number }>()
 const igLeadMemoryCache = new Map<string, InstagramLeadMemorySnapshot>()
 
@@ -1566,13 +1566,13 @@ async function processDirectEvent(params: {
     return
   }
 
-  // Descarta quando remetente Ã‰ nossa prÃ³pria conta (echo sem is_echo)
+  // Descarta quando remetente Ã‰ nossa própria conta (echo sem is_echo)
   if (params.entryId && senderId === params.entryId) {
     params.stats.ignored += 1
     return
   }
 
-  // Descarta quando o destinatÃ¡rio NÃƒO Ã© nossa conta â€” mensagem foi enviada POR nÃ³s, nÃ£o para nÃ³s
+  // Descarta quando o destinatário NÃO é nossa conta â€” mensagem foi enviada POR nós, não para nós
   const recipientId = normalizeDigits(recipient.id)
   if (params.entryId && recipientId && recipientId !== params.entryId) {
     params.stats.ignored += 1
@@ -1896,7 +1896,7 @@ async function processCommentOrMentionEvent(params: {
   const from = safeObject(value.from)
   const senderId = normalizeDigits(from.id)
 
-  // Descarta comentÃ¡rios postados pela prÃ³pria conta (echo de reply do agente)
+  // Descarta comentários postados pela própria conta (echo de reply do agente)
   if (params.entryId && senderId === params.entryId) {
     params.stats.ignored += 1
     return

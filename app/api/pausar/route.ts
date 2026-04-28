@@ -3,7 +3,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
 
 /**
- * Normaliza nÃºmero de telefone removendo caracteres nÃ£o numÃ©ricos
+ * Normaliza número de telefone removendo caracteres não numéricos
  */
 function normalizePhoneNumber(numero: string): string {
   if (!numero || typeof numero !== 'string') return ''
@@ -13,7 +13,7 @@ function normalizePhoneNumber(numero: string): string {
 }
 
 /**
- * Gera variaÃ§Ãµes possÃ­veis do nÃºmero para compatibilidade (com/sem 55)
+ * Gera variações possíveis do número para compatibilidade (com/sem 55)
  */
 function getPhoneVariants(numero: string): string[] {
   const normalized = normalizePhoneNumber(numero)
@@ -35,23 +35,23 @@ function getPhoneVariants(numero: string): string[] {
 }
 
 /**
- * Valida nÃºmero de telefone
+ * Valida número de telefone
  */
 function validatePhoneNumber(numero: string): { valid: boolean; error?: string } {
   const normalized = normalizePhoneNumber(numero)
 
   if (!normalized || normalized.length < 8) {
-    return { valid: false, error: 'NÃºmero deve conter pelo menos 8 dÃ­gitos' }
+    return { valid: false, error: 'Número deve conter pelo menos 8 dígitos' }
   }
 
   if (normalized.length > 15) {
-    return { valid: false, error: 'NÃºmero muito longo (mÃ¡ximo 15 dÃ­gitos)' }
+    return { valid: false, error: 'Número muito longo (máximo 15 dígitos)' }
   }
 
   return { valid: true }
 }
 
-// GET - Listar todos os registros de pausa ou buscar por nÃºmero especÃ­fico
+// GET - Listar todos os registros de pausa ou buscar por número específico
 export async function GET(request: NextRequest) {
   try {
     const { tables } = await getTenantFromRequest()
@@ -80,7 +80,7 @@ export async function GET(request: NextRequest) {
       } else {
         query = query.eq("numero", normalized)
       }
-      console.log(`[Pausar API GET] Buscando pausa para nÃºmero: ${normalized}`)
+      console.log(`[Pausar API GET] Buscando pausa para número: ${normalized}`)
     }
 
     const { data, error } = await query.order("created_at", { ascending: false })
@@ -93,7 +93,7 @@ export async function GET(request: NextRequest) {
       }, { status: 500 })
     }
 
-    // Se buscar por nÃºmero especÃ­fico e nÃ£o encontrar, retorna valores padrÃ£o
+    // Se buscar por número específico e não encontrar, retorna valores padrão
     if (numero && (!data || data.length === 0)) {
       return NextResponse.json({
         success: true,
@@ -135,11 +135,11 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { numero, pausar, vaga, agendamento, paused_until } = body
 
-    // ValidaÃ§Ã£o do nÃºmero
+    // Validação do número
     if (!numero || typeof numero !== 'string') {
       return NextResponse.json({
         success: false,
-        error: "NÃºmero Ã© obrigatÃ³rio e deve ser uma string"
+        error: "Número é obrigatório e deve ser uma string"
       }, { status: 400 })
     }
 
@@ -170,12 +170,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ValidaÃ§Ã£o e conversÃ£o de tipos booleanos (aceita true, "true", 1)
+    // Validação e conversão de tipos booleanos (aceita true, "true", 1)
     const pausarBool = pausar === true || pausar === "true" || pausar === 1 || pausar === "1"
     const vagaBool = vaga === true || vaga === "true" || vaga === 1 || vaga === "1"
     const agendamentoBool = agendamento !== undefined
       ? (agendamento === true || agendamento === "true" || agendamento === 1 || agendamento === "1")
-      : true // Default true se nÃ£o informado
+      : true // Default true se não informado
 
     console.log(`[Pausar API POST] Upsert: ${targetNumero}, pausar=${pausarBool}, vaga=${vagaBool}, agendamento=${agendamentoBool}`)
 
@@ -225,7 +225,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (error) {
-      console.error("[Pausar API POST] Erro na operaÃ§Ã£o upsert:", {
+      console.error("[Pausar API POST] Erro na operação upsert:", {
         message: error.message,
         code: error.code,
         details: error.details,
@@ -269,7 +269,7 @@ export async function PUT(request: NextRequest) {
     if (!numero || typeof numero !== 'string') {
       return NextResponse.json({
         success: false,
-        error: "NÃºmero Ã© obrigatÃ³rio"
+        error: "Número é obrigatório"
       }, { status: 400 })
     }
 
@@ -357,7 +357,7 @@ export async function PUT(request: NextRequest) {
     if (!data) {
       return NextResponse.json({
         success: false,
-        error: "Registro nÃ£o encontrado"
+        error: "Registro não encontrado"
       }, { status: 404 })
     }
 

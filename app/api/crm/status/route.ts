@@ -122,7 +122,7 @@ export async function PUT(req: Request) {
       )
     }
 
-    // 1. Identificar Unidade (Tenant) da sessÃ£o JWT
+    // 1. Identificar Unidade (Tenant) da sessão JWT
     let tenant: string
     try {
       tenant = await resolveTenant(req)
@@ -133,7 +133,7 @@ export async function PUT(req: Request) {
 
     // Validar tenant
     if (!isValidTenant(tenant)) {
-      return NextResponse.json({ error: 'Tenant invÃ¡lido' }, { status: 400 })
+      return NextResponse.json({ error: 'Tenant inválido' }, { status: 400 })
     }
 
     const supabase = createBiaSupabaseServerClient()
@@ -248,7 +248,7 @@ export async function PUT(req: Request) {
       .eq("lead_id", leadId)
       .maybeSingle()
 
-    // Se erro e nÃ£o for "tabela nÃ£o existe", lanÃ§a erro
+    // Se erro e não for "tabela não existe", lança erro
     if (fetchError && !fetchError.message?.includes('does not exist') && fetchError.code !== 'PGRST116') {
       console.error("[CRM Status] Erro ao buscar status:", fetchError)
       throw fetchError
@@ -355,13 +355,13 @@ export async function PUT(req: Request) {
 
       if (error) {
         console.error("[CRM Status] Erro ao criar status:", error)
-        // Se tabela nÃ£o existe, apenas loga e retorna sucesso (tabela serÃ¡ criada depois)
+        // Se tabela não existe, apenas loga e retorna sucesso (tabela será criada depois)
         if (error.message?.includes('does not exist')) {
-          console.warn("[CRM Status] Tabela nÃ£o existe ainda. Execute a migraÃ§Ã£o SQL.")
+          console.warn("[CRM Status] Tabela não existe ainda. Execute a migração SQL.")
           return NextResponse.json({
             success: true,
-            message: "Status serÃ¡ salvo apÃ³s criar a tabela. Execute a migraÃ§Ã£o SQL primeiro.",
-            warning: "Tabela nÃ£o encontrada"
+            message: "Status será salvo após criar a tabela. Execute a migração SQL primeiro.",
+            warning: "Tabela não encontrada"
           })
         }
         throw error
@@ -392,12 +392,12 @@ export async function GET(req: Request) {
 
     if (!leadId) {
       return NextResponse.json(
-        { error: "leadId Ã© obrigatÃ³rio" },
+        { error: "leadId é obrigatório" },
         { status: 400 }
       )
     }
 
-    // Identificar Unidade (Tenant) da sessÃ£o JWT
+    // Identificar Unidade (Tenant) da sessão JWT
     let tenant: string
     try {
       tenant = await resolveTenant(req)
@@ -407,7 +407,7 @@ export async function GET(req: Request) {
 
     // Validar tenant
     if (!isValidTenant(tenant)) {
-      return NextResponse.json({ error: 'Tenant invÃ¡lido' }, { status: 400 })
+      return NextResponse.json({ error: 'Tenant inválido' }, { status: 400 })
     }
 
     const statusTable = `${tenant}_crm_lead_status`

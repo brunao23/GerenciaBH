@@ -3,7 +3,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
 
 /**
- * Normaliza nÃºmero de telefone removendo caracteres nÃ£o numÃ©ricos
+ * Normaliza número de telefone removendo caracteres não numéricos
  */
 function normalizePhoneNumber(numero: string): string {
     if (!numero || typeof numero !== 'string') return ''
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
         if (!Array.isArray(numbers) || numbers.length === 0) {
             return NextResponse.json({
                 success: false,
-                error: "Lista de nÃºmeros invÃ¡lida ou vazia"
+                error: "Lista de números inválida ou vazia"
             }, { status: 400 })
         }
 
@@ -40,16 +40,16 @@ export async function POST(request: NextRequest) {
         for (const num of numbers) {
             const normalized = normalizePhoneNumber(num)
 
-            // ValidaÃ§Ã£o simples: >= 8 dÃ­gitos e <= 15
+            // Validação simples: >= 8 dígitos e <= 15
             if (normalized.length >= 8 && normalized.length <= 15) {
                 const pausarBool = pausar === true
                 const record: Record<string, any> = {
                     numero: normalized,
                     pausar: pausarBool,
-                    vaga: vaga === true, // Default true se undefined no DB geralmente, mas aqui vamos forÃ§ar o que vier
+                    vaga: vaga === true, // Default true se undefined no DB geralmente, mas aqui vamos forçar o que vier
                     agendamento: agendamento === true,
                     updated_at: nowIso
-                    // created_at Ã© gerado pelo banco se for insert
+                    // created_at é gerado pelo banco se for insert
                 }
 
                 if (pausarBool) {
@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
         if (validRecords.length === 0) {
             return NextResponse.json({
                 success: false,
-                error: "Nenhum nÃºmero vÃ¡lido encontrado para processar."
+                error: "Nenhum número válido encontrado para processar."
             }, { status: 400 })
         }
 
@@ -107,8 +107,8 @@ export async function POST(request: NextRequest) {
             success: true,
             total_processed: validRecords.length,
             total_invalid: invalidNumbers.length,
-            invalid_examples: invalidNumbers.slice(0, 5), // Retorna amostra de invÃ¡lidos
-            message: `Processados ${validRecords.length} nÃºmeros com sucesso.`
+            invalid_examples: invalidNumbers.slice(0, 5), // Retorna amostra de inválidos
+            message: `Processados ${validRecords.length} números com sucesso.`
         })
 
     } catch (error: any) {

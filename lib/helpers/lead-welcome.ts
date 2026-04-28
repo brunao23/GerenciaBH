@@ -261,7 +261,7 @@ function extractAgentNameFromPromptBase(promptBase: string | null | undefined): 
   if (!text) return null
 
   const patterns = [
-    /(?:aqui e|aqui é|aqui Ã©|meu nome e|meu nome é|meu nome Ã©|eu sou|sou a|sou o)\s+([^\n.!?]{2,80})/i,
+    /(?:aqui e|aqui é|aqui é|meu nome e|meu nome é|meu nome é|eu sou|sou a|sou o)\s+([^\n.!?]{2,80})/i,
   ]
 
   for (const pattern of patterns) {
@@ -412,7 +412,7 @@ function sanitizePromptBaseForWelcome(promptBase: string | null | undefined, saf
 }
 
 function countEncodingArtifacts(value: string): number {
-  return (value.match(/Ã|Â|â€™|â€œ|â€|�/g) || []).length
+  return (value.match(/Ã|Â|’|“|â€|�/g) || []).length
 }
 
 function fixPtBrMojibake(value: string): string {

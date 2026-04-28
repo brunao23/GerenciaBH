@@ -9,7 +9,7 @@
  * 4. OBRIGATÃ“RIO: Replica os 7 workflows N8N
  * 5. OBRIGATÃ“RIO: Salva as credenciais
  * 
- * Se qualquer etapa falhar, a operaÃ§Ã£o Ã© revertida!
+ * Se qualquer etapa falhar, a operação é revertida!
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -21,13 +21,13 @@ const supabaseAdmin = createClient(
     process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// Interface para criaÃ§Ã£o de empresa - CREDENCIAIS SÃƒO OBRIGATÃ“RIAS
+// Interface para criação de empresa - CREDENCIAIS SÃO OBRIGATÃ“RIAS
 interface CriarEmpresaRequest {
-    nome: string;                    // Ex: "Vox SÃ£o Paulo" - OBRIGATÃ“RIO
-    schema?: string;                 // Opcional - se nÃ£o passar, gera automaticamente
+    nome: string;                    // Ex: "Vox São Paulo" - OBRIGATÃ“RIO
+    schema?: string;                 // Opcional - se não passar, gera automaticamente
     email_admin?: string;            // Email do admin da empresa
     telefone?: string;               // Telefone de contato
-    endereco?: string;               // EndereÃ§o
+    endereco?: string;               // Endereço
 
     // Credenciais N8N - OBRIGATÃ“RIAS para criar empresa
     credenciais: {
@@ -48,8 +48,8 @@ interface CriarEmpresaRequest {
 }
 
 /**
- * Gera um schema vÃ¡lido a partir do nome da empresa
- * Ex: "Vox SÃ£o Paulo" â†’ "vox_sao_paulo"
+ * Gera um schema válido a partir do nome da empresa
+ * Ex: "Vox São Paulo" â†’ "vox_sao_paulo"
  */
 function gerarSchema(nome: string): string {
     return nome
@@ -58,13 +58,13 @@ function gerarSchema(nome: string): string {
         .replace(/[\u0300-\u036f]/g, '') // Remove acentos
         .replace(/[^a-z0-9\s]/g, '')     // Remove caracteres especiais
         .trim()
-        .replace(/\s+/g, '_')            // EspaÃ§os viram underscore
+        .replace(/\s+/g, '_')            // Espaços viram underscore
         .replace(/_+/g, '_')             // Remove underscores duplicados
-        .substring(0, 30);               // MÃ¡ximo 30 caracteres
+        .substring(0, 30);               // Máximo 30 caracteres
 }
 
 /**
- * Verifica se o schema jÃ¡ existe
+ * Verifica se o schema já existe
  */
 async function schemaExiste(schema: string): Promise<boolean> {
     const { data } = await supabaseAdmin
@@ -92,7 +92,7 @@ async function criarTabelasEmpresa(schema: string): Promise<{ success: boolean; 
 
         return { success: true };
     } catch (err: any) {
-        console.error('ExceÃ§Ã£o ao criar tabelas:', err);
+        console.error('Exceção ao criar tabelas:', err);
         return { success: false, error: err.message };
     }
 }
@@ -135,7 +135,7 @@ async function rollbackEmpresa(empresaId: string, schema: string): Promise<void>
 }
 
 /**
- * Valida se todas as credenciais obrigatÃ³rias foram fornecidas
+ * Valida se todas as credenciais obrigatórias foram fornecidas
  */
 function validarCredenciais(credenciais: any): { valido: boolean; camposFaltando: string[] } {
     const camposObrigatorios = [
@@ -166,20 +166,20 @@ export async function POST(req: NextRequest) {
     let schemaCriado: string = '';
 
     try {
-        // 1. Verificar autenticaÃ§Ã£o
+        // 1. Verificar autenticação
         const authHeader = req.headers.get('authorization');
         if (!authHeader?.startsWith('Bearer ')) {
-            return NextResponse.json({ error: 'Token nÃ£o fornecido' }, { status: 401 });
+            return NextResponse.json({ error: 'Token não fornecido' }, { status: 401 });
         }
 
         const token = authHeader.split(' ')[1];
         const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
 
         if (authError || !user) {
-            return NextResponse.json({ error: 'Token invÃ¡lido' }, { status: 401 });
+            return NextResponse.json({ error: 'Token inválido' }, { status: 401 });
         }
 
-        // 2. Verificar se Ã© admin
+        // 2. Verificar se é admin
         const { data: usuario } = await supabaseAdmin
             .from('usuarios')
             .select('role')
@@ -190,20 +190,20 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: 'Acesso negado. Apenas admins.' }, { status: 403 });
         }
 
-        // 3. Obter dados da requisiÃ§Ã£o
+        // 3. Obter dados da requisição
         const body: CriarEmpresaRequest = await req.json();
 
-        // 4. VALIDAÃ‡ÃƒO OBRIGATÃ“RIA: Nome
+        // 4. VALIDAÃ‡ÃO OBRIGATÃ“RIA: Nome
         if (!body.nome || body.nome.trim().length < 2) {
             return NextResponse.json({
-                error: 'Nome da empresa Ã© OBRIGATÃ“RIO (mÃ­nimo 2 caracteres)'
+                error: 'Nome da empresa é OBRIGATÃ“RIO (mínimo 2 caracteres)'
             }, { status: 400 });
         }
 
-        // 5. VALIDAÃ‡ÃƒO OBRIGATÃ“RIA: Credenciais
+        // 5. VALIDAÃ‡ÃO OBRIGATÃ“RIA: Credenciais
         if (!body.credenciais) {
             return NextResponse.json({
-                error: 'Credenciais N8N sÃ£o OBRIGATÃ“RIAS para criar uma empresa',
+                error: 'Credenciais N8N são OBRIGATÃ“RIAS para criar uma empresa',
                 campos_obrigatorios: [
                     'supabase_api_id', 'supabase_api_name',
                     'redis_id', 'redis_name',
@@ -217,7 +217,7 @@ export async function POST(req: NextRequest) {
         const validacaoCredenciais = validarCredenciais(body.credenciais);
         if (!validacaoCredenciais.valido) {
             return NextResponse.json({
-                error: 'Credenciais incompletas. Todos os campos sÃ£o OBRIGATÃ“RIOS.',
+                error: 'Credenciais incompletas. Todos os campos são OBRIGATÃ“RIOS.',
                 campos_faltando: validacaoCredenciais.camposFaltando,
             }, { status: 400 });
         }
@@ -225,7 +225,7 @@ export async function POST(req: NextRequest) {
         // 6. Gerar ou validar schema
         let schema = body.schema?.trim() || gerarSchema(body.nome);
 
-        // Verificar se schema jÃ¡ existe
+        // Verificar se schema já existe
         if (await schemaExiste(schema)) {
             let contador = 1;
             let novoSchema = `${schema}_${contador}`;
@@ -236,7 +236,7 @@ export async function POST(req: NextRequest) {
 
             if (contador >= 100) {
                 return NextResponse.json({
-                    error: `Schema "${schema}" jÃ¡ existe e nÃ£o foi possÃ­vel gerar alternativa`
+                    error: `Schema "${schema}" já existe e não foi possível gerar alternativa`
                 }, { status: 400 });
             }
 
@@ -294,10 +294,10 @@ export async function POST(req: NextRequest) {
         // 9. Verificar se tabelas foram criadas
         const verificacao = await verificarTabelas(schema);
         if (!verificacao.success) {
-            console.error('âŒ Tabelas nÃ£o foram criadas corretamente - fazendo rollback');
+            console.error('âŒ Tabelas não foram criadas corretamente - fazendo rollback');
             await rollbackEmpresa(empresa.id, schema);
             return NextResponse.json({
-                error: 'Tabelas nÃ£o foram criadas corretamente',
+                error: 'Tabelas não foram criadas corretamente',
                 tabelas: verificacao.tabelas,
                 rollback: true
             }, { status: 500 });

@@ -21,7 +21,7 @@ export interface CacheHitResult {
 export interface CacheStoreInput {
   tenant: string
   message: string
-  embedding: number[]
+  embedding?: number[] | null
   responseText: string
   hasToolCalls: boolean
   category?: string
@@ -244,7 +244,7 @@ export class SemanticCacheService {
   async findCachedResponse(input: {
     tenant: string
     message: string
-    embedding: number[]
+    embedding?: number[] | null
     similarityThreshold?: number
   }): Promise<CacheHitResult | null> {
     const threshold = input.similarityThreshold ?? DEFAULT_SIMILARITY_THRESHOLD
@@ -274,7 +274,11 @@ export class SemanticCacheService {
       }
     }
 
-    // 2) Vector similarity search via RPC
+    // 2) Vector similarity search via RPC (optional)
+    if (!Array.isArray(input.embedding) || input.embedding.length !== EMBEDDING_DIMS) {
+      return null
+    }
+
     const embeddingStr = `[${input.embedding.join(",")}]`
 
     const { data: matches, error } = await this.supabase.rpc("match_semantic_cache", {
@@ -307,9 +311,11 @@ export class SemanticCacheService {
 
   // ── Cache Storage ────────────────────────────────────────────
 
-  async storeResponse(input: CacheStoreInput): Promise<void> {
+  async storeResponse(input: CacheStoreInput): Promise<{ stored: boolean; reason?: string }> {
     const normalized = normalizeForCache(input.message)
     const hash = hashMessage(normalized)
+
+    const hasEmbedding = Array.isArray(input.embedding) && input.embedding.length === EMBEDDING_DIMS
 
     // Check for exact duplicate
     const { data: existing } = await this.supabase
@@ -321,9 +327,9 @@ export class SemanticCacheService {
       .limit(1)
       .single()
 
-    if (existing) return // Already cached
+    if (existing) return { stored: false, reason: "duplicate_hash" }
 
-    const embeddingStr = `[${input.embedding.join(",")}]`
+    const embeddingStr = hasEmbedding ? `[${input.embedding!.join(",")}]` : null
     const ttlHours = input.ttlHours ?? DEFAULT_TTL_HOURS
     const expiresAt = new Date(Date.now() + ttlHours * 3600_000).toISOString()
 
@@ -339,8 +345,17 @@ export class SemanticCacheService {
     })
 
     if (insertError) {
+      const isEmbeddingNotNullViolation =
+        !hasEmbedding &&
+        insertError.code === "23502" &&
+        String(insertError.message || "").toLowerCase().includes("embedding")
+      if (isEmbeddingNotNullViolation) {
+        return { stored: false, reason: "embedding_required_by_schema" }
+      }
       throw new Error(`semantic_cache insert failed: ${insertError.message} (${insertError.code})`)
     }
+
+    return { stored: true }
   }
 
   // ── Cacheability Check ───────────────────────────────────────
@@ -349,7 +364,6 @@ export class SemanticCacheService {
     message: string
     responseText: string
     hasToolCalls: boolean
-    conversationLength: number
   }): CacheabilityResult {
     // Never cache tool calls (scheduling, slots, etc.)
     if (input.hasToolCalls) {
@@ -380,11 +394,6 @@ export class SemanticCacheService {
     // Mensagem do lead com referência temporal específica (hoje, amanhã) — não cachear
     if (hasTemporalReference(input.message)) {
       return { cacheable: false, reason: "temporal_message" }
-    }
-
-    // Conversas muito curtas: relaxa para categorias de alto valor
-    if (input.conversationLength < 2) {
-      return { cacheable: false, reason: "conversation_too_short" }
     }
 
     // Never cache very long input messages (likely unique/complex)

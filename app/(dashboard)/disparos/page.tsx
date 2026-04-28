@@ -707,7 +707,7 @@ export default function DisparosPage() {
     if (!metaReport?.clicks?.length) return []
     const counts = new Map<string, number>()
     metaReport.clicks.forEach((click) => {
-      const label = String(click.label || "").trim() || "Sem rÃ³tulo"
+      const label = String(click.label || "").trim() || "Sem rótulo"
       counts.set(label, (counts.get(label) || 0) + 1)
     })
     return Array.from(counts.entries())
@@ -1080,12 +1080,12 @@ export default function DisparosPage() {
       const res = await fetch("/api/meta/fx?base=USD&quote=BRL")
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        throw new Error(data?.error || "Erro ao carregar cÃ¢mbio")
+        throw new Error(data?.error || "Erro ao carregar câmbio")
       }
       setMetaFxRate(Number(data?.rate) || null)
       setMetaFxDate(String(data?.date || ""))
     } catch (error: any) {
-      setMetaFxError(error?.message || "Erro ao carregar cÃ¢mbio")
+      setMetaFxError(error?.message || "Erro ao carregar câmbio")
     } finally {
       setMetaFxLoading(false)
     }
@@ -1327,7 +1327,7 @@ export default function DisparosPage() {
         <CardContent className="space-y-4">
           {!metaReportReady && (
             <div className="rounded-lg border border-green-500/30 bg-green-500/10 p-2 text-xs text-green-200">
-              Configure Access Token, WABA ID e Phone Number ID para ativar relatÃ³rios Meta.
+              Configure Access Token, WABA ID e Phone Number ID para ativar relatórios Meta.
             </div>
           )}
           {metaReportError && (
@@ -1559,7 +1559,7 @@ export default function DisparosPage() {
                       </ResponsiveContainer>
                     </div>
                   ) : (
-                    <div className="text-xs text-text-gray">Sem dados de volume no perÃ­odo.</div>
+                    <div className="text-xs text-text-gray">Sem dados de volume no período.</div>
                   )}
                 </div>
                 <div className="rounded-lg border border-border-gray/60 bg-foreground/5 p-3">
@@ -1577,7 +1577,7 @@ export default function DisparosPage() {
                     </div>
                   )}
                   <div className="text-[11px] text-text-gray mt-2">
-                    Cliques em URLs nÃ£o sÃ£o reportados pela Meta.
+                    Cliques em URLs não são reportados pela Meta.
                   </div>
                 </div>
               </div>

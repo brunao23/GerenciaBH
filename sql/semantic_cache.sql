@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS public.semantic_cache (
   tenant TEXT NOT NULL,
   message_hash TEXT NOT NULL,
   message_normalized TEXT NOT NULL,
-  embedding vector(768) NOT NULL,
+  embedding vector(768),
   response_text TEXT NOT NULL,
   has_tool_calls BOOLEAN NOT NULL DEFAULT false,
   category TEXT,
@@ -74,6 +74,7 @@ BEGIN
   FROM public.semantic_cache sc
   WHERE sc.tenant = query_tenant
     AND sc.is_active = true
+    AND sc.embedding IS NOT NULL
     AND (sc.expires_at IS NULL OR sc.expires_at > NOW())
     AND (1 - (sc.embedding <=> query_embedding)) >= similarity_threshold
   ORDER BY sc.embedding <=> query_embedding

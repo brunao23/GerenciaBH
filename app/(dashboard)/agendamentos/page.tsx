@@ -307,7 +307,7 @@ export default function AgendamentosPage() {
     if (!tenant) return
     const contato = newAgendamento.contato.trim()
     if (!contato) {
-      toast.error("Contato Ã© obrigatÃ³rio")
+      toast.error("Contato é obrigatório")
       return
     }
 
@@ -760,7 +760,7 @@ export default function AgendamentosPage() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="novo-horario" className="text-pure-white">HorÃ¡rio</Label>
+                    <Label htmlFor="novo-horario" className="text-pure-white">Horário</Label>
                     <Input
                       id="novo-horario"
                       type="time"
@@ -807,13 +807,13 @@ export default function AgendamentosPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="novo-observacoes" className="text-pure-white">ObservaÃ§Ãµes</Label>
+                  <Label htmlFor="novo-observacoes" className="text-pure-white">Observações</Label>
                   <Textarea
                     id="novo-observacoes"
                     value={newAgendamento.observacoes}
                     onChange={(e) => setNewAgendamento({ ...newAgendamento, observacoes: e.target.value })}
                     className="bg-primary-black border-border-gray text-pure-white min-h-[100px]"
-                    placeholder="ObservaÃ§Ãµes sobre o agendamento"
+                    placeholder="Observações sobre o agendamento"
                     maxLength={500}
                   />
                   <p className="text-xs text-text-gray text-right">
