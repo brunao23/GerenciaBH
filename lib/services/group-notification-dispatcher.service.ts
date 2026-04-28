@@ -115,7 +115,12 @@ export class GroupNotificationDispatcherService {
         | { success: boolean; error?: string }
         | undefined
 
-      if (buttons.length > 0) {
+      // IMPORTANTE: Grupos WhatsApp NAO suportam button-list.
+      // O Z-API pode retornar success:true mas a mensagem nunca chega.
+      // Para grupos, SEMPRE usar texto puro com os botoes como comandos legiveis.
+      const isGroupTarget = /@g\.us$/i.test(target) || /-group$/i.test(target)
+
+      if (buttons.length > 0 && !isGroupTarget) {
         sentResult = await this.messaging
           .sendButtonList({
             tenant: input.tenant,
@@ -139,7 +144,7 @@ export class GroupNotificationDispatcherService {
                 .map((button) => {
                   const match = button.id.match(/^fupctl:(pause|unpause):([A-Za-z0-9_-]{20,})$/i)
                   if (!match?.[1] || !match?.[2]) {
-                    return `- ${button.label}: ${button.id}`
+                    return `- ${button.label}`
                   }
                   const action = String(match[1]).toLowerCase() === "unpause" ? "despausar" : "pausar"
                   return `- /${action} ${match[2]}`
