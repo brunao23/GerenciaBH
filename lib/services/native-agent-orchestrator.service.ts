@@ -2794,27 +2794,73 @@ export class NativeAgentOrchestratorService {
           }
         } catch (legacyError) {
           console.error("[native-agent] legacy fallback also failed:", legacyError)
-          decision = {
-            reply:
-              "Perfeito. Recebi sua mensagem e jÃƒÃ‚Â¡ estou organizando as prÃƒÃ‚Â³ximas informaÃƒÃ‚Â§ÃƒÃ‚Âµes para vocÃƒÃ‚Âª.",
-            actions: [{ type: "none" }],
-            handoff: false,
-            toolCalls: [],
-            executions: [],
+
+          // ================= CIRCUIT BREAKER / FALLBACK =================
+          const fallbackLlm = LLMFactory.getFallbackService(config)
+          if (fallbackLlm && fallbackLlm.constructor.name !== llm.constructor.name) {
+            console.log(`[native-agent] Triggering Global Fallback LLM!`)
+            try {
+              const fallbackDecision = await fallbackLlm.decideNextTurnWithTools({
+                systemPrompt: basePrompt,
+                conversation,
+                sampling: llmSampling,
+                functionDeclarations: this.buildFunctionDeclarations(config, { source: input.source }),
+                onToolCall: (toolCall) =>
+                  this.executeToolCall({
+                    toolCall,
+                    tenant,
+                    phone,
+                    sessionId,
+                    contactName: input.contactName,
+                    config,
+                    chat,
+                    incomingMessageId: input.messageId,
+                    qualificationState,
+                  }),
+              })
+              decision = fallbackDecision
+            } catch (fallbackToolError) {
+              try {
+                const fallbackLegacy = await fallbackLlm.decideNextTurn({
+                  systemPrompt: basePrompt,
+                  conversation,
+                  sampling: llmSampling,
+                })
+                decision = {
+                  ...fallbackLegacy,
+                  toolCalls: [],
+                  executions: [],
+                }
+              } catch (fallbackLegacyError) {
+                console.error("[native-agent] FALLBACK LLM ALSO FAILED!", fallbackLegacyError)
+                decision = null // Cai no erro silencioso abaixo
+              }
+            }
           }
-          await this
-            .persistDebugStatus({
-              chat,
-              sessionId,
-              content: "native_agent_llm_fallback_used",
-              details: {
-                debug_event: "native_agent_llm_fallback_used",
-                debug_severity: "warning",
-                tool_error: String((toolError as any)?.message || toolError || ""),
-                legacy_error: String((legacyError as any)?.message || legacyError || ""),
-              },
-            })
-            .catch(() => {})
+
+          if (!decision) {
+            decision = {
+              reply:
+                "Perfeito. Recebi sua mensagem e já estou organizando as próximas informações para você.",
+              actions: [{ type: "none" }],
+              handoff: false,
+              toolCalls: [],
+              executions: [],
+            }
+            await this
+              .persistDebugStatus({
+                chat,
+                sessionId,
+                content: "native_agent_llm_fallback_used",
+                details: {
+                  debug_event: "native_agent_llm_fallback_used",
+                  debug_severity: "warning",
+                  tool_error: String((toolError as any)?.message || toolError || ""),
+                  legacy_error: String((legacyError as any)?.message || legacyError || ""),
+                },
+              })
+              .catch(() => {})
+          }
         }
       }
 

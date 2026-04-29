@@ -68,4 +68,29 @@ export class LLMFactory {
         console.log(`[LLMFactory] Using Google Gemini provider model=${model}`);
         return new GeminiService(apiKey, model);
     }
+
+    static getFallbackService(config: NativeAgentConfig): LLMService | null {
+        // Tenta Anthropic Claude 3.5 Haiku
+        const anthropicKey = config.anthropicApiKey || process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY || "";
+        if (anthropicKey) {
+            console.log(`[LLMFactory] Using Fallback: Anthropic Claude 3.5 Haiku`);
+            return new AnthropicService(anthropicKey, "claude-3-5-haiku-20241022");
+        }
+
+        // Tenta OpenAI GPT-4o-mini
+        const openaiKey = config.openaiApiKey || process.env.OPENAI_API_KEY || "";
+        if (openaiKey) {
+            console.log(`[LLMFactory] Using Fallback: OpenAI GPT-4o-mini`);
+            return new OpenAIService(openaiKey, "gpt-4o-mini");
+        }
+
+        // Tenta Groq Llama 3
+        const groqKey = config.groqApiKey || process.env.GROQ_API_KEY || "";
+        if (groqKey) {
+            console.log(`[LLMFactory] Using Fallback: Groq Llama 3 70B`);
+            return new GroqService(groqKey, "llama3-70b-8192");
+        }
+
+        return null;
+    }
 }

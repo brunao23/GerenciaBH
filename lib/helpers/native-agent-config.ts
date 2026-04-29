@@ -1,6 +1,7 @@
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { normalizeTenant } from "./normalize-tenant"
 import { getTenantCandidates, resolveTenantRegistryPrefix } from "./tenant-resolution"
+import { RedisService } from "@/lib/services/redis.service"
 
 export interface NativeAgentConfig {
   enabled: boolean
@@ -1398,6 +1399,10 @@ export async function getNativeAgentConfigForTenant(
   const normalizedTenant = normalizeTenant(tenant)
   if (!normalizedTenant) return null
 
+  const cacheKey = `config:native-agent:${normalizedTenant}`
+  const cached = await RedisService.getCache<NativeAgentConfig>(cacheKey)
+  if (cached) return cached
+
   const supabase = createBiaSupabaseServerClient()
   const registryTenant = await resolveTenantRegistryPrefix(normalizedTenant)
   const lookupCandidates = buildRegistryLookupCandidates(normalizedTenant, registryTenant)
@@ -1405,8 +1410,12 @@ export async function getNativeAgentConfigForTenant(
   const metadata = safeMetadata(data?.metadata)
   const candidate = metadata.nativeAgent ?? metadata.aiAgent ?? null
 
-  if (!candidate) return normalizeConfig({})
-  return normalizeConfig(candidate)
+  let finalConfig: NativeAgentConfig
+  if (!candidate) finalConfig = normalizeConfig({})
+  else finalConfig = normalizeConfig(candidate)
+
+  await RedisService.setCache(cacheKey, finalConfig, 300) // 5 minutes cache
+  return finalConfig
 }
 
 export async function updateNativeAgentConfigForTenant(

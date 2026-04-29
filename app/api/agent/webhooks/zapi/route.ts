@@ -20,6 +20,7 @@ import { AgentTaskQueueService } from "@/lib/services/agent-task-queue.service"
 import { GeminiService } from "@/lib/services/gemini.service"
 import { TenantMessagingService } from "@/lib/services/tenant-messaging.service"
 import { GroupNotificationDispatcherService } from "@/lib/services/group-notification-dispatcher.service"
+import { RedisService } from "@/lib/services/redis.service"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -3541,76 +3542,84 @@ export async function POST(req: NextRequest) {
       // silencioso — não bloqueia o fluxo principal
     }
 
-    const orchestrator = new NativeAgentOrchestratorService()
-    let result: any = null
-    try {
-      result = await orchestrator.handleInboundMessage({
-        tenant,
-        message: mergedInboundMessage,
-        phone: replyPhone,
-        sessionId: sessionForInbound,
-        messageId: persisted.messageId || event.messageId,
-        source: "zapi",
-        contactName: event.contactName,
-        chatLid: event.chatLid,
-        status: event.status,
-        moment: event.moment,
-        senderName: event.senderName,
-        waitingMessage: event.waitingMessage,
-        isStatusReply: event.isStatusReply,
-        replyToMessageId:
-          replyAnchorTurn?.messageId ||
-          replyAnchorTurn?.replyToMessageId ||
-          event.replyToMessageId ||
-          persisted.messageId,
-        replyPreview: replyAnchorTurn?.replyPreview || event.replyPreview,
-        bufferAnchorCreatedAt: latestTurn?.createdAt || persisted.createdAt || new Date().toISOString(),
-        bufferAnchorMessageId:
-          latestTurn?.messageId || persisted.messageId || event.messageId || undefined,
-        messageAlreadyPersisted: true,
-        forceUserTurnForDecision: false,
-        fromMeTrigger: shouldTriggerFromExternalStarter,
-        fromMeTriggerContent: shouldTriggerFromExternalStarter ? fromMeTriggerContent : undefined,
-        isReaction: event.isReaction,
-        reactionValue: event.reactionValue,
-        isGif: event.isGif,
-        hasMedia: event.hasMedia,
-        mediaType: event.mediaType,
-        mediaMimeType: event.mediaMimeType,
-        mediaUrl: event.mediaUrl,
-        mediaCaption: event.mediaCaption,
-        mediaFileName: event.mediaFileName,
-        mediaAnalysis: event.mediaAnalysis,
-        mediaAnalysisError: event.mediaAnalysisError,
-        raw: event.raw,
-        contextHint: metaLeadContextHint,
-      })
-    } catch (orchestratorError: any) {
-      const fallbackMessage =
-        "Recebi sua mensagem. Estou validando as informacoes e ja continuo seu atendimento."
-      const messaging = new TenantMessagingService()
-      const sent = await messaging.sendText({
-        tenant,
-        phone: replyPhone,
-        sessionId: sessionForInbound,
-        message: fallbackMessage,
-        source: "native-agent-webhook-fallback",
-        replyToMessageId:
-          replyAnchorTurn?.messageId ||
-          replyAnchorTurn?.replyToMessageId ||
-          event.replyToMessageId ||
-          persisted.messageId,
-      })
+    const backgroundTask = async () => {
+      const lockKey = `lock:webhook:session:${tenant}:${sessionForInbound}`
+      const lockAcquired = await RedisService.waitAndAcquireLock(lockKey, 60, 20000)
+      if (!lockAcquired) {
+        console.warn(`[Webhook][Background] Timeout esperando lock para ${lockKey}. Prosseguindo mesmo assim.`)
+      }
 
-      result = {
-        processed: false,
-        replied: sent.success,
-        reason: "native_agent_orchestrator_error_fallback",
-        fallback: sent.success ? "sent" : "failed",
-        error: String(orchestratorError?.message || "native_agent_orchestrator_error"),
-        sendError: sent.success ? undefined : sent.error || "fallback_send_failed",
+      try {
+        const orchestrator = new NativeAgentOrchestratorService()
+        await orchestrator.handleInboundMessage({
+          tenant,
+          message: mergedInboundMessage,
+          phone: replyPhone,
+          sessionId: sessionForInbound,
+          messageId: persisted.messageId || event.messageId,
+          source: "zapi",
+          contactName: event.contactName,
+          chatLid: event.chatLid,
+          status: event.status,
+          moment: event.moment,
+          senderName: event.senderName,
+          waitingMessage: event.waitingMessage,
+          isStatusReply: event.isStatusReply,
+          replyToMessageId:
+            replyAnchorTurn?.messageId ||
+            replyAnchorTurn?.replyToMessageId ||
+            event.replyToMessageId ||
+            persisted.messageId,
+          replyPreview: replyAnchorTurn?.replyPreview || event.replyPreview,
+          bufferAnchorCreatedAt: latestTurn?.createdAt || persisted.createdAt || new Date().toISOString(),
+          bufferAnchorMessageId:
+            latestTurn?.messageId || persisted.messageId || event.messageId || undefined,
+          messageAlreadyPersisted: true,
+          forceUserTurnForDecision: false,
+          fromMeTrigger: shouldTriggerFromExternalStarter,
+          fromMeTriggerContent: shouldTriggerFromExternalStarter ? fromMeTriggerContent : undefined,
+          isReaction: event.isReaction,
+          reactionValue: event.reactionValue,
+          isGif: event.isGif,
+          hasMedia: event.hasMedia,
+          mediaType: event.mediaType,
+          mediaMimeType: event.mediaMimeType,
+          mediaUrl: event.mediaUrl,
+          mediaCaption: event.mediaCaption,
+          mediaFileName: event.mediaFileName,
+          mediaAnalysis: event.mediaAnalysis,
+          mediaAnalysisError: event.mediaAnalysisError,
+          raw: event.raw,
+          contextHint: metaLeadContextHint,
+        })
+      } catch (orchestratorError: any) {
+        console.error(`[Webhook][Background] Orquestrador falhou para ${sessionForInbound}:`, orchestratorError)
+        try {
+          const fallbackMessage =
+            "Recebi sua mensagem. Estou validando as informacoes e ja continuo seu atendimento."
+          const messaging = new TenantMessagingService()
+          await messaging.sendText({
+            tenant,
+            phone: replyPhone,
+            sessionId: sessionForInbound,
+            message: fallbackMessage,
+            source: "native-agent-webhook-fallback",
+            replyToMessageId:
+              replyAnchorTurn?.messageId ||
+              replyAnchorTurn?.replyToMessageId ||
+              event.replyToMessageId ||
+              persisted.messageId,
+          })
+        } catch (fallbackErr) {
+          console.error(`[Webhook][Background] Falha ao enviar fallback para ${sessionForInbound}:`, fallbackErr)
+        }
+      } finally {
+        await RedisService.releaseLock(lockKey)
       }
     }
+
+    // Inicia o processamento pesado em Background para liberar a Z-API em milissegundos
+    waitUntil(backgroundTask())
 
     const taskInsight = await taskInsightPromise
 
@@ -3624,7 +3633,7 @@ export async function POST(req: NextRequest) {
       resolvedBy: routing.resolvedBy,
       inboundBufferSeconds,
       bufferedMessagesCount: bufferedTurns.length,
-      result,
+      async: true,
       taskInsight,
     })
   } catch (error: any) {
