@@ -2262,26 +2262,28 @@ export class AgentTaskQueueService {
     }
 
     const stage = input.step && input.totalSteps ? `${input.step}/${input.totalSteps}` : "n/a"
-    const lineMessage = input.message ? `ðŸ’¬ *Mensagem:* ${sanitizeFollowupText(input.message, 180)}` : ""
+    const lineMessage = input.message
+      ? `\u{1F4AC} *Mensagem:* ${sanitizeFollowupText(input.message, 180)}`
+      : ""
 
-    let header = "ðŸŸ¡ *NOTIFICAÃ‡ÃƒO ENVIADA*"
+    let header = "\u{1F7E1} *NOTIFICACAO ENVIADA*"
     let labelEtapa = "Etapa"
     
     if (input.taskType === "followup") {
-      header = "ðŸ”„ *FOLLOW-UP ENVIADO*"
+      header = "\u{1F504} *FOLLOW-UP ENVIADO*"
     } else if (input.taskType === "official_reminder" || input.taskType === "reminder") {
-      header = "â° *LEMBRETE ENVIADO*"
+      header = "\u23F0 *LEMBRETE ENVIADO*"
       labelEtapa = "Tipo"
     } else if (input.taskType === "call" || input.taskType === "ligacao") {
-      header = "ðŸ“ž *LIGAÃ‡ÃƒO REGISTRADA*"
+      header = "\u{1F4DE} *LIGACAO REGISTRADA*"
     } else if (input.taskType === "post_schedule") {
-      header = "âœ… *PÃ“S-AGENDAMENTO ENVIADO*"
+      header = "\u2705 *POS-AGENDAMENTO ENVIADO*"
     } else if (input.taskType === "reengagement") {
-      header = "ðŸ” *REENGAJAMENTO ENVIADO*"
+      header = "\u{1F501} *REENGAJAMENTO ENVIADO*"
     } else if (input.taskType === "welcome") {
-      header = "ðŸŽ‰ *BOAS-VINDAS ENVIADAS*"
+      header = "\u{1F389} *BOAS-VINDAS ENVIADAS*"
     } else {
-      header = `ðŸŸ¡ *${input.taskType.toUpperCase()} ENVIADO*`
+      header = `\u{1F7E1} *${input.taskType.toUpperCase()} ENVIADO*`
     }
 
     if ((input.kind as string) === "cancelled") {
@@ -2297,8 +2299,8 @@ export class AgentTaskQueueService {
     const body = [
       header,
       "",
-      input.step ? `ðŸ“Š *${labelEtapa}:* ${stage}` : "",
-      `ðŸ“± *Contato:* ${leadRef || input.phone}`,
+      input.step ? `\u{1F4CA} *${labelEtapa}:* ${stage}` : "",
+      `\u{1F4F1} *Contato:* ${leadRef || input.phone}`,
       reasonText ? `Motivo: ${sanitizeFollowupText(reasonText, 160)}` : "",
       lineMessage,
     ]
