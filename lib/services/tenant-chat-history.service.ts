@@ -328,6 +328,55 @@ export class TenantChatHistoryService {
     return false
   }
 
+  async isStalledConversation(sessionId: string, withinSeconds: number): Promise<boolean> {
+    const normalizedSession = normalizeSessionId(sessionId)
+    if (!normalizedSession) return false
+
+    const table = await this.getChatTableName()
+    const sessionVariants = buildSessionIdVariants(sessionId)
+    let query: any = this.supabase
+      .from(table)
+      .select("created_at, message")
+      .order("created_at", { ascending: false })
+      .limit(10)
+
+    if (sessionVariants.length > 1) {
+      query = query.in("session_id", sessionVariants)
+    } else {
+      query = query.eq("session_id", normalizedSession)
+    }
+
+    const { data, error } = await query
+    if (error || !Array.isArray(data) || data.length === 0) return false
+
+    const thresholdMs = Date.now() - withinSeconds * 1000
+
+    let hasUserMessage = false
+    let hasAssistantMessage = false
+    let newestUserMs = 0
+
+    for (const row of data) {
+      const message = row?.message || {}
+      const role = normalizeRole(message?.role, message?.type, message?.fromMe)
+      const createdAt = new Date(row?.created_at || message?.created_at || 0).getTime()
+
+      if (role === "assistant") {
+        hasAssistantMessage = true
+        break
+      }
+
+      if (role === "user" && !hasUserMessage) {
+        hasUserMessage = true
+        newestUserMs = createdAt
+      }
+    }
+
+    if (hasUserMessage && !hasAssistantMessage && newestUserMs > 0 && newestUserMs < thresholdMs) {
+      return true
+    }
+    return false
+  }
+
   async loadConversation(sessionId: string, limit = 25): Promise<ConversationTurn[]> {
     const normalizedSession = normalizeSessionId(sessionId)
     if (!normalizedSession) return []

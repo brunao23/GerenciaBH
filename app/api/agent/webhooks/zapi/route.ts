@@ -2319,8 +2319,9 @@ async function persistZapiEvent(params: {
   persisted: boolean
   duplicate: boolean
   messageId?: string
-  createdAt?: string
+  retryStalled?: boolean
 }> {
+  const resolvedSessionId = normalizeSessionId(params.sessionId || resolveSessionForPersistence(params.event))
   const tenant = normalizeTenant(params.tenant)
   const event = params.event
   if (!shouldPersistInChatHistory(event)) {
@@ -2333,11 +2334,14 @@ async function persistZapiEvent(params: {
   if (messageId) {
     const exists = await chat.hasMessageId(messageId)
     if (exists) {
+      const isStalled = await chat.isStalledConversation(resolvedSessionId, 45)
+      if (isStalled) {
+        return { persisted: false, duplicate: true, messageId, createdAt, retryStalled: true }
+      }
       return { persisted: false, duplicate: true, messageId, createdAt }
     }
   }
 
-  const resolvedSessionId = normalizeSessionId(params.sessionId || resolveSessionForPersistence(event))
   const resolvedPhone = normalizePhoneNumber(params.phone || event.phone || "")
   const eventContent = buildContent(event)
   const eventRole = buildRole(event)
@@ -2365,6 +2369,10 @@ async function persistZapiEvent(params: {
       ignoreMessageId: messageId,
     })
     if (hasRecentIncomingDuplicate) {
+      const isStalled = await chat.isStalledConversation(resolvedSessionId, 45)
+      if (isStalled) {
+        return { persisted: false, duplicate: true, messageId, createdAt, retryStalled: true }
+      }
       return { persisted: false, duplicate: true, messageId, createdAt }
     }
   }
@@ -3293,7 +3301,7 @@ export async function POST(req: NextRequest) {
       sessionId: canonicalSessionId,
       phone: canonicalPhone,
     })
-    if (persisted.duplicate) {
+    if (persisted.duplicate && !(persisted as any).retryStalled) {
       return NextResponse.json({
         received: true,
         ignored: true,
