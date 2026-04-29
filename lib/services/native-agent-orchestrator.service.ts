@@ -1488,7 +1488,7 @@ function getSlotDateContext(dateIso: string, nowParts: LocalDateTimeParts): {
   } else if (daysFromToday === 1) {
     relativeLabel = "amanha"
   } else if (daysFromToday === 2) {
-    relativeLabel = "depois de amanha"
+    relativeLabel = weekdayName // ex: "quarta", "quinta" — nunca "depois de amanha"
   } else if (daysFromToday >= 3 && daysFromToday <= 6) {
     relativeLabel = weekdayName
   } else if (daysFromToday >= 7 && daysFromToday <= 13) {
@@ -2117,7 +2117,7 @@ export class NativeAgentOrchestratorService {
     if (input.isReaction && input.reactionValue && !input.fromMeTrigger && tenant && recipient && sessionId) {
       const config = await getNativeAgentConfigForTenant(tenant)
       if (!isInstagramChannel && config?.reactionsEnabled && input.messageId) {
-        const ackEmojis = ["Ã°Å¸ËœÅ ", "Ã°Å¸â€˜Â", "Ã°Å¸â„¢Â"]
+        const ackEmojis = ["\uD83D\uDC4D", "\u2764\uFE0F", "\uD83D\uDC4F", "\uD83D\uDE4F"]
         const ackEmoji = ackEmojis[Math.floor(Math.random() * ackEmojis.length)]
         this.messaging
           .sendReaction({ tenant, phone: recipient, messageId: input.messageId, reaction: ackEmoji })
@@ -4215,10 +4215,10 @@ export class NativeAgentOrchestratorService {
       "- [USO DE business_days_configured] Quando apresentar opcoes ao lead, use apenas os dias que estao em 'business_days_configured'. Se o lead pedir um dia que NAO esta na lista, informe que nao ha atendimento naquele dia da semana e sugira os dias configurados.",
       "- [USO DE days_with_free_slots] Sempre priorize dias com vagas reais (days_with_free_slots). NUNCA ofereca data/horario ocupado.",
       "- [PRECISAO DE RANGE] Se o lead pedir um periodo especifico ('semana que vem', 'mes que vem', 'proximo mes'), ajuste date_from e date_to exatamente para cobrir esse periodo ao chamar get_available_slots.",
-      "- REGRA DE DATA RELATIVA: use o campo relative_label do slot como referencia. Forme de uso correto: 'hoje as 14h', 'amanha as 10h', 'depois de amanha as 9h', 'quinta as 15h', 'proxima terca as 14h'. NUNCA use apenas o numero do dia sem o dia da semana.",
+      "- REGRA DE DATA RELATIVA: use o campo relative_label do slot como referencia. FORMATO CORRETO por distancia temporal: (1) HOJE → 'hoje as 14h'; (2) AMANHA (apenas quando for literalmente o proximo dia) → 'amanha as 10h'; (3) QUALQUER OUTRO DIA → use SEMPRE o nome do dia da semana: 'quarta as 9h', 'quinta as 15h', 'proxima terca as 14h'. PROIBIDO dizer 'depois de amanha' — use o nome do dia (ex: 'quinta as 14h30' em vez de 'depois de amanha as 14h30'). NUNCA use apenas o numero do dia sem o nome do dia da semana.",
       "- REGRA DE CONSISTENCIA: NUNCA escreva duas opcoes equivalentes para o mesmo dia no mesmo turno (ex.: 'amanha 20h' e 'quarta-feira 20h' quando representam o mesmo dia).",
       "- PROIBIDO ABSOLUTO â€” DATAS ENTRE PARENTESES: NUNCA use o formato 'amanha (24/04)', 'quarta-feira (29/04)', 'terca (dia 21)' ou qualquer variante com data numerica entre parenteses. Isso soa robotico e nÃ£o Ã© natural. Use SOMENTE o dia da semana ou o label relativo: 'amanha as 14h', 'quarta as 10h', 'proxima sexta as 9h'. Se a data for distante (mais de 2 semanas), diga 'em duas semanas, na quarta as 10h' â€” nunca o numero entre parenteses.",
-      "- PROIBIDO: 'amanha dia 24', 'quarta dia 29', 'na terca, dia 21', 'terca-feira, 21 de abril' â€” sempre prefira a forma simples e falada: 'amanha', 'quarta', 'proxima terca'.",
+      "- PROIBIDO: 'depois de amanha' (use o nome do dia), 'amanha dia 24', 'quarta dia 29', 'na terca, dia 21', 'terca-feira, 21 de abril' â€” sempre prefira a forma simples e falada: 'amanha', 'quarta', 'proxima terca'.",
       "",
       "FLUXO OBRIGATORIO DE APRESENTACAO DE HORARIOS:",
       "- PASSO 1 â€” CONSULTAR: chame get_available_slots. Identifique quais periodos (manha / tarde / noite) possuem vagas reais.",
