@@ -29,7 +29,7 @@ import {
   type SendTenantAudioResult,
   type SendTenantTextResult,
 } from "@/lib/services/tenant-messaging.service"
-import { AgentTaskQueueService, buildFollowupGroupActionToken } from "@/lib/services/agent-task-queue.service"
+import { AgentTaskQueueService } from "@/lib/services/agent-task-queue.service"
 import { normalizeTenant } from "@/lib/helpers/normalize-tenant"
 import { NativeAgentLearningService } from "@/lib/services/native-agent-learning.service"
 import { createNotification } from "@/lib/services/notifications"
@@ -3517,35 +3517,10 @@ export class NativeAgentOrchestratorService {
             isEdit,
           })
           const dedupeKind = isEdit ? "reschedule" : "schedule"
-          // Botoes de controle rapido para o grupo: pausar/despausar o lead
-          const notifyPhone = normalizePhoneNumber(params.phone)
-          const scheduleControlButtons = notifyPhone
-            ? (() => {
-                const expiresAt = Date.now() + 3 * 24 * 60 * 60 * 1000
-                const pauseToken = buildFollowupGroupActionToken({
-                  tenant: params.tenant,
-                  phone: notifyPhone,
-                  action: "pause",
-                  expiresAt,
-                })
-                const unpauseToken = buildFollowupGroupActionToken({
-                  tenant: params.tenant,
-                  phone: notifyPhone,
-                  action: "unpause",
-                  expiresAt,
-                })
-                if (!pauseToken || !unpauseToken) return []
-                return [
-                  { id: `fupctl:pause:${pauseToken}`, label: "Pausar Lead" },
-                  { id: `fupctl:unpause:${unpauseToken}`, label: "Retomar Lead" },
-                ]
-              })()
-            : []
           const notifyResult = await this.sendToolNotifications(params.tenant, targets, message, {
             anchorSessionId: params.sessionId,
             dedupeKey: `schedule_success:${dedupeKind}:${params.phone}:${execution.action?.date || ""}:${execution.action?.time || ""}`,
             dedupeWindowSeconds: 3600,
-            buttons: scheduleControlButtons,
           })
           if (notifyResult.failed > 0) {
             await this
@@ -3595,23 +3570,10 @@ export class NativeAgentOrchestratorService {
             execution.error ||
             String(execution.response?.reason || "Lead solicitou suporte humano."),
         })
-          const notifyResult = await this.sendToolNotifications(params.tenant, targets, message, {
+        const notifyResult = await this.sendToolNotifications(params.tenant, targets, message, {
             anchorSessionId: params.sessionId,
             dedupeKey: `handoff:${params.sessionId}:${params.phone}`,
             dedupeWindowSeconds: 3600,
-            // Botoes de controle: pausar e retomar o lead apos handoff
-            buttons: (() => {
-              const hp = normalizePhoneNumber(params.phone)
-              if (!hp) return []
-              const exp = Date.now() + 3 * 24 * 60 * 60 * 1000
-              const pt = buildFollowupGroupActionToken({ tenant: params.tenant, phone: hp, action: "pause", expiresAt: exp })
-              const upt = buildFollowupGroupActionToken({ tenant: params.tenant, phone: hp, action: "unpause", expiresAt: exp })
-              if (!pt || !upt) return []
-              return [
-                { id: `fupctl:pause:${pt}`, label: "Pausar Lead" },
-                { id: `fupctl:unpause:${upt}`, label: "Retomar Lead" },
-              ]
-            })(),
           })
         if (notifyResult.failed > 0) {
           await this
@@ -3650,7 +3612,6 @@ export class NativeAgentOrchestratorService {
       anchorSessionId?: string
       dedupeKey?: string
       dedupeWindowSeconds?: number
-      buttons?: Array<{ id: string; label: string }>
     },
   ): Promise<{ sent: number; failed: number; failures: Array<{ target: string; error: string }> }> {
     // Safety: only send to groups, never to individual leads
@@ -3665,7 +3626,6 @@ export class NativeAgentOrchestratorService {
       source: "native-agent-tools",
       message,
       targets: safeTargets,
-      buttons: options?.buttons,
       dedupeKey: String(options?.dedupeKey || "").trim() || undefined,
       dedupeWindowSeconds: options?.dedupeWindowSeconds,
     })
@@ -6593,14 +6553,36 @@ export class NativeAgentOrchestratorService {
       }
 
       const followupColumns = await getTableColumns(this.supabase as any, tables.followup)
-      const followupBasePayload: Record<string, any> = {
-        numero: params.phone,
-        mensagem: note,
-        etapa: 0,
-        status: "agendado",
-        enviado_em: nowIso,
-        created_at: nowIso,
+      const isLegacyFollowupSchema =
+        followupColumns.has("id_closer") ||
+        followupColumns.has("estagio") ||
+        followupColumns.has("mensagem_1")
+
+      const legacyCloserId = isLegacyFollowupSchema
+        ? await this.resolveLegacyFollowupCloserId(tables.followup, params.phone)
+        : null
+
+      if (isLegacyFollowupSchema && !legacyCloserId) {
+        return { ok: false, error: "followup_missing_id_closer" }
       }
+
+      const followupBasePayload: Record<string, any> = isLegacyFollowupSchema
+        ? {
+            id_closer: legacyCloserId,
+            numero: params.phone,
+            estagio: "1",
+            mensagem_1: note,
+            created_at: nowIso,
+            updated_at: nowIso,
+          }
+        : {
+            numero: params.phone,
+            mensagem: note,
+            etapa: 0,
+            status: "agendado",
+            enviado_em: nowIso,
+            created_at: nowIso,
+          }
       const followupPayload =
         followupColumns.size > 0
           ? Object.fromEntries(
@@ -6619,6 +6601,55 @@ export class NativeAgentOrchestratorService {
     } catch (error: any) {
       return { ok: false, error: error?.message || "create_followup_failed" }
     }
+  }
+
+  private async resolveLegacyFollowupCloserId(
+    followupTable: string,
+    phone: string,
+  ): Promise<string | null> {
+    const normalized = normalizePhoneNumber(phone)
+    const variants = Array.from(
+      new Set([
+        normalized,
+        normalized.startsWith("55") ? normalized.slice(2) : "",
+        !normalized.startsWith("55") && normalized ? `55${normalized}` : "",
+      ].filter(Boolean)),
+    )
+
+    for (const candidate of variants) {
+      const { data, error } = await this.supabase
+        .from(followupTable)
+        .select("id_closer")
+        .eq("numero", candidate)
+        .not("id_closer", "is", null)
+        .limit(1)
+
+      if (error && this.isMissingTableError(error)) return null
+      if (!error && data && data.length > 0) {
+        const value = String(data[0]?.id_closer || "").trim()
+        if (value) return value
+      }
+    }
+
+    const fallback = await this.supabase
+      .from(followupTable)
+      .select("id_closer")
+      .not("id_closer", "is", null)
+      .limit(1)
+
+    if (fallback.error && this.isMissingTableError(fallback.error)) return null
+    if (fallback.error) return null
+
+    const value = String(fallback.data?.[0]?.id_closer || "").trim()
+    if (value) return value
+
+    const defaultCloserId = String(
+      process.env.DEFAULT_FOLLOWUP_CLOSER_ID || "00000000-0000-0000-0000-000000000000",
+    ).trim()
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(defaultCloserId)) {
+      return defaultCloserId
+    }
+    return null
   }
 
   private async createReminder(params: {

@@ -1727,7 +1727,7 @@ export class AgentTaskQueueService {
       }
 
       if (phone) {
-        // Variantes com/sem DDI 55 — cobertura máxima de formatos de telefone na fila
+        // Variantes com/sem DDI 55 para cobrir formatos de telefone na fila
         const phoneVariants = Array.from(new Set([
           phone,
           phone.startsWith("55") ? phone.slice(2) : `55${phone}`,
@@ -2305,38 +2305,6 @@ export class AgentTaskQueueService {
       .filter(Boolean)
       .join("\n")
     const dedupeMessage = sanitizeFollowupText(input.message || "", 120).toLowerCase()
-    const shouldAttachControls =
-      input.taskType === "followup" && input.kind === "sent" && Boolean(leadRef)
-
-    const controlButtons =
-      shouldAttachControls && leadRef
-        ? (() => {
-            const expiresAt = Date.now() + 3 * 24 * 60 * 60 * 1000
-            const pauseToken = buildFollowupGroupActionToken({
-              tenant: input.tenant,
-              phone: leadRef,
-              action: "pause",
-              expiresAt,
-            })
-            const unpauseToken = buildFollowupGroupActionToken({
-              tenant: input.tenant,
-              phone: leadRef,
-              action: "unpause",
-              expiresAt,
-            })
-            if (!pauseToken || !unpauseToken) return []
-            return [
-              {
-                id: `${FOLLOWUP_GROUP_ACTION_TOKEN_PREFIX}:pause:${pauseToken}`,
-                label: "Pausar Lead",
-              },
-              {
-                id: `${FOLLOWUP_GROUP_ACTION_TOKEN_PREFIX}:unpause:${unpauseToken}`,
-                label: "Despausar Lead",
-              },
-            ]
-          })()
-        : []
 
     const dispatchResult = await this.groupNotifier.dispatch({
       tenant: input.tenant,
@@ -2344,7 +2312,6 @@ export class AgentTaskQueueService {
       source: `${input.taskType}-touchpoint`,
       message: body,
       targets,
-      buttons: controlButtons,
       dedupeKey: `${input.taskType}:${input.kind}:${leadRef}:${input.step || 0}:${input.totalSteps || 0}:${dedupeMessage}`,
       dedupeWindowSeconds: 3600,
     })

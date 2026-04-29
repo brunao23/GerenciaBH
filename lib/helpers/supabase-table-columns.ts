@@ -78,7 +78,24 @@ function getProbeColumnsForTable(tableName: string): string[] {
   }
 
   if (table.endsWith("_followup")) {
-    return [...common, "numero", "mensagem", "etapa", "status", "enviado_em"]
+    return [
+      ...common,
+      "numero",
+      "mensagem",
+      "etapa",
+      "status",
+      "enviado_em",
+      // schema legado (varios tenants)
+      "id_closer",
+      "estagio",
+      "mensagem_1",
+      "mensagem_2",
+      "mensagem_3",
+      "mensagem_4",
+      "mensagem_5",
+      "key",
+      "instancia",
+    ]
   }
 
   if (table.endsWith("_notifications")) {

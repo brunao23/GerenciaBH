@@ -11,7 +11,6 @@ export interface GroupNotificationDispatchInput {
   source: string
   message: string
   targets: string[]
-  buttons?: Array<{ id: string; label: string }>
   dedupeKey?: string
   dedupeWindowSeconds?: number
 }
@@ -73,15 +72,6 @@ export class GroupNotificationDispatcherService {
       ? Math.max(30, Math.min(86400, Math.floor(Number(input.dedupeWindowSeconds))))
       : 300
     const dedupeKey = String(input.dedupeKey || message).trim()
-    const buttons = Array.isArray(input.buttons)
-      ? input.buttons
-          .map((button) => ({
-            id: String(button?.id || "").trim(),
-            label: String(button?.label || "").trim(),
-          }))
-          .filter((button) => button.id && button.label)
-          .slice(0, 3)
-      : []
 
     const anchorSessionId = normalizeSessionId(input.anchorSessionId || "")
     const chat = new TenantChatHistoryService(input.tenant)
@@ -111,73 +101,19 @@ export class GroupNotificationDispatcherService {
         continue
       }
 
-      // ESTRATEGIA DE ENVIO PARA GRUPOS:
-      // IDs de botao precisam ter <= 20 chars para Z-API nao descartar silenciosamente.
-      // Se sendButtonList falhar OU nao houver botoes, cai no sendText como fallback garantido.
-      let sentResult:
-        | { success: boolean; error?: string }
-        | undefined
-
-      // Truncar IDs para 20 chars — limite seguro da Z-API
-      const safeButtons = buttons
-        .map((b) => ({
-          id: String(b.id || "").trim().slice(0, 20),
-          label: String(b.label || "").trim(),
+      const sentResult = await this.messaging
+        .sendText({
+          tenant: input.tenant,
+          phone: target,
+          sessionId: target,
+          message,
+          source: input.source,
+          persistInHistory: false,
+        })
+        .catch((error: any) => ({
+          success: false,
+          error: error?.message || "failed_to_send_group_notification",
         }))
-        .filter((b) => b.id && b.label)
-
-      if (safeButtons.length > 0) {
-        sentResult = await this.messaging
-          .sendButtonList({
-            tenant: input.tenant,
-            phone: target,
-            sessionId: target,
-            message,
-            buttons: safeButtons,
-            source: input.source,
-            persistInHistory: false,
-          })
-          .catch((error: any) => ({
-            success: false,
-            error: error?.message || "failed_to_send_group_button_notification",
-          }))
-      }
-
-      // Fallback texto — SEMPRE roda se sendButtonList falhar
-      if (!sentResult?.success) {
-        const fallbackCommands =
-          buttons.length > 0
-            ? buttons
-                .map((button) => {
-                  const match = button.id.match(/^fupctl:(pause|unpause):([A-Za-z0-9_-]{20,})$/i)
-                  if (!match?.[1] || !match?.[2]) {
-                    return `- ${button.label}`
-                  }
-                  const action = String(match[1]).toLowerCase() === "unpause" ? "despausar" : "pausar"
-                  return `- /${action} ${match[2]}`
-                })
-                .join("\n")
-            : ""
-
-        const fallbackMessage =
-          buttons.length > 0
-            ? `${message}\n\nAcoes rapidas:\n${fallbackCommands}`
-            : message
-
-        sentResult = await this.messaging
-          .sendText({
-            tenant: input.tenant,
-            phone: target,
-            sessionId: target,
-            message: fallbackMessage,
-            source: input.source,
-            persistInHistory: false,
-          })
-          .catch((error: any) => ({
-            success: false,
-            error: error?.message || "failed_to_send_group_notification",
-          }))
-      }
 
       if (sentResult?.success) {
         sent += 1
