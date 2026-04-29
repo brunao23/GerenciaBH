@@ -1,4 +1,4 @@
-﻿import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
+import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { SemanticCacheService, type CacheHitResult } from "@/lib/services/semantic-cache.service"
 import { getTablesForTenant } from "@/lib/helpers/tenant"
 import { getTableColumns } from "@/lib/helpers/supabase-table-columns"
@@ -987,14 +987,14 @@ function stripIdentityDisclosure(text: string): string {
 
 function stripToolInvocationLeaks(text: string): string {
   return String(text || "")
-    .replace(
-      /\b(?:get_available_slots|schedule_appointment|edit_appointment|cancel_appointment|create_followup|create_reminder|handoff_human|handoffhuman|send_location|send_reaction)\s*\([^)]*\)?/gim,
-      " ",
-    )
-    .replace(
-      /\b(?:handoff_human|handoffhuman)\b\s*(?:reason\s*=\s*(?:"[^"]+"|'[^']+'|[^\s,.;!?]+))?/gim,
-      " ",
-    )
+    // Remove blocos de código markdown que possam conter JSON de tool
+    .replace(/```[a-z]*\s*\{[\s\S]*?\}\s*```/gim, " ")
+    // Remove qualquer estrutura JSON que mencione as tools
+    .replace(/\{[^{}]*(?:get_available_slots|schedule_appointment|edit_appointment|cancel_appointment|create_followup|create_reminder|handoff_human|handoffhuman|send_location|send_reaction)[^{}]*\}/gim, " ")
+    // Remove a tool e tudo o que vier depois na mesma linha (ex: chamadas de função vazadas)
+    .replace(/\b(?:get_available_slots|schedule_appointment|edit_appointment|cancel_appointment|create_followup|create_reminder|handoff_human|handoffhuman|send_location|send_reaction)[\s\S]*?(?=\n|$)/gim, " ")
+    // Remove os nomes das tools soltos caso algo passe
+    .replace(/\b(?:get_available_slots|schedule_appointment|edit_appointment|cancel_appointment|create_followup|create_reminder|handoff_human|handoffhuman|send_location|send_reaction)\b/gim, " ")
     .replace(/\s{2,}/g, " ")
     .trim()
 }
