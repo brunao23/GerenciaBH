@@ -22,6 +22,7 @@ import { TenantMessagingService } from "@/lib/services/tenant-messaging.service"
 import { GroupNotificationDispatcherService } from "@/lib/services/group-notification-dispatcher.service"
 
 export const runtime = "nodejs"
+export const maxDuration = 60
 
 type ZapiCallbackType =
   | "received"
