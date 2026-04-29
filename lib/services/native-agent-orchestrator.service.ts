@@ -990,11 +990,13 @@ function stripToolInvocationLeaks(text: string): string {
     // Remove blocos de código markdown que possam conter JSON de tool
     .replace(/```[a-z]*\s*\{[\s\S]*?\}\s*```/gim, " ")
     // Remove qualquer estrutura JSON que mencione as tools
-    .replace(/\{[^{}]*(?:get_available_slots|schedule_appointment|edit_appointment|cancel_appointment|create_followup|create_reminder|handoff_human|handoffhuman|send_location|send_reaction)[^{}]*\}/gim, " ")
+    .replace(/\{[^{}]*(?:get_?available_?slots|schedule_?appointment|edit_?appointment|cancel_?appointment|create_?followup|create_?reminder|handoff_?human|send_?location|send_?reaction)[^{}]*\}/gim, " ")
+    // Remove blocos inteiros entre colchetes [ ] que possam ser pensamentos ou ações da IA
+    .replace(/\[[^\]]*(?:get_?available_?slots|schedule_?appointment|edit_?appointment|cancel_?appointment|create_?followup|create_?reminder|handoff_?human|send_?location|send_?reaction|chama|tool|action|acao)[^\]]*\]/gim, " ")
     // Remove a tool e tudo o que vier depois na mesma linha (ex: chamadas de função vazadas)
-    .replace(/\b(?:get_available_slots|schedule_appointment|edit_appointment|cancel_appointment|create_followup|create_reminder|handoff_human|handoffhuman|send_location|send_reaction)[\s\S]*?(?=\n|$)/gim, " ")
+    .replace(/\b(?:get_?available_?slots|schedule_?appointment|edit_?appointment|cancel_?appointment|create_?followup|create_?reminder|handoff_?human|send_?location|send_?reaction)[\s\S]*?(?=\n|$)/gim, " ")
     // Remove os nomes das tools soltos caso algo passe
-    .replace(/\b(?:get_available_slots|schedule_appointment|edit_appointment|cancel_appointment|create_followup|create_reminder|handoff_human|handoffhuman|send_location|send_reaction)\b/gim, " ")
+    .replace(/\b(?:get_?available_?slots|schedule_?appointment|edit_?appointment|cancel_?appointment|create_?followup|create_?reminder|handoff_?human|send_?location|send_?reaction)\b/gim, " ")
     .replace(/\s{2,}/g, " ")
     .trim()
 }
