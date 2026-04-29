@@ -4,8 +4,8 @@ export class RedisService {
   private static instance: Redis | null = null
   private static get client(): Redis | null {
     if (this.instance) return this.instance
-    const url = process.env.UPSTASH_REDIS_REST_URL
-    const token = process.env.UPSTASH_REDIS_REST_TOKEN
+    const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL
+    const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN
     if (!url || !token) {
       console.warn("[RedisService] Variáveis UPSTASH_REDIS_REST_URL ou UPSTASH_REDIS_REST_TOKEN não encontradas. Cache desabilitado.")
       return null
