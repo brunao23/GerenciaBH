@@ -656,7 +656,7 @@ export class NativeAgentLearningService {
 
     if (recentHumanSignals.length > 0) {
       lines.push(
-        `- Exemplos de respostas do atendente humano desta unidade (aprenda o estilo, vocabulario e tom): ${recentHumanSignals.map((item) => `"${item}"`).join(" | ")}`,
+        `- Exemplos de respostas do atendente humano desta unidade (🚨 CRÍTICO: Aprenda APENAS o estilo e tom. NUNCA copie o nome do lead, nomes de pessoas, dias da semana, horários ou informações específicas listadas nestes exemplos. Use o nome real do seu lead atual!): ${recentHumanSignals.map((item) => `"${item}"`).join(" | ")}`,
       )
     }
 
@@ -668,7 +668,7 @@ export class NativeAgentLearningService {
         )
       })
       lines.push(
-        "- Quando o contexto for parecido, adapte essa linha de conducao junto do seu prompt base e da etapa atual da conversa.",
+        "- 🚨 CRÍTICO: Quando o contexto for parecido, adapte essa linha de conducao. PROIBIDO copiar nomes de leads, dias ou horários desses exemplos. Aplique apenas a lógica da abordagem usando as informações reais do lead atual.",
       )
     }
 
