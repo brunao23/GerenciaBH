@@ -99,6 +99,17 @@ const POSITIVE_HINTS = [
   "vamos",
   "agendar",
   "marcar",
+  "entendi",
+  "perfeito",
+  "certo",
+  "beleza",
+  "legal",
+  "otimo",
+  "ótimo",
+  "isso",
+  "exato",
+  "obrigado",
+  "obrigada",
 ]
 
 const NEGATIVE_HINTS = [
@@ -301,6 +312,7 @@ function extractHumanApproachInsights(signals: LearningSignalSample[]): HumanApp
     if (leadReply.length >= 18) score += 1
     if (hasCommitment) score += 1
     if (hasNegative) score -= 3
+    if (humanMessage.length >= 60) score += 1 // Valoriza o uso de scripts/explicações do atendente
 
     if (score <= 0) continue
 
@@ -321,7 +333,7 @@ function extractHumanApproachInsights(signals: LearningSignalSample[]): HumanApp
       if (b.score !== a.score) return b.score - a.score
       return String(b.createdAt).localeCompare(String(a.createdAt))
     })
-    .slice(0, 4)
+    .slice(0, 6)
 }
 
 const INFORMAL_MARKERS = ["vc", "pq", "tb", "né", "ne", "hein", "kk", "kkk", "rs", "rsrs", "pra ", "ta ", "to ", "blz", "vlw", "obg", "flw", "hj", "amh", "msg"]
@@ -528,7 +540,7 @@ export class NativeAgentLearningService {
 
   private rebuildAdaptivePromptSnapshot(state: LearningState): AdaptivePromptSnapshot {
     const highPerformance = state.samples.filter(
-      (sample) => sample.outcome === "conversion" || sample.reward >= 1.25,
+      (sample) => sample.outcome === "conversion" || sample.reward >= 1.0,
     ).length
     const lowPerformance = state.samples.filter(
       (sample) =>
@@ -656,7 +668,7 @@ export class NativeAgentLearningService {
 
     if (recentHumanSignals.length > 0) {
       lines.push(
-        `- Exemplos de respostas do atendente humano desta unidade (🚨 CRÍTICO: Aprenda APENAS o estilo e tom. NUNCA copie o nome do lead, nomes de pessoas, dias da semana, horários ou informações específicas listadas nestes exemplos. Use o nome real do seu lead atual!): ${recentHumanSignals.map((item) => `"${item}"`).join(" | ")}`,
+        `- Exemplos recentes do humano (🚨 CRÍTICO: Aprenda o tom, as estratégias de venda, contorno de objeções e o script. NUNCA copie nomes próprios, dias ou dados específicos!): ${recentHumanSignals.map((item) => `"${item}"`).join(" | ")}`,
       )
     }
 
@@ -668,7 +680,7 @@ export class NativeAgentLearningService {
         )
       })
       lines.push(
-        "- 🚨 CRÍTICO: Quando o contexto for parecido, adapte essa linha de conducao. PROIBIDO copiar nomes de leads, dias ou horários desses exemplos. Aplique apenas a lógica da abordagem usando as informações reais do lead atual.",
+        "- 🚨 CRÍTICO: Aplique a estratégia, o script e o raciocínio destas abordagens humanas à situação atual do lead. É ESTRITAMENTE PROIBIDO copiar nomes de pessoas, dias ou dados literais desses exemplos.",
       )
     }
 
