@@ -1,4 +1,5 @@
 import { Redis } from "@upstash/redis"
+import { Ratelimit } from "@upstash/ratelimit"
 
 export class RedisService {
   private static instance: Redis | null = null
@@ -85,5 +86,29 @@ export class RedisService {
     }
     
     return false // Timeout, não conseguiu o lock
+  }
+
+  /**
+   * Rate Limit Anti-Spam (Fixed Window)
+   * Exemplo: maxRequests=5, windowSeconds=10 -> max 5 req a cada 10 segundos
+   */
+  static async checkRateLimit(key: string, maxRequests: number = 10, windowSeconds: number = 10): Promise<{ success: boolean; reset: number }> {
+    if (!this.client) return { success: true, reset: Date.now() + 10000 } // Pass-through tolerante
+
+    try {
+      const ratelimit = new Ratelimit({
+        redis: this.client,
+        limiter: Ratelimit.fixedWindow(maxRequests, `${windowSeconds} s`),
+      })
+
+      const result = await ratelimit.limit(key)
+      return {
+        success: result.success,
+        reset: result.reset,
+      }
+    } catch (e) {
+      console.error("[RedisService] Erro ao checar rate limit:", e)
+      return { success: true, reset: Date.now() + 10000 } // Não bloqueia em caso de falha do Redis
+    }
   }
 }

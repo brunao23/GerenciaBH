@@ -5,20 +5,17 @@ DO $$
 DECLARE
     t_name text;
     tenant record;
-    tenants text[] := ARRAY[
-        'vox_sete_lagoas',
-        'genial_labs',
-        'vox_sp_berini',
-        'bia_vox',
-        'vox_maceio'
-    ];
 BEGIN
-    FOREACH t_name IN ARRAY tenants
+    -- Itera sobre todas as unidades ativas no registro central
+    FOR tenant IN SELECT unit_prefix FROM units_registry WHERE status = 'active' OR is_active = true
     LOOP
+        t_name := tenant.unit_prefix;
+
         -- Chat Histories
         DECLARE
             chat_table text := t_name || 'n8n_chat_histories';
         BEGIN
+            -- Tratamento de exceção para prefixos com underscore extra
             IF t_name IN ('vox_maceio', 'vox_es') THEN
                 chat_table := t_name || '_n8n_chat_histories';
             END IF;

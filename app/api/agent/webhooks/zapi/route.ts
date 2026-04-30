@@ -2934,6 +2934,24 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // ================= RATE LIMITING (ANTI-SPAM) =================
+    if (event.callbackType === "received" && event.phone && !event.fromMe) {
+      const rateLimitKey = `ratelimit:zapi:${tenant}:${event.phone}`
+      // Limite: 5 mensagens a cada 5 segundos por número para evitar travamento da LLM e DDoS
+      const { success } = await RedisService.checkRateLimit(rateLimitKey, 5, 5)
+      if (!success) {
+        console.warn(`[Webhook][AntiSpam] Bloqueado! Spam/DDoS detectado do numero ${event.phone} no tenant ${tenant}`)
+        return NextResponse.json(
+          {
+            received: false,
+            error: "rate_limit_exceeded",
+            reason: "anti_spam"
+          },
+          { status: 429 } // HTTP 429 Too Many Requests
+        )
+      }
+    }
+
     const config = await getNativeAgentConfigForTenant(tenant)
     if (!config) {
       return NextResponse.json(
