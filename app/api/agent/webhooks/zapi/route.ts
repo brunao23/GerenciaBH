@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { waitUntil } from "@vercel/functions"
 import { createHash, timingSafeEqual } from "node:crypto"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { getTablesForTenant } from "@/lib/helpers/tenant"
