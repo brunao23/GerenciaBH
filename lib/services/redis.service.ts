@@ -55,7 +55,7 @@ export class RedisService {
     try {
       // 'nx' = set if Not eXists. Se retornar null/false, o lock já existe.
       const result = await this.client.set(lockKey, "locked", { nx: true, ex: ttlSeconds })
-      return result === "OK" || result === true || result !== null
+      return result === "OK" || result !== null
     } catch (e) {
       console.error("[RedisService] Erro ao adquirir lock:", e)
       return true // Falha tolerante

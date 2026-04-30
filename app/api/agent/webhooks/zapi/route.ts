@@ -2322,6 +2322,7 @@ async function persistZapiEvent(params: {
   duplicate: boolean
   messageId?: string
   retryStalled?: boolean
+  createdAt?: string
 }> {
   const resolvedSessionId = normalizeSessionId(params.sessionId || resolveSessionForPersistence(params.event))
   const tenant = normalizeTenant(params.tenant)
