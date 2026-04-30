@@ -2611,7 +2611,7 @@ export class NativeAgentOrchestratorService {
     }
 
     // Janela de memÃ³ria ampliada para 60 turnos â€” reduz alucinaÃ§Ã£o em conversas longas
-    const conversationRows = await chat.loadConversation(sessionId, 60)
+    const conversationRows = await chat.loadConversation(sessionId, 40)
     const conversation: GeminiConversationMessage[] = conversationRows.map((turn) => ({
       role: turn.role,
       content: turn.content,
