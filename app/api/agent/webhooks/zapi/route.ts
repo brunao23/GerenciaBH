@@ -2367,7 +2367,7 @@ async function persistZapiEvent(params: {
       content: eventContent,
       role: "user",
       fromMe: false,
-      withinSeconds: 300,
+      withinSeconds: 3,
       ignoreMessageId: messageId,
     })
     if (hasRecentIncomingDuplicate) {
