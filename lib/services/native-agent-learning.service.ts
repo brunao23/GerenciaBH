@@ -637,12 +637,13 @@ export class NativeAgentLearningService {
     const sanitizeNamesFromExamples = (text: string) => {
       if (!text) return text
       let sanitized = text
-      // Troca saudações específicas de tempo para forçar a IA a olhar a hora atual
-      sanitized = sanitized.replace(/(Bom dia|Boa tarde|Boa noite)/gi, "[SAUDAÇÃO_TEMPORAL]")
-      // Remove nomes logo após saudações
-      sanitized = sanitized.replace(/(\[SAUDAÇÃO_TEMPORAL\]|Ol[aá]|Oie?)([\s.,!?-]+)([A-ZÀ-Ÿ][a-zà-ÿ]+)/gi, "$1$2[NOME_DO_LEAD]")
-      // Pega nomes no início da frase, tipo "Jullyeth, tudo bem?" ou "Maria! Já agendei."
-      sanitized = sanitized.replace(/^([A-ZÀ-Ÿ][a-zà-ÿ]{2,15})([\s]*[,!?-])/g, "[NOME_DO_LEAD]$2")
+      // Troca saudações específicas de tempo e nomes por um "Olá" genérico sem nomes, 
+      // assim evitamos que a IA copie placeholders como [NOME] literalmente para o lead
+      sanitized = sanitized.replace(/(Bom dia|Boa tarde|Boa noite)/gi, "Olá")
+      // Remove nomes após saudações genéricas
+      sanitized = sanitized.replace(/(Olá|Ol[aá]|Oie?)([\s.,!?-]+)([A-ZÀ-Ÿ][a-zà-ÿ]+)/gi, "$1")
+      // Pega nomes no início da frase, tipo "Jullyeth, tudo bem?"
+      sanitized = sanitized.replace(/^([A-ZÀ-Ÿ][a-zà-ÿ]{2,15})([\s]*[,!?-])/g, "Olá$2")
       return sanitized
     }
 
