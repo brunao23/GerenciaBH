@@ -45,7 +45,7 @@ export interface CacheStats {
 
 // ─── Constants ────────────────────────────────────────────────────
 
-const EMBEDDING_MODEL = "text-embedding-004"
+const EMBEDDING_MODEL = "gemini-embedding-001"
 const EMBEDDING_DIMS = 768
 const EMBEDDING_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 
@@ -226,8 +226,8 @@ export class SemanticCacheService {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: `models/${EMBEDDING_MODEL}`,
           content: { parts: [{ text: normalized }] },
+          outputDimensionality: EMBEDDING_DIMS, // Compatível com a coluna vector(768) do Supabase
         }),
         signal: controller.signal,
       })
