@@ -4510,8 +4510,8 @@ export class NativeAgentOrchestratorService {
       `- Status webhook: ${ctx.status || "nao informado"}`,
       `- Moment webhook: ${ctx.moment ? String(ctx.moment) : "nao informado"}`,
       contactFirstName
-        ? `- NOME DO LEAD (cliente): ${contactFirstName} â€” use SOMENTE este nome para se referir ao lead.`
-        : `- NOME DO LEAD (cliente): desconhecido â€” use "voce" para se dirigir ao lead. NAO pergunte o nome.`,
+        ? `- NOME EXATO DO SEU LEAD ATUAL: "${contactFirstName}". [REGRA ABSOLUTA DE SEGURANÇA]: É EXPRESSAMENTE PROIBIDO chamar o lead de QUALQUER OUTRO NOME que não seja "${contactFirstName}". Se o histórico, exemplos ou aprendizado tiverem nomes como "Jullyeth", "Maria" ou "João", eles são de OUTRAS PESSOAS. IGNORE-OS! O nome deste lead é ÚNICA E EXCLUSIVAMENTE "${contactFirstName}".`
+        : `- NOME EXATO DO SEU LEAD ATUAL: [DESCONHECIDO]. [REGRA ABSOLUTA DE SEGURANÇA]: Você NÃO TEM O NOME DO LEAD. É EXPRESSAMENTE PROIBIDO "inventar" ou "pescar" nomes do histórico/exemplos (como Jullyeth, Maria, João). Se não tem o nome, trate o lead APENAS por "você".`,
       `- Mensagens do lead na conversa: ${Number(ctx.userMessagesCount || 0)}`,
       `- Mensagens ja enviadas pela IA: ${Number(ctx.assistantMessagesCount || 0)}`,
       `- Trigger interno fromMe: ${internalFromMeTrigger || "nao"}`,
