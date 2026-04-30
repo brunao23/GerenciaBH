@@ -634,10 +634,15 @@ export class NativeAgentLearningService {
     const senderMix = state.stats.leadMessages + state.stats.humanMessages + state.stats.iaMessages
     const humanShare = senderMix > 0 ? (state.stats.humanMessages / senderMix) * 100 : 0
     const mediaSignalCount = state.stats.mediaMessages
+    const sanitizeNamesFromExamples = (text: string) => {
+      if (!text) return text
+      return text.replace(/(Bom dia|Boa tarde|Boa noite|Ol[aá]|Oie?)([\s.,!?-]+)([A-ZÀ-Ÿ][a-zà-ÿ]+)/gi, "$1$2[NOME_DO_LEAD_OCULTO]")
+    }
+
     const recentHumanSignals = state.signals
       .filter((signal) => signal.senderType === "human")
       .slice(-3)
-      .map((signal) => signal.message)
+      .map((signal) => sanitizeNamesFromExamples(signal.message))
       .filter(Boolean)
     const humanApproachInsights = extractHumanApproachInsights(state.signals)
     const commitmentSignals = state.stats.taskCommitmentSignals
@@ -668,19 +673,22 @@ export class NativeAgentLearningService {
 
     if (recentHumanSignals.length > 0) {
       lines.push(
-        `- Exemplos recentes do humano (🚨 CRÍTICO: Aprenda o tom, as estratégias de venda, contorno de objeções e o script. NUNCA copie nomes próprios, dias ou dados específicos!): ${recentHumanSignals.map((item) => `"${item}"`).join(" | ")}`,
+        `## [ALERTA DE SEGURANÇA MÁXIMA - PREVENÇÃO DE ALUCINAÇÃO]`,
+        `- Os textos abaixo são mensagens enviadas para OUTROS CLIENTES. Eles servem APENAS para você estudar o estilo e roteiro de venda do humano.`,
+        `- É ESTRITAMENTE PROIBIDO COPIAR QUALQUER NOME PRÓPRIO (ex: Jullyeth, Maria, João) que apareça nos textos abaixo.`,
+        `- Exemplos recentes do humano: <EXEMPLOS_PROIBIDO_COPIAR_NOMES> ${recentHumanSignals.map((item) => `"${item}"`).join(" | ")} </EXEMPLOS_PROIBIDO_COPIAR_NOMES>`,
       )
     }
 
     if (humanApproachInsights.length > 0) {
-      lines.push("## ABORDAGENS HUMANAS QUE DESTRAVARAM CONVERSAS (usar como referencia, sem copiar literal):")
+      lines.push("## ABORDAGENS HUMANAS QUE DESTRAVARAM CONVERSAS (Estudo de Caso):")
       humanApproachInsights.forEach((item, index) => {
         lines.push(
-          `- Caso ${index + 1}: abordagem "${item.humanMessage}" -> resposta positiva do lead "${item.leadReply}".`,
+          `- Abordagem com Lead Passado ${index + 1}: Humano disse "${sanitizeNamesFromExamples(item.humanMessage)}" -> Lead respondeu "${sanitizeNamesFromExamples(item.leadReply)}".`,
         )
       })
       lines.push(
-        "- 🚨 CRÍTICO: Aplique a estratégia, o script e o raciocínio destas abordagens humanas à situação atual do lead. É ESTRITAMENTE PROIBIDO copiar nomes de pessoas, dias ou dados literais desses exemplos.",
+        "- 🚨 REGRA ABSOLUTA: Aplique a estratégia e o raciocínio destas abordagens humanas à situação atual do lead. NUNCA, SOB NENHUMA HIPÓTESE, copie os nomes das pessoas dessas abordagens. O seu lead se chama APENAS pelo nome que foi passado na variável correspondente do sistema.",
       )
     }
 
