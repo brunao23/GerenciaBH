@@ -49,8 +49,8 @@ const EMBEDDING_MODEL = "text-embedding-004"
 const EMBEDDING_DIMS = 768
 const EMBEDDING_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 
-const DEFAULT_SIMILARITY_THRESHOLD = 0.88
-const DEFAULT_TTL_HOURS = 336 // 14 days
+const DEFAULT_SIMILARITY_THRESHOLD = 0.92 // Subido de 0.88 — evita falsos positivos entre unidades
+const DEFAULT_TTL_HOURS = 168 // 7 days (reduzido de 14 para evitar respostas stale)
 
 // Patterns that indicate the message should NOT be cached
 const PII_PATTERNS = [
@@ -79,14 +79,26 @@ const TEMPORAL_PATTERNS = [
 // (ex: "manhã", "tarde", "noite" são períodos, não datas específicas)
 const TEMPORAL_GENERIC_SAFE = ["manha", "tarde", "noite", "periodo", "turno"]
 
+// ─── Categorias PROIBIDAS no cache (dados sensíveis ou personalizados por unidade) ───
+// NUNCA cache respostas de preço, pagamento, saudações ou objeções de preço.
+// Cada unidade tem valores diferentes e saudações são personalizadas por lead.
+const BLOCKED_CATEGORIES = new Set([
+  "price",      // Preços variam por unidade — NUNCA cachear
+  "payment",    // Condições de pagamento variam por unidade — NUNCA cachear
+  "greeting",   // Saudações têm nome do lead — podem vazar entre leads — NUNCA cachear
+  "objection",  // Objeções de preço dependem do valor da unidade — NUNCA cachear
+])
+
 // Category detection patterns
 const CATEGORY_PATTERNS: Array<{ category: string; patterns: RegExp[] }> = [
   {
+    // BLOQUEADA: price — detectada para BLOQUEAR, não para cachear
     category: "price",
     patterns: [
       /quanto\s+custa/i, /qual\s+o?\s*valor/i, /pre[cç]o/i,
       /investimento/i, /mensalidade/i, /parcela/i, /custo/i,
       /quanto\s+[eé]/i, /quanto\s+fica/i, /valor\s+do/i,
+      /quanto\s+cobram/i, /tabela\s+de\s+pre[cç]o/i,
     ],
   },
   {
@@ -110,11 +122,12 @@ const CATEGORY_PATTERNS: Array<{ category: string; patterns: RegExp[] }> = [
     patterns: [
       /como\s+funciona/i, /o\s+que\s+[eé]/i, /quais?\s+servi[cç]os?/i,
       /qual\s+a?\s*diferen[cç]a/i, /tem\s+estacionamento/i,
-      /aceita\s+cart[aã]o/i, /pode\s+parcelar/i, /tem\s+desconto/i,
-      /o\s+que\s+inclui/i, /como\s+[eé]\s+o/i, /dura\s+quanto/i,
+      /tem\s+desconto/i, /o\s+que\s+inclui/i, /como\s+[eé]\s+o/i,
+      /dura\s+quanto/i,
     ],
   },
   {
+    // BLOQUEADA: objection — detectada para BLOQUEAR, não para cachear
     category: "objection",
     patterns: [
       /t[aá]\s+caro/i, /muito\s+caro/i, /vou\s+pensar/i,
@@ -123,6 +136,7 @@ const CATEGORY_PATTERNS: Array<{ category: string; patterns: RegExp[] }> = [
     ],
   },
   {
+    // BLOQUEADA: greeting — saudações têm nome do lead — NUNCA cachear
     category: "greeting",
     patterns: [
       /^oi$/i, /^ol[aá]$/i, /^bom\s+dia$/i, /^boa\s+tarde$/i, /^boa\s+noite$/i,
@@ -141,6 +155,7 @@ const CATEGORY_PATTERNS: Array<{ category: string; patterns: RegExp[] }> = [
     ],
   },
   {
+    // BLOQUEADA: payment — condições de pagamento variam por unidade — NUNCA cachear
     category: "payment",
     patterns: [
       /forma(?:s)?\s+de\s+pagamento/i, /aceita(?:m)?\s+pix/i,
@@ -375,19 +390,28 @@ export class SemanticCacheService {
       return { cacheable: false, reason: "response_too_short" }
     }
 
-    // Detect category early — categories de alto valor relaxam regras
+    // Detect category early
     const category = detectCategory(input.message)
-    const HIGH_VALUE_CATEGORIES = new Set(["price", "faq", "location", "hours", "greeting", "services", "payment", "objection"])
-    const isHighValueCategory = !!category && HIGH_VALUE_CATEGORIES.has(category)
 
-    // Never cache PII (mas preços são OK)
+    // ⛔ CATEGORIAS BLOQUEADAS: preço, pagamento, saudação, objeção
+    // Esses dados são sensíveis ou personalizados por unidade — NUNCA cachear
+    if (category && BLOCKED_CATEGORIES.has(category)) {
+      return { cacheable: false, reason: `blocked_category:${category}` }
+    }
+
+    // Verificação adicional direta por keywords de preço/valor (dupla proteção)
+    const priceKeywords = /\b(pre[cç]o|valor|custo|mensalidade|parcela|investimento|quanto\s+custa|quanto\s+fica|quanto\s+cobram|quanto\s+[eé]|cart[aã]o|boleto|pix|pagamento|parcel)\b/i
+    if (priceKeywords.test(input.message) || priceKeywords.test(input.responseText)) {
+      return { cacheable: false, reason: "blocked_price_or_payment_keyword" }
+    }
+
+    // Never cache PII
     if (hasPII(input.message) || hasPII(input.responseText)) {
       return { cacheable: false, reason: "contains_pii" }
     }
 
-    // Temporal: bloqueia apenas se NÃO for categoria de alto valor
-    // (respostas de preço/FAQ podem mencionar horários genéricos)
-    if (!isHighValueCategory && hasTemporalReference(input.responseText)) {
+    // Temporal: sempre bloqueia para manter respostas frescas
+    if (hasTemporalReference(input.responseText)) {
       return { cacheable: false, reason: "temporal_response" }
     }
 
@@ -397,21 +421,19 @@ export class SemanticCacheService {
     }
 
     // Never cache very long input messages (likely unique/complex)
-    if (input.message.length > 500) {
+    if (input.message.length > 400) {
       return { cacheable: false, reason: "message_too_long" }
     }
 
-    // Categorias reconhecidas: cachear
-    if (category) {
+    // Categorias permitidas: cachear (location, hours, faq, services)
+    const ALLOWED_CATEGORIES = new Set(["location", "hours", "faq", "services"])
+    if (category && ALLOWED_CATEGORIES.has(category)) {
       return { cacheable: true, category }
     }
 
-    // Para mensagens sem categoria: cache se resposta é razoavelmente genérica
-    if (input.responseText.length < 500 && !hasTemporalReference(input.message)) {
-      return { cacheable: true, category: "general" }
-    }
-
-    return { cacheable: false, reason: "unrecognized_pattern" }
+    // Para mensagens sem categoria: NÃO cachear por segurança
+    // (preferimos chamar a LLM do que arriscar resposta errada)
+    return { cacheable: false, reason: "no_safe_category" }
   }
 
   // ── Invalidation ─────────────────────────────────────────────
