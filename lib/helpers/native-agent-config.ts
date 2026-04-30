@@ -743,7 +743,7 @@ function normalizeConfig(input: any): NativeAgentConfig {
       raw.useFirstNamePersonalization,
       DEFAULT_USE_FIRST_NAME,
     ),
-    autoLearningEnabled: readBoolean(raw.autoLearningEnabled, DEFAULT_AUTO_LEARNING),
+    autoLearningEnabled: false, // FORÇADO OFF para evitar alucinações de nomes // readBoolean(raw.autoLearningEnabled, DEFAULT_AUTO_LEARNING),
     followupEnabled: readBoolean(raw.followupEnabled, true),
     remindersEnabled: readBoolean(raw.remindersEnabled, true),
     schedulingEnabled: readBoolean(raw.schedulingEnabled, true),
