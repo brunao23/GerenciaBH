@@ -7,7 +7,7 @@ DECLARE
     tenant record;
 BEGIN
     -- Itera sobre todas as unidades ativas no registro central
-    FOR tenant IN SELECT unit_prefix FROM units_registry WHERE status = 'active' OR is_active = true
+    FOR tenant IN SELECT unit_prefix FROM units_registry WHERE is_active = true
     LOOP
         t_name := tenant.unit_prefix;
 
