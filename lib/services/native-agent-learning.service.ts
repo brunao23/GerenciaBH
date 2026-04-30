@@ -636,7 +636,10 @@ export class NativeAgentLearningService {
     const mediaSignalCount = state.stats.mediaMessages
     const sanitizeNamesFromExamples = (text: string) => {
       if (!text) return text
-      return text.replace(/(Bom dia|Boa tarde|Boa noite|Ol[aá]|Oie?)([\s.,!?-]+)([A-ZÀ-Ÿ][a-zà-ÿ]+)/gi, "$1$2[NOME_DO_LEAD_OCULTO]")
+      let sanitized = text.replace(/(Bom dia|Boa tarde|Boa noite|Ol[aá]|Oie?)([\s.,!?-]+)([A-ZÀ-Ÿ][a-zà-ÿ]+)/gi, "$1$2[NOME_DO_LEAD]")
+      // Pega nomes no início da frase, tipo "Jullyeth, tudo bem?" ou "Maria! Já agendei."
+      sanitized = sanitized.replace(/^([A-ZÀ-Ÿ][a-zà-ÿ]{2,15})([\s]*[,!?-])/g, "[NOME_DO_LEAD]$2")
+      return sanitized
     }
 
     const recentHumanSignals = state.signals
