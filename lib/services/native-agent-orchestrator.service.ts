@@ -2603,7 +2603,7 @@ export class NativeAgentOrchestratorService {
 
     // ReaÃƒÃ‚Â§ÃƒÃ‚Â£o emoji quando lead demonstra intenÃƒÃ‚Â§ÃƒÃ‚Â£o de agendar (antes do Gemini processar)
     if (!isInstagramChannel && config.reactionsEnabled && input.messageId && !input.fromMeTrigger && detectsSchedulingIntent(content)) {
-      const reactions = ["Ã°Å¸â€˜Â", "Ã¢ÂÂ¤Ã¯Â¸Â"]
+      const reactions = ["\uD83D\uDC4D", "\u2764\uFE0F", "\uD83D\uDE04", "\uD83D\uDE4C"]
       const reaction = reactions[Math.floor(Math.random() * reactions.length)]
       this.messaging
         .sendReaction({ tenant, phone: recipient, messageId: input.messageId, reaction })
@@ -2638,7 +2638,7 @@ export class NativeAgentOrchestratorService {
     // Feature 2: Lead enviou GIF Ã¢"Â ' reagir com emoji e enriquecer contexto no conversation
     if (input.isGif && !isFromMeTrigger) {
       if (!isInstagramChannel && config.reactionsEnabled && input.messageId) {
-        const gifEmojis = ["Ã°Å¸Ëœâ€ž", "Ã°Å¸Ëœâ€š", "Ã¢ÂÂ¤Ã¯Â¸Â", "Ã°Å¸Â¤Â£", "Ã°Å¸Ëœâ€ "]
+        const gifEmojis = ["\uD83D\uDE04", "\uD83D\uDE02", "\u2764\uFE0F", "\uD83E\uDD23", "\uD83D\uDE06"]
         const gifEmoji = gifEmojis[Math.floor(Math.random() * gifEmojis.length)]
         this.messaging
           .sendReaction({ tenant, phone: recipient, messageId: input.messageId, reaction: gifEmoji })
