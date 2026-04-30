@@ -80,19 +80,16 @@ const TEMPORAL_PATTERNS = [
 const TEMPORAL_GENERIC_SAFE = ["manha", "tarde", "noite", "periodo", "turno"]
 
 // ─── Categorias PROIBIDAS no cache (dados sensíveis ou personalizados por unidade) ───
-// NUNCA cache respostas de preço, pagamento, saudações ou objeções de preço.
-// Cada unidade tem valores diferentes e saudações são personalizadas por lead.
+// NUNCA cache respostas de saudações ou objeções.
+// Saudações são personalizadas por lead (nomes) e objeções dependem de negociação individual.
 const BLOCKED_CATEGORIES = new Set([
-  "price",      // Preços variam por unidade — NUNCA cachear
-  "payment",    // Condições de pagamento variam por unidade — NUNCA cachear
   "greeting",   // Saudações têm nome do lead — podem vazar entre leads — NUNCA cachear
-  "objection",  // Objeções de preço dependem do valor da unidade — NUNCA cachear
+  "objection",  // Objeções dependem da negociação no 1x1 — NUNCA cachear
 ])
 
 // Category detection patterns
 const CATEGORY_PATTERNS: Array<{ category: string; patterns: RegExp[] }> = [
   {
-    // BLOQUEADA: price — detectada para BLOQUEAR, não para cachear
     category: "price",
     patterns: [
       /quanto\s+custa/i, /qual\s+o?\s*valor/i, /pre[cç]o/i,
@@ -155,7 +152,6 @@ const CATEGORY_PATTERNS: Array<{ category: string; patterns: RegExp[] }> = [
     ],
   },
   {
-    // BLOQUEADA: payment — condições de pagamento variam por unidade — NUNCA cachear
     category: "payment",
     patterns: [
       /forma(?:s)?\s+de\s+pagamento/i, /aceita(?:m)?\s+pix/i,
@@ -393,16 +389,9 @@ export class SemanticCacheService {
     // Detect category early
     const category = detectCategory(input.message)
 
-    // ⛔ CATEGORIAS BLOQUEADAS: preço, pagamento, saudação, objeção
-    // Esses dados são sensíveis ou personalizados por unidade — NUNCA cachear
+    // ⛔ CATEGORIAS BLOQUEADAS: saudação, objeção
     if (category && BLOCKED_CATEGORIES.has(category)) {
       return { cacheable: false, reason: `blocked_category:${category}` }
-    }
-
-    // Verificação adicional direta por keywords de preço/valor (dupla proteção)
-    const priceKeywords = /\b(pre[cç]o|valor|custo|mensalidade|parcela|investimento|quanto\s+custa|quanto\s+fica|quanto\s+cobram|quanto\s+[eé]|cart[aã]o|boleto|pix|pagamento|parcel)\b/i
-    if (priceKeywords.test(input.message) || priceKeywords.test(input.responseText)) {
-      return { cacheable: false, reason: "blocked_price_or_payment_keyword" }
     }
 
     // Never cache PII
@@ -425,8 +414,8 @@ export class SemanticCacheService {
       return { cacheable: false, reason: "message_too_long" }
     }
 
-    // Categorias permitidas: cachear (location, hours, faq, services)
-    const ALLOWED_CATEGORIES = new Set(["location", "hours", "faq", "services"])
+    // Categorias permitidas: cachear (location, hours, faq, services, price, payment)
+    const ALLOWED_CATEGORIES = new Set(["location", "hours", "faq", "services", "price", "payment"])
     if (category && ALLOWED_CATEGORIES.has(category)) {
       return { cacheable: true, category }
     }
