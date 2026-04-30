@@ -3002,11 +3002,27 @@ export class NativeAgentOrchestratorService {
       allowEmojis: config.moderateEmojiEnabled !== false,
     })
     
-    // GUILHOTINA: Se o lead NÃO tem nome real, a IA é PROIBIDA de enviar um nome na saudação.
-    // Se ela alucinou um nome como "Bom dia, Jullyeth", isso decepa o nome da resposta.
+    // GUILHOTINA: Proteção dupla contra nomes alucinados na saudação.
     const contactFirstNameGuillotine = firstName(input.contactName)
-    if (!contactFirstNameGuillotine && responseText) {
-      responseText = responseText.replace(/^(Bom dia|Boa tarde|Boa noite|Ol[aá]|Oie?)[,\s]+([A-ZÀ-Ÿ][a-zà-ÿ]{2,15})[,\s!\.]+/i, "$1! ")
+    if (responseText) {
+      // Regex para capturar saudação + nome na abertura da resposta
+      const greetingNamePattern = /^(Bom dia|Boa tarde|Boa noite|Ol[aá]|Oie?)[,\s]+([A-ZÀ-Ÿ][a-zà-ÿ]{2,20})[,\s!\.]+/i
+      const greetingMatch = responseText.match(greetingNamePattern)
+      if (greetingMatch) {
+        const nameUsedByAI = greetingMatch[2] // nome que a IA colocou na saudação
+        if (!contactFirstNameGuillotine) {
+          // Lead sem nome: SEMPRE remove o nome da saudação
+          responseText = responseText.replace(greetingNamePattern, "$1! ")
+        } else {
+          // Lead COM nome: remove se a IA usou um nome DIFERENTE do nome real
+          const nameNorm = (s: string) => s.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+          if (nameNorm(nameUsedByAI) !== nameNorm(contactFirstNameGuillotine)) {
+            // IA alucionou um nome errado — substitui pelo nome correto
+            responseText = responseText.replace(greetingNamePattern, `$1, ${contactFirstNameGuillotine}! `)
+            console.warn(`[guilhotina] Nome errado na saudação: IA disse "${nameUsedByAI}" mas lead é "${contactFirstNameGuillotine}". Corrigido.`)
+          }
+        }
+      }
     }
 
     responseText = applyTemporalPeriodGuard(responseText, config)
