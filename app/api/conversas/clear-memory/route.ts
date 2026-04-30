@@ -34,30 +34,23 @@ async function deleteByIn(
   const values = Array.from(new Set(params.values.map((v) => String(v || "").trim()).filter(Boolean)))
   if (!params.table || !params.column || values.length === 0) return 0
 
-  let query: any = supabase.from(params.table).delete().in(params.column, values)
-  if (params.tenant && params.tenantColumnExists) {
-    query = query.eq("tenant", params.tenant)
-  }
-
-  let result = await query.select("id")
-  if (result.error && isMissingColumnError(result.error)) {
-    query = supabase.from(params.table).delete().in(params.column, values)
+  try {
+    let query: any = supabase.from(params.table).delete({ count: "exact" }).in(params.column, values)
     if (params.tenant && params.tenantColumnExists) {
       query = query.eq("tenant", params.tenant)
     }
-    result = await query.select()
-  }
 
-  if (result.error) {
-    if (isMissingTableError(result.error)) return 0
-    console.warn(
-      `[clear-memory] deleteByIn failed table=${params.table} column=${params.column}:`,
-      result.error.message,
-    )
+    const { error, count } = await query
+    if (error) {
+      if (isMissingTableError(error) || isMissingColumnError(error)) return 0
+      console.warn(`[clear-memory] deleteByIn failed table=${params.table} column=${params.column}:`, error.message)
+      return 0
+    }
+    return count || 0
+  } catch (e: any) {
+    console.warn(`[clear-memory] deleteByIn exception table=${params.table}:`, e.message)
     return 0
   }
-
-  return Array.isArray(result.data) ? result.data.length : 0
 }
 
 async function deleteByEq(
@@ -73,30 +66,23 @@ async function deleteByEq(
   const value = String(params.value || "").trim()
   if (!params.table || !params.column || !value) return 0
 
-  let query: any = supabase.from(params.table).delete().eq(params.column, value)
-  if (params.tenant && params.tenantColumnExists) {
-    query = query.eq("tenant", params.tenant)
-  }
-
-  let result = await query.select("id")
-  if (result.error && isMissingColumnError(result.error)) {
-    query = supabase.from(params.table).delete().eq(params.column, value)
+  try {
+    let query: any = supabase.from(params.table).delete({ count: "exact" }).eq(params.column, value)
     if (params.tenant && params.tenantColumnExists) {
       query = query.eq("tenant", params.tenant)
     }
-    result = await query.select()
-  }
 
-  if (result.error) {
-    if (isMissingTableError(result.error)) return 0
-    console.warn(
-      `[clear-memory] deleteByEq failed table=${params.table} column=${params.column}:`,
-      result.error.message,
-    )
+    const { error, count } = await query
+    if (error) {
+      if (isMissingTableError(error) || isMissingColumnError(error)) return 0
+      console.warn(`[clear-memory] deleteByEq failed table=${params.table} column=${params.column}:`, error.message)
+      return 0
+    }
+    return count || 0
+  } catch (e: any) {
+    console.warn(`[clear-memory] deleteByEq exception table=${params.table}:`, e.message)
     return 0
   }
-
-  return Array.isArray(result.data) ? result.data.length : 0
 }
 
 function buildSessionVariants(input: string): string[] {

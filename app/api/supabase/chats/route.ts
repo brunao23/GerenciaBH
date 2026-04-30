@@ -15,7 +15,7 @@ type ChatsCacheEntry = {
 type SenderType = "lead" | "ia" | "human" | "system"
 type SessionChannel = "whatsapp" | "instagram"
 
-const CHATS_CACHE_TTL_MS = 15_000
+const CHATS_CACHE_TTL_MS = 2_000
 const CHATS_CACHE_MAX_KEYS = 30
 const chatsResponseCache = new Map<string, ChatsCacheEntry>()
 
