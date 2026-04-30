@@ -15,6 +15,7 @@ import { TenantMessagingService } from "@/lib/services/tenant-messaging.service"
 import { TenantChatHistoryService, normalizeSessionId } from "@/lib/services/tenant-chat-history.service"
 
 export const runtime = "nodejs"
+export const maxDuration = 300
 
 type TenantResolution = {
   tenant: string

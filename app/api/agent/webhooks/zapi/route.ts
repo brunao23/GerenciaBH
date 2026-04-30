@@ -24,7 +24,7 @@ import { GroupNotificationDispatcherService } from "@/lib/services/group-notific
 import { RedisService } from "@/lib/services/redis.service"
 
 export const runtime = "nodejs"
-export const maxDuration = 60
+export const maxDuration = 300
 
 type ZapiCallbackType =
   | "received"

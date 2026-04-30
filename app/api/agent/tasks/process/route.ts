@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { AgentTaskQueueService } from "@/lib/services/agent-task-queue.service"
 
 export const runtime = "nodejs"
-export const maxDuration = 60
+export const maxDuration = 300
 
 function isAuthorized(req: NextRequest): boolean {
   const secret = process.env.CRON_SECRET
