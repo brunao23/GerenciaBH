@@ -3004,7 +3004,8 @@ export class NativeAgentOrchestratorService {
     
     // GUILHOTINA: Se o lead NÃO tem nome real, a IA é PROIBIDA de enviar um nome na saudação.
     // Se ela alucinou um nome como "Bom dia, Jullyeth", isso decepa o nome da resposta.
-    if (!contactFirstName && responseText) {
+    const contactFirstNameGuillotine = firstName(input.contactName)
+    if (!contactFirstNameGuillotine && responseText) {
       responseText = responseText.replace(/^(Bom dia|Boa tarde|Boa noite|Ol[aá]|Oie?)[,\s]+([A-ZÀ-Ÿ][a-zà-ÿ]{2,15})[,\s!\.]+/i, "$1! ")
     }
 
