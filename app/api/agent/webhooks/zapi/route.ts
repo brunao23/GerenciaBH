@@ -3162,6 +3162,7 @@ export async function POST(req: NextRequest) {
             senderType,
             message: learningMessage,
             mediaType: learningMediaType,
+            contactName: event.contactName,
           })
           .catch(() => { })
       }

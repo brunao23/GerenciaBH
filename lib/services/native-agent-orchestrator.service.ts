@@ -2397,6 +2397,7 @@ export class NativeAgentOrchestratorService {
             sendSuccess: true,
             humanIntervention: true,
             outcome: "negative",
+            contactName: input.contactName,
           })
           .catch(() => {})
       }
@@ -3000,6 +3001,13 @@ export class NativeAgentOrchestratorService {
     let responseText = applyAssistantOutputPolicy(String(decision.reply || ""), {
       allowEmojis: config.moderateEmojiEnabled !== false,
     })
+    
+    // GUILHOTINA: Se o lead NÃO tem nome real, a IA é PROIBIDA de enviar um nome na saudação.
+    // Se ela alucinou um nome como "Bom dia, Jullyeth", isso decepa o nome da resposta.
+    if (!contactFirstName && responseText) {
+      responseText = responseText.replace(/^(Bom dia|Boa tarde|Boa noite|Ol[aá]|Oie?)[,\s]+([A-ZÀ-Ÿ][a-zà-ÿ]{2,15})[,\s!\.]+/i, "$1! ")
+    }
+
     responseText = applyTemporalPeriodGuard(responseText, config)
     responseText = enforceQualificationCommercialGuard(
       responseText,
@@ -3095,6 +3103,7 @@ export class NativeAgentOrchestratorService {
             assistantMessage: responseText,
             sendSuccess: true,
             outcome: learningOutcome,
+            contactName: input.contactName,
           })
           .catch(() => {})
       }
@@ -3283,6 +3292,7 @@ export class NativeAgentOrchestratorService {
           assistantMessage: responseText,
           sendSuccess: false,
           outcome: "send_failed",
+          contactName: input.contactName,
         })
         .catch(() => {})
       }
@@ -3321,6 +3331,7 @@ export class NativeAgentOrchestratorService {
           assistantMessage: responseText,
           sendSuccess: true,
           outcome: learningOutcome,
+          contactName: input.contactName,
         })
         .catch(() => {})
     }

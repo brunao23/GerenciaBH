@@ -730,14 +730,31 @@ export class NativeAgentLearningService {
     sendSuccess: boolean
     humanIntervention?: boolean
     outcome?: LearningOutcome
+    contactName?: string
   }): Promise<void> {
     const row = await this.loadUnitRow(input.tenant)
     if (!row) return
     const state = this.parseState(row.metadata)
     if (state.enabled === false) return
 
-    const userMessage = String(input.userMessage || "").trim()
-    const assistantMessage = String(input.assistantMessage || "").trim()
+    let userMessage = String(input.userMessage || "").trim()
+    let assistantMessage = String(input.assistantMessage || "").trim()
+    
+    // ROOT SANITIZER: Arranca o nome exato do lead de qualquer interação lida
+    if (input.contactName && input.contactName.trim().length > 2) {
+      const escapedName = input.contactName.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const nameRegex = new RegExp(`\\b${escapedName}\\b`, 'gi')
+      userMessage = userMessage.replace(nameRegex, '[NOME_DO_LEAD_OCULTO]')
+      assistantMessage = assistantMessage.replace(nameRegex, '[NOME_DO_LEAD_OCULTO]')
+      
+      const firstName = input.contactName.trim().split(' ')[0]
+      if (firstName && firstName.length > 2) {
+        const firstRegex = new RegExp(`\\b${firstName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi')
+        userMessage = userMessage.replace(firstRegex, '[NOME_DO_LEAD_OCULTO]')
+        assistantMessage = assistantMessage.replace(firstRegex, '[NOME_DO_LEAD_OCULTO]')
+      }
+    }
+
     const outcome = String(input.outcome || "").trim().toLowerCase() as LearningOutcome
 
     const positive = hasAny(userMessage, POSITIVE_HINTS)
@@ -803,6 +820,7 @@ export class NativeAgentLearningService {
     senderType: "lead" | "human" | "ia" | "system"
     message: string
     mediaType?: "audio" | "image" | "video" | "document"
+    contactName?: string
   }): Promise<void> {
     const row = await this.loadUnitRow(input.tenant)
     if (!row) return
@@ -810,8 +828,23 @@ export class NativeAgentLearningService {
     if (state.enabled === false) return
 
     const senderType = input.senderType
-    const message = String(input.message || "").trim()
+    let message = String(input.message || "").trim()
     if (!message) return
+    
+    // ROOT SANITIZER: Arranca o nome exato do lead da mensagem se ele for passado
+    if (input.contactName && input.contactName.trim().length > 2) {
+      const escapedName = input.contactName.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const nameRegex = new RegExp(`\\b${escapedName}\\b`, 'gi')
+      message = message.replace(nameRegex, '[NOME_DO_LEAD_OCULTO]')
+      
+      // Sanitiza apenas o primeiro nome (ex: se o contactName for "João Pedro", limpa também "João")
+      const firstName = input.contactName.trim().split(' ')[0]
+      if (firstName && firstName.length > 2) {
+        const firstRegex = new RegExp(`\\b${firstName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi')
+        message = message.replace(firstRegex, '[NOME_DO_LEAD_OCULTO]')
+      }
+    }
+
     const mediaType = input.mediaType
     const hasMedia = Boolean(mediaType)
     const hasTaskCommitment = detectTaskCommitment(message)
