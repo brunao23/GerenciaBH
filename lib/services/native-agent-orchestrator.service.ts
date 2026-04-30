@@ -339,13 +339,54 @@ function buildQualificationQuestion(
   return `${intro} Me conta um pouco mais sobre seu contexto para eu seguir com a melhor orientacao.`
 }
 
+function responseAsksAreaAndPainTogether(value: string): boolean {
+  const text = normalizeComparableMessage(value)
+  if (!text) return false
+  const asksArea =
+    /\b(area de atuacao|sua area|minha area|profissao|atuacao)\b/.test(text) ||
+    /\bqual e a sua area\b/.test(text)
+  const asksPain =
+    /\b(principal desafio|qual desafio|desafio de comunicacao|quer resolver com a comunicacao|quer resolver)\b/.test(text)
+  return asksArea && asksPain
+}
+
+function stripCombinedQualificationSegments(value: string): string {
+  const raw = String(value || "").trim()
+  if (!raw) return raw
+  const segments = raw
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map((segment) => segment.trim())
+    .filter(Boolean)
+
+  const filtered = segments.filter((segment) => !responseAsksAreaAndPainTogether(segment))
+  return filtered.join(" ").replace(/\s+/g, " ").trim()
+}
+
 function enforceQualificationCommercialGuard(
   responseText: string,
-  _qualification: QualificationState,
+  qualification: QualificationState,
   _latestLeadMessage?: string,
 ): string {
-  // Mantem a resposta original do modelo sem sobrescrita por script fixo.
-  return String(responseText || "").trim()
+  const text = String(responseText || "").trim()
+  if (!text) return text
+
+  // Anti-repeticao: se o lead ja informou parte da qualificacao, nao repetir
+  // a pergunta completa (area + desafio) no mesmo turno.
+  if (responseAsksAreaAndPainTogether(text)) {
+    const askedOnlyOnePoint =
+      (qualification.hasArea && !qualification.hasPain) ||
+      (!qualification.hasArea && qualification.hasPain)
+
+    if (askedOnlyOnePoint) {
+      const stripped = stripCombinedQualificationSegments(text)
+      const followQuestion = buildQualificationQuestion(qualification)
+      if (!stripped) return followQuestion
+      const needsSeparator = /[.!?]$/.test(stripped)
+      return `${stripped}${needsSeparator ? " " : ". "}${followQuestion}`.trim()
+    }
+  }
+
+  return text
 }
 
 function normalizeRecipientForMessaging(input: {
