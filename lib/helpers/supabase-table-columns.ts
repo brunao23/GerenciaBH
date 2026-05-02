@@ -13,6 +13,23 @@ function getProbeColumnsForTable(tableName: string): string[] {
   const table = String(tableName || "").toLowerCase()
   const common = ["id", "created_at", "updated_at"]
 
+  if (table === "followup_schedule" || table === "followup_logs" || table === "agent_task_queue") {
+    return [
+      ...common,
+      "tenant",
+      "session_id",
+      "phone_number",
+      "numero",
+      "contato",
+      "phone",
+      "lead_phone",
+      "chat_lid",
+      "message",
+      "payload",
+      "status",
+    ]
+  }
+
   if (table.endsWith("_agendamentos")) {
     return [
       ...common,
@@ -110,7 +127,21 @@ function getProbeColumnsForTable(tableName: string): string[] {
     return [...common, "columns"]
   }
 
-  return [...common, "session_id", "numero", "status", "nome", "message"]
+  return [
+    ...common,
+    "tenant",
+    "session_id",
+    "numero",
+    "contato",
+    "phone_number",
+    "phone",
+    "lead_phone",
+    "chat_lid",
+    "status",
+    "nome",
+    "message",
+    "payload",
+  ]
 }
 
 function isMissingColumnError(error: any, column: string): boolean {

@@ -766,8 +766,8 @@ export async function PATCH(req: NextRequest, context: { params: RouteParams }) 
       ),
       messageBlockMaxChars: toNumber(
         body?.messageBlockMaxChars,
-        current.messageBlockMaxChars,
-        80,
+        Math.max(120, Number(current.messageBlockMaxChars || 400)),
+        120,
         1200,
       ),
       testModeEnabled: toBool(body?.testModeEnabled, current.testModeEnabled),
@@ -1213,7 +1213,7 @@ export async function PATCH(req: NextRequest, context: { params: RouteParams }) 
         100,
       ),
       semanticCacheEnabled: toBool(body?.semanticCacheEnabled, current.semanticCacheEnabled),
-      semanticCacheSimilarityThreshold: toNumber(
+      semanticCacheSimilarityThreshold: toDecimal(
         body?.semanticCacheSimilarityThreshold,
         current.semanticCacheSimilarityThreshold,
         0.5,

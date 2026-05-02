@@ -34,6 +34,7 @@ export interface GeminiAgentDecision {
   reply: string
   actions: AgentActionPlan[]
   handoff: boolean
+  usage?: LLMUsageMetrics
 }
 
 export interface GeminiFunctionDeclaration {
@@ -66,6 +67,16 @@ export interface GeminiToolHandlerResult {
 export interface GeminiToolDecision extends GeminiAgentDecision {
   toolCalls: GeminiToolCall[]
   executions: GeminiToolExecution[]
+}
+
+export interface LLMUsageMetrics {
+  provider: "google" | "openai" | "anthropic" | "groq" | "openrouter" | "unknown"
+  model: string
+  inputTokens: number
+  outputTokens: number
+  totalTokens: number
+  cachedInputTokens?: number
+  raw?: Record<string, any>
 }
 
 export interface GeminiMediaAnalysisInput {
@@ -307,6 +318,48 @@ function buildUniqueModelList(values: string[]): string[] {
     result.push(normalized)
   }
   return result
+}
+
+function toSafeTokenInt(value: any): number {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric) || numeric <= 0) return 0
+  return Math.max(0, Math.floor(numeric))
+}
+
+function extractGeminiUsageMetrics(data: any, fallbackModel: string): LLMUsageMetrics {
+  const usage = data?.usageMetadata || {}
+  const modelVersion = String(data?.modelVersion || "").trim()
+  const model = modelVersion ? normalizeModelCode(modelVersion) : normalizeModelCode(fallbackModel)
+
+  const inputTokens = toSafeTokenInt(usage?.promptTokenCount)
+  const outputTokens = toSafeTokenInt(usage?.candidatesTokenCount)
+  const totalTokensRaw = toSafeTokenInt(usage?.totalTokenCount)
+  const cachedInputTokens = toSafeTokenInt(usage?.cachedContentTokenCount)
+  const totalTokens = totalTokensRaw > 0 ? totalTokensRaw : inputTokens + outputTokens
+
+  return {
+    provider: "google",
+    model: model || normalizeModelCode(fallbackModel) || "gemini-2.5-flash",
+    inputTokens,
+    outputTokens,
+    totalTokens,
+    cachedInputTokens,
+    raw: usage && typeof usage === "object" ? usage : undefined,
+  }
+}
+
+function accumulateUsageMetrics(base: LLMUsageMetrics | null, incoming: LLMUsageMetrics): LLMUsageMetrics {
+  if (!base) return { ...incoming }
+  return {
+    provider: incoming.provider || base.provider || "google",
+    model: incoming.model || base.model || "",
+    inputTokens: toSafeTokenInt(base.inputTokens) + toSafeTokenInt(incoming.inputTokens),
+    outputTokens: toSafeTokenInt(base.outputTokens) + toSafeTokenInt(incoming.outputTokens),
+    totalTokens: toSafeTokenInt(base.totalTokens) + toSafeTokenInt(incoming.totalTokens),
+    cachedInputTokens:
+      toSafeTokenInt(base.cachedInputTokens) + toSafeTokenInt(incoming.cachedInputTokens),
+    raw: incoming.raw || base.raw,
+  }
 }
 
 type ExplicitCacheEntry = {
@@ -889,18 +942,20 @@ export class GeminiService {
     }
 
     const data = await this.requestGenerateContent(payload)
+    const usage = extractGeminiUsageMetrics(data, this.model)
 
     const outputText = String(
       data?.candidates?.[0]?.content?.parts?.map((p: any) => p?.text || "").join("\n") || "",
     ).trim()
 
     const parsed = safeParseDecision(outputText)
-    if (parsed) return parsed
+    if (parsed) return { ...parsed, usage }
 
     return {
       reply: outputText || "",
       actions: [{ type: "none" }],
       handoff: false,
+      usage,
     }
   }
 
@@ -931,6 +986,7 @@ export class GeminiService {
     const allCalls: GeminiToolCall[] = []
     const executions: GeminiToolExecution[] = []
     let latestText = ""
+    let usageAggregate: LLMUsageMetrics | null = null
 
     for (let step = 0; step < maxSteps; step++) {
       const payload: Record<string, any> = {
@@ -959,6 +1015,10 @@ export class GeminiService {
       }
 
       const data = await this.requestGenerateContent(payload)
+      usageAggregate = accumulateUsageMetrics(
+        usageAggregate,
+        extractGeminiUsageMetrics(data, this.model),
+      )
       const content = data?.candidates?.[0]?.content || {}
       const parts = Array.isArray(content?.parts) ? content.parts : []
 
@@ -1040,6 +1100,7 @@ export class GeminiService {
       handoff,
       toolCalls: allCalls,
       executions,
+      usage: usageAggregate || undefined,
     }
   }
 }

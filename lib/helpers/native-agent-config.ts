@@ -1175,12 +1175,43 @@ function timeToMinutes(hhmm: string): number {
 export function validateNativeAgentConfig(config: NativeAgentConfig): string | null {
   if (!config.enabled) return null
 
-  if (!config.geminiApiKey) {
-    return "geminiApiKey is required when native agent is enabled"
-  }
+  const provider = config.aiProvider || "google"
 
-  if (!config.geminiModel) {
-    return "geminiModel is required when native agent is enabled"
+  if (provider === "google") {
+    if (!(config.geminiApiKey || process.env.GEMINI_API_KEY)) {
+      return "geminiApiKey is required when aiProvider is google and native agent is enabled"
+    }
+    if (!(config.geminiModel || process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL)) {
+      return "geminiModel is required when aiProvider is google and native agent is enabled"
+    }
+  } else if (provider === "openai") {
+    if (!(config.openaiApiKey || process.env.OPENAI_API_KEY)) {
+      return "openaiApiKey is required when aiProvider is openai and native agent is enabled"
+    }
+    if (!(config.openaiModel || process.env.OPENAI_MODEL)) {
+      return "openaiModel is required when aiProvider is openai and native agent is enabled"
+    }
+  } else if (provider === "anthropic") {
+    if (!(config.anthropicApiKey || process.env.ANTHROPIC_API_KEY)) {
+      return "anthropicApiKey is required when aiProvider is anthropic and native agent is enabled"
+    }
+    if (!(config.anthropicModel || process.env.ANTHROPIC_MODEL)) {
+      return "anthropicModel is required when aiProvider is anthropic and native agent is enabled"
+    }
+  } else if (provider === "groq") {
+    if (!(config.groqApiKey || process.env.GROQ_API_KEY)) {
+      return "groqApiKey is required when aiProvider is groq and native agent is enabled"
+    }
+    if (!(config.groqModel || process.env.GROQ_MODEL)) {
+      return "groqModel is required when aiProvider is groq and native agent is enabled"
+    }
+  } else if (provider === "openrouter") {
+    if (!(config.openRouterApiKey || process.env.OPENROUTER_API_KEY)) {
+      return "openRouterApiKey is required when aiProvider is openrouter and native agent is enabled"
+    }
+    if (!(config.openRouterModel || process.env.OPENROUTER_MODEL)) {
+      return "openRouterModel is required when aiProvider is openrouter and native agent is enabled"
+    }
   }
 
   if (config.responseDelayMinSeconds > config.responseDelayMaxSeconds) {

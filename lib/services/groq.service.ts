@@ -8,6 +8,7 @@ import {
     GeminiToolDecision,
     GeminiToolExecution,
     AgentActionPlan,
+    LLMUsageMetrics,
 } from "./gemini.service";
 
 export class GroqService implements LLMService {
@@ -25,6 +26,42 @@ export class GroqService implements LLMService {
         if (numeric < min) return min
         if (numeric > max) return max
         return numeric
+    }
+
+    private toSafeTokenInt(value: any): number {
+        const numeric = Number(value)
+        if (!Number.isFinite(numeric) || numeric <= 0) return 0
+        return Math.max(0, Math.floor(numeric))
+    }
+
+    private extractUsageMetrics(data: any): LLMUsageMetrics {
+        const usage = data?.usage || {}
+        const inputTokens = this.toSafeTokenInt(usage?.prompt_tokens)
+        const outputTokens = this.toSafeTokenInt(usage?.completion_tokens)
+        const totalTokensRaw = this.toSafeTokenInt(usage?.total_tokens)
+        const totalTokens = totalTokensRaw > 0 ? totalTokensRaw : inputTokens + outputTokens
+
+        return {
+            provider: "groq",
+            model: String(data?.model || this.model || "llama3-70b-8192"),
+            inputTokens,
+            outputTokens,
+            totalTokens,
+            raw: usage && typeof usage === "object" ? usage : undefined,
+        }
+    }
+
+    private mergeUsage(base: LLMUsageMetrics | null, incoming: LLMUsageMetrics): LLMUsageMetrics {
+        if (!base) return { ...incoming }
+        return {
+            provider: incoming.provider || base.provider || "groq",
+            model: incoming.model || base.model || this.model,
+            inputTokens: this.toSafeTokenInt(base.inputTokens) + this.toSafeTokenInt(incoming.inputTokens),
+            outputTokens: this.toSafeTokenInt(base.outputTokens) + this.toSafeTokenInt(incoming.outputTokens),
+            totalTokens: this.toSafeTokenInt(base.totalTokens) + this.toSafeTokenInt(incoming.totalTokens),
+            cachedInputTokens: this.toSafeTokenInt(base.cachedInputTokens) + this.toSafeTokenInt(incoming.cachedInputTokens),
+            raw: incoming.raw || base.raw,
+        }
     }
 
     private async requestGroq(payload: Record<string, any>): Promise<any> {
@@ -81,6 +118,7 @@ export class GroqService implements LLMService {
         };
 
         const data = await this.requestGroq(payload);
+        const usage = this.extractUsageMetrics(data)
         const text = String(data?.choices?.[0]?.message?.content || "").trim();
 
         if (!text) {
@@ -89,6 +127,7 @@ export class GroqService implements LLMService {
                 reply: "",
                 actions: [{ type: "none" }],
                 handoff: false,
+                usage,
             };
         }
 
@@ -101,6 +140,7 @@ export class GroqService implements LLMService {
                     reply: parsed.reply || text,
                     actions: Array.isArray(parsed.actions) ? parsed.actions : [{ type: "none" }],
                     handoff: parsed.handoff || false,
+                    usage,
                 };
             } catch {
                 // Not valid JSON, return raw text
@@ -111,6 +151,7 @@ export class GroqService implements LLMService {
             reply: text,
             actions: [{ type: "none" }],
             handoff: false,
+            usage,
         };
     }
 
@@ -143,6 +184,7 @@ export class GroqService implements LLMService {
         const allCalls: GeminiToolCall[] = [];
         const executions: GeminiToolExecution[] = [];
         let finalReply = "";
+        let usageAggregate: LLMUsageMetrics | null = null;
 
         for (let step = 0; step < maxSteps; step++) {
             const payload: Record<string, any> = {
@@ -159,6 +201,7 @@ export class GroqService implements LLMService {
             }
 
             const data = await this.requestGroq(payload);
+            usageAggregate = this.mergeUsage(usageAggregate, this.extractUsageMetrics(data))
             const responseMessage = data?.choices?.[0]?.message;
 
             if (!responseMessage) {
@@ -239,6 +282,7 @@ export class GroqService implements LLMService {
             handoff: actions.some(a => a.type === "handoff_human"),
             toolCalls: allCalls,
             executions,
+            usage: usageAggregate || undefined,
         };
     }
 }

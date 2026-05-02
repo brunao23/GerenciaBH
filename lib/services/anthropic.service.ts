@@ -8,6 +8,7 @@ import {
     GeminiToolDecision,
     GeminiToolExecution,
     AgentActionPlan,
+    LLMUsageMetrics,
 } from "./gemini.service";
 
 export class AnthropicService implements LLMService {
@@ -25,6 +26,46 @@ export class AnthropicService implements LLMService {
         if (numeric < min) return min
         if (numeric > max) return max
         return numeric
+    }
+
+    private toSafeTokenInt(value: any): number {
+        const numeric = Number(value)
+        if (!Number.isFinite(numeric) || numeric <= 0) return 0
+        return Math.max(0, Math.floor(numeric))
+    }
+
+    private extractUsageMetrics(data: any): LLMUsageMetrics {
+        const usage = data?.usage || {}
+        const inputTokens =
+            this.toSafeTokenInt(usage?.input_tokens) +
+            this.toSafeTokenInt(usage?.cache_creation_input_tokens) +
+            this.toSafeTokenInt(usage?.cache_read_input_tokens)
+        const outputTokens = this.toSafeTokenInt(usage?.output_tokens)
+        const totalTokens = inputTokens + outputTokens
+        const cachedInputTokens = this.toSafeTokenInt(usage?.cache_read_input_tokens)
+
+        return {
+            provider: "anthropic",
+            model: String(data?.model || this.model || "claude-sonnet-4-20250514"),
+            inputTokens,
+            outputTokens,
+            totalTokens,
+            cachedInputTokens,
+            raw: usage && typeof usage === "object" ? usage : undefined,
+        }
+    }
+
+    private mergeUsage(base: LLMUsageMetrics | null, incoming: LLMUsageMetrics): LLMUsageMetrics {
+        if (!base) return { ...incoming }
+        return {
+            provider: incoming.provider || base.provider || "anthropic",
+            model: incoming.model || base.model || this.model,
+            inputTokens: this.toSafeTokenInt(base.inputTokens) + this.toSafeTokenInt(incoming.inputTokens),
+            outputTokens: this.toSafeTokenInt(base.outputTokens) + this.toSafeTokenInt(incoming.outputTokens),
+            totalTokens: this.toSafeTokenInt(base.totalTokens) + this.toSafeTokenInt(incoming.totalTokens),
+            cachedInputTokens: this.toSafeTokenInt(base.cachedInputTokens) + this.toSafeTokenInt(incoming.cachedInputTokens),
+            raw: incoming.raw || base.raw,
+        }
     }
 
     private async requestAnthropic(payload: Record<string, any>): Promise<any> {
@@ -115,6 +156,7 @@ export class AnthropicService implements LLMService {
         };
 
         const data = await this.requestAnthropic(payload);
+        const usage = this.extractUsageMetrics(data)
         const content = Array.isArray(data?.content) ? data.content : [];
         const textPart = content.find((c: any) => c.type === "text");
         const text = String(textPart?.text || "").trim();
@@ -125,6 +167,7 @@ export class AnthropicService implements LLMService {
                 reply: "",
                 actions: [{ type: "none" }],
                 handoff: false,
+                usage,
             };
         }
 
@@ -137,6 +180,7 @@ export class AnthropicService implements LLMService {
                     reply: parsed.reply || text,
                     actions: Array.isArray(parsed.actions) ? parsed.actions : [{ type: "none" }],
                     handoff: parsed.handoff || false,
+                    usage,
                 };
             } catch {
                 // Not valid JSON, return raw text
@@ -147,6 +191,7 @@ export class AnthropicService implements LLMService {
             reply: text,
             actions: [{ type: "none" }],
             handoff: false,
+            usage,
         };
     }
 
@@ -180,6 +225,7 @@ export class AnthropicService implements LLMService {
         const allCalls: GeminiToolCall[] = [];
         const executions: GeminiToolExecution[] = [];
         let finalReply = "";
+        let usageAggregate: LLMUsageMetrics | null = null;
 
         for (let step = 0; step < maxSteps; step++) {
             const payload: Record<string, any> = {
@@ -197,6 +243,7 @@ export class AnthropicService implements LLMService {
             }
 
             const data = await this.requestAnthropic(payload);
+            usageAggregate = this.mergeUsage(usageAggregate, this.extractUsageMetrics(data))
             const content = Array.isArray(data?.content) ? data.content : [];
 
             if (content.length === 0) {
@@ -275,6 +322,7 @@ export class AnthropicService implements LLMService {
             handoff: actions.some(a => a.type === "handoff_human"),
             toolCalls: allCalls,
             executions,
+            usage: usageAggregate || undefined,
         };
     }
 }

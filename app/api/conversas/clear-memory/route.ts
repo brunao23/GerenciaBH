@@ -21,6 +21,32 @@ function isMissingColumnError(error: any): boolean {
   return message.includes("column") && message.includes("does not exist")
 }
 
+function addPhoneIdentityVariants(result: Set<string>, input: string) {
+  const digits = onlyDigits(input)
+  if (digits.length < 8) return
+
+  const normalized = normalizePhoneNumber(digits)
+  if (!normalized) return
+
+  const without55 = normalized.startsWith("55") && normalized.length > 10 ? normalized.slice(2) : ""
+
+  result.add(digits)
+  result.add(normalized)
+  if (without55) result.add(without55)
+
+  result.add(`${normalized}@s.whatsapp.net`)
+  result.add(`${normalized}@c.us`)
+  result.add(`lid_${normalized}`)
+  result.add(`${normalized}@lid`)
+
+  if (without55) {
+    result.add(`${without55}@s.whatsapp.net`)
+    result.add(`${without55}@c.us`)
+    result.add(`lid_${without55}`)
+    result.add(`${without55}@lid`)
+  }
+}
+
 async function deleteByIn(
   supabase: ReturnType<typeof createBiaSupabaseServerClient>,
   params: {
@@ -94,30 +120,48 @@ function buildSessionVariants(input: string): string[] {
   if (normalizedSession) result.add(normalizedSession)
   result.add(raw)
 
-  const digits = onlyDigits(raw)
-  if (digits.length >= 8) {
-    const phone = normalizePhoneNumber(digits)
-    if (phone) result.add(phone)
-    if (phone.startsWith("55") && phone.length > 10) result.add(phone.slice(2))
+  addPhoneIdentityVariants(result, raw)
+  if (normalizedSession && normalizedSession !== raw) addPhoneIdentityVariants(result, normalizedSession)
+
+  if (normalizedSession.startsWith("lid_")) {
+    addPhoneIdentityVariants(result, normalizedSession.slice(4))
   }
 
-  return Array.from(result)
+  return Array.from(result).filter(Boolean).slice(0, 40)
 }
 
 function buildPhoneVariants(input: string): string[] {
   const result = new Set<string>()
-  const rawDigits = onlyDigits(input)
-  if (rawDigits.length < 8) return []
+  addPhoneIdentityVariants(result, input)
+  return Array.from(result).filter(Boolean).slice(0, 40)
+}
 
-  const normalized = normalizePhoneNumber(rawDigits)
-  if (normalized) {
-    result.add(normalized)
-    if (normalized.startsWith("55") && normalized.length > 10) {
-      result.add(normalized.slice(2))
+function buildChatLidVariants(input: string, sessionVariants: string[], phoneVariants: string[]): string[] {
+  const result = new Set<string>()
+  const raw = String(input || "").trim()
+  if (raw) result.add(raw)
+
+  const sources = [...sessionVariants, ...phoneVariants]
+  for (const source of sources) {
+    const value = String(source || "").trim()
+    if (!value) continue
+    if (/@lid$/i.test(value)) result.add(value)
+    if (/^lid_/i.test(value)) {
+      const digits = onlyDigits(value)
+      if (digits) result.add(`${digits}@lid`)
+    }
+
+    const digits = onlyDigits(value)
+    if (digits.length >= 8) {
+      const normalized = normalizePhoneNumber(digits)
+      if (normalized) result.add(`${normalized}@lid`)
+      if (normalized.startsWith("55") && normalized.length > 10) {
+        result.add(`${normalized.slice(2)}@lid`)
+      }
     }
   }
-  result.add(rawDigits)
-  return Array.from(result)
+
+  return Array.from(result).filter(Boolean).slice(0, 40)
 }
 
 export async function POST(req: Request) {
@@ -131,7 +175,7 @@ export async function POST(req: Request) {
 
     const sessionVariants = buildSessionVariants(sessionRaw)
     const phoneVariants = buildPhoneVariants(numberRaw || sessionRaw)
-    const chatLidVariants = chatLidRaw ? [chatLidRaw] : []
+    const chatLidVariants = buildChatLidVariants(chatLidRaw, sessionVariants, phoneVariants)
 
     if (sessionVariants.length === 0 && phoneVariants.length === 0 && chatLidVariants.length === 0) {
       return NextResponse.json(
@@ -162,11 +206,12 @@ export async function POST(req: Request) {
 
     for (const table of tenantTables) {
       const columns = await getTableColumns(supabase as any, table)
-      if (!columns || columns.size === 0) continue
+      const hasColumnMetadata = Boolean(columns && columns.size > 0)
+      const canUseColumn = (column: string) => !hasColumnMetadata || columns.has(column)
 
       let deletedInTable = 0
 
-      if (sessionVariants.length > 0 && columns.has("session_id")) {
+      if (sessionVariants.length > 0 && canUseColumn("session_id")) {
         deletedInTable += await deleteByIn(supabase, {
           table,
           column: "session_id",
@@ -177,7 +222,7 @@ export async function POST(req: Request) {
       if (phoneVariants.length > 0) {
         const phoneColumns = ["numero", "contato", "phone_number", "phone", "lead_phone", "whatsapp", "lead_id"]
         for (const column of phoneColumns) {
-          if (!columns.has(column)) continue
+          if (!canUseColumn(column)) continue
           deletedInTable += await deleteByIn(supabase, {
             table,
             column,
@@ -186,7 +231,7 @@ export async function POST(req: Request) {
         }
       }
 
-      if (chatLidVariants.length > 0 && columns.has("chat_lid")) {
+      if (chatLidVariants.length > 0 && canUseColumn("chat_lid")) {
         deletedInTable += await deleteByIn(supabase, {
           table,
           column: "chat_lid",
@@ -194,7 +239,7 @@ export async function POST(req: Request) {
         })
       }
 
-      if (table === chatTable && columns.has("message")) {
+      if (table === chatTable && canUseColumn("message")) {
         for (const phone of phoneVariants) {
           deletedInTable += await deleteByEq(supabase, {
             table,
@@ -244,12 +289,12 @@ export async function POST(req: Request) {
     const globalTables = ["followup_schedule", "followup_logs", "agent_task_queue"]
     for (const table of globalTables) {
       const columns = await getTableColumns(supabase as any, table)
-      if (!columns || columns.size === 0) continue
-
-      const tenantScoped = columns.has("tenant")
+      const hasColumnMetadata = Boolean(columns && columns.size > 0)
+      const canUseColumn = (column: string) => !hasColumnMetadata || columns.has(column)
+      const tenantScoped = canUseColumn("tenant")
       let deletedInTable = 0
 
-      if (sessionVariants.length > 0 && columns.has("session_id")) {
+      if (sessionVariants.length > 0 && canUseColumn("session_id")) {
         deletedInTable += await deleteByIn(supabase, {
           table,
           column: "session_id",
@@ -262,7 +307,7 @@ export async function POST(req: Request) {
       if (phoneVariants.length > 0) {
         const phoneColumns = ["phone_number", "numero", "contato", "phone", "lead_phone"]
         for (const column of phoneColumns) {
-          if (!columns.has(column)) continue
+          if (!canUseColumn(column)) continue
           deletedInTable += await deleteByIn(supabase, {
             table,
             column,
@@ -271,6 +316,16 @@ export async function POST(req: Request) {
             tenantColumnExists: tenantScoped,
           })
         }
+      }
+
+      if (chatLidVariants.length > 0 && canUseColumn("chat_lid")) {
+        deletedInTable += await deleteByIn(supabase, {
+          table,
+          column: "chat_lid",
+          values: chatLidVariants,
+          tenant,
+          tenantColumnExists: tenantScoped,
+        })
       }
 
       if (deletedInTable > 0) {
@@ -298,4 +353,3 @@ export async function POST(req: Request) {
     )
   }
 }
-

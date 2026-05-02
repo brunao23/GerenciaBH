@@ -62,6 +62,10 @@ type ChatSession = {
   isGroup?: boolean
   profile_pic?: string
   isStudent?: boolean | null
+  usage_input_tokens?: number
+  usage_output_tokens?: number
+  usage_total_tokens?: number
+  usage_total_cost_brl?: number
   unread?: number
   error?: boolean
   success?: boolean
@@ -135,6 +139,21 @@ function fmtBR(iso: string | undefined | null) {
   } catch {
     return d.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", hour12: false })
   }
+}
+
+function formatTokenCount(value: number | undefined | null) {
+  const safe = Number.isFinite(Number(value)) ? Math.max(0, Math.floor(Number(value))) : 0
+  return new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 0 }).format(safe)
+}
+
+function formatMoneyBRL(value: number | undefined | null) {
+  const safe = Number.isFinite(Number(value)) ? Number(value) : 0
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  }).format(safe)
 }
 
 const onlyDigits = (s: string) => s.replace(/\D+/g, "")
@@ -282,6 +301,10 @@ const dedupeSessionsById = (sessions: ChatSession[]): ChatSession[] => {
       messages_count: Math.max(existing.messages_count || 0, incoming.messages_count || 0),
       last_id: Math.max(existing.last_id || 0, incoming.last_id || 0),
       isStudent: existing.isStudent ?? incoming.isStudent ?? null,
+      usage_input_tokens: Math.max(existing.usage_input_tokens || 0, incoming.usage_input_tokens || 0),
+      usage_output_tokens: Math.max(existing.usage_output_tokens || 0, incoming.usage_output_tokens || 0),
+      usage_total_tokens: Math.max(existing.usage_total_tokens || 0, incoming.usage_total_tokens || 0),
+      usage_total_cost_brl: Math.max(existing.usage_total_cost_brl || 0, incoming.usage_total_cost_brl || 0),
       isGroup: Boolean(existing.isGroup || incoming.isGroup),
     })
   }
@@ -1122,7 +1145,7 @@ export default function ConversasPage() {
 
   const fetchPauseStatus = useCallback(async (targetIdentity: string) => {
     if (!targetIdentity || !tenant) return
-    const defaultStatus = { pausar: false, vaga: true, agendamento: true }
+    const defaultStatus = { pausar: false, vaga: true, agendamento: false }
     try {
       const response = await fetch(`/api/pausar?numero=${encodeURIComponent(targetIdentity)}`)
       if (!response.ok) {
@@ -1141,7 +1164,7 @@ export default function ConversasPage() {
       setPauseStatus({
         pausar: pauseData.pausar ?? false,
         vaga: pauseData.vaga ?? true,
-        agendamento: pauseData.agendamento ?? true,
+        agendamento: pauseData.agendamento ?? false,
       })
     } catch (error) {
       console.error("Erro ao buscar status de pausa:", error)
@@ -1242,13 +1265,13 @@ export default function ConversasPage() {
             numero: currentPauseIdentity,
             pausar: param === "pausar" ? newValue : (pauseStatus?.pausar ?? false),
             vaga: param === "vaga" ? newValue : (pauseStatus?.vaga ?? true),
-            agendamento: param === "agendamento" ? newValue : (pauseStatus?.agendamento ?? true),
+            agendamento: param === "agendamento" ? newValue : (pauseStatus?.agendamento ?? false),
           }),
         })
 
         if (response.ok) {
           setPauseStatus((prev) =>
-            prev ? { ...prev, [param]: newValue } : { pausar: false, vaga: true, agendamento: true, [param]: newValue },
+            prev ? { ...prev, [param]: newValue } : { pausar: false, vaga: true, agendamento: false, [param]: newValue },
           )
         } else {
           alert(`Erro ao alterar status`)
@@ -2085,7 +2108,7 @@ export default function ConversasPage() {
 
       setSessions((prev) => prev.filter((session) => session.session_id !== targetSessionId))
       setActive((prev) => (prev === targetSessionId ? null : prev))
-      setPauseStatus({ pausar: false, vaga: true, agendamento: true })
+      setPauseStatus({ pausar: false, vaga: true, agendamento: false })
 
       const totalDeleted = Number(payload?.totalDeleted || 0)
       toast.success(
@@ -2123,6 +2146,8 @@ export default function ConversasPage() {
         body: JSON.stringify({
           numero: current.numero || current.session_id,
           pausar: true,
+          vaga: false,
+          agendamento: false,
           paused_until: pausedUntil
         })
       })
@@ -2132,7 +2157,7 @@ export default function ConversasPage() {
         throw new Error(data?.error || "Erro ao pausar IA")
       }
 
-      setPauseStatus(prev => prev ? { ...prev, pausar: true } : { pausar: true, vaga: true, agendamento: true })
+      setPauseStatus(prev => prev ? { ...prev, pausar: true, vaga: false, agendamento: false } : { pausar: true, vaga: false, agendamento: false })
       toast.success("IA pausada")
     } catch (err: any) {
       console.error("Erro ao pausar:", err)
@@ -2459,6 +2484,9 @@ export default function ConversasPage() {
                             </Badge>
                           )}
                         </div>
+                        <div className="mt-1 text-[11px] text-text-gray/80">
+                          In {formatTokenCount(session.usage_input_tokens)} • Out {formatTokenCount(session.usage_output_tokens)} • Total {formatTokenCount(session.usage_total_tokens)} • {formatMoneyBRL(session.usage_total_cost_brl)}
+                        </div>
                 <div className="flex gap-1 mt-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
                           <Button
                             size="sm"
@@ -2594,6 +2622,9 @@ export default function ConversasPage() {
                         {current.isSummary ? "~" : ""}
                         {current.messages_count ?? current.messages.length} mensagens
                       </span>
+                    </div>
+                    <div className="mt-1 text-xs text-text-gray/80">
+                      Input {formatTokenCount(current.usage_input_tokens)} • Output {formatTokenCount(current.usage_output_tokens)} • Total {formatTokenCount(current.usage_total_tokens)} • {formatMoneyBRL(current.usage_total_cost_brl)}
                     </div>
                     {current.channel === "instagram" && (inferInstagramHandle(current) || current.instagram_bio) && (
                       <div className="mt-1 space-y-0.5">

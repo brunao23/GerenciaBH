@@ -22,6 +22,7 @@ const MIGRATIONS = {
     'workflow-control': 'sql/workflow_control_tables.sql',
     'tabelas-empresa': 'sql/criar_tabelas_por_empresa.sql',
     'semantic-cache-embedding-nullable': 'supabase/migrations/20260428_semantic_cache_embedding_nullable.sql',
+    'llm-usage-events': 'supabase/migrations/20260502_llm_usage_events.sql',
 };
 
 function resolveProjectRefFromSupabaseUrl(rawUrl?: string | null): string | null {

@@ -32,6 +32,7 @@ import {
     ChevronRight,
     Heart,
     Clock,
+    Coins,
 } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useState } from "react"
@@ -40,6 +41,7 @@ const adminItems = [
     { title: "Unidades", url: "/admin/units", icon: Server },
     { title: "Resultados / Leads", url: "/admin/leads", icon: BarChart },
     { title: "Gerar Relatórios", url: "/admin/reports", icon: FileText },
+    { title: "Custos IA", url: "/admin/costs", icon: Coins },
     { title: "Testadores Instagram", url: "/admin/instagram-testers", icon: Instagram },
     { title: "Meta Lead Ads", url: "/admin/meta-lead-pages", icon: Target },
     { title: "Instâncias Z-API", url: "/admin/instancias", icon: Smartphone },
@@ -221,3 +223,5 @@ export function AdminSidebar() {
         </Sidebar>
     )
 }
+
+

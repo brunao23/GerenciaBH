@@ -52,6 +52,17 @@ function validatePhoneNumber(numero: string): { valid: boolean; error?: string }
   return { valid: true }
 }
 
+function parseBooleanInput(value: unknown, fallback: boolean): boolean {
+  if (value === undefined) return fallback
+  if (typeof value === "boolean") return value
+  if (typeof value === "number") return value === 1
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase()
+    return normalized === "true" || normalized === "1"
+  }
+  return fallback
+}
+
 // GET - Listar todos os registros de pausa ou buscar por número específico
 export async function GET(request: NextRequest) {
   try {
@@ -102,7 +113,7 @@ export async function GET(request: NextRequest) {
           numero: normalizePhoneNumber(numero),
           pausar: false,
           vaga: true,
-          agendamento: true
+          agendamento: false
         }
       })
     }
@@ -171,12 +182,17 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Validação e conversão de tipos booleanos (aceita true, "true", 1)
-    const pausarBool = pausar === true || pausar === "true" || pausar === 1 || pausar === "1"
-    const vagaBool = vaga === true || vaga === "true" || vaga === 1 || vaga === "1"
-    const agendamentoBool = agendamento !== undefined
-      ? (agendamento === true || agendamento === "true" || agendamento === 1 || agendamento === "1")
-      : true // Default true se não informado
+    const { data: existingRow } = await supabase
+      .from(pausarTable)
+      .select("numero, pausar, vaga, agendamento")
+      .eq("numero", targetNumero)
+      .maybeSingle()
+
+    // Quando flags não vierem no payload, preserva valor existente.
+    // Para novos registros: vaga=true e agendamento=false.
+    const pausarBool = parseBooleanInput(pausar, existingRow?.pausar ?? false)
+    const vagaBool = parseBooleanInput(vaga, existingRow?.vaga ?? true)
+    const agendamentoBool = parseBooleanInput(agendamento, existingRow?.agendamento ?? false)
 
     console.log(`[Pausar API POST] Upsert: ${targetNumero}, pausar=${pausarBool}, vaga=${vagaBool}, agendamento=${agendamentoBool}`)
 

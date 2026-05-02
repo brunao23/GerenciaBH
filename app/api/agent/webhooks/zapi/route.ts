@@ -119,6 +119,20 @@ function readNumber(value: any): number | undefined {
   return Number.isFinite(numberValue) ? numberValue : undefined
 }
 
+function tryParseJsonObject(value: any): Record<string, any> {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, any>
+  const text = String(value ?? "").trim()
+  if (!text) return {}
+  if (!(text.startsWith("{") && text.endsWith("}"))) return {}
+  try {
+    const parsed = JSON.parse(text)
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, any>
+  } catch {
+    // noop
+  }
+  return {}
+}
+
 function normalizeLikelyWhatsappPhone(value: any): string {
   const raw = String(value ?? "").trim()
   if (!raw) return ""
@@ -148,6 +162,11 @@ function normalizeChatLid(value: any): string {
 
 function extractChatLid(payload: any): string {
   const candidates = [
+    payload?.phone,
+    payload?.from,
+    payload?.sender,
+    payload?.senderPhone,
+    payload?.participantPhone,
     payload?.chatLid,
     payload?.chat_lid,
     payload?.participantLid,
@@ -161,6 +180,9 @@ function extractChatLid(payload: any): string {
     payload?.data?.chatId,
     payload?.data?.remoteJid,
     payload?.data?.jid,
+    payload?.data?.phone,
+    payload?.data?.from,
+    payload?.data?.sender,
   ]
 
   for (const candidate of candidates) {
@@ -295,6 +317,12 @@ function extractText(payload: any): string {
     payload?.selectedButtonId,
     payload?.data?.buttonText?.displayText,
     payload?.data?.selectedButtonId,
+    payload?.message_preview,
+    payload?.messagePreview,
+    payload?.preview,
+    payload?.data?.message_preview,
+    payload?.data?.messagePreview,
+    payload?.data?.preview,
   ]
 
   for (const candidate of candidates) {
@@ -1408,6 +1436,18 @@ function extractPhone(payload: any): string {
     payload?.data?.sender,
     payload?.message?.from,
     payload?.message?.sender,
+    payload?.message?.key?.participant,
+    payload?.message?.key?.remoteJid,
+    payload?.data?.message?.from,
+    payload?.data?.message?.sender,
+    payload?.data?.message?.key?.participant,
+    payload?.data?.message?.key?.remoteJid,
+    payload?.chat?.id,
+    payload?.chat?.jid,
+    payload?.contact?.phone,
+    payload?.contact?.wa_id,
+    payload?.sender?.phone,
+    payload?.sender?.id,
   ]
 
   for (const candidate of candidates) {
@@ -1437,8 +1477,16 @@ function extractMessageId(payload: any): string {
     payload?.id,
     payload?.message_id,
     payload?.message?.id,
+    payload?.message?.key?.id,
+    payload?.message?.key?.stanzaId,
     payload?.data?.messageId,
     payload?.data?.id,
+    payload?.data?.message?.id,
+    payload?.data?.message?.messageId,
+    payload?.data?.message?.key?.id,
+    payload?.data?.message?.key?.stanzaId,
+    payload?.messages?.[0]?.id,
+    payload?.messages?.[0]?.messageId,
   )
 }
 
@@ -1449,8 +1497,14 @@ function extractContactName(payload: any): string {
     payload?.pushName,
     payload?.contactName,
     payload?.chatName,
+    payload?.contact?.name,
+    payload?.contact?.pushName,
+    payload?.sender?.name,
+    payload?.message?.pushName,
     payload?.message?.senderName,
     payload?.data?.senderName,
+    payload?.data?.message?.senderName,
+    payload?.data?.contact?.name,
   )
 }
 
@@ -1468,10 +1522,81 @@ function extractProfilePicture(payload: any): string {
     payload?.contact?.profile_picture_url,
     payload?.message?.senderPhoto,
     payload?.message?.profilePicUrl,
+    payload?.message?.profile_picture,
+    payload?.sender?.photo,
+    payload?.sender?.profilePicUrl,
     payload?.data?.senderPhoto,
     payload?.data?.profilePicUrl,
     payload?.data?.profile_pic_url,
+    payload?.data?.message?.senderPhoto,
+    payload?.data?.message?.profilePicUrl,
   )
+}
+
+function buildCanonicalInboundPayload(params: {
+  callbackType: ZapiCallbackType
+  type?: string
+  messageId?: string
+  phone?: string
+  sessionId?: string
+  chatLid?: string
+  fromMe: boolean
+  fromApi: boolean
+  isGroup: boolean
+  text?: string
+  contactName?: string
+  senderName?: string
+  profilePicUrl?: string
+  status?: string
+  moment?: number
+  waitingMessage?: boolean
+  isStatusReply?: boolean
+  isReaction?: boolean
+  reactionValue?: string
+  replyToMessageId?: string
+  replyPreview?: string
+  hasAudio?: boolean
+  audioMimeType?: string
+  audioUrl?: string
+  hasMedia?: boolean
+  mediaType?: ZapiMediaType
+  mediaMimeType?: string
+  mediaUrl?: string
+  mediaCaption?: string
+  mediaFileName?: string
+}): Record<string, any> {
+  return {
+    callbackType: params.callbackType,
+    type: params.type || null,
+    messageId: params.messageId || null,
+    phone: params.phone || null,
+    sessionId: params.sessionId || null,
+    chatLid: params.chatLid || null,
+    fromMe: params.fromMe === true,
+    fromApi: params.fromApi === true,
+    isGroup: params.isGroup === true,
+    text: params.text || null,
+    contactName: params.contactName || null,
+    senderName: params.senderName || null,
+    profilePicUrl: params.profilePicUrl || null,
+    status: params.status || null,
+    moment: Number.isFinite(Number(params.moment)) ? Number(params.moment) : null,
+    waitingMessage: params.waitingMessage === true,
+    isStatusReply: params.isStatusReply === true,
+    isReaction: params.isReaction === true,
+    reactionValue: params.reactionValue || null,
+    replyToMessageId: params.replyToMessageId || null,
+    replyPreview: params.replyPreview || null,
+    hasAudio: params.hasAudio === true,
+    audioMimeType: params.audioMimeType || null,
+    audioUrl: params.audioUrl || null,
+    hasMedia: params.hasMedia === true,
+    mediaType: params.mediaType || null,
+    mediaMimeType: params.mediaMimeType || null,
+    mediaUrl: params.mediaUrl || null,
+    mediaCaption: params.mediaCaption || null,
+    mediaFileName: params.mediaFileName || null,
+  }
 }
 
 function extractReplyContext(payload: any): { replyToMessageId?: string; replyPreview?: string } {
@@ -1523,7 +1648,9 @@ function parseCallbackType(type: string): ZapiCallbackType {
 }
 
 function parseZapiEvent(raw: any): ZapiMessageEvent {
-  const body = asObject(raw)
+  const parsedRawObject = asObject(raw)
+  const parsedRawFromString = tryParseJsonObject(raw)
+  const body = Object.keys(parsedRawObject).length > 0 ? parsedRawObject : parsedRawFromString
   const data = asObject(body.data)
   const hasNestedData = Object.keys(data).length > 0
   const event = hasNestedData
@@ -1545,7 +1672,7 @@ function parseZapiEvent(raw: any): ZapiMessageEvent {
     }
     : body
   const callbackType = parseCallbackType(readString(event.type, body.type))
-  const phone = extractPhone(event)
+  const phone = extractPhone(event) || extractPhone(body) || extractPhone(data)
   const chatLid =
     extractChatLid(event) ||
     extractChatLid(body) ||
@@ -1574,6 +1701,15 @@ function parseZapiEvent(raw: any): ZapiMessageEvent {
   const audioPayload = extractAudioPayload(event)
   const mediaPayload = extractMediaPayload(event)
   const profilePicture = extractProfilePicture(event)
+  const messageId = extractMessageId(event) || extractMessageId(body) || extractMessageId(data) || undefined
+  const extractedText = extractText(event) || extractText(body) || extractText(data) || undefined
+  const contactName =
+    extractContactName(event) ||
+    extractContactName(body) ||
+    extractContactName(data) ||
+    undefined
+  const senderName = readString(event.senderName, body.senderName, data.senderName) || undefined
+  const chatName = readString(event.chatName, body.chatName, data.chatName) || undefined
 
   const ids = asArray<any>(event.ids)
     .map((id) => String(id || "").trim())
@@ -1646,21 +1782,72 @@ function parseZapiEvent(raw: any): ZapiMessageEvent {
     channelSource: channelSource || null,
   }
 
+  const canonicalInbound = buildCanonicalInboundPayload({
+    callbackType,
+    type: readString(event.type, body.type) || undefined,
+    messageId,
+    phone: phone || undefined,
+    sessionId: sessionId || undefined,
+    chatLid: chatLid || undefined,
+    fromMe,
+    fromApi,
+    isGroup,
+    text: extractedText,
+    contactName,
+    senderName,
+    profilePicUrl: profilePicture || undefined,
+    status,
+    moment,
+    waitingMessage,
+    isStatusReply,
+    isReaction,
+    reactionValue: reactionValue || undefined,
+    replyToMessageId: replyContext.replyToMessageId,
+    replyPreview: replyContext.replyPreview,
+    hasAudio: audioPayload.hasAudio,
+    audioMimeType: audioPayload.mimeType,
+    audioUrl: audioPayload.url,
+    hasMedia: mediaPayload.hasMedia,
+    mediaType: mediaPayload.mediaType,
+    mediaMimeType: mediaPayload.mimeType,
+    mediaUrl: mediaPayload.url,
+    mediaCaption: mediaPayload.caption,
+    mediaFileName: mediaPayload.fileName,
+  })
+
+  metadata.canonicalInbound = canonicalInbound
+  metadata.payloadCompleteness = {
+    has_phone: Boolean(canonicalInbound.phone),
+    has_session: Boolean(canonicalInbound.sessionId),
+    has_message_id: Boolean(canonicalInbound.messageId),
+    has_text: Boolean(canonicalInbound.text),
+    has_audio: canonicalInbound.hasAudio === true,
+    has_media: canonicalInbound.hasMedia === true,
+  }
+
+  const rawEnvelope: Record<string, any> =
+    Object.keys(body).length > 0
+      ? { ...body, _canonical_inbound: canonicalInbound }
+      : {
+        _raw_missing: true,
+        _canonical_inbound: canonicalInbound,
+      }
+
   return {
     callbackType,
     type: readString(event.type, body.type) || undefined,
-    messageId: extractMessageId(event) || undefined,
+    messageId,
     phone: phone || undefined,
     sessionId: sessionId || undefined,
     fromMe,
     fromApi,
     isGroup,
-    text: extractText(event) || undefined,
-    contactName: extractContactName(event) || undefined,
-    senderName: readString(event.senderName) || undefined,
+    text: extractedText,
+    contactName,
+    senderName,
     senderPhoto: readString(event.senderPhoto, profilePicture) || undefined,
     profilePicUrl: profilePicture || undefined,
-    chatName: readString(event.chatName) || undefined,
+    chatName,
     chatLid: chatLid || undefined,
     instanceId: readString(event.instanceId, body.instanceId, data.instanceId) || undefined,
     token: readString(event.token, body.token, data.token) || undefined,
@@ -1690,7 +1877,7 @@ function parseZapiEvent(raw: any): ZapiMessageEvent {
     replyPreview: replyContext.replyPreview,
     channelSource: channelSource || undefined,
     metadata,
-    raw: raw,
+    raw: rawEnvelope,
   }
 }
 
@@ -2073,12 +2260,50 @@ function buildMessageIdForPersistence(event: ZapiMessageEvent): string | undefin
   const type = readString(event.type, event.callbackType)
   const status = readString(event.status)
   const moment = event.moment ? String(event.moment) : ""
+  const hasConversationalPayload = Boolean(
+    event.text || event.hasAudio || event.hasMedia || event.isReaction || event.isGif,
+  )
 
-  if (event.callbackType === "received" && primary) {
+  if (event.callbackType === "received" && primary && hasConversationalPayload) {
     return primary
   }
 
-  const composite = [primary || type, status, moment, event.callbackType].filter(Boolean).join(":")
+  if (event.callbackType === "received") {
+    // Evita IDs compostos genericos (ex.: "received:received") quando Z-API
+    // nao envia messageId. Esse caso causava falso-duplicado e bloqueava resposta.
+    const raw = asObject(event.raw)
+    const data = asObject(raw.data)
+    const message = asObject(data.message || raw.message)
+    const temporalAnchor = readString(
+      data.momment,
+      data.moment,
+      raw.momment,
+      raw.moment,
+      message.messageTimestamp,
+      data.messageTimestamp,
+      raw.messageTimestamp,
+      raw.timestamp,
+      data.timestamp,
+      raw.created_at,
+      data.created_at,
+    )
+
+    if (temporalAnchor && hasConversationalPayload) {
+      const contentSeed = normalizeComparableText(buildContent(event)).slice(0, 240)
+      const phoneSeed = normalizePhoneNumber(String(event.phone || event.sessionId || event.chatLid || ""))
+      const seed = `${event.callbackType}|${phoneSeed}|${temporalAnchor}|${contentSeed}`
+      const digest = createHash("sha1").update(seed).digest("hex").slice(0, 24)
+      return `zapi_rx_${digest}`
+    }
+
+    // sem ancora temporal: usa dedupe por conteudo de janela curta
+    return undefined
+  }
+
+  const composite = [primary || type, status, moment, event.callbackType]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join(":")
   return composite || undefined
 }
 
@@ -2086,6 +2311,13 @@ function shouldPersistInChatHistory(event: ZapiMessageEvent): boolean {
   // Persistimos no chat somente mensagens reais de conversa.
   // Callbacks de status/presenca/conexao devem ficar fora da timeline.
   if (event.callbackType !== "received") return false
+  const hasConversationalPayload = Boolean(
+    event.text || event.hasAudio || event.hasMedia || event.isReaction || event.isGif,
+  )
+  // "waitingMessage" pode chegar antes da mensagem completa.
+  // Se persistirmos esse placeholder, ele pode consumir o mesmo messageId
+  // e bloquear a resposta quando o texto real chegar em seguida.
+  if (!hasConversationalPayload && event.waitingMessage === true) return false
   return true
 }
 
@@ -2362,21 +2594,32 @@ async function persistZapiEvent(params: {
       return { persisted: false, duplicate: true, messageId, createdAt }
     }
   } else {
-    // Dedup por conteúdo para mensagens recebidas: protege contra retries do Z-API com messageId diferente
-    const hasRecentIncomingDuplicate = await chat.hasRecentEquivalentMessage({
-      sessionId: resolvedSessionId,
-      content: eventContent,
-      role: "user",
-      fromMe: false,
-      withinSeconds: 3,
-      ignoreMessageId: messageId,
-    })
-    if (hasRecentIncomingDuplicate) {
-      const isStalled = await chat.isStalledConversation(resolvedSessionId, 45)
-      if (isStalled) {
-        return { persisted: false, duplicate: true, messageId, createdAt, retryStalled: true }
+    // Dedup por conteudo para inbound so em mensagem completa.
+    // Fragmentos curtos (ex: "a tarde", "ok", "pode ser") NAO devem ser bloqueados como duplicados.
+    const normalizedInbound = normalizeComparableText(eventContent)
+    const inboundWords = normalizedInbound.split(" ").filter(Boolean)
+    const shouldRunIncomingContentDedupe =
+      Boolean(normalizedInbound) &&
+      !isLikelyContinuationFragment(eventContent) &&
+      normalizedInbound.length >= 12 &&
+      inboundWords.length >= 3
+
+    if (shouldRunIncomingContentDedupe) {
+      const hasRecentIncomingDuplicate = await chat.hasRecentEquivalentMessage({
+        sessionId: resolvedSessionId,
+        content: eventContent,
+        role: "user",
+        fromMe: false,
+        withinSeconds: 3,
+        ignoreMessageId: messageId,
+      })
+      if (hasRecentIncomingDuplicate) {
+        const isStalled = await chat.isStalledConversation(resolvedSessionId, 45)
+        if (isStalled) {
+          return { persisted: false, duplicate: true, messageId, createdAt, retryStalled: true }
+        }
+        return { persisted: false, duplicate: true, messageId, createdAt }
       }
-      return { persisted: false, duplicate: true, messageId, createdAt }
     }
   }
 
@@ -2633,17 +2876,21 @@ function isRescheduleIntentMessage(text: string): boolean {
 
 function isImportantMessageFromScheduledLead(normalized: string): boolean {
   if (!normalized) return false
-  // reagendamento / remarcação
+  // reagendamento / remarcacao
   if (/\b(reagend|remarc|trocar horario|trocar dia|mudar horario|mudar dia|reprogramar|adiar|antecipar)\b/.test(normalized)) return true
-  // cancelamento explícito de agendamento
+  // cancelamento explicito de agendamento
   if (/\bcancelar\b/.test(normalized) && /\b(agendamento|agenda|consulta|horario|reuniao|sessao|atendimento)\b/.test(normalized)) return true
   if (/\b(nao vou mais|desistir|desisti|nao quero mais)\b/.test(normalized)) return true
-  // confirmação / dúvida sobre o agendamento
+  // confirmacao / duvida sobre o agendamento
   if (/\b(confirmad|confirmou|confirmacao|vai acontecer|e amanha|e hoje|qual.*hora|que hora|a que hora|onde fica|endereco|como chego|o local|local do)\b/.test(normalized)) return true
-  // reclamação ou problema
+  // reclamacao ou problema
   if (/\b(problema|deu errado|nao funcionou|nao apareceu|nao fui avisad|nao recebi|nao consegui|esqueci|esqueceu|nao foi)\b/.test(normalized)) return true
-  // urgência
+  // urgencia
   if (/\b(urgente|emergencia|socorro|preciso de ajuda)\b/.test(normalized)) return true
+  // escolhas curtas de periodo/dia/horario tambem devem retomar atendimento
+  if (/\b(manha|tarde|noite|hoje|amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo)\b/.test(normalized)) return true
+  if (/\b(as?\s*\d{1,2}(?::\d{2})?\s*(h|hs|horas?)?)\b/.test(normalized)) return true
+  if (/\b(pode ser|fechado|combinado|confirmado|confirmo)\b/.test(normalized)) return true
   return false
 }
 

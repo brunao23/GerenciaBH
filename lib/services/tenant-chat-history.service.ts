@@ -409,15 +409,10 @@ export class TenantChatHistoryService {
       .map((row: any) => {
         const message = row?.message || {}
         const role = normalizeRole(message.role, message.type, message.fromMe)
-        const senderType = String(message.sender_type || "").toLowerCase()
         if (role === "system") return null
 
         let content = String(message.content || message.text || "").trim()
         if (!content) return null
-
-        if (role === "assistant" && senderType === "human") {
-          content = `[HUMANO_EQUIPE] ${content}`
-        }
 
         if (role === "user") {
           const replyToId = String(message.reply_to_message_id || "").trim()

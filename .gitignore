@@ -61,4 +61,7 @@ next-env.d.ts
 .DS_Store
 Thumbs.db
 .env.vercel.production
+.env.vercel
+.env.vercel.prod
+.tmp_vercel_errors.jsonl
 CONTEXTO_SESSAO.md

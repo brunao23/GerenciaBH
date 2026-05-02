@@ -32,11 +32,31 @@ type SummarySession = {
   instagram_username?: string
   instagram_bio?: string
   isStudent?: boolean | null
+  usage_input_tokens?: number
+  usage_output_tokens?: number
+  usage_total_tokens?: number
+  usage_total_cost_brl?: number
   score?: number
   strong_match?: boolean
 }
 
 type SearchMode = "number" | "semantic"
+
+type LlmUsageEventRow = {
+  id?: number | null
+  session_id?: string | null
+  input_tokens?: number | null
+  output_tokens?: number | null
+  total_tokens?: number | null
+  total_cost_brl?: number | null
+}
+
+type SessionUsageStats = {
+  inputTokens: number
+  outputTokens: number
+  totalTokens: number
+  totalCostBrl: number
+}
 
 type SemanticQuery = {
   normalizedQuery: string
@@ -226,6 +246,12 @@ function toBoolean(value: any): boolean | null {
   return null
 }
 
+function toFiniteNumber(value: any): number {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return 0
+  return numeric
+}
+
 function isMissingTableError(error: any): boolean {
   const message = String(error?.message || "").toLowerCase()
   const code = String(error?.code || "").toUpperCase()
@@ -234,6 +260,76 @@ function isMissingTableError(error: any): boolean {
     (message.includes("relation") && message.includes("does not exist")) ||
     (message.includes("table") && message.includes("does not exist"))
   )
+}
+
+async function loadUsageBySession(
+  supabase: ReturnType<typeof createBiaSupabaseServerClient>,
+  tenant: string,
+  sessionIds: string[],
+): Promise<Map<string, SessionUsageStats>> {
+  const usageBySession = new Map<string, SessionUsageStats>()
+  if (!tenant || sessionIds.length === 0) return usageBySession
+
+  const lookupIds = Array.from(
+    new Set(
+      sessionIds
+        .flatMap((sessionId) => buildLeadIdVariants(sessionId))
+        .map((value) => String(value || "").trim())
+        .filter(Boolean),
+    ),
+  )
+  if (lookupIds.length === 0) return usageBySession
+
+  const chunks: string[][] = []
+  const chunkSize = 120
+  for (let i = 0; i < lookupIds.length; i += chunkSize) {
+    chunks.push(lookupIds.slice(i, i + chunkSize))
+  }
+
+  for (const chunk of chunks) {
+    const pageSize = 1000
+    for (let start = 0; start <= 100000; start += pageSize) {
+      const end = start + pageSize - 1
+      const { data, error } = await supabase
+        .from("llm_usage_events")
+        .select("id, session_id, input_tokens, output_tokens, total_tokens, total_cost_brl")
+        .eq("tenant", tenant)
+        .in("session_id", chunk)
+        .order("id", { ascending: true })
+        .range(start, end)
+
+      if (error) {
+        if (isMissingTableError(error)) return usageBySession
+        throw error
+      }
+
+      const rows = (data || []) as LlmUsageEventRow[]
+      if (rows.length === 0) break
+
+      for (const row of rows) {
+        const canonicalSessionId = toCanonicalSessionId(String(row.session_id || ""))
+        if (!canonicalSessionId) continue
+
+        const bucket = usageBySession.get(canonicalSessionId) || {
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+          totalCostBrl: 0,
+        }
+
+        bucket.inputTokens += toFiniteNumber(row.input_tokens)
+        bucket.outputTokens += toFiniteNumber(row.output_tokens)
+        bucket.totalTokens += toFiniteNumber(row.total_tokens)
+        bucket.totalCostBrl += toFiniteNumber(row.total_cost_brl)
+
+        usageBySession.set(canonicalSessionId, bucket)
+      }
+
+      if (rows.length < pageSize) break
+    }
+  }
+
+  return usageBySession
 }
 
 function isInternalInvisibleMessage(msg: any): boolean {
@@ -1360,6 +1456,25 @@ export async function GET(req: Request) {
     })
 
     payload = payload.slice(0, limitSessions).map(({ score, strong_match, ...session }) => session)
+
+    const usageBySession = await loadUsageBySession(
+      supabase,
+      tenant,
+      payload.map((session) => session.session_id),
+    )
+
+    payload = payload.map((session) => {
+      const usage = usageBySession.get(toCanonicalSessionId(session.session_id))
+      const usageTotalCost = Math.round(toFiniteNumber(usage?.totalCostBrl) * 1_000_000) / 1_000_000
+      return {
+        ...session,
+        usage_input_tokens: Math.floor(toFiniteNumber(usage?.inputTokens)),
+        usage_output_tokens: Math.floor(toFiniteNumber(usage?.outputTokens)),
+        usage_total_tokens: Math.floor(toFiniteNumber(usage?.totalTokens)),
+        usage_total_cost_brl: usageTotalCost,
+      }
+    })
+
     writeCache(cacheKey, payload)
 
     return NextResponse.json(payload)

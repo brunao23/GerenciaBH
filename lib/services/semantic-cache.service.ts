@@ -203,6 +203,16 @@ function detectCategory(message: string): string | undefined {
   return undefined
 }
 
+function isExplicitPriceQuery(message: string): boolean {
+  const normalized = normalizeForCache(message)
+  if (!normalized) return false
+  return (
+    /\b(quanto\s+custa|qual\s+o?\s*valor|preco|precos|investimento|mensalidade|mensalidades|orcamento|custo|parcela|parcelamento)\b/.test(
+      normalized,
+    ) || /\br\$\s*[\d.,]+/.test(normalized)
+  )
+}
+
 // ─── Service ──────────────────────────────────────────────────────
 
 export class SemanticCacheService {
@@ -258,6 +268,8 @@ export class SemanticCacheService {
     embedding?: number[] | null
     similarityThreshold?: number
   }): Promise<CacheHitResult | null> {
+    if (!isExplicitPriceQuery(input.message)) return null
+
     const threshold = input.similarityThreshold ?? DEFAULT_SIMILARITY_THRESHOLD
 
     // 1) Try exact hash match first (cheapest)
@@ -376,53 +388,38 @@ export class SemanticCacheService {
     responseText: string
     hasToolCalls: boolean
   }): CacheabilityResult {
-    // Never cache tool calls (scheduling, slots, etc.)
+    // Modo estrito: cache apenas para perguntas explicitas de preco/valor.
+    if (!isExplicitPriceQuery(input.message)) {
+      return { cacheable: false, reason: "strict_price_only" }
+    }
+
     if (input.hasToolCalls) {
       return { cacheable: false, reason: "has_tool_calls" }
     }
 
-    // Never cache if response is too short or empty
     if (!input.responseText || input.responseText.length < 20) {
       return { cacheable: false, reason: "response_too_short" }
     }
 
-    // Detect category early
+    // Mantem bloqueios de seguranca
     const category = detectCategory(input.message)
-
-    // ⛔ CATEGORIAS BLOQUEADAS: saudação, objeção
     if (category && BLOCKED_CATEGORIES.has(category)) {
       return { cacheable: false, reason: `blocked_category:${category}` }
     }
-
-    // Never cache PII
     if (hasPII(input.message) || hasPII(input.responseText)) {
       return { cacheable: false, reason: "contains_pii" }
     }
-
-    // Temporal: sempre bloqueia para manter respostas frescas
     if (hasTemporalReference(input.responseText)) {
       return { cacheable: false, reason: "temporal_response" }
     }
-
-    // Mensagem do lead com referência temporal específica (hoje, amanhã) — não cachear
     if (hasTemporalReference(input.message)) {
       return { cacheable: false, reason: "temporal_message" }
     }
-
-    // Never cache very long input messages (likely unique/complex)
     if (input.message.length > 400) {
       return { cacheable: false, reason: "message_too_long" }
     }
 
-    // Categorias permitidas: cachear (location, hours, faq, services, price, payment)
-    const ALLOWED_CATEGORIES = new Set(["location", "hours", "faq", "services", "price", "payment"])
-    if (category && ALLOWED_CATEGORIES.has(category)) {
-      return { cacheable: true, category }
-    }
-
-    // Para mensagens sem categoria: NÃO cachear por segurança
-    // (preferimos chamar a LLM do que arriscar resposta errada)
-    return { cacheable: false, reason: "no_safe_category" }
+    return { cacheable: true, category: "price" }
   }
 
   // ── Invalidation ─────────────────────────────────────────────
