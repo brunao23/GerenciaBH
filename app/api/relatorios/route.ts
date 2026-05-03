@@ -3,6 +3,12 @@ import { subWeeks, subMonths, subYears, startOfDay, endOfDay } from "date-fns"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
 import { resolveChatHistoriesTable } from "@/lib/helpers/resolve-chat-table"
+import {
+  buildAgendamentoMetricSnapshot,
+  buildFollowupTableCandidates,
+  fetchAgendamentoMetricRows,
+  fetchFollowupMetricSnapshot,
+} from "@/lib/services/dashboard-metrics.shared"
 
 // DDDs por região (vox_disparos é compartilhada entre BH e SP)
 const DDD_BH = ["31", "32", "33", "34", "35", "37", "38"] // Minas Gerais
@@ -500,8 +506,8 @@ function buildSessionStats(chats: any[], startDate: Date, endDate: Date): Map<st
 
 export async function GET(request: NextRequest) {
   try {
-    const { tenant, tables, logicalTenant } = await getTenantFromRequest()
-    const { agendamentos, followNormal } = tables
+    const { tenant, tables } = await getTenantFromRequest()
+    const { agendamentos, followNormal, followup } = tables
     const warnings: string[] = []
 
     const { searchParams } = new URL(request.url)
@@ -592,14 +598,14 @@ export async function GET(request: NextRequest) {
     const validSessions = Array.from(sessions.values()).filter((session) => session.hasUser)
 
     for (const session of validSessions) {
+      const firstUserMs = session.firstUserMs ?? session.firstMs
+      const firstDate = new Date(firstUserMs)
+      const dayKey = toDayKey(firstDate)
+      conversasPorDia.set(dayKey, (conversasPorDia.get(dayKey) || 0) + 1)
+
       const isActiveConversation =
         session.hasUser && session.hasAssistant && session.messageCount >= 2
-
       if (isActiveConversation) {
-        const firstUserMs = session.firstUserMs ?? session.firstMs
-        const firstDate = new Date(firstUserMs)
-        const dayKey = toDayKey(firstDate)
-        conversasPorDia.set(dayKey, (conversasPorDia.get(dayKey) || 0) + 1)
         conversasAtivas += 1
       }
 
@@ -621,14 +627,9 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const disparosData = await getDisparosLeads(logicalTenant || tenant, dataInicio, tenant, dataFim)
-    const allLeadPhones = new Set<string>(chatPhoneSet)
-    for (const phone of disparosData.phoneSet) {
-      allLeadPhones.add(phone)
-    }
-    const totalLeads = allLeadPhones.size + anonymousSessions
-    const totalConversas = conversasAtivas
-    const conversasFinalizadas = Math.max(validSessions.length - conversasAtivas, 0)
+    const totalLeads = chatPhoneSet.size + anonymousSessions
+    const totalConversas = validSessions.length
+    const conversasFinalizadas = Math.max(totalConversas - conversasAtivas, 0)
     const leadTimeHoras =
       leadTimeSamplesMs.length > 0
         ? round(
@@ -751,6 +752,43 @@ export async function GET(request: NextRequest) {
       followupsPorDia.set(dayKey, (followupsPorDia.get(dayKey) || 0) + 1)
     }
 
+    const agendamentoSnapshot = buildAgendamentoMetricSnapshot(
+      await fetchAgendamentoMetricRows({
+        supabase,
+        table: agendamentosTable,
+        startDate: dataInicio,
+        endDate: dataFim,
+        limit: 10000,
+      }),
+      dataInicio,
+      dataFim,
+    )
+    totalAgendamentos = agendamentoSnapshot.count
+    agendamentosPorDia.clear()
+    for (const [dayKey, count] of agendamentoSnapshot.byDay.entries()) {
+      agendamentosPorDia.set(dayKey, count)
+    }
+
+    const followupSnapshot = await fetchFollowupMetricSnapshot({
+      supabase,
+      tenant,
+      tableCandidates: buildFollowupTableCandidates(tenant, followNormal, followup),
+      startDate: dataInicio,
+      endDate: dataFim,
+    })
+    followUpsEnviados = followupSnapshot.count
+    followupsPorDia.clear()
+    for (const [dayKey, count] of followupSnapshot.byDay.entries()) {
+      followupsPorDia.set(dayKey, count)
+    }
+    if (followupSnapshot.source !== "none") {
+      for (let index = warnings.length - 1; index >= 0; index -= 1) {
+        if (warnings[index]?.toLowerCase().includes("follow-up")) {
+          warnings.splice(index, 1)
+        }
+      }
+    }
+
     const taxaAgendamento =
       totalLeads > 0 ? round((totalAgendamentos / totalLeads) * 100, 2) : 0
 
@@ -800,12 +838,18 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(relatorio)
   } catch (error: any) {
     console.error("[Relatorios] Erro ao gerar relatorio:", error)
+    const message = error?.message || "Erro interno ao gerar relatorio"
+    const normalizedMessage = String(message).toLowerCase()
+    const isAuthError =
+      normalizedMessage.includes("sessão") ||
+      normalizedMessage.includes("sessao") ||
+      normalizedMessage.includes("login novamente") ||
+      normalizedMessage.includes("não autorizado") ||
+      normalizedMessage.includes("nao autorizado")
+
     return NextResponse.json(
-      { error: error?.message || "Erro interno ao gerar relatorio" },
-      { status: 500 },
+      { error: message },
+      { status: isAuthError ? 401 : 500 },
     )
   }
 }
-
-
-

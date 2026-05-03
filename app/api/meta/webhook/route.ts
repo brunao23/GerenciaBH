@@ -6,7 +6,7 @@ import { resolveTenantDataPrefix } from "@/lib/helpers/tenant-resolution"
 import { type MessagingConfig } from "@/lib/helpers/messaging-config"
 import { resolveMetaWebhookVerifyToken } from "@/lib/helpers/meta-webhook"
 import { getNativeAgentConfigForTenant } from "@/lib/helpers/native-agent-config"
-import { GeminiService } from "@/lib/services/gemini.service"
+import { LLMFactory } from "@/lib/services/llm-factory"
 import { NativeAgentOrchestratorService } from "@/lib/services/native-agent-orchestrator.service"
 
 function safeMetadata(input: any): Record<string, any> {
@@ -125,12 +125,11 @@ async function transcribeMetaAudio(params: {
   mimeType?: string
 }): Promise<string> {
   const config = await getNativeAgentConfigForTenant(params.dataTenant).catch(() => null)
-  const apiKey = String(config?.geminiApiKey || "").trim()
-  if (!apiKey) return ""
-  const model = String(config?.geminiModel || "gemini-2.5-flash").trim() || "gemini-2.5-flash"
+  if (!config) return ""
+  const llm = LLMFactory.getService(config, { tenant: params.dataTenant })
+  if (typeof llm.transcribeAudio !== "function") return ""
 
   const downloaded = await downloadMetaMedia(params.mediaId, params.accessToken)
-  const gemini = new GeminiService(apiKey, model)
   const prompt =
     "Transcreva fielmente este audio em portugues do Brasil. Retorne somente a transcricao em texto corrido, sem marcacoes, sem comentarios adicionais."
 
@@ -149,7 +148,7 @@ async function transcribeMetaAudio(params: {
   let lastError = ""
   for (const mime of mimeCandidates) {
     try {
-      const transcription = await gemini.transcribeAudio({
+      const transcription = await llm.transcribeAudio({
         audioBase64: downloaded.base64,
         mimeType: mime,
         prompt,
@@ -173,12 +172,11 @@ async function analyzeMetaMedia(params: {
   fileName?: string
 }): Promise<string> {
   const config = await getNativeAgentConfigForTenant(params.dataTenant).catch(() => null)
-  const apiKey = String(config?.geminiApiKey || "").trim()
-  if (!apiKey) return ""
-  const model = String(config?.geminiModel || "gemini-2.5-flash").trim() || "gemini-2.5-flash"
+  if (!config) return ""
+  const llm = LLMFactory.getService(config, { tenant: params.dataTenant })
+  if (typeof llm.analyzeMedia !== "function") return ""
 
   const downloaded = await downloadMetaMedia(params.mediaId, params.accessToken)
-  const gemini = new GeminiService(apiKey, model)
 
   const typeLabel =
     params.mediaType === "image" ? "imagem" : params.mediaType === "video" ? "video" : "documento"
@@ -196,7 +194,7 @@ async function analyzeMetaMedia(params: {
         ? "video/mp4"
         : "application/pdf"
 
-  const analysis = await gemini.analyzeMedia({
+  const analysis = await llm.analyzeMedia({
     mediaBase64: downloaded.base64,
     mimeType: downloaded.mimeType || fallbackMime,
     mediaType: params.mediaType,

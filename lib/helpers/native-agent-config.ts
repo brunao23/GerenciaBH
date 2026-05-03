@@ -11,7 +11,7 @@ export interface NativeAgentConfig {
   samplingTemperature: number
   samplingTopP: number
   samplingTopK: number
-  aiProvider?: "google" | "openai" | "anthropic" | "groq" | "openrouter"
+  aiProvider?: "google" | "openai" | "anthropic" | "groq" | "openrouter" | "vertexai"
   geminiApiKey?: string
   geminiModel?: string
   openaiApiKey?: string
@@ -188,6 +188,7 @@ export interface NativeAgentConfig {
 }
 
 export type NativeAgentMessageMode = "text" | "image" | "video" | "document"
+type NativeAIProvider = NonNullable<NativeAgentConfig["aiProvider"]>
 
 const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 const DEFAULT_TIMEZONE = "America/Sao_Paulo"
@@ -355,12 +356,35 @@ function readString(input: any): string | undefined {
   return value ? value : undefined
 }
 
-function readProvider(input: any, fallback: NativeAgentConfig["aiProvider"]): NativeAgentConfig["aiProvider"] {
+function readProvider(input: any, fallback: NativeAIProvider): NativeAIProvider {
   const value = String(input || "").toLowerCase().trim()
-  if (value === "google" || value === "openai" || value === "anthropic" || value === "groq" || value === "openrouter") {
-    return value as NativeAgentConfig["aiProvider"]
+  if (
+    value === "google" ||
+    value === "openai" ||
+    value === "anthropic" ||
+    value === "groq" ||
+    value === "openrouter" ||
+    value === "vertexai"
+  ) {
+    return value as NativeAIProvider
   }
   return fallback
+}
+
+function parseBooleanWithDefault(value: string | undefined, fallback: boolean): boolean {
+  const normalized = String(value || "").trim().toLowerCase()
+  if (!normalized) return fallback
+  return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on"
+}
+
+function isVertexGlobalEnabled(): boolean {
+  return parseBooleanWithDefault(process.env.VERTEX_GLOBAL_ENABLED, true)
+}
+
+function hasVertexProjectIdConfigured(): boolean {
+  return Boolean(
+    process.env.VERTEX_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT,
+  )
 }
 
 function readTone(
@@ -1175,9 +1199,16 @@ function timeToMinutes(hhmm: string): number {
 export function validateNativeAgentConfig(config: NativeAgentConfig): string | null {
   if (!config.enabled) return null
 
-  const provider = config.aiProvider || "google"
+  const provider = (config.aiProvider || "google") as NativeAIProvider
+  const vertexProjectConfigured = hasVertexProjectIdConfigured()
+  const vertexForcedForGoogle = provider === "google" && isVertexGlobalEnabled() && vertexProjectConfigured
+  const effectiveVertex = provider === "vertexai" || vertexForcedForGoogle
 
-  if (provider === "google") {
+  if (effectiveVertex) {
+    if (!vertexProjectConfigured) {
+      return "VERTEX_PROJECT_ID (or GOOGLE_CLOUD_PROJECT) is required when aiProvider is vertexai and native agent is enabled"
+    }
+  } else if (provider === "google") {
     if (!(config.geminiApiKey || process.env.GEMINI_API_KEY)) {
       return "geminiApiKey is required when aiProvider is google and native agent is enabled"
     }
@@ -1653,6 +1684,16 @@ export async function updateNativeAgentConfigForTenant(
     console.error("[NativeAgentConfig] Error updating metadata:", updateError)
     throw updateError
   }
+
+  // Invalidate all potential tenant aliases to prevent stale reads right after saving.
+  const cacheCandidates = new Set<string>([normalizedTenant, registryTenant, ...lookupCandidates])
+  await Promise.all(
+    Array.from(cacheCandidates)
+      .map((candidate) => normalizeTenant(candidate))
+      .filter(Boolean)
+      .map((candidate) => RedisService.delCache(`config:native-agent:${candidate}`)),
+  )
+  await RedisService.setCache(`config:native-agent:${normalizedTenant}`, normalizeConfig(config), 300)
 }
 
 export function sanitizeNativeAgentConfigForResponse(config: NativeAgentConfig) {

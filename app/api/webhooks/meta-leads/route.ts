@@ -241,6 +241,7 @@ async function processLead({
   // 6. Generate welcome message
   const nativeAgentConfig = await getNativeAgentConfigForTenant(unit_prefix)
   const message = await generatePersonalizedWelcome({
+    tenant: unit_prefix,
     name: name || null,
     campaignName: campaign_name || null,
     formFields: (leadData.field_data ?? []) as Array<{ name: string; values: string[] }>,

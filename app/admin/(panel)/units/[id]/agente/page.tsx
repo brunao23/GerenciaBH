@@ -136,7 +136,7 @@ type TenantNativeAgentConfig = {
   unitLongitude: number | undefined
   unitName: string
   unitAddress: string
-  aiProvider?: "google" | "openai" | "anthropic" | "groq" | "openrouter"
+  aiProvider?: "google" | "openai" | "anthropic" | "groq" | "openrouter" | "vertexai"
   geminiApiKey?: string
   geminiModel?: string
   openaiApiKey?: string
@@ -1004,6 +1004,7 @@ export default function AdminAgenteIAPage({ params }: { params: Promise<{ id: st
                 <Select value={config.aiProvider || "google"} onValueChange={v => setConfig(p => ({ ...p, aiProvider: v as any }))} disabled={loading}>
                     <SelectTrigger className="bg-secondary border-border"><SelectValue /></SelectTrigger>
                     <SelectContent className="bg-secondary border-border text-foreground">
+                        <SelectItem value="vertexai">Google Vertex AI</SelectItem>
                         <SelectItem value="google">Google Gemini</SelectItem>
                         <SelectItem value="openai">OpenAI</SelectItem>
                         <SelectItem value="anthropic">Anthropic (Claude)</SelectItem>

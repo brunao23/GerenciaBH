@@ -109,6 +109,17 @@ function toConversation(messages: SuggestMessageInput[]): GeminiConversationMess
 }
 
 function resolveProviderAndModel(config: NativeAgentConfig): { provider: string; model: string } {
+  const forceVertexGlobal = (() => {
+    const raw = String(process.env.VERTEX_GLOBAL_ENABLED || "").trim().toLowerCase()
+    if (!raw) return true
+    return raw === "1" || raw === "true" || raw === "yes" || raw === "on"
+  })()
+  if (forceVertexGlobal) {
+    return {
+      provider: "vertexai",
+      model: process.env.VERTEX_MODEL || config.geminiModel || "gemini-2.5-flash",
+    }
+  }
   const provider = String(config.aiProvider || "google").toLowerCase().trim()
   if (provider === "openai") return { provider, model: config.openaiModel || "gpt-4o" }
   if (provider === "anthropic") return { provider, model: config.anthropicModel || "claude-sonnet-4-20250514" }
@@ -118,6 +129,21 @@ function resolveProviderAndModel(config: NativeAgentConfig): { provider: string;
 }
 
 function validateProviderCredentials(config: NativeAgentConfig): string | null {
+  const forceVertexGlobal = (() => {
+    const raw = String(process.env.VERTEX_GLOBAL_ENABLED || "").trim().toLowerCase()
+    if (!raw) return true
+    return raw === "1" || raw === "true" || raw === "yes" || raw === "on"
+  })()
+  if (forceVertexGlobal) {
+    const hasProject = Boolean(
+      process.env.VERTEX_PROJECT_ID ||
+      process.env.GOOGLE_CLOUD_PROJECT ||
+      process.env.GCLOUD_PROJECT,
+    )
+    // Mesmo sem project, o LLMFactory já faz fallback para Gemini.
+    if (hasProject) return null
+    return config.geminiApiKey ? null : "gemini_api_key_missing"
+  }
   const provider = String(config.aiProvider || "google").toLowerCase().trim()
   if (provider === "openai") return config.openaiApiKey ? null : "openai_api_key_missing"
   if (provider === "anthropic") return config.anthropicApiKey ? null : "anthropic_api_key_missing"
@@ -201,7 +227,7 @@ export async function POST(req: Request) {
       )
     }
 
-    const llm = LLMFactory.getService(config)
+    const llm = LLMFactory.getService(config, { tenant })
     const previousSuggestion = String(body.previousSuggestion || "").trim()
     const variantIndex = Number(body.variantIndex || 0)
     const systemPrompt = buildSystemPrompt({

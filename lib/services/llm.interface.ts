@@ -1,4 +1,4 @@
-import { AgentActionPlan, GeminiAgentDecision, GeminiConversationMessage, GeminiFunctionDeclaration, GeminiToolCall, GeminiToolDecision, GeminiToolExecution, GeminiToolHandlerResult } from "./gemini.service";
+import { AgentActionPlan, GeminiAgentDecision, GeminiConversationMessage, GeminiFunctionDeclaration, GeminiMediaAnalysisInput, GeminiToolCall, GeminiToolDecision, GeminiToolExecution, GeminiToolHandlerResult } from "./gemini.service";
 
 export interface LLMSamplingConfig {
   temperature?: number
@@ -28,4 +28,6 @@ export interface LLMService {
     mimeType?: string;
     prompt?: string;
   }): Promise<string>;
+
+  analyzeMedia?(input: GeminiMediaAnalysisInput): Promise<string>;
 }

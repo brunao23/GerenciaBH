@@ -1,3 +1,6 @@
+import { type NativeAgentConfig } from "@/lib/helpers/native-agent-config"
+import { LLMFactory } from "@/lib/services/llm-factory"
+
 const IGNORED_FIELD_NAMES = new Set([
   "phone_number", "phone", "telefone", "celular",
   "full_name", "name", "nome", "first_name",
@@ -147,6 +150,7 @@ function cleanCampaignName(name: string | null): string {
 }
 
 export interface LeadWelcomeInput {
+  tenant?: string | null
   name: string | null
   campaignName: string | null
   formFields: Array<{ name: string; values: string[] }>
@@ -497,23 +501,6 @@ function resolveSamplingValue(value: any, fallback: number, min: number, max: nu
   return numeric
 }
 
-function shouldRetryWithFallbackModel(status: number, data: any, rawText: string, attemptedModel: string): boolean {
-  const errorMessage = String(data?.error?.message || rawText || "").toLowerCase()
-  if (!errorMessage) return false
-  if (normalizeModelCode(attemptedModel) === DEFAULT_GEMINI_MODEL) return false
-  if (status === 404) return true
-
-  return (
-    errorMessage.includes("model") &&
-    (
-      errorMessage.includes("not found") ||
-      errorMessage.includes("is not found") ||
-      errorMessage.includes("not supported") ||
-      errorMessage.includes("unknown model")
-    )
-  )
-}
-
 function buildModelCandidates(preferredModel: string): string[] {
   const configured = normalizeModelCode(preferredModel) || DEFAULT_GEMINI_MODEL
   return buildUniqueModelList([configured])
@@ -526,7 +513,8 @@ async function sleep(ms: number): Promise<void> {
 }
 
 async function generateWelcomeWithGemini(options: {
-  apiKey: string
+  tenant?: string
+  llmConfig: NativeAgentConfig
   modelCandidates: string[]
   prompt: string
   sampling: {
@@ -535,71 +523,39 @@ async function generateWelcomeWithGemini(options: {
     topK: number
   }
 }): Promise<string | null> {
-  const { apiKey, modelCandidates, prompt, sampling } = options
+  const { tenant, llmConfig, modelCandidates, prompt, sampling } = options
   let lastError = "unknown_error"
 
   for (const model of modelCandidates) {
     try {
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [
-            {
-              role: "user",
-              parts: [{ text: prompt }],
-            },
-          ],
-          generationConfig: {
-            temperature: sampling.temperature,
-            topP: sampling.topP,
-            topK: sampling.topK,
-            maxOutputTokens: 450,
-          },
-        }),
+      const llm = LLMFactory.getService(
+        {
+          ...llmConfig,
+          geminiModel: model,
+        } as NativeAgentConfig,
+        { tenant: String(tenant || "").trim() || undefined },
+      )
+      const decision = await llm.decideNextTurn({
+        systemPrompt:
+          "Voce escreve mensagens curtas de boas-vindas comerciais para WhatsApp em portugues do Brasil. Retorne apenas o texto final.",
+        conversation: [{ role: "user", content: prompt }],
+        sampling: {
+          temperature: sampling.temperature,
+          topP: sampling.topP,
+          topK: sampling.topK,
+        },
       })
-
-      const rawText = await res.text()
-      let data: any = null
-      try {
-        data = rawText ? JSON.parse(rawText) : null
-      } catch {
-        data = null
-      }
-
-      if (!res.ok) {
-        lastError = String(data?.error?.message || rawText || `status_${res.status}`)
-        const mustStop = res.status === 401 || res.status === 403
-        const shouldTryNextModel =
-          !mustStop &&
-          (
-            shouldRetryWithFallbackModel(res.status, data, rawText, model) ||
-            res.status === 429 ||
-            res.status >= 500
-          )
-
-        if (shouldTryNextModel) {
-          console.warn(`[lead-welcome] Gemini model retry: ${model} -> next (status=${res.status})`)
-          continue
-        }
-
-        break
-      }
-
-      const text = String(
-        data?.candidates?.[0]?.content?.parts?.map((part: any) => String(part?.text || "")).join("\n") || "",
-      ).trim()
+      const text = String(decision?.reply || "").trim()
 
       if (text) return text
     } catch (error: any) {
       lastError = String(error?.message || "request_failed")
-      console.warn(`[lead-welcome] Gemini request failed on ${model}:`, lastError)
+      console.warn(`[lead-welcome] LLM request failed on ${model}:`, lastError)
       continue
     }
   }
 
-  console.warn("[lead-welcome] Gemini failed, using fallback:", lastError)
+  console.warn("[lead-welcome] LLM failed, using fallback:", lastError)
   return null
 }
 
@@ -629,7 +585,12 @@ function isWelcomeMessageValid(text: string): boolean {
 
 export async function generatePersonalizedWelcome(input: LeadWelcomeInput): Promise<string> {
   const apiKey = String(input.geminiApiKey || "").trim()
-  if (!apiKey) {
+  const hasVertexProject = Boolean(
+    process.env.VERTEX_PROJECT_ID ||
+    process.env.GOOGLE_CLOUD_PROJECT ||
+    process.env.GCLOUD_PROJECT,
+  )
+  if (!apiKey && !hasVertexProject) {
     console.warn("[lead-welcome] geminiApiKey ausente no tenant — disparo ignorado.")
     return ""
   }
@@ -674,6 +635,11 @@ export async function generatePersonalizedWelcome(input: LeadWelcomeInput): Prom
     Number.isFinite(Number(process.env.META_LEAD_WELCOME_GENERATION_DELAY_MS))
       ? Math.max(0, Math.floor(Number(process.env.META_LEAD_WELCOME_GENERATION_DELAY_MS)))
       : DEFAULT_INTERNAL_GENERATION_DELAY_MS
+  const llmConfig = {
+    aiProvider: "google",
+    geminiApiKey: apiKey || undefined,
+    geminiModel: preferredModel,
+  } as NativeAgentConfig
 
   const prompt = [
     "Você é um especialista em copywriting de vendas para WhatsApp no Brasil.",
@@ -703,7 +669,8 @@ export async function generatePersonalizedWelcome(input: LeadWelcomeInput): Prom
 
   await sleep(generationDelayMs)
   const text = await generateWelcomeWithGemini({
-    apiKey,
+    tenant: String(input.tenant || "").trim() || undefined,
+    llmConfig,
     modelCandidates,
     prompt,
     sampling: {
@@ -720,7 +687,8 @@ export async function generatePersonalizedWelcome(input: LeadWelcomeInput): Prom
   // Retry único para mitigar falhas transitórias do Gemini antes de cair no fallback.
   await sleep(Math.max(250, Math.floor(generationDelayMs / 2)))
   const retryText = await generateWelcomeWithGemini({
-    apiKey,
+    tenant: String(input.tenant || "").trim() || undefined,
+    llmConfig,
     modelCandidates,
     prompt,
     sampling: {

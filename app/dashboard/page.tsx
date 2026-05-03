@@ -712,7 +712,7 @@ export default function DashboardPage() {
 
   const mainMetrics = [
     { title: "Conversas", value: data?.conversas ?? 0, icon: MessageSquare, color: "text-blue-400", bg: "bg-blue-400/10", border: "border-blue-400/20" },
-    { title: "Leads Personalizados", value: data?.totalLeads ?? 0, icon: Users, color: "text-accent-green", bg: "bg-accent-green/10", border: "border-accent-green/20" },
+    { title: "Leads Únicos", value: data?.totalLeads ?? 0, icon: Users, color: "text-accent-green", bg: "bg-accent-green/10", border: "border-accent-green/20" },
     { title: "Agendamentos", value: data?.agendamentos ?? 0, icon: CalendarClock, color: "text-purple-400", bg: "bg-purple-400/10", border: "border-purple-400/20" },
     { title: "Follow-ups", value: data?.followups ?? 0, icon: Workflow, color: "text-orange-400", bg: "bg-orange-400/10", border: "border-orange-400/20" },
   ]
@@ -1381,7 +1381,7 @@ export default function DashboardPage() {
               {/* KPI row 1 */}
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                 {[
-                  { key: "conversas", label: "Total de Conversas", value: relatorio.metricas.totalConversas, icon: MessageSquare, color: "text-blue-400", bg: "bg-blue-400/10", border: "border-blue-400/30", hint: "mensagens no período" },
+                  { key: "conversas", label: "Total de Conversas", value: relatorio.metricas.totalConversas, icon: MessageSquare, color: "text-blue-400", bg: "bg-blue-400/10", border: "border-blue-400/30", hint: "sessões com lead no período" },
                   { key: "leads", label: "Leads únicos", value: relatorio.metricas.totalLeads, icon: Users, color: "text-purple-400", bg: "bg-purple-400/10", border: "border-purple-400/30", hint: "contatos distintos" },
                   { key: "agendamentos", label: "Agendamentos", value: relatorio.metricas.totalAgendamentos, icon: Calendar, color: "text-green-400", bg: "bg-green-400/10", border: "border-green-400/30", hint: "confirmados" },
                   { key: "taxa", label: "Taxa de conversão", value: `${relatorio.metricas.taxaAgendamento.toFixed(1)}%`, icon: TrendingUp, color: "text-amber-400", bg: "bg-amber-400/10", border: "border-amber-400/30", hint: "agendamentos / leads" },

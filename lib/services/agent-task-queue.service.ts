@@ -16,7 +16,7 @@ import {
   type OfficialReminderType,
 } from "@/lib/services/reminder-scheduler.service"
 import { buildFollowupWeekdayConstraint, resolveEffectiveFollowupBusinessDays } from "@/lib/helpers/effective-followup-days"
-import { GeminiService } from "@/lib/services/gemini.service"
+import { LLMFactory } from "@/lib/services/llm-factory"
 import { normalizePhoneNumber, normalizeSessionId, TenantChatHistoryService } from "./tenant-chat-history.service"
 import { TenantMessagingService } from "./tenant-messaging.service"
 import { GroupNotificationDispatcherService } from "./group-notification-dispatcher.service"
@@ -1299,7 +1299,8 @@ export class AgentTaskQueueService {
     history: Array<{ role: "user" | "assistant"; content: string; createdAt?: string }>
   }): Promise<string | null> {
     const runtime = await this.loadFollowupRuntimeConfig(input.tenant)
-    if (!runtime.geminiApiKey) return null
+    const nativeConfig = await getNativeAgentConfigForTenant(input.tenant).catch(() => null)
+    if (!nativeConfig) return null
 
     const recentHistory = input.history.slice(-24)
     const historyLines = recentHistory
@@ -1402,8 +1403,8 @@ export class AgentTaskQueueService {
     ].join("\n")
 
     try {
-      const gemini = new GeminiService(runtime.geminiApiKey, runtime.geminiModel || "gemini-2.5-flash")
-      const decision = await gemini.decideNextTurn({
+      const llm = LLMFactory.getService(nativeConfig, { tenant: input.tenant })
+      const decision = await llm.decideNextTurn({
         systemPrompt: [
           "VocÃª gera mensagens de follow-up curtas e contextuais para WhatsApp comercial em pt-BR.",
           "Cada mensagem deve ser Ãºnica, natural e conectada ao assunto REAL da conversa â€” nunca invente temas.",

@@ -5,12 +5,22 @@ import { OpenAIService } from "./openai.service";
 import { AnthropicService } from "./anthropic.service";
 import { GroqService } from "./groq.service";
 import { OpenRouterService } from "./openrouter.service";
+import { VertexAIService } from "./vertexai.service";
+import { VertexWithGoogleFallbackService } from "./vertex-with-google-fallback.service";
+
+type LLMFactoryContext = {
+    tenant?: string;
+};
 
 export class LLMFactory {
-    static getService(config: NativeAgentConfig): LLMService {
-        const provider = String(config.aiProvider || "google").toLowerCase().trim();
+    static getService(config: NativeAgentConfig, context?: LLMFactoryContext): LLMService {
+        const provider = LLMFactory.resolveEffectiveProvider(config, context);
 
         switch (provider) {
+            case "vertexai": {
+                return LLMFactory.buildVertexService(config);
+            }
+
             case "openai": {
                 const apiKey = config.openaiApiKey || process.env.OPENAI_API_KEY || "";
                 const model = config.openaiModel || "gpt-4o";
@@ -67,6 +77,78 @@ export class LLMFactory {
         const model = config.geminiModel || "gemini-2.5-flash";
         console.log(`[LLMFactory] Using Google Gemini provider model=${model}`);
         return new GeminiService(apiKey, model);
+    }
+
+    private static buildVertexService(config: NativeAgentConfig): LLMService {
+        const projectId =
+            process.env.VERTEX_PROJECT_ID ||
+            process.env.GOOGLE_CLOUD_PROJECT ||
+            process.env.GCLOUD_PROJECT ||
+            "";
+        const location = process.env.VERTEX_LOCATION || "us-central1";
+        const model = process.env.VERTEX_MODEL || config.geminiModel || "gemini-2.5-flash";
+        const geminiFallback = LLMFactory.buildGeminiService(config);
+
+        if (!projectId) {
+            console.warn(
+                `[LLMFactory] Vertex selected but VERTEX_PROJECT_ID is missing. Falling back to Gemini.`,
+            );
+            return geminiFallback;
+        }
+
+        console.log(
+            `[LLMFactory] Using Google Vertex AI provider model=${model} project=${projectId} location=${location}`,
+        );
+        const vertex = new VertexAIService(projectId, location, model);
+        return new VertexWithGoogleFallbackService(vertex, geminiFallback);
+    }
+
+    private static parseCsvList(value: string): string[] {
+        return String(value || "")
+            .split(/[,\n;]+/g)
+            .map((item) => item.trim().toLowerCase())
+            .filter(Boolean);
+    }
+
+    private static parseBoolean(value: string | undefined): boolean {
+        const normalized = String(value || "")
+            .trim()
+            .toLowerCase();
+        return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
+    }
+
+    private static parseBooleanWithDefault(value: string | undefined, fallback: boolean): boolean {
+        if (value === undefined || value === null || String(value).trim() === "") return fallback;
+        return LLMFactory.parseBoolean(value);
+    }
+
+    private static shouldForceVertexForAllTenants(): boolean {
+        // Default habilitado: todos os tenants usam Vertex, com fallback automático para Gemini.
+        return LLMFactory.parseBooleanWithDefault(process.env.VERTEX_GLOBAL_ENABLED, true);
+    }
+
+    private static resolveEffectiveProvider(
+        config: NativeAgentConfig,
+        context?: LLMFactoryContext,
+    ): string {
+        const configured = String(config.aiProvider || "google").toLowerCase().trim();
+        if (configured === "vertexai") return "vertexai";
+        if (LLMFactory.shouldForceVertexForAllTenants()) return "vertexai";
+
+        const tenant = String(context?.tenant || "")
+            .trim()
+            .toLowerCase();
+        if (!tenant) return configured;
+
+        const vertexTestEnabled = LLMFactory.parseBoolean(process.env.VERTEX_TEST_MODE_ENABLED);
+        if (!vertexTestEnabled) return configured;
+
+        const allowedTenants = new Set(
+            LLMFactory.parseCsvList(process.env.VERTEX_TEST_TENANTS || ""),
+        );
+        if (!allowedTenants.has(tenant)) return configured;
+
+        return "vertexai";
     }
 
     static getFallbackService(config: NativeAgentConfig): LLMService | null {

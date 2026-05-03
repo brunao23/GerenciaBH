@@ -214,6 +214,7 @@ export async function GET(req: Request) {
 
         const nativeAgentConfig = await getNativeAgentConfigForTenant(cfg.unit_prefix)
         const message = await generatePersonalizedWelcome({
+          tenant: cfg.unit_prefix,
           name: name || null,
           campaignName: cfg.campaign_name || null,
           formFields: fieldData,

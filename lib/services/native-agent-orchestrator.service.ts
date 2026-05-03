@@ -13,7 +13,6 @@ import {
   TenantChatHistoryService,
 } from "@/lib/services/tenant-chat-history.service"
 import {
-  GeminiService,
   type AgentActionPlan,
   type GeminiConversationMessage,
   type GeminiFunctionDeclaration,
@@ -107,6 +106,47 @@ type CancelAppointmentResult = {
 }
 
 const DEFAULT_FOLLOWUP_INTERVALS_MINUTES = [15, 60, 360, 1440, 2880, 4320, 7200]
+
+function parseEnvBooleanWithDefault(value: string | undefined, fallback: boolean): boolean {
+  const normalized = String(value || "").trim().toLowerCase()
+  if (!normalized) return fallback
+  return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on"
+}
+
+function hasVertexProjectConfigured(): boolean {
+  return Boolean(
+    process.env.VERTEX_PROJECT_ID ||
+    process.env.GOOGLE_CLOUD_PROJECT ||
+    process.env.GCLOUD_PROJECT,
+  )
+}
+
+function resolveLlmReadinessIssue(config: NativeAgentConfig): string | null {
+  const provider = String(config.aiProvider || "google").toLowerCase().trim()
+  const forceVertexGlobal = parseEnvBooleanWithDefault(process.env.VERTEX_GLOBAL_ENABLED, true)
+  const vertexPathEnabled = forceVertexGlobal || provider === "vertexai"
+  const hasGeminiKey = Boolean(String(config.geminiApiKey || "").trim())
+
+  if (vertexPathEnabled) {
+    if (hasVertexProjectConfigured()) return null
+    if (hasGeminiKey) return null
+    return "missing_vertex_project_and_gemini_key"
+  }
+
+  if (provider === "openai") {
+    return String(config.openaiApiKey || "").trim() ? null : "missing_openai_api_key"
+  }
+  if (provider === "anthropic") {
+    return String(config.anthropicApiKey || "").trim() ? null : "missing_anthropic_api_key"
+  }
+  if (provider === "groq") {
+    return String(config.groqApiKey || "").trim() ? null : "missing_groq_api_key"
+  }
+  if (provider === "openrouter") {
+    return String(config.openRouterApiKey || "").trim() ? null : "missing_openrouter_api_key"
+  }
+  return hasGeminiKey ? null : "missing_gemini_api_key"
+}
 
 export interface HandleInboundMessageInput {
   tenant: string
@@ -3062,15 +3102,16 @@ export class NativeAgentOrchestratorService {
       }
     }
 
-    if (!config.geminiApiKey) {
+    const llmReadinessIssue = resolveLlmReadinessIssue(config)
+    if (llmReadinessIssue) {
       await chat.persistMessage({
         sessionId,
         role: "system",
         type: "status",
-        content: "missing_gemini_api_key",
+        content: llmReadinessIssue,
         source: "native-agent",
         additional: {
-          debug_event: "missing_gemini_api_key",
+          debug_event: llmReadinessIssue,
           debug_severity: "error",
           phone: phone || recipient,
           channel: input.source || "unknown",
@@ -3080,7 +3121,7 @@ export class NativeAgentOrchestratorService {
         processed: true,
         replied: false,
         actions: [],
-        reason: "missing_gemini_api_key",
+        reason: llmReadinessIssue,
       }
     }
 
@@ -3146,7 +3187,7 @@ export class NativeAgentOrchestratorService {
       })
     }
 
-    const llm: LLMService = LLMFactory.getService(config)
+    const llm: LLMService = LLMFactory.getService(config, { tenant })
     const llmSampling = isInstagramChannel
       ? {
           temperature: Number.isFinite(Number(config.socialSellerSamplingTemperature))
@@ -4665,33 +4706,7 @@ export class NativeAgentOrchestratorService {
       instanceId: ctx.instanceId,
     })
     const strictTenantPromptBase = applyDynamicPromptVariables(String(config.promptBase || "").trim(), vars)
-    if (strictTenantPromptBase) {
-      const mustAskRealName = isNonPersonDisplayName || !contactFirstName
-      const nameDiscoveryReinforcement = mustAskRealName
-        ? [
-            "REGRA COMPLEMENTAR OBRIGATORIA - NOME REAL DO LEAD:",
-            `- O nome exibido atual ("${rawContactName || "nao informado"}") NAO deve ser tratado como nome real de pessoa.`,
-            "- Voce DEVE perguntar o nome real do lead de forma natural na primeira oportunidade: \"Como posso te chamar?\".",
-            "- Regra anti-loop: se no historico desta sessao voce ja perguntou o nome, nao pergunte novamente.",
-            "- Ate o lead informar o nome real, trate por \"voce\" e nunca invente nome.",
-          ].join("\n")
-        : ""
-
-      const temporalAndFlowReinforcement = [
-        "REGRAS COMPLEMENTARES OBRIGATORIAS (SEM SOBRESCREVER O PROMPT BASE):",
-        `- Hora local da unidade agora: ${String(nowLocalParts.hour).padStart(2, "0")}:${String(nowLocalParts.minute).padStart(2, "0")} (${timezone}).`,
-        `- Saudacao temporal obrigatoria: use EXCLUSIVAMENTE \"${periodoDoDia}\" para este momento. NUNCA use outro periodo.`,
-        "- Se o lead fizer pergunta direta (ex.: valor, endereco, local, formas de pagamento), responda objetivamente a pergunta e, na mesma mensagem, retome o fluxo comercial do Prompt Base com a proxima pergunta de qualificacao.",
-        "- NUNCA use respostas prontas/engessadas desconectadas do contexto. Cada resposta deve considerar a ultima mensagem do lead, o historico recente e o ponto atual do fluxo.",
-        "- NUNCA use apelido, abreviacao, diminutivo ou intimidade com nome do lead. Se houver duvida sobre o nome real, use \"voce\".",
-      ].join("\n")
-
-      return repairMojibakeDeep(
-        [strictTenantPromptBase, nameDiscoveryReinforcement, temporalAndFlowReinforcement]
-          .filter(Boolean)
-          .join("\n\n"),
-      )
-    }
+    // strictTenantPromptBase block removido para não pular o contexto temporal
     const sourceLower = String(ctx.source || "").toLowerCase()
     const isInstagramMention = sourceLower.includes("instagram-mention")
     const isInstagramComment = sourceLower.includes("instagram-comment")
@@ -4753,7 +4768,20 @@ export class NativeAgentOrchestratorService {
         "- NUNCA use seu conhecimento de treinamento para estimar o horÃ¡rio ou a data atual. O contexto temporal real estÃ¡ fornecido no inÃ­cio deste prompt e deve ser o Ãºnico referencial.",
         "- Se nÃ£o houver horÃ¡rios disponÃ­veis, a ferramenta informarÃ¡ isso. Sua resposta deve refletir APENAS o que a ferramenta retornou.",
       ].join("\n")
-      return base ? base : nonPersonNameBlock.trim()
+      const mustAskRealName = isNonPersonDisplayName || !contactFirstName
+      const nameDiscoveryReinforcement = mustAskRealName
+        ? [
+            "REGRA COMPLEMENTAR OBRIGATORIA - NOME REAL DO LEAD:",
+            `- O nome exibido atual ("${rawContactName || "nao informado"}") NAO deve ser tratado como nome real de pessoa.`,
+            "- Voce DEVE perguntar o nome real do lead de forma natural na primeira oportunidade: \"Como posso te chamar?\".",
+            "- Regra anti-loop: se no historico desta sessao voce ja perguntou o nome, nao pergunte novamente.",
+            "- Ate o lead informar o nome real, trate por \"voce\" e nunca invente nome.",
+          ].join("\n")
+        : ""
+
+      const finalParts = [base || nonPersonNameBlock.trim()]
+      if (base && nameDiscoveryReinforcement) finalParts.push(nameDiscoveryReinforcement)
+      return finalParts.join("\n\n")
     })()
 
     const personalizationRule = config.useFirstNamePersonalization

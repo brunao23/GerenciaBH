@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { createNotification } from "@/lib/services/notifications"
+import {
+  buildAgendamentoMetricSnapshot,
+  buildFollowupTableCandidates,
+  fetchAgendamentoMetricRows,
+  fetchFollowupMetricSnapshot,
+} from "@/lib/services/dashboard-metrics.shared"
 import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
 import { resolveChatHistoriesTable } from "@/lib/helpers/resolve-chat-table"
 import { getTablesForTenant } from "@/lib/helpers/tenant"
@@ -999,17 +1005,10 @@ export async function GET(req: Request) {
     const agendamentosTable = tenantTables?.agendamentos || `${metricTenant}_agendamentos`
     const notificationsTable = tenantTables?.notifications || `${metricTenant}_notifications`
 
-    const [sessionsData, followupsData, disparosData] = await Promise.all([
-      getDirectChatsData(metricTenant, startDate, endDate),
-      getDirectFollowupsData(metricTenant, startDate, endDate),
-      getDisparosLeads(logicalTenant, startDate, metricTenant, endDate)
-    ])
+    const sessionsData = await getDirectChatsData(metricTenant, startDate, endDate)
 
     console.log(`[Overview] Carregadas ${sessionsData.length} sessÃÂµes totais`)
     console.log(`[Overview] PerÃÂ­odo solicitado: ${periodParam === "custom" ? "personalizado" : `${daysToSubtract} dias`}`)
-    console.log(`[Overview] Carregados ${followupsData.length} follow-ups processados`)
-    console.log(`[Overview] Carregados ${disparosData.leads} leads de vox_disparos (filtrado por DDD para BH/SP)`)
-
     // APLICAR FILTRO DE DATA "REAL" (Server-side filtering in memory)
     const startMs = startDate.getTime()
     const endMs = endDate.getTime()
@@ -1028,6 +1027,9 @@ export async function GET(req: Request) {
       fetchTableDataRobust(metricTenant, 'agendamentos', 5000, startDate, endDate),
       fetchTableDataRobust(metricTenant, 'notifications', 5000, startDate, endDate),
     ])
+    const conversationSessions = sessionsToProcess.filter((session) =>
+      Array.isArray(session.messages) && session.messages.some((message: any) => message.role === "user"),
+    )
 
     const supabase = createBiaSupabaseServerClient()
 
@@ -1124,7 +1126,7 @@ export async function GET(req: Request) {
 
     // Filtrar apenas agendamentos explÃÂ­citos
     const agendamentosExplicitos = agendamentosNoPeriodo.filter(isAgendamentoExplicito)
-    const agendamentos = agendamentosExplicitos.length
+    let agendamentos = agendamentosExplicitos.length
 
     // Filtrar notificaÃÂ§ÃÂµes por data
     const notifications = notificationsData.filter((n: any) => {
@@ -1134,40 +1136,41 @@ export async function GET(req: Request) {
 
     console.log(`[v0] Agendamentos no perÃÂ­odo: ${agendamentosNoPeriodo.length}, ExplÃÂ­citos: ${agendamentos}`)
 
-    // 3. Filtrar Follow-ups por data
-    const followupsFiltered = followupsData.filter((f: any) => {
-      const resolvedDate =
-        parseDateMaybe(f?.last_mensager) ||
-        parseDateMaybe(f?.sent_at) ||
-        parseDateMaybe(f?.created_at) ||
-        parseDateMaybe(f?.updated_at) ||
-        parseDateMaybe(f?.last_contact) ||
-        parseDateMaybe(f?.data_criacao) ||
-        parseDateMaybe(f?.data) ||
-        parseDateMaybe(f?.next_followup_at)
-      if (!resolvedDate) return false
-      const fDate = resolvedDate.getTime()
-      return fDate >= startMs && fDate <= endMs
+    // 3. Follow-ups são recalculados abaixo com a regra centralizada e tenant-aware
+    let followups = 0
+
+    const agendamentoSnapshot = buildAgendamentoMetricSnapshot(
+      await fetchAgendamentoMetricRows({
+        supabase,
+        table: agendamentosTable,
+        startDate,
+        endDate,
+        limit: 10000,
+      }),
+      startDate,
+      endDate,
+    )
+    agendamentos = agendamentoSnapshot.count
+    console.log(`[Overview] Agendamentos recalculados com regra unificada: ${agendamentos}`)
+
+    const followupSnapshot = await fetchFollowupMetricSnapshot({
+      supabase,
+      tenant: metricTenant,
+      tableCandidates: buildFollowupTableCandidates(
+        metricTenant,
+        tenantTables?.followNormal,
+        tenantTables?.followup,
+      ),
+      startDate,
+      endDate,
     })
+    followups = followupSnapshot.count
+    console.log(`[Overview] Follow-ups recalculados com isolamento por tenant (${followupSnapshot.source}): ${followups}`)
 
-    const followups = followupsFiltered.length
-    console.log(`[v0] Follow-ups no período: ${followups}`)
-
-    // 4. Filtrar Leads de Disparos por data
-    let leadsFromDisparos = 0
-    disparosData.dailyLeads.forEach((count, dateStr) => {
-      const dDate = new Date(dateStr)
-      dDate.setHours(0, 0, 0, 0)
-      const dTime = dDate.getTime()
-      if (dTime >= startMs && dTime <= endMs) {
-        leadsFromDisparos += count
-      }
-    })
-
-    // Deduplicar leads: normalizar session_ids do chat e unir com phoneSet dos disparos
+    // 4. Leads do dashboard principal agora v?m apenas das conversas reais do tenant
     const chatPhoneSet = new Set<string>()
     let anonymousSessions = 0
-    for (const session of sessionsToProcess) {
+    for (const session of conversationSessions) {
       let rawId = String(session.session_id || "")
       if (rawId.includes("@")) rawId = rawId.split("@")[0]
       const normalized = normalizePhoneForDedup(rawId)
@@ -1177,12 +1180,10 @@ export async function GET(req: Request) {
         anonymousSessions += 1
       }
     }
-    const allLeadPhones = new Set<string>(chatPhoneSet)
-    for (const phone of disparosData.phoneSet) {
-      allLeadPhones.add(phone)
-    }
-    const totalLeads = allLeadPhones.size + anonymousSessions
-    console.log(`[v0] Total de Leads: ${totalLeads} (Chat únicos: ${chatPhoneSet.size}, Disparos únicos: ${disparosData.phoneSet.size}, Anônimos: ${anonymousSessions})`)
+    const totalLeads = chatPhoneSet.size + anonymousSessions
+    const totalConversas = conversationSessions.length
+    console.log(`[v0] Total de Leads: ${totalLeads} (Chat unicos: ${chatPhoneSet.size}, Anonimos: ${anonymousSessions})`)
+    console.log(`[v0] Total de Conversas: ${totalConversas}`)
 
     let totalMessages = 0
     let aiMessages = 0
@@ -1193,7 +1194,7 @@ export async function GET(req: Request) {
     let conversasAtivas = 0
 
     // Contar conversas ativas (sessÃÂµes com pelo menos 2 mensagens - interaÃÂ§ÃÂ£o real)
-    for (const session of sessionsToProcess) {
+    for (const session of conversationSessions) {
       const messages = session.messages || []
       // Conversa ativa = tem pelo menos uma mensagem do usuÃÂ¡rio E uma da IA (interaÃÂ§ÃÂ£o real)
       const hasUserMessage = messages.some((m: any) => m.role === "user")
@@ -1224,20 +1225,20 @@ export async function GET(req: Request) {
     }
 
     console.log(`[v0] Total de Leads (sessÃÂµes ÃÂºnicas): ${totalLeads}`)
+    console.log(`[v0] Total de Conversas com lead: ${totalConversas}`)
     console.log(`[v0] Conversas Ativas (com interaÃÂ§ÃÂ£o real): ${conversasAtivas}`)
 
     console.log(`[v0] Mensagens com erro detectadas: ${messagesWithError}`)
     console.log(`[v0] Mensagens da IA com erro: ${aiErrorMessages}`)
     console.log(`[v0] Mensagens da IA com sucesso: ${aiSuccessMessages}`)
 
-    const avgResponseTime = calculateAverageResponseTime(sessionsToProcess)
+    const avgResponseTime = calculateAverageResponseTime(conversationSessions)
     console.log(`[v0] Tempo mÃÂ©dio de resposta calculado: ${avgResponseTime} segundos`)
 
     // Calcular mÃÂ©tricas finais
     const aiSuccessRate = aiMessages > 0 ? (aiSuccessMessages / aiMessages) * 100 : 0
-    // Taxa de agendamento: usar conversasAtivas como base (leads com interacao real)
-    // Isso evita que leads de disparos que nunca responderam diluam a taxa
-    const conversionBase = conversasAtivas > 0 ? conversasAtivas : totalLeads
+    // Taxa de agendamento alinhada ao rótulo do dashboard e ao relatório: agendamentos / leads
+    const conversionBase = totalLeads
     const conversionRate = conversionBase > 0 ? (agendamentos / conversionBase) * 100 : 0
     const errorRate = aiMessages > 0 ? (aiErrorMessages / aiMessages) * 100 : 0
 
@@ -1280,7 +1281,7 @@ export async function GET(req: Request) {
 
     const realData = {
       // MÃÂ©tricas principais
-      conversas: conversasAtivas,
+      conversas: totalConversas,
       agendamentos,
       followups, // Agora conta apenas follow-ups com etapa >= 1
       notifications,
@@ -1305,7 +1306,7 @@ export async function GET(req: Request) {
       // Totais
       totalMessages,
       humanMessages,
-      totalSessions: totalLeads,
+      totalSessions: totalConversas,
       activeConversations: conversasAtivas,
 
       // Compatibilidade com dashboard atual
@@ -1322,7 +1323,7 @@ export async function GET(req: Request) {
         const allDates = new Set<string>()
 
         // Primeiro passo: coletar todas as datas disponÃÂ­veis
-        for (const session of sessionsToProcess) {
+        for (const session of conversationSessions) {
           if (session.messages && session.messages.length > 0) {
             // Processar TODAS as mensagens da sessÃÂ£o, nÃÂ£o apenas a primeira
             for (const msg of session.messages) {
@@ -1339,7 +1340,7 @@ export async function GET(req: Request) {
             }
 
             // TambÃÂ©m usar a primeira mensagem da sessÃÂ£o para contar sessÃÂµes por data
-            const firstMsg = session.messages[0]
+            const firstMsg = session.messages.find((msg: any) => msg.role === "user" && msg.created_at) || session.messages[0]
             if (firstMsg.created_at) {
               try {
                 const msgDate = new Date(firstMsg.created_at)
@@ -1362,16 +1363,16 @@ export async function GET(req: Request) {
         const leadsPerDate = new Map<string, Set<string>>() // session_ids por data
         const sessionsProcessedPerDate = new Map<string, Set<string>>() // Para evitar contar mÃÂºltiplas vezes
 
-        console.log(`[v0] Processando ${sessionsToProcess.length} sessÃÂµes para o grÃÂ¡fico de LEADS...`)
+        console.log(`[v0] Processando ${conversationSessions.length} sessÃÂµes para o grÃÂ¡fico de LEADS...`)
 
-        for (const session of sessionsToProcess) {
+        for (const session of conversationSessions) {
           if (session.messages && session.messages.length > 0) {
             // Verificar sucesso/erro na sessÃÂ£o
             const hasSuccess = session.messages.some((m: any) => m.isSuccess)
             const hasError = session.messages.some((m: any) => m.isError)
 
             // Usar a PRIMEIRA mensagem da sessÃÂ£o para determinar a data do lead
-            const firstMsg = session.messages[0]
+            const firstMsg = session.messages.find((msg: any) => msg.role === "user" && msg.created_at) || session.messages[0]
             if (firstMsg && firstMsg.created_at) {
               try {
                 const msgDate = new Date(firstMsg.created_at)
@@ -1412,20 +1413,7 @@ export async function GET(req: Request) {
             }
           }
         }
-
-        // Adicionar leads de vox_disparos (compartilhada BH/SP) ao grÃÂ¡fico
-        console.log(`[Overview] Adicionando ${disparosData.leads} leads de vox_disparos ao grÃÂ¡fico (filtrado por DDD)...`)
-        for (const [dateStr, count] of disparosData.dailyLeads.entries()) {
-          if (!dailyStats.has(dateStr)) {
-            dailyStats.set(dateStr, { date: dateStr, total: 0, success: 0, error: 0 })
-          }
-          const stat = dailyStats.get(dateStr)!
-          // Leads de disparos contam como 'total' mas NAO como 'success'
-          // (success = conversas com resultado positivo, nao apenas leads importados)
-          stat.total += count
-        }
-
-        // Formatar datas para exibiÃÂ§ÃÂ£o (DD/MM) e garantir ordem correta
+        // Formatar datas para exibicao (DD/MM) e garantir ordem correta
         // NÃÆ’O filtrar aqui - deixar todos os dados para o grÃÂ¡fico decidir
         const sortedStats = Array.from(dailyStats.values())
           .sort((a, b) => a.date.localeCompare(b.date))
@@ -1456,10 +1444,10 @@ export async function GET(req: Request) {
           console.log(`[v0] Exemplo de dados (primeiros 3):`, JSON.stringify(filteredStats.slice(0, 3), null, 2))
           console.log(`[v0] Total de mensagens no grÃÂ¡fico: ${filteredStats.reduce((sum, item) => sum + (item.total || 0), 0)}`)
         } else {
-          console.warn(`[v0] Nenhum dado encontrado para o grÃÂ¡fico. Total de sessÃÂµes: ${sessionsToProcess.length}, Total de datas ÃÂºnicas coletadas: ${allDates.size}`)
+          console.warn(`[v0] Nenhum dado encontrado para o grafico. Total de sessoes: ${conversationSessions.length}, Total de datas unicas coletadas: ${allDates.size}`)
           // Tentar entender por que nÃÂ£o hÃÂ¡ dados
-          if (sessionsToProcess.length > 0) {
-            const sampleSession = sessionsToProcess[0]
+          if (conversationSessions.length > 0) {
+            const sampleSession = conversationSessions[0]
             console.log(`[v0] Exemplo de sessÃÂ£o:`, {
               session_id: sampleSession.session_id,
               messagesCount: sampleSession.messages?.length || 0,
@@ -1472,7 +1460,7 @@ export async function GET(req: Request) {
       })(),
 
       // Atividades recentes
-      recentActivity: sessionsToProcess
+      recentActivity: conversationSessions
         .filter(s => s.messages && s.messages.length > 0)
         .sort((a, b) => {
           const lastMsgA = a.messages[a.messages.length - 1]?.created_at || ""

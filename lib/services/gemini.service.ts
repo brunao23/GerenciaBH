@@ -70,7 +70,7 @@ export interface GeminiToolDecision extends GeminiAgentDecision {
 }
 
 export interface LLMUsageMetrics {
-  provider: "google" | "openai" | "anthropic" | "groq" | "openrouter" | "unknown"
+  provider: "google" | "openai" | "anthropic" | "groq" | "openrouter" | "vertexai" | "unknown"
   model: string
   inputTokens: number
   outputTokens: number

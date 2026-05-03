@@ -70,6 +70,7 @@ export async function POST(req: Request) {
 
   const nativeAgentConfig = await getNativeAgentConfigForTenant(unitPrefix)
   const message = await generatePersonalizedWelcome({
+    tenant: unitPrefix,
     name: lead.name ?? null,
     campaignName: lead.campaign_name ?? null,
     formFields,

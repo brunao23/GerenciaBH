@@ -9,7 +9,7 @@ import { getTablesForTenant } from "@/lib/helpers/tenant"
 import { resolveChatHistoriesTable } from "@/lib/helpers/resolve-chat-table"
 import { MetaInstagramService } from "@/lib/services/meta-instagram.service"
 import { resolveMetaWebhookVerifyToken } from "@/lib/helpers/meta-webhook"
-import { GeminiService } from "@/lib/services/gemini.service"
+import { LLMFactory } from "@/lib/services/llm-factory"
 import { NativeAgentOrchestratorService } from "@/lib/services/native-agent-orchestrator.service"
 import { TenantMessagingService } from "@/lib/services/tenant-messaging.service"
 import { TenantChatHistoryService, normalizeSessionId } from "@/lib/services/tenant-chat-history.service"
@@ -995,16 +995,15 @@ async function analyzeInstagramMediaWithGemini(params: {
   if (!mediaUrl) return ""
 
   const config = await getNativeAgentConfigForTenant(params.tenant).catch(() => null)
-  const apiKey = String(config?.geminiApiKey || "").trim()
-  if (!apiKey) return ""
-  const model = String(config?.geminiModel || "gemini-2.5-flash").trim() || "gemini-2.5-flash"
+  if (!config) return ""
+  const llm = LLMFactory.getService(config, { tenant: params.tenant })
+  if (typeof llm.analyzeMedia !== "function") return ""
 
   try {
     const downloaded = await fetchMediaAsBase64({ url: mediaUrl, mediaType: params.mediaType })
-    const gemini = new GeminiService(apiKey, model)
     const normalizedMediaType: "image" | "video" | "document" =
       params.mediaType === "video" ? "video" : params.mediaType === "image" ? "image" : "document"
-    const analysis = await gemini.analyzeMedia({
+    const analysis = await llm.analyzeMedia({
       mediaBase64: downloaded.base64,
       mimeType: downloaded.mimeType,
       mediaType: normalizedMediaType,
@@ -1026,12 +1025,11 @@ async function transcribeInstagramAudioWithGemini(params: {
   if (!mediaUrl) return ""
 
   const config = await getNativeAgentConfigForTenant(params.tenant).catch(() => null)
-  const apiKey = String(config?.geminiApiKey || "").trim()
-  if (!apiKey) return ""
-  const model = String(config?.geminiModel || "gemini-2.5-flash").trim() || "gemini-2.5-flash"
+  if (!config) return ""
+  const llm = LLMFactory.getService(config, { tenant: params.tenant })
+  if (typeof llm.transcribeAudio !== "function") return ""
 
   const downloaded = await fetchMediaAsBase64({ url: mediaUrl, mediaType: "audio" })
-  const gemini = new GeminiService(apiKey, model)
   const prompt =
     params.prompt ||
     "Transcreva fielmente este audio em portugues do Brasil. Retorne somente a transcricao em texto, sem comentarios adicionais."
@@ -1051,7 +1049,7 @@ async function transcribeInstagramAudioWithGemini(params: {
   let lastError = ""
   for (const mime of mimeCandidates) {
     try {
-      const transcription = await gemini.transcribeAudio({
+      const transcription = await llm.transcribeAudio({
         audioBase64: downloaded.base64,
         mimeType: mime,
         prompt,
@@ -1668,7 +1666,6 @@ async function processDirectEvent(params: {
   const accessToken = String(params.resolution.config?.metaAccessToken || "").trim()
   const apiVersion = String(params.resolution.config?.metaApiVersion || process.env.META_API_VERSION || "v25.0").trim()
   const nativeConfig = await getNativeAgentConfigForTenant(params.resolution.dataTenant).catch(() => null)
-  const hasGeminiApiKey = Boolean(String(nativeConfig?.geminiApiKey || "").trim())
   const chat = new TenantChatHistoryService(params.resolution.dataTenant)
 
   // Instagram webhooks normalmente nao incluem todos os metadados do perfil - busca via API
@@ -1711,11 +1708,11 @@ async function processDirectEvent(params: {
   if (directInbound.hasMedia && !directInbound.mediaUrl) {
     mediaAnalysisError = mediaAnalysisError || "instagram_media_url_missing_in_payload"
   }
-  if (directInbound.hasMedia && !hasGeminiApiKey) {
-    mediaAnalysisError = mediaAnalysisError || "gemini_api_key_not_configured_for_tenant"
+  if (directInbound.hasMedia && !nativeConfig) {
+    mediaAnalysisError = mediaAnalysisError || "native_agent_config_not_available_for_tenant"
   }
 
-  if (directInbound.hasMedia && accessToken && hasGeminiApiKey && directInbound.mediaUrl) {
+  if (directInbound.hasMedia && accessToken && nativeConfig && directInbound.mediaUrl) {
     try {
       if (directInbound.mediaType === "audio") {
         audioTranscription = await transcribeInstagramAudioWithGemini({
@@ -1887,7 +1884,7 @@ async function processDirectEvent(params: {
         attachmentsCount: directInbound.attachmentsCount ?? null,
         payloadKeys: directInbound.payloadKeys || null,
         hasMetaAccessToken: Boolean(accessToken),
-        hasGeminiApiKey,
+        hasNativeAgentConfig: Boolean(nativeConfig),
         profileContextChars: leadProfileMemory.length,
         audioTranscriptionChars: audioTranscription.length,
         mediaAnalysisChars: mediaAnalysis.length,

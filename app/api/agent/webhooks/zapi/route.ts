@@ -18,7 +18,7 @@ import {
 import { NativeAgentOrchestratorService } from "@/lib/services/native-agent-orchestrator.service"
 import { NativeAgentLearningService } from "@/lib/services/native-agent-learning.service"
 import { AgentTaskQueueService } from "@/lib/services/agent-task-queue.service"
-import { GeminiService } from "@/lib/services/gemini.service"
+import { LLMFactory } from "@/lib/services/llm-factory"
 import { TenantMessagingService } from "@/lib/services/tenant-messaging.service"
 import { GroupNotificationDispatcherService } from "@/lib/services/group-notification-dispatcher.service"
 import { RedisService } from "@/lib/services/redis.service"
@@ -700,14 +700,20 @@ async function fetchAudioAsBase64(url: string): Promise<{
 }
 
 async function transcribeAudioForEvent(params: {
+  tenant: string
   event: ZapiMessageEvent
   config: Awaited<ReturnType<typeof getNativeAgentConfigForTenant>>
 }): Promise<{ text?: string; error?: string }> {
+  const tenant = String(params.tenant || "").trim()
   const event = params.event
   const config = params.config
   if (!event.hasAudio) return {}
-  if (!config?.geminiApiKey) {
-    return { error: "missing_gemini_api_key_for_audio_transcription" }
+  if (!config) {
+    return { error: "missing_native_agent_config_for_audio_transcription" }
+  }
+  const llm = LLMFactory.getService(config, { tenant })
+  if (typeof llm.transcribeAudio !== "function") {
+    return { error: "audio_transcription_not_supported" }
   }
 
   let mimeType = normalizeAudioMimeType(String(event.audioMimeType || "audio/ogg"))
@@ -723,40 +729,21 @@ async function transcribeAudioForEvent(params: {
     return { error: "audio_payload_unavailable" }
   }
 
-  const models = Array.from(
-    new Set(
-      [
-        "gemini-2.5-flash",
-        String(config.geminiModel || "").trim(),
-      ].filter(Boolean),
-    ),
-  )
-
-  let lastError = ""
-  for (const model of models) {
-    try {
-      const gemini = new GeminiService(config.geminiApiKey, model)
-      const transcript = await gemini.transcribeAudio({
-        audioBase64: base64,
-        mimeType,
-        prompt:
-          "Transcreva fielmente este audio em portugues do Brasil. Retorne somente a transcricao em texto, sem comentarios extras. Se nao houver fala inteligivel, retorne apenas: [audio_sem_fala_inteligivel].",
-      })
-
-      const text = String(transcript || "").trim()
-      if (!text) {
-        lastError = "audio_transcription_empty"
-        continue
-      }
-
-      event.metadata.audioTranscriptionModel = model
-      return { text }
-    } catch (error: any) {
-      lastError = String(error?.message || "audio_transcription_failed")
-    }
+  try {
+    const transcript = await llm.transcribeAudio({
+      audioBase64: base64,
+      mimeType,
+      prompt:
+        "Transcreva fielmente este audio em portugues do Brasil. Retorne somente a transcricao em texto, sem comentarios extras. Se nao houver fala inteligivel, retorne apenas: [audio_sem_fala_inteligivel].",
+    })
+    const text = String(transcript || "").trim()
+    if (!text) return { error: "audio_transcription_empty" }
+    event.metadata.audioTranscriptionProvider = "llm_factory"
+    event.metadata.audioTranscriptionModel = String(process.env.VERTEX_MODEL || config.geminiModel || "gemini-2.5-flash")
+    return { text }
+  } catch (error: any) {
+    return { error: String(error?.message || "audio_transcription_failed") }
   }
-
-  return { error: lastError || "audio_transcription_failed" }
 }
 
 async function fetchMediaAsBase64(params: {
@@ -799,14 +786,20 @@ async function fetchMediaAsBase64(params: {
 }
 
 async function analyzeMediaForEvent(params: {
+  tenant: string
   event: ZapiMessageEvent
   config: Awaited<ReturnType<typeof getNativeAgentConfigForTenant>>
 }): Promise<{ text?: string; error?: string }> {
+  const tenant = String(params.tenant || "").trim()
   const event = params.event
   const config = params.config
   if (!event.hasMedia || !event.mediaType) return {}
-  if (!config?.geminiApiKey) {
-    return { error: "missing_gemini_api_key_for_media_analysis" }
+  if (!config) {
+    return { error: "missing_native_agent_config_for_media_analysis" }
+  }
+  const llm = LLMFactory.getService(config, { tenant })
+  if (typeof llm.analyzeMedia !== "function") {
+    return { error: "media_analysis_not_supported" }
   }
 
   let mimeType = normalizeMediaMimeType(String(event.mediaMimeType || ""), event.mediaType)
@@ -826,43 +819,26 @@ async function analyzeMediaForEvent(params: {
     return { error: "media_payload_unavailable" }
   }
 
-  const modelCandidates = Array.from(
-    new Set(
-      [
-        String(config.geminiModel || "").trim(),
-        "gemini-2.5-flash",
-      ].filter(Boolean),
-    ),
-  )
-
-  let lastError = ""
-  for (const model of modelCandidates) {
-    try {
-      const gemini = new GeminiService(config.geminiApiKey, model)
-      const analysis = await gemini.analyzeMedia({
-        mediaBase64: base64,
-        mimeType,
-        mediaType: event.mediaType,
-        prompt:
-          event.mediaType === "document"
-            ? "Leia este documento enviado no WhatsApp e retorne um resumo objetivo em portugues do Brasil com os pontos principais para atendimento comercial. Se nao conseguir ler o conteudo, retorne [midia_sem_contexto_legivel]."
-            : event.mediaType === "video"
-              ? "Analise este video enviado no WhatsApp e retorne um resumo objetivo em portugues do Brasil do que aparece/acontece no conteudo para contexto de atendimento comercial. Se nao for possivel interpretar, retorne [midia_sem_contexto_legivel]."
-              : "Analise esta imagem enviada no WhatsApp e retorne um resumo objetivo em portugues do Brasil do que aparece no conteudo para contexto de atendimento comercial. Se nao for possivel interpretar, retorne [midia_sem_contexto_legivel].",
-      })
-      const text = String(analysis || "").trim()
-      if (!text) {
-        lastError = "media_analysis_empty"
-        continue
-      }
-      event.metadata.mediaAnalysisModel = model
-      return { text }
-    } catch (error: any) {
-      lastError = String(error?.message || "media_analysis_failed")
-    }
+  try {
+    const analysis = await llm.analyzeMedia({
+      mediaBase64: base64,
+      mimeType,
+      mediaType: event.mediaType,
+      prompt:
+        event.mediaType === "document"
+          ? "Leia este documento enviado no WhatsApp e retorne um resumo objetivo em portugues do Brasil com os pontos principais para atendimento comercial. Se nao conseguir ler o conteudo, retorne [midia_sem_contexto_legivel]."
+          : event.mediaType === "video"
+            ? "Analise este video enviado no WhatsApp e retorne um resumo objetivo em portugues do Brasil do que aparece/acontece no conteudo para contexto de atendimento comercial. Se nao for possivel interpretar, retorne [midia_sem_contexto_legivel]."
+            : "Analise esta imagem enviada no WhatsApp e retorne um resumo objetivo em portugues do Brasil do que aparece no conteudo para contexto de atendimento comercial. Se nao for possivel interpretar, retorne [midia_sem_contexto_legivel].",
+    })
+    const text = String(analysis || "").trim()
+    if (!text) return { error: "media_analysis_empty" }
+    event.metadata.mediaAnalysisProvider = "llm_factory"
+    event.metadata.mediaAnalysisModel = String(process.env.VERTEX_MODEL || config.geminiModel || "gemini-2.5-flash")
+    return { text }
+  } catch (error: any) {
+    return { error: String(error?.message || "media_analysis_failed") }
   }
-
-  return { error: lastError || "media_analysis_failed" }
 }
 
 type ConversationTaskInsight = {
@@ -1191,14 +1167,13 @@ function sanitizeTaskReminderMessage(input: {
 }
 
 async function classifyTaskIntentWithGemini(params: {
+  tenant: string
   config: NativeAgentConfig
   senderType: "lead" | "human"
   message: string
   timezone: string
 }): Promise<TaskIntentDecision | null> {
-  const apiKey = String(params.config.geminiApiKey || "").trim()
-  if (!apiKey) return null
-  const model = String(params.config.geminiModel || "gemini-2.5-flash").trim() || "gemini-2.5-flash"
+  const llm = LLMFactory.getService(params.config, { tenant: params.tenant })
 
   const classifierPrompt = [
     "Voce classifica mensagens de conversa de WhatsApp para criar tarefas internas de retorno.",
@@ -1215,31 +1190,21 @@ async function classifyTaskIntentWithGemini(params: {
     `message=${params.message}`,
   ].join("\n")
 
-  const payload = {
-    contents: [{ role: "user", parts: [{ text: classifierPrompt }] }],
-    generationConfig: {
-      temperature: 0.1,
-      topP: 0.9,
-      responseMimeType: "application/json",
-    },
-  }
-
   try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+    const decision = await llm.decideNextTurn({
+      systemPrompt: [
+        "Voce classifica intencao para tarefas internas de retorno no WhatsApp.",
+        "Retorne SOMENTE JSON valido no formato solicitado pelo usuario.",
+        "Nunca responda texto fora do JSON.",
+      ].join(" "),
+      conversation: [{ role: "user", content: classifierPrompt }],
+      sampling: {
+        temperature: 0.1,
+        topP: 0.9,
+        topK: 20,
       },
-    )
-    const rawText = await response.text()
-    if (!response.ok) return null
-    const parsedBody = rawText ? JSON.parse(rawText) : {}
-    const outputText = String(
-      parsedBody?.candidates?.[0]?.content?.parts?.map((part: any) => String(part?.text || "")).join("\n") || "",
-    ).trim()
-    return parseTaskIntentDecision(outputText)
+    })
+    return parseTaskIntentDecision(String(decision.reply || ""))
   } catch {
     return null
   }
@@ -1315,6 +1280,7 @@ async function processConversationTaskIntelligence(params: {
   }
 
   const llmDecision = await classifyTaskIntentWithGemini({
+    tenant: params.tenant,
     config: params.config,
     senderType,
     message,
@@ -3439,7 +3405,7 @@ export async function POST(req: NextRequest) {
 
     if (event.callbackType === "received" && !event.text && event.hasAudio) {
       try {
-        const transcription = await transcribeAudioForEvent({ event, config })
+        const transcription = await transcribeAudioForEvent({ tenant, event, config })
         if (transcription.text) {
           event.text = transcription.text
           event.audioTranscription = transcription.text
@@ -3461,7 +3427,7 @@ export async function POST(req: NextRequest) {
 
     if (event.callbackType === "received" && event.hasMedia && event.mediaType) {
       try {
-        const mediaInsight = await analyzeMediaForEvent({ event, config })
+        const mediaInsight = await analyzeMediaForEvent({ tenant, event, config })
         if (mediaInsight.text) {
           event.mediaAnalysis = mediaInsight.text
           event.metadata.mediaAnalysis = mediaInsight.text
