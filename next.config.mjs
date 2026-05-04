@@ -12,7 +12,6 @@ const nextConfig = {
   },
   experimental: {
     optimizePackageImports: [
-      'lucide-react',
       'recharts',
       'date-fns',
       '@radix-ui/react-dialog',

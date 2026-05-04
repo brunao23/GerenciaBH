@@ -1,411 +1,357 @@
 "use client"
 
 import Link from "next/link"
+import { useEffect, useState, useRef } from "react"
+import {
+  ArrowRight,
+  MessageCircle,
+  Brain,
+  CalendarCheck,
+  GitMerge,
+  BarChart3,
+  ShieldCheck,
+  Workflow,
+  Users,
+  Zap,
+  ChevronRight,
+  Radio,
+  Layers,
+  Target,
+} from "lucide-react"
 
-const heroMetrics = [
-  { label: "Tempo de resposta", value: "Atendimento em minutos", tone: "text-cyan-300" },
-  { label: "Capacidade de conversão", value: "Qualificação contínua", tone: "text-emerald-300" },
-  { label: "Canais ativos", value: "WhatsApp, Instagram Direct e comentários", tone: "text-violet-300" },
+/* ═══════════════════════════════════════════
+   GerencIA — Landing Page
+   Inspirada em Linear, Vercel e Stripe
+   ═══════════════════════════════════════════ */
+
+const capabilities = [
+  {
+    icon: <MessageCircle className="h-5 w-5 text-white/20 mb-5 transition-colors group-hover:text-emerald-400/70" strokeWidth={1.5} />,
+    title: "Atendimento multicanal",
+    description:
+      "WhatsApp e Instagram convergem em um único fluxo. Cada interação preserva contexto completo entre canais.",
+  },
+  {
+    icon: <Brain className="h-5 w-5 text-white/20 mb-5 transition-colors group-hover:text-emerald-400/70" strokeWidth={1.5} />,
+    title: "Qualificação autônoma",
+    description:
+      "O agente conduz a conversa com critérios comerciais reais. O lead avança somente quando atende requisitos de negócio.",
+  },
+  {
+    icon: <CalendarCheck className="h-5 w-5 text-white/20 mb-5 transition-colors group-hover:text-emerald-400/70" strokeWidth={1.5} />,
+    title: "Agenda com validação",
+    description:
+      "Agendamentos em horários reais, com confirmação automática. Slots ocupados nunca são oferecidos.",
+  },
+  {
+    icon: <GitMerge className="h-5 w-5 text-white/20 mb-5 transition-colors group-hover:text-emerald-400/70" strokeWidth={1.5} />,
+    title: "Handoff sem atrito",
+    description:
+      "Quando o consultor assume, recebe histórico completo, tags e resumo estruturado — pronto para fechar.",
+  },
+  {
+    icon: <Zap className="h-5 w-5 text-white/20 mb-5 transition-colors group-hover:text-emerald-400/70" strokeWidth={1.5} />,
+    title: "Follow-up por estágio",
+    description:
+      "Retomadas contextuais no momento exato. A mensagem respeita o ponto da jornada, sem repetição.",
+  },
+  {
+    icon: <ShieldCheck className="h-5 w-5 text-white/20 mb-5 transition-colors group-hover:text-emerald-400/70" strokeWidth={1.5} />,
+    title: "Isolamento por unidade",
+    description:
+      "Cada operação mantém credenciais, fluxos e dados isolados. Governança central com visão consolidada.",
+  },
 ]
 
-const outcomePillars = [
-  {
-    title: "Mais leads aproveitados",
-    description:
-      "Sua operação para de perder oportunidade por demora ou conversa desconexa e mantém o lead avançando.",
-  },
-  {
-    title: "Mais reuniões de qualidade",
-    description:
-      "A jornada de qualificação filtra melhor e entrega para o time comercial contatos com maior chance de fechamento.",
-  },
-  {
-    title: "Mais eficiência para escalar",
-    description:
-      "Você cresce sem inflar operação, com automação consistente e governança por unidade em um mesmo sistema.",
-  },
+const metrics = [
+  { value: "< 8s", label: "Tempo médio de resposta" },
+  { value: "3×", label: "Mais leads qualificados" },
+  { value: "24/7", label: "Operação contínua" },
 ]
 
-const strongArguments = [
+const workflow = [
   {
-    title: "Você responde rápido sem aumentar equipe",
-    description:
-      "A IA sustenta o primeiro atendimento e reduz gargalo em picos de demanda sem perder qualidade de conversa.",
-  },
-  {
-    title: "Você transforma Instagram em canal de venda",
-    description:
-      "Direct e comentários entram no fluxo comercial com contexto para acelerar resposta, qualificação e conversão.",
-  },
-  {
-    title: "Você reduz retrabalho e ruído operacional",
-    description:
-      "Agenda, CRM e conversa trabalham juntos. O time atua com clareza do próximo passo, sem apagar incêndio.",
-  },
-  {
-    title: "Você ganha previsibilidade comercial",
-    description:
-      "Follow up contextual e operação por etapa criam rotina de execução estável para gerar receita recorrente.",
-  },
-]
-
-const featureGrid = [
-  {
-    title: "Atendimento autônomo com contexto real",
-    description:
-      "Agentes de IA entendem o histórico completo da conversa e respondem com continuidade entre canais.",
-  },
-  {
-    title: "Instagram Direct e comentários no mesmo fluxo",
-    description:
-      "Interações do Instagram entram com contexto no CRM para o time atuar sem troca de ferramenta.",
-  },
-  {
-    title: "Qualificação comercial estruturada",
-    description:
-      "A conversa evolui por etapas de descoberta para elevar qualidade de lead antes da proposta.",
-  },
-  {
-    title: "Handoff humano sem perda de histórico",
-    description:
-      "Quando o consultor assume, todo o contexto já está organizado para acelerar fechamento.",
-  },
-  {
-    title: "Follow up inteligente por etapa",
-    description:
-      "Retomadas acontecem no momento certo, com mensagem coerente ao ponto exato da jornada.",
-  },
-  {
-    title: "Agenda integrada com validação prévia",
-    description:
-      "Horários ocupados não são oferecidos. O sistema prioriza disponibilidade real para evitar falhas.",
-  },
-  { title: "Gestão multi tenant com governança", description: "Cada operação mantém credenciais, fluxos e configurações isoladas com visão administrativa central." },
-]
-
-const workflowSteps = [
-  {
+    icon: <Radio className="h-4 w-4 text-emerald-400/60" strokeWidth={1.5} />,
     step: "01",
     title: "Captura",
-    description: "Leads chegam por WhatsApp e Instagram e entram no CRM com identificação de canal e contexto.",
+    description: "Leads entram pelo WhatsApp ou Instagram e são registrados no CRM com contexto de canal e intenção.",
   },
   {
+    icon: <Target className="h-4 w-4 text-emerald-400/60" strokeWidth={1.5} />,
     step: "02",
     title: "Qualificação",
-    description: "A IA conduz a conversa com critérios comerciais e prepara o avanço para agendamento ou proposta.",
+    description: "O agente conduz a conversa por etapas comerciais e prepara o avanço para agendamento ou proposta.",
   },
   {
+    icon: <BarChart3 className="h-4 w-4 text-emerald-400/60" strokeWidth={1.5} />,
     step: "03",
     title: "Conversão",
-    description: "Com agenda validada e histórico limpo, o time atua com velocidade e precisão para fechar.",
+    description: "Com agenda validada e histórico limpo, o time atua com velocidade e precisão para converter.",
   },
 ]
 
-const trustSignals = [
-  "WhatsApp",
-  "Instagram Direct",
-  "Instagram comentários",
-  "CRM integrado",
-  "Agenda inteligente",
-  "Follow up contextual",
-  "Operação por unidade",
-  "Governança central",
+const pillars = [
+  {
+    icon: <Layers className="h-5 w-5 text-white/15" strokeWidth={1.5} />,
+    title: "Velocidade sem equipe adicional",
+    description:
+      "O primeiro atendimento é sustentado pelo agente. Picos de demanda não geram gargalo nem queda de qualidade.",
+  },
+  {
+    icon: <Workflow className="h-5 w-5 text-white/15" strokeWidth={1.5} />,
+    title: "Instagram como canal comercial",
+    description:
+      "Direct e comentários entram no fluxo com contexto. O time responde, qualifica e converte sem trocar de ferramenta.",
+  },
+  {
+    icon: <Users className="h-5 w-5 text-white/15" strokeWidth={1.5} />,
+    title: "Operação sem retrabalho",
+    description:
+      "Agenda, CRM e conversa trabalham juntos. O time sabe o próximo passo com clareza — sem ruído operacional.",
+  },
+  {
+    icon: <BarChart3 className="h-5 w-5 text-white/15" strokeWidth={1.5} />,
+    title: "Previsibilidade comercial",
+    description:
+      "Follow-up contextual e pipeline por etapa criam rotina de execução estável para gerar receita recorrente.",
+  },
 ]
 
+/* ════════════════ COMPONENT ════════════════ */
+
 export default function HomePage() {
+  const [scrolled, setScrolled] = useState(false)
+  const heroRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handler = () => setScrolled(window.scrollY > 32)
+    window.addEventListener("scroll", handler, { passive: true })
+    return () => window.removeEventListener("scroll", handler)
+  }, [])
+
   return (
-    <div className="relative min-h-[100svh] overflow-x-hidden bg-background text-pure-white">
-      <div className="pointer-events-none fixed inset-0">
-        <div className="absolute -top-32 right-[-8%] h-[420px] w-[420px] rounded-full bg-[radial-gradient(circle,_rgba(16,185,129,0.26),_transparent_68%)] blur-3xl animate-float-slow" />
-        <div className="absolute bottom-[-18%] left-[-12%] h-[460px] w-[460px] rounded-full bg-[radial-gradient(circle,_rgba(59,130,246,0.18),_transparent_68%)] blur-3xl animate-float" />
-        <div className="absolute inset-0 bg-[linear-gradient(to_bottom,_rgba(255,255,255,0.04)_1px,_transparent_1px),linear-gradient(to_right,_rgba(255,255,255,0.04)_1px,_transparent_1px)] bg-[size:88px_88px] opacity-25" />
+    <div className="dark relative min-h-[100svh] overflow-x-hidden bg-neutral-950 text-white/90 selection:bg-emerald-500/30 selection:text-white">
+      {/* ── Ambient ── */}
+      <div className="pointer-events-none fixed inset-0 z-0">
+        <div className="absolute -top-48 right-[-14%] h-[700px] w-[700px] rounded-full bg-[radial-gradient(circle,rgba(16,185,129,0.08),transparent_60%)] blur-[120px]" />
+        <div className="absolute top-[60%] left-[-12%] h-[500px] w-[500px] rounded-full bg-[radial-gradient(circle,rgba(59,130,246,0.05),transparent_60%)] blur-[120px]" />
+        <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.018)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.018)_1px,transparent_1px)] bg-[size:64px_64px]" />
       </div>
 
-      <header className="relative z-10 mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-8">
-        <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-accent-green to-dark-green text-primary-black font-bold shadow-lg shadow-emerald-500/25">
-            G
-          </div>
-          <div>
-            <div className="text-lg font-semibold tracking-tight">GerencIA</div>
-            <div className="text-[11px] uppercase tracking-[0.35em] text-text-gray">Genial Labs AI</div>
-          </div>
-        </div>
+      {/* ── Header ── */}
+      <header
+        className={`fixed inset-x-0 top-0 z-50 transition-all duration-500 ${
+          scrolled
+            ? "bg-neutral-950/85 backdrop-blur-2xl border-b border-white/[0.04]"
+            : "bg-transparent"
+        }`}
+      >
+        <div className="mx-auto flex w-full max-w-[1200px] items-center justify-between px-5 py-4 sm:px-8">
+          <Link href="/" className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500 font-semibold text-white text-sm">
+              G
+            </div>
+            <span className="text-[15px] font-semibold tracking-tight text-white/90">GerencIA</span>
+          </Link>
 
-        <div className="flex items-center gap-3">
-          <Link
-            href="/login"
-            className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-text-gray transition hover:border-white/30 hover:text-pure-white"
-          >
-            Entrar
-          </Link>
-          <Link
-            href="/admin/login"
-            className="rounded-full bg-gradient-to-r from-accent-green to-dark-green px-4 py-2 text-xs font-semibold text-primary-black shadow-lg shadow-emerald-500/25 transition hover:scale-[1.02]"
-          >
-            Painel administrativo
-          </Link>
+          <nav className="flex items-center gap-2">
+            <Link
+              href="/login"
+              className="rounded-lg px-4 py-2 text-[13px] font-medium text-white/50 transition hover:text-white/80"
+            >
+              Entrar
+            </Link>
+            <Link
+              href="/admin/login"
+              className="hidden sm:inline-flex rounded-lg bg-white/[0.07] border border-white/[0.06] px-4 py-2 text-[13px] font-medium text-white/70 transition hover:bg-white/[0.10] hover:text-white/90"
+            >
+              Admin
+            </Link>
+          </nav>
         </div>
       </header>
 
-      <main className="relative z-10 mx-auto flex w-full max-w-7xl flex-col gap-14 px-6 pb-16 pt-4">
-        <section className="grid gap-10 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
-          <div className="space-y-7">
-            <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-4 py-1 text-[11px] uppercase tracking-[0.28em] text-accent-green">
-              Plataforma premium de atendimento e conversão
-            </span>
-
-            <div className="space-y-4">
-              <h1 className="max-w-3xl font-display text-4xl font-semibold leading-[1.02] text-pure-white md:text-5xl xl:text-6xl">
-                Transforme WhatsApp e Instagram em uma máquina de aquisição, qualificação e conversão.
-              </h1>
-              <p className="max-w-2xl text-base leading-7 text-text-gray md:text-lg">
-                GerencIA foi construída para operação comercial real. A plataforma responde rápido, mantém contexto, agenda com precisão e entrega controle total da jornada até a venda.
-              </p>
+      {/* ── Hero ── */}
+      <main className="relative z-10">
+        <section ref={heroRef} className="mx-auto w-full max-w-[1200px] px-5 pt-32 pb-24 sm:px-8 sm:pt-40 sm:pb-32">
+          <div className="max-w-[680px] space-y-7 animate-[fadeUp_0.9s_ease_both]">
+            <div className="flex items-center gap-2 text-[12px] font-medium text-white/35 uppercase tracking-[0.2em]">
+              <span className="h-1 w-1 rounded-full bg-emerald-500" />
+              Infraestrutura comercial com IA
             </div>
 
-            <div className="flex flex-wrap gap-3">
+            <h1 className="text-[2.25rem] sm:text-[3rem] md:text-[3.5rem] font-semibold leading-[1.06] tracking-[-0.025em] text-white">
+              Operação comercial que escala sem escalar equipe.
+            </h1>
+
+            <p className="max-w-[520px] text-[16px] sm:text-[17px] leading-[1.7] text-white/40 font-normal">
+              GerencIA unifica WhatsApp, Instagram, CRM e agenda em uma plataforma que atende, qualifica e agenda de forma autônoma — para que o time foque em fechar.
+            </p>
+
+            <div className="flex flex-wrap items-center gap-3 pt-1">
               <Link
                 href="/login"
-                className="rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-black shadow-lg shadow-white/20 transition hover:scale-[1.02]"
+                className="group inline-flex items-center gap-2 rounded-lg bg-white px-5 py-2.5 text-[13px] font-semibold text-neutral-950 transition hover:bg-white/90"
               >
-                Acessar painel
+                Acessar plataforma
+                <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
               </Link>
               <Link
                 href="/admin/login"
-                className="rounded-full border border-white/15 px-5 py-2.5 text-sm font-semibold text-pure-white transition hover:border-white/35"
+                className="inline-flex items-center gap-1.5 rounded-lg px-5 py-2.5 text-[13px] font-medium text-white/40 transition hover:text-white/70"
               >
-                Gerenciar unidades
+                Painel administrativo
+                <ChevronRight className="h-3.5 w-3.5" />
               </Link>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              {trustSignals.map((signal) => (
-                <span
-                  key={signal}
-                  className="rounded-full border border-white/10 bg-black/[0.20] px-3 py-1.5 text-xs font-medium text-text-gray"
-                >
-                  {signal}
-                </span>
-              ))}
             </div>
           </div>
 
-          <div className="relative">
-            <div className="genial-surface rounded-[28px] p-4 shadow-2xl shadow-black/35">
-              <div className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr]">
-                <div className="rounded-[24px] border border-white/10 bg-black/[0.35] p-5">
-                  <div className="text-[11px] uppercase tracking-[0.28em] text-text-gray">Promessa de valor</div>
-                  <div className="mt-3 text-3xl font-semibold text-pure-white">Mais conversão com menos ruído operacional.</div>
-                  <p className="mt-3 text-sm leading-6 text-text-gray">
-                    A plataforma elimina atrasos de resposta, organiza contexto de ponta a ponta e mantém o time focado no que gera receita.
-                  </p>
+          {/* Metrics bar */}
+          <div className="mt-16 sm:mt-20 flex flex-wrap gap-10 sm:gap-16 border-t border-white/[0.04] pt-8 animate-[fadeUp_0.9s_ease_0.2s_both]">
+            {metrics.map((m) => (
+              <div key={m.label}>
+                <div className="text-2xl sm:text-3xl font-semibold tracking-tight text-white">{m.value}</div>
+                <div className="mt-1 text-[13px] text-white/30 font-medium">{m.label}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* ── Capabilities ── */}
+        <section className="mx-auto w-full max-w-[1200px] px-5 py-20 sm:px-8 sm:py-28">
+          <div className="max-w-[480px] mb-14 sm:mb-18">
+            <h2 className="text-[13px] font-medium text-emerald-400/80 uppercase tracking-[0.15em] mb-4">
+              Plataforma
+            </h2>
+            <p className="text-[1.5rem] sm:text-[1.875rem] font-semibold leading-[1.2] tracking-tight text-white">
+              Cada componente resolve um gargalo real da operação comercial.
+            </p>
+          </div>
+
+          <div className="grid gap-px bg-white/[0.03] rounded-xl overflow-hidden border border-white/[0.04] sm:grid-cols-2 xl:grid-cols-3">
+            {capabilities.map((item, i) => (
+              <article
+                key={item.title}
+                className="group bg-neutral-950 p-7 sm:p-8 transition-colors hover:bg-white/[0.015] animate-[fadeUp_0.6s_ease_both]"
+                style={{ animationDelay: `${0.05 + i * 0.06}s` }}
+              >
+                {item.icon}
+                <h3 className="text-[15px] font-semibold text-white/85 mb-2">{item.title}</h3>
+                <p className="text-[13px] leading-[1.7] text-white/35">{item.description}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        {/* ── Why Section ── */}
+        <section className="mx-auto w-full max-w-[1200px] px-5 py-20 sm:px-8 sm:py-28">
+          <div className="grid gap-12 lg:grid-cols-[1fr_1fr] lg:gap-20">
+            <div className="max-w-[440px]">
+              <h2 className="text-[13px] font-medium text-emerald-400/80 uppercase tracking-[0.15em] mb-4">
+                Por que GerencIA
+              </h2>
+              <p className="text-[1.5rem] sm:text-[1.875rem] font-semibold leading-[1.2] tracking-tight text-white mb-5">
+                Argumentos de negócio para quem precisa converter com consistência.
+              </p>
+              <p className="text-[14px] leading-[1.7] text-white/35">
+                A plataforma organiza execução comercial para acelerar resposta, elevar qualidade de lead e aumentar taxa de fechamento — sem inflar operação.
+              </p>
+            </div>
+
+            <div className="grid gap-6 sm:grid-cols-2">
+              {pillars.map((item, i) => (
+                <div
+                  key={item.title}
+                  className="space-y-3 animate-[fadeUp_0.6s_ease_both]"
+                  style={{ animationDelay: `${0.1 + i * 0.07}s` }}
+                >
+                  {item.icon}
+                  <h3 className="text-[14px] font-semibold text-white/80">{item.title}</h3>
+                  <p className="text-[13px] leading-[1.7] text-white/30">{item.description}</p>
                 </div>
+              ))}
+            </div>
+          </div>
+        </section>
 
-                <div className="rounded-[24px] border border-white/10 bg-white/[0.06] p-5 backdrop-blur">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="text-[11px] uppercase tracking-[0.28em] text-text-gray">Painel em tempo real</div>
-                      <div className="mt-2 text-xl font-semibold text-pure-white">Atendimento, CRM e agenda sincronizados</div>
-                    </div>
-                    <div className="rounded-full border border-emerald-400/30 bg-emerald-500/[0.12] px-3 py-1 text-xs font-semibold text-accent-green">
-                      Ativo
-                    </div>
-                  </div>
+        {/* ── Workflow ── */}
+        <section className="mx-auto w-full max-w-[1200px] px-5 py-20 sm:px-8 sm:py-28">
+          <div className="max-w-[480px] mb-14">
+            <h2 className="text-[13px] font-medium text-emerald-400/80 uppercase tracking-[0.15em] mb-4">
+              Fluxo
+            </h2>
+            <p className="text-[1.5rem] sm:text-[1.875rem] font-semibold leading-[1.2] tracking-tight text-white">
+              Da entrada do lead ao agendamento — três etapas, zero ruído.
+            </p>
+          </div>
 
-                  <div className="mt-5 grid gap-3">
-                    {heroMetrics.map((metric, index) => (
-                      <div
-                        key={metric.label}
-                        className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/[0.25] px-4 py-3 animate-fade-up"
-                        style={{ animationDelay: `${index * 0.08}s` }}
-                      >
-                        <span className="text-sm text-text-gray">{metric.label}</span>
-                        <span className={`text-sm font-semibold ${metric.tone}`}>{metric.value}</span>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="mt-5 rounded-2xl border border-white/10 bg-black/[0.35] p-4">
-                    <div className="text-xs uppercase tracking-[0.24em] text-text-gray">Prioridades da operação</div>
-                    <div className="mt-3 grid gap-3 sm:grid-cols-3">
-                      <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
-                        <div className="text-xs text-text-gray">Fila comercial</div>
-                        <div className="mt-2 text-lg font-semibold text-pure-white">Leads por estágio</div>
-                      </div>
-                      <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
-                        <div className="text-xs text-text-gray">Ações sensíveis</div>
-                        <div className="mt-2 text-lg font-semibold text-pure-white">Handoff e retomada</div>
-                      </div>
-                      <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
-                        <div className="text-xs text-text-gray">Agenda</div>
-                        <div className="mt-2 text-lg font-semibold text-pure-white">Horários validados</div>
-                      </div>
-                    </div>
-                  </div>
+          <div className="grid gap-4 sm:grid-cols-3">
+            {workflow.map((step, i) => (
+              <div
+                key={step.step}
+                className="rounded-xl border border-white/[0.04] bg-white/[0.015] p-7 transition-colors hover:bg-white/[0.025] animate-[fadeUp_0.6s_ease_both]"
+                style={{ animationDelay: `${0.1 + i * 0.08}s` }}
+              >
+                <div className="flex items-center gap-3 mb-5">
+                  {step.icon}
+                  <span className="text-[12px] font-medium text-white/25 tracking-wider">{step.step}</span>
                 </div>
+                <h3 className="text-[17px] font-semibold text-white/85 mb-3">{step.title}</h3>
+                <p className="text-[13px] leading-[1.7] text-white/35">{step.description}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* ── CTA ── */}
+        <section className="mx-auto w-full max-w-[1200px] px-5 pb-24 sm:px-8 sm:pb-32">
+          <div className="rounded-xl border border-white/[0.04] bg-white/[0.015] p-8 sm:p-12 md:p-16">
+            <div className="grid gap-8 lg:grid-cols-[1fr_auto] lg:items-center">
+              <div className="max-w-[480px]">
+                <p className="text-[1.5rem] sm:text-[1.75rem] font-semibold leading-[1.25] tracking-tight text-white mb-4">
+                  Comece a converter com mais velocidade e menos retrabalho.
+                </p>
+                <p className="text-[14px] leading-[1.7] text-white/35">
+                  Acesse sua unidade e ative a operação. Configuração em minutos, resultados desde o primeiro dia.
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <Link
+                  href="/login"
+                  className="group inline-flex items-center justify-center gap-2 rounded-lg bg-white px-6 py-3 text-[13px] font-semibold text-neutral-950 transition hover:bg-white/90"
+                >
+                  Acessar plataforma
+                  <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+                </Link>
+                <Link
+                  href="/admin/login"
+                  className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-white/[0.06] px-6 py-3 text-[13px] font-medium text-white/50 transition hover:text-white/80 hover:border-white/[0.10]"
+                >
+                  Painel administrativo
+                </Link>
               </div>
             </div>
           </div>
         </section>
 
-        <section className="grid gap-6 lg:grid-cols-3">
-          {outcomePillars.map((item, index) => (
-            <article
-              key={item.title}
-              className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur animate-fade-up"
-              style={{ animationDelay: `${0.14 + index * 0.08}s` }}
-            >
-              <div className="text-[11px] uppercase tracking-[0.24em] text-accent-green">Resultado</div>
-              <h2 className="mt-3 text-xl font-semibold text-pure-white">{item.title}</h2>
-              <p className="mt-3 text-sm leading-6 text-text-gray">{item.description}</p>
-            </article>
-          ))}
-        </section>
-
-        <section className="rounded-[32px] border border-white/10 bg-black/[0.30] p-8 backdrop-blur">
-          <div className="space-y-6">
-            <div className="space-y-3">
-              <div className="text-[11px] uppercase tracking-[0.28em] text-accent-green">Por que escolher GerencIA</div>
-              <h2 className="text-3xl font-semibold text-pure-white">Argumentos de negócio para quem precisa vender mais com consistência.</h2>
-              <p className="max-w-3xl text-sm leading-6 text-text-gray">
-                A plataforma não é só atendimento automatizado. Ela organiza execução comercial para acelerar resposta, elevar qualidade de lead e aumentar taxa de fechamento.
-              </p>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              {strongArguments.map((item, index) => (
-                <article
-                  key={item.title}
-                  className="rounded-2xl border border-white/10 bg-white/5 p-5 animate-fade-up"
-                  style={{ animationDelay: `${0.18 + index * 0.06}s` }}
-                >
-                  <h3 className="text-lg font-semibold text-pure-white">{item.title}</h3>
-                  <p className="mt-3 text-sm leading-6 text-text-gray">{item.description}</p>
-                </article>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section className="rounded-[32px] border border-white/10 bg-black/[0.30] p-8 backdrop-blur">
-          <div className="space-y-6">
-            <div className="space-y-3">
-              <div className="text-[11px] uppercase tracking-[0.28em] text-accent-green">Recursos que sustentam crescimento</div>
-              <h2 className="text-3xl font-semibold text-pure-white">Tecnologia aplicada para vender mais com consistência.</h2>
-              <p className="max-w-3xl text-sm leading-6 text-text-gray">
-                O sistema opera como uma camada comercial inteligente. Ele organiza contexto, acelera atendimento e mantém padrão de execução entre IA e equipe.
-              </p>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {featureGrid.map((item, index) => (
-                <article
-                  key={item.title}
-                  className="rounded-2xl border border-white/10 bg-white/5 p-5 animate-fade-up"
-                  style={{ animationDelay: `${0.22 + index * 0.05}s` }}
-                >
-                  <h3 className="text-lg font-semibold text-pure-white">{item.title}</h3>
-                  <p className="mt-3 text-sm leading-6 text-text-gray">{item.description}</p>
-                </article>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section className="rounded-[32px] border border-white/10 bg-black/[0.30] p-8 backdrop-blur">
-          <div className="grid gap-8 lg:grid-cols-[0.9fr_1.1fr] lg:items-start">
-            <div className="space-y-4">
-              <div className="text-[11px] uppercase tracking-[0.28em] text-accent-green">Como funciona</div>
-              <h2 className="text-3xl font-semibold text-pure-white">Da entrada do lead ao agendamento, sem ruído operacional.</h2>
-              <p className="max-w-xl text-sm leading-6 text-text-gray">
-                O fluxo foi desenhado para aumentar conversão sem aumentar complexidade. Cada etapa prepara a próxima com contexto limpo e ação clara.
-              </p>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-3">
-              {workflowSteps.map((step) => (
-                <div key={step.step} className="rounded-3xl border border-white/10 bg-white/5 p-5">
-                  <div className="text-sm font-semibold text-accent-green">{step.step}</div>
-                  <div className="mt-4 text-lg font-semibold text-pure-white">{step.title}</div>
-                  <p className="mt-3 text-sm leading-6 text-text-gray">{step.description}</p>
+        {/* ── Footer ── */}
+        <footer className="border-t border-white/[0.04]">
+          <div className="mx-auto max-w-[1200px] px-5 py-8 sm:px-8">
+            <div className="flex flex-col items-center gap-4 sm:flex-row sm:justify-between">
+              <div className="flex items-center gap-2">
+                <div className="flex h-6 w-6 items-center justify-center rounded-md bg-emerald-500 font-semibold text-white text-[10px]">
+                  G
                 </div>
-              ))}
+                <span className="text-[13px] text-white/25">GerencIA by Genial Labs AI</span>
+              </div>
+              <span className="text-[12px] text-white/15">
+                © {new Date().getFullYear()} Genial Labs AI. Todos os direitos reservados.
+              </span>
             </div>
           </div>
-        </section>
-
-        <section className="rounded-[32px] border border-white/10 bg-gradient-to-r from-black via-black/80 to-black p-8 shadow-2xl shadow-black/30">
-          <div className="grid gap-6 lg:grid-cols-[1fr_auto] lg:items-center">
-            <div className="space-y-3">
-              <div className="text-[11px] uppercase tracking-[0.28em] text-accent-green">Comece agora</div>
-              <h2 className="text-2xl font-semibold text-pure-white">Transforme atendimento em uma operação comercial de alta performance.</h2>
-              <p className="max-w-2xl text-sm leading-6 text-text-gray">
-                Acesse sua unidade e ative uma estrutura premium para qualificar, agendar e converter com mais segurança.
-              </p>
-            </div>
-
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <Link
-                href="/login"
-                className="rounded-full bg-gradient-to-r from-accent-green to-dark-green px-5 py-2.5 text-center text-sm font-semibold text-primary-black shadow-lg shadow-emerald-500/25"
-              >
-                Entrar no painel
-              </Link>
-              <Link
-                href="/admin/login"
-                className="rounded-full border border-white/15 px-5 py-2.5 text-center text-sm font-semibold text-pure-white transition hover:border-white/35"
-              >
-                Área administrativa
-              </Link>
-            </div>
-          </div>
-        </section>
+        </footer>
       </main>
-
-      <style jsx>{`
-        @keyframes float {
-          0% {
-            transform: translateY(0px);
-          }
-          50% {
-            transform: translateY(-18px);
-          }
-          100% {
-            transform: translateY(0px);
-          }
-        }
-        @keyframes floatSlow {
-          0% {
-            transform: translateY(0px) translateX(0px);
-          }
-          50% {
-            transform: translateY(16px) translateX(12px);
-          }
-          100% {
-            transform: translateY(0px) translateX(0px);
-          }
-        }
-        @keyframes fadeUp {
-          from {
-            opacity: 0;
-            transform: translateY(16px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0px);
-          }
-        }
-        .animate-fade-up {
-          animation: fadeUp 0.7s ease both;
-        }
-        .animate-float {
-          animation: float 9s ease-in-out infinite;
-        }
-        .animate-float-slow {
-          animation: floatSlow 12s ease-in-out infinite;
-        }
-      `}</style>
     </div>
   )
 }

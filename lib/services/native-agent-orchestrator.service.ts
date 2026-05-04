@@ -1143,6 +1143,9 @@ function stripRoboticOpeners(text: string): string {
   let normalized = String(text || "").trim()
   if (!normalized) return ""
 
+  // Preserve natural phrasing like "Que bom que voce esta aqui..."
+  if (/^que bom\s+que\b/i.test(normalized)) return normalized
+
   const openerPattern =
     /^(?:claro|perfeito|otimo|ótimo|com certeza|entendido|entendi|absolutamente|sem problema(?:s)?|fique tranquilo(?:a)?|fico feliz em ajudar|excelente escolha|que bom)[!,.:\-\s]+/i
   let guard = 0
