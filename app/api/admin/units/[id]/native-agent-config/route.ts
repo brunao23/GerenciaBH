@@ -1279,3 +1279,12 @@ export async function PATCH(req: NextRequest, context: { params: RouteParams }) 
     return NextResponse.json({ error: error?.message || "Failed" }, { status: 500 })
   }
 }
+
+// Backward compatibility: older admin clients may send POST/PUT instead of PATCH.
+export async function POST(req: NextRequest, context: { params: RouteParams }) {
+  return PATCH(req, context)
+}
+
+export async function PUT(req: NextRequest, context: { params: RouteParams }) {
+  return PATCH(req, context)
+}

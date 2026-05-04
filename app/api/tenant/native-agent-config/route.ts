@@ -1188,3 +1188,12 @@ export async function POST(req: Request) {
     )
   }
 }
+
+// Backward compatibility: some clients still use PUT/PATCH for this endpoint.
+export async function PUT(req: Request) {
+  return POST(req)
+}
+
+export async function PATCH(req: Request) {
+  return POST(req)
+}

@@ -772,10 +772,7 @@ function normalizeConfig(input: any): NativeAgentConfig {
     remindersEnabled: readBoolean(raw.remindersEnabled, true),
     schedulingEnabled: readBoolean(raw.schedulingEnabled, true),
     blockGroupMessages: readBoolean(raw.blockGroupMessages, DEFAULT_BLOCK_GROUP_MESSAGES),
-    autoPauseOnHumanIntervention: readBoolean(
-      raw.autoPauseOnHumanIntervention,
-      DEFAULT_AUTO_PAUSE_ON_HUMAN,
-    ),
+    autoPauseOnHumanIntervention: false, // FORCADO OFF: pausa automatica por mensagem do lead desativada globalmente.
     conversationTone: readTone(raw.conversationTone, DEFAULT_CONVERSATION_TONE),
     humanizationLevelPercent: readNumber(
       raw.humanizationLevelPercent,
@@ -1675,14 +1672,20 @@ export async function updateNativeAgentConfigForTenant(
     },
   }
 
-  const { error: updateError } = await supabase
+  const { data: persistedRow, error: updateError } = await supabase
     .from("units_registry")
     .update({ metadata: nextMetadata })
     .eq("id", data.id)
+    .select("id")
+    .maybeSingle()
 
   if (updateError) {
     console.error("[NativeAgentConfig] Error updating metadata:", updateError)
     throw updateError
+  }
+
+  if (!persistedRow?.id) {
+    throw new Error("native_agent_config_update_not_persisted")
   }
 
   // Invalidate all potential tenant aliases to prevent stale reads right after saving.

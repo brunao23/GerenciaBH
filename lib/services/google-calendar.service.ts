@@ -257,7 +257,7 @@ export class GoogleCalendarService {
     timeMax: string
     timezone?: string
     maxResults?: number
-  }): Promise<Array<{ id: string; summary?: string; start: string; end: string }>> {
+  }): Promise<Array<{ id: string; summary?: string; start: string; end: string; transparency?: string }>> {
     const accessToken = await fetchAccessToken(this.config)
     const tz = params.timezone || "America/Sao_Paulo"
     const searchParams = new URLSearchParams({
@@ -294,6 +294,7 @@ export class GoogleCalendarService {
         summary: item.summary || undefined,
         start: String(item.start?.dateTime || item.start?.date || ""),
         end: String(item.end?.dateTime || item.end?.date || ""),
+        transparency: String(item.transparency || "").trim() || undefined,
       }))
   }
 

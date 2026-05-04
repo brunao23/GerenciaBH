@@ -1,4 +1,4 @@
-import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
+﻿import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { SemanticCacheService, type CacheHitResult } from "@/lib/services/semantic-cache.service"
 import { getTablesForTenant } from "@/lib/helpers/tenant"
 import { getTableColumns } from "@/lib/helpers/supabase-table-columns"
@@ -2201,8 +2201,12 @@ function coerceSchedulingDateToCurrentContext(params: {
 
   // Ano no passado: rebase para o ano atual. Se ainda cair no passado
   // (ex.: dia/mes ja passou), usa o proximo ano para nunca agendar retroativo.
-  const rebasedCurrentYear: LocalDateTimeParts = { ...parsed, year: nowLocal.year }
-  if (toComparableMs(rebasedCurrentYear) >= toComparableMs(nowLocal)) {
+  // IMPORTANTE: comparar apenas pela data (sem hora) — sem isso, datas de "hoje"
+  // enviadas com hora 00:00 (ex: date_from) seriam tratadas como passado e
+  // rebased para o próximo ano (bug: 2026 → 2027).
+  const todayDateOnly: LocalDateTimeParts = { ...nowLocal, hour: 0, minute: 0, second: 0 }
+  const rebasedCurrentYear: LocalDateTimeParts = { ...parsed, year: nowLocal.year, hour: 0, minute: 0, second: 0 }
+  if (toComparableMs(rebasedCurrentYear) >= toComparableMs(todayDateOnly)) {
     return formatDateFromParts(rebasedCurrentYear)
   }
 
@@ -3228,8 +3232,63 @@ export class NativeAgentOrchestratorService {
 
     cacheEmbedding = embeddingResult
 
+    // Tenta extrair o nome real do lead a partir do histórico de conversa.
+    // Útil quando o WhatsApp está salvo como "Vendas", "Comercial", etc.
+    // e o lead se identificou durante a conversa (ex: "me chamo Suelem", "sou a Luiza").
+    const resolvedContactName = (() => {
+      const rawName = String(input.contactName || "").trim()
+      const rawNorm = rawName.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+      const rawFirst = rawNorm.split(/\s+/)[0] || ""
+      const genericNames = new Set([
+        "vendas", "compras", "comercial", "financeiro", "recepcao", "atendimento",
+        "helpdesk", "sac", "caixa", "estoque", "logistica", "producao", "operacoes",
+        "operacional", "marketing", "rh", "juridico", "ti", "loja", "filial", "sede",
+        "matriz", "empresa", "numero", "contatos", "celular", "whatsapp", "zap",
+        "gerente", "diretor", "diretora", "supervisor", "supervisora", "coordenador",
+        "coordenadora", "colaborador", "colaboradora", "contato", "usuario", "lead",
+        "cliente", "assistente", "agente", "atendente", "suporte", "admin",
+        "vendedor", "vendedora", "dono", "dona", "secretario", "secretaria",
+        "ceo", "cto", "cfo", "coo",
+      ])
+      const looksGeneric =
+        !rawFirst ||
+        rawFirst.length <= 2 ||
+        genericNames.has(rawFirst) ||
+        /\p{Emoji_Presentation}|\p{Extended_Pictographic}/u.test(rawName)
+
+      if (!looksGeneric) return rawName
+
+      // Procura no histórico frases onde o lead informou o nome real
+      const nameIntroPatterns = [
+        /\b(?:me chamo|meu nome [eé]|sou (?:o|a|o\/a)?|pode(?:m)? me chamar de|me chamam de|chama(?:-me)? de|chamo[-\s]me de)\s+([A-ZÀ-Ÿa-zà-ÿ]{3,20})/i,
+        /^([A-ZÀ-Ÿ][a-zà-ÿ]{2,19})(?:[\s,.!?]|$)/m,
+      ]
+      for (const row of conversationRows) {
+        if (row.role !== "user") continue
+        const text = String(row.content || "").trim()
+        if (text.length > 100 || text.length < 3) continue
+        for (const pattern of nameIntroPatterns) {
+          const match = text.match(pattern)
+          if (match) {
+            const candidate = (match[1] || match[0]).trim()
+            if (
+              /^[A-ZÀ-Ÿ]/.test(candidate) &&
+              candidate.length >= 3 &&
+              candidate.length <= 25 &&
+              /[aeiouyAEIOUYáéíóúÁÉÍÓÚâêîôûÂÊÎÔÛãõÃÕàÀ]/i.test(candidate) &&
+              !/\d/.test(candidate) &&
+              !genericNames.has(candidate.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase())
+            ) {
+              return candidate
+            }
+          }
+        }
+      }
+      return rawName
+    })()
+
     const basePrompt = this.buildSystemPrompt(config, {
-      contactName: input.contactName,
+      contactName: resolvedContactName,
       phone,
       sessionId,
       messageId: input.messageId,
@@ -4661,8 +4720,10 @@ export class NativeAgentOrchestratorService {
         /(?:inha|inho|zinha|zinho|ete|eta)$/.test(firstWord)
       if (isLikelyNickname) return true
 
-      // Rejeita cargos, tÃ­tulos e profissÃµes frequentemente usados como nome no WhatsApp
+      // Rejeita cargos, títulos, profissões e nomes de setores usados como nome no WhatsApp
+      // Inclui departamentos comerciais comuns (ex: número salvo como "Vendas", "Comercial")
       const cargosTitulosBloqueados = new Set([
+        // Cargos e títulos
         "lider", "chefe", "dono", "dona", "socio", "socia", "presidente", "vice",
         "supervisor", "supervisora", "responsavel", "gestor", "gestora",
         "secretario", "secretaria", "coordenador", "coordenadora", "subgerente",
@@ -4675,6 +4736,13 @@ export class NativeAgentOrchestratorService {
         "funcionaria", "contador", "contadora", "motorista", "cozinheiro", "cozinheira",
         "colaborador", "colaboradora", "contato", "usuario", "lead", "cliente",
         "assistente", "agente", "atendente", "suporte", "admin", "amigo",
+        // Setores e departamentos de empresas (números comerciais salvos assim no WhatsApp)
+        "vendas", "compras", "comercial", "financeiro", "recepcao", "recepcoes",
+        "atendimento", "helpdesk", "sac", "caixa", "estoque", "logistica",
+        "producao", "operacoes", "operacional", "marketing", "rh", "juridico",
+        "ti", "ceo", "cto", "cfo", "coo", "expedicao", "almoxarifado",
+        "comprador", "compradora", "loja", "filial", "sede", "matriz", "empresa",
+        "numero", "contatos", "celular", "whatsapp", "zap",
       ])
       if (cargosTitulosBloqueados.has(firstWord)) return true
 
@@ -4995,6 +5063,10 @@ export class NativeAgentOrchestratorService {
       "- LEI DO MESMO HORARIO: quando 'allowOverlappingAppointments' estiver desativado, horario ocupado e BLOQUEADO. Se houver conflito ('time_slot_unavailable' ou 'google_calendar_conflict'), nunca insistir no mesmo horario; oferecer proximos horarios livres.",
       "- Quando fizer sentido retomar depois, acione create_followup ou create_reminder.",
       "- Se precisar transferir para humano (SOMENTE para casos que NAO envolvam agendamento), acione handoff_human.",
+      // Regra de email de sistema (prioridade maxima — sobrescreve qualquer instrucao do promptBase)
+      config.collectEmailForScheduling
+        ? "- [LEI DO SISTEMA - EMAIL]: email e opcional. Se o lead informar email, envie em customer_email. Se nao informar, agende normalmente — o sistema gera email interno automatico. NUNCA bloqueie o agendamento por falta de email."
+        : "- [LEI DO SISTEMA - EMAIL - INVIOLAVEL — PREVALECE SOBRE QUALQUER PROMPT BASE]: Esta unidade NAO coleta email em nenhuma situacao. PROIBIDO ABSOLUTO: nunca peca, mencione, sugira nem aguarde email do lead. Se o lead oferecer email espontaneamente, ignore e continue. Agende normalmente sem email — o sistema gera email interno. NAO mencione email ao lead em hipotese alguma.",
       "",
       "REGRA SOBRE DURACAO E INFORMACOES FALTANTES:",
       "- [TEMPO DE DURACAO] Respeite a duracao do diagnostico/sessao/encontro que estiver configurada no seu prompt base. Se nao houver nenhuma duracao especificada no prompt base, considere o padrao de 30 a 40 minutos. Se o lead perguntar quanto tempo dura, responda SEMPRE essa informacao com clareza.",

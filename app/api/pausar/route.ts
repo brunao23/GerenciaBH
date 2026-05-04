@@ -38,7 +38,34 @@ function getPhoneVariants(numero: string): string[] {
 /**
  * Valida número de telefone
  */
+function looksLikeSessionIdentifier(rawValue: string): boolean {
+  const raw = String(rawValue || "").trim().toLowerCase()
+  if (!raw) return false
+
+  if (
+    raw.startsWith("ig_") ||
+    raw.startsWith("igcomment_") ||
+    raw.startsWith("ig_comment_") ||
+    raw.startsWith("group_") ||
+    raw.startsWith("session_")
+  ) {
+    return true
+  }
+
+  if (raw.includes("@g.us")) return true
+  if (raw.includes("@") && !/@(s\.whatsapp\.net|c\.us)$/i.test(raw)) return true
+
+  const prefix = raw.split("@")[0] || ""
+  if (/[a-z]/i.test(prefix)) return true
+
+  return false
+}
+
 function validatePhoneNumber(numero: string): { valid: boolean; error?: string } {
+  if (looksLikeSessionIdentifier(numero)) {
+    return { valid: false, error: "Informe o numero do lead. session_id nao e aceito para pausa." }
+  }
+
   const normalized = normalizePhoneNumber(numero)
 
   if (!normalized || normalized.length < 8) {
@@ -143,9 +170,9 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const { tables, tenant } = await getTenantFromRequest()
-    const { pausar: pausarTable } = tables
+    const { pausar: pausarTable, chatHistories } = tables
     const body = await request.json()
-    const { numero, pausar, vaga, agendamento, paused_until } = body
+    const { numero, pausar, vaga, agendamento, paused_until, pause_reason } = body
 
     // Validação do número
     if (!numero || typeof numero !== 'string') {
@@ -184,7 +211,7 @@ export async function POST(request: NextRequest) {
 
     const { data: existingRow } = await supabase
       .from(pausarTable)
-      .select("numero, pausar, vaga, agendamento")
+      .select("numero, pausar, vaga, agendamento, pause_reason")
       .eq("numero", targetNumero)
       .maybeSingle()
 
@@ -198,6 +225,10 @@ export async function POST(request: NextRequest) {
 
     const nowIso = new Date().toISOString()
     const hasPausarField = Object.prototype.hasOwnProperty.call(body, "pausar")
+    const pauseReasonValue =
+      typeof pause_reason === "string" && pause_reason.trim().length > 0
+        ? pause_reason.trim().slice(0, 180)
+        : ""
     const payload: Record<string, any> = {
       numero: targetNumero,
       pausar: pausarBool,
@@ -212,6 +243,11 @@ export async function POST(request: NextRequest) {
 
     if (hasPausarField && pausarBool) {
       payload.pausado_em = nowIso
+      payload.pause_reason = pauseReasonValue || String(existingRow?.pause_reason || "").trim() || "manual_human_panel"
+    } else if (hasPausarField && !pausarBool) {
+      payload.pause_reason = null
+    } else if (pauseReasonValue) {
+      payload.pause_reason = pauseReasonValue
     }
 
     let { data, error } = await supabase
@@ -223,11 +259,17 @@ export async function POST(request: NextRequest) {
       .select()
       .single()
 
-    if (error && (error.message?.includes("paused_until") || error.message?.includes("pausado_em"))) {
+    if (
+      error &&
+      (error.message?.includes("paused_until") ||
+        error.message?.includes("pausado_em") ||
+        error.message?.includes("pause_reason"))
+    ) {
       // Fallback para tabelas antigas sem as colunas paused_until / pausado_em
       const retryPayload = { ...payload }
       delete retryPayload.paused_until
       delete retryPayload.pausado_em
+      delete retryPayload.pause_reason
 
       const retry = await supabase
         .from(pausarTable)
@@ -268,7 +310,7 @@ export async function POST(request: NextRequest) {
         let sessionIds: string[] = []
         try {
           const { data: chatRows } = await supabase
-            .from(`${tenant}n8n_chat_histories`)
+            .from(chatHistories)
             .select("session_id")
             .or(`session_id.eq.${targetNumero},session_id.ilike.%${targetNumero}%`)
             .order("id", { ascending: false })
@@ -329,7 +371,7 @@ export async function PUT(request: NextRequest) {
     const { tables } = await getTenantFromRequest()
     const { pausar: pausarTable } = tables
     const body = await request.json()
-    const { numero, pausar, vaga, agendamento, paused_until } = body
+    const { numero, pausar, vaga, agendamento, paused_until, pause_reason } = body
 
     if (!numero || typeof numero !== 'string') {
       return NextResponse.json({
@@ -366,6 +408,10 @@ export async function PUT(request: NextRequest) {
     }
 
     const nowIso = new Date().toISOString()
+    const pauseReasonValue =
+      typeof pause_reason === "string" && pause_reason.trim().length > 0
+        ? pause_reason.trim().slice(0, 180)
+        : ""
     const updateData: any = {
       updated_at: nowIso,
     }
@@ -375,7 +421,13 @@ export async function PUT(request: NextRequest) {
       updateData.pausar = pausar === true || pausar === "true" || pausar === 1 || pausar === "1"
       if (updateData.pausar) {
         updateData.pausado_em = nowIso
+        updateData.pause_reason = pauseReasonValue || "manual_human_panel"
+      } else {
+        updateData.pause_reason = null
       }
+    }
+    if (pausar === undefined && pauseReasonValue) {
+      updateData.pause_reason = pauseReasonValue
     }
     if (vaga !== undefined) {
       updateData.vaga = vaga === true || vaga === "true" || vaga === 1 || vaga === "1"
@@ -396,10 +448,16 @@ export async function PUT(request: NextRequest) {
       .select()
       .single()
 
-    if (error && (error.message?.includes("paused_until") || error.message?.includes("pausado_em"))) {
+    if (
+      error &&
+      (error.message?.includes("paused_until") ||
+        error.message?.includes("pausado_em") ||
+        error.message?.includes("pause_reason"))
+    ) {
       // Fallback para tabelas antigas sem as colunas paused_until / pausado_em
       delete updateData.paused_until
       delete updateData.pausado_em
+      delete updateData.pause_reason
       const retry = await supabase
         .from(pausarTable)
         .update(updateData)

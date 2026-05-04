@@ -3001,9 +3001,52 @@ function buildFromMeTriggerContent(event: ZapiMessageEvent): string {
   return "[gatilho_externo_fromme]"
 }
 
+async function shouldAllowExternalStarterTrigger(params: {
+  tenant: string
+  sessionId: string
+  text: string
+}): Promise<{ allowed: boolean; reason: string }> {
+  const tenant = normalizeTenant(params.tenant)
+  const sessionId = normalizeSessionId(params.sessionId)
+  if (!tenant || !sessionId) {
+    return { allowed: false, reason: "external_starter_blocked_invalid_session" }
+  }
+
+  const normalizedText = normalizeComparableText(params.text).slice(0, 160) || "starter"
+  const dedupeKey = `zapi:external_starter:${tenant}:${sessionId}:${normalizedText}`
+  const dedupe = await RedisService.checkRateLimit(dedupeKey, 1, 6 * 60 * 60).catch(() => ({
+    success: true,
+    reset: Date.now(),
+  }))
+  if (!dedupe.success) {
+    return { allowed: false, reason: "external_starter_blocked_rate_limit" }
+  }
+
+  const turns = await new TenantChatHistoryService(tenant).loadConversation(sessionId, 80).catch(() => [])
+  if (Array.isArray(turns) && turns.length > 0) {
+    const hasLeadHistory = turns.some((turn) => turn.role === "user" && String(turn.content || "").trim().length > 0)
+    if (hasLeadHistory) {
+      return { allowed: false, reason: "external_starter_blocked_existing_user_history" }
+    }
+
+    let newestAssistantMs = 0
+    for (const turn of turns) {
+      if (turn.role !== "assistant") continue
+      const ts = new Date(String(turn.createdAt || "")).getTime()
+      if (Number.isFinite(ts) && ts > newestAssistantMs) newestAssistantMs = ts
+    }
+    if (newestAssistantMs > 0 && Date.now() - newestAssistantMs <= 20 * 60 * 1000) {
+      return { allowed: false, reason: "external_starter_blocked_recent_assistant_activity" }
+    }
+  }
+
+  return { allowed: true, reason: "external_starter_allowed" }
+}
+
 function mergeBufferedUserContent(turns: BufferedUserTurn[], fallback: string): string {
   const dedupe = new Set<string>()
   const chunks: string[] = []
+  const substantiveChunks: string[] = []
 
   for (const turn of turns) {
     const content = readString(turn?.content)
@@ -3012,11 +3055,15 @@ function mergeBufferedUserContent(turns: BufferedUserTurn[], fallback: string): 
     if (dedupe.has(key)) continue
     dedupe.add(key)
     chunks.push(content)
+    if (!isLikelyContinuationFragment(content)) {
+      substantiveChunks.push(content)
+    }
   }
 
-  if (chunks.length === 0) return String(fallback || "").trim()
-  if (chunks.length === 1) return chunks[0]
-  return chunks.join("\n")
+  const preferredChunks = substantiveChunks.length > 0 ? substantiveChunks : chunks
+  if (preferredChunks.length === 0) return String(fallback || "").trim()
+  if (preferredChunks.length === 1) return preferredChunks[0]
+  return preferredChunks.join("\n")
 }
 
 function buildInboundMediaContext(event: ZapiMessageEvent): string {
@@ -3192,8 +3239,21 @@ export async function POST(req: NextRequest) {
     const canonicalSessionId = normalizeSessionId(
       canonicalPhone || routing.sessionId || resolveSessionForPersistence(event),
     )
-    const shouldTriggerFromExternalStarter = canTriggerFromExternalStarter(event)
+    const externalStarterCandidate = canTriggerFromExternalStarter(event)
+    let shouldTriggerFromExternalStarter = externalStarterCandidate
     const groupActionRequest = event.isGroup ? extractFollowupGroupActionRequest(event) : null
+
+    if (externalStarterCandidate) {
+      const gate = await shouldAllowExternalStarterTrigger({
+        tenant,
+        sessionId: canonicalSessionId,
+        text: String(event.text || ""),
+      })
+      if (!gate.allowed) {
+        shouldTriggerFromExternalStarter = false
+        event.metadata.externalStarterBlockedReason = gate.reason
+      }
+    }
 
     if (event.isGroup && (!groupActionRequest || event.callbackType !== "received" || event.fromMe === true)) {
       return NextResponse.json({
@@ -3584,6 +3644,7 @@ export async function POST(req: NextRequest) {
         ignored: true,
         reason: "callback_without_ai_response",
         resolvedBy: routing.resolvedBy,
+        externalStarterBlockedReason: event.metadata.externalStarterBlockedReason || null,
         taskInsight,
       })
     }
@@ -3692,11 +3753,20 @@ export async function POST(req: NextRequest) {
 
     const inboundBufferSeconds = clampInboundBufferSeconds(config.inboundMessageBufferSeconds)
     const sessionForInbound = canonicalSessionId
+    const inboundText = String(event.text || "")
+    const isShortContinuationInbound =
+      isLikelyContinuationFragment(inboundText) ||
+      event.isReaction === true ||
+      event.waitingMessage === true
+    const inboundAggregationWindowSeconds = Math.max(
+      Math.max(1, inboundBufferSeconds),
+      isShortContinuationInbound ? 90 : 15,
+    )
     if (inboundBufferSeconds > 0) {
       await sleep(inboundBufferSeconds * 1000)
     }
 
-    const bufferedSince = new Date(Date.now() - Math.max(1, inboundBufferSeconds) * 1000).toISOString()
+    const bufferedSince = new Date(Date.now() - inboundAggregationWindowSeconds * 1000).toISOString()
     const bufferedTurns = await loadRecentUserTurns({
       tenant,
       sessionId: sessionForInbound,
@@ -3726,6 +3796,7 @@ export async function POST(req: NextRequest) {
           tenant,
           persisted,
           inboundBufferSeconds,
+          inboundAggregationWindowSeconds,
           taskInsight,
         })
       }

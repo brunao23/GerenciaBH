@@ -1139,9 +1139,9 @@ export default function ConversasPage() {
     return `/api/agent/webhooks/zapi?tenant=${encodeURIComponent(tenant.prefix)}`
   }, [nativeAgentOverview?.webhookPrimaryUrl, tenant?.prefix])
 
-  const currentPauseIdentity = useMemo(() => {
-    return String(current?.numero || current?.session_id || "").trim()
-  }, [current?.numero, current?.session_id])
+  const currentPausePhone = useMemo(() => {
+    return toCanonicalWhatsappPhone(current?.numero)
+  }, [current?.numero])
 
   const fetchPauseStatus = useCallback(async (targetIdentity: string) => {
     if (!targetIdentity || !tenant) return
@@ -1251,7 +1251,7 @@ export default function ConversasPage() {
 
   const togglePauseParam = useCallback(
     async (param: keyof PauseStatus) => {
-      if (!currentPauseIdentity || pauseLoading) return
+      if (!currentPausePhone || pauseLoading) return
 
       setPauseLoading(true)
       try {
@@ -1262,7 +1262,7 @@ export default function ConversasPage() {
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
-            numero: currentPauseIdentity,
+            numero: currentPausePhone,
             pausar: param === "pausar" ? newValue : (pauseStatus?.pausar ?? false),
             vaga: param === "vaga" ? newValue : (pauseStatus?.vaga ?? true),
             agendamento: param === "agendamento" ? newValue : (pauseStatus?.agendamento ?? false),
@@ -1282,7 +1282,7 @@ export default function ConversasPage() {
         setPauseLoading(false)
       }
     },
-    [currentPauseIdentity, pauseStatus, pauseLoading],
+    [currentPausePhone, pauseStatus, pauseLoading],
   )
 
   const fetchSessionDetails = useCallback(async (sessionId: string) => {
@@ -1386,8 +1386,8 @@ export default function ConversasPage() {
   }, [])
 
   useEffect(() => {
-    if (currentPauseIdentity) {
-      fetchPauseStatus(currentPauseIdentity)
+    if (currentPausePhone) {
+      fetchPauseStatus(currentPausePhone)
       if (current?.numero) {
         fetchFollowupAIStatus(current.numero, current.session_id)
       } else {
@@ -1397,7 +1397,7 @@ export default function ConversasPage() {
       setPauseStatus(null)
       setFollowupAIEnabled(false)
     }
-  }, [currentPauseIdentity, current?.numero, current?.session_id, fetchPauseStatus, fetchFollowupAIStatus])
+  }, [currentPausePhone, current?.numero, current?.session_id, fetchPauseStatus, fetchFollowupAIStatus])
 
   useEffect(() => {
     setLastSuggestedText("")
@@ -2126,7 +2126,10 @@ export default function ConversasPage() {
   }, [current, clearingMemory, tenant?.prefix, fetchData, query])
 
   const handleActivatePause = async () => {
-    if (!current?.numero && !current?.session_id) return
+    if (!currentPausePhone) {
+      toast.error("Nao foi possivel pausar: lead sem numero valido.")
+      return
+    }
     setTakeoverLoading(true)
 
     try {
@@ -2144,7 +2147,7 @@ export default function ConversasPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          numero: current.numero || current.session_id,
+          numero: currentPausePhone,
           pausar: true,
           vaga: false,
           agendamento: false,
