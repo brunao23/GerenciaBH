@@ -21,6 +21,11 @@ import { AgentTaskQueueService } from "@/lib/services/agent-task-queue.service"
 import { LLMFactory } from "@/lib/services/llm-factory"
 import { TenantMessagingService } from "@/lib/services/tenant-messaging.service"
 import { GroupNotificationDispatcherService } from "@/lib/services/group-notification-dispatcher.service"
+import {
+  detectsExplicitPausedLeadResumeIntent,
+  getLeadPauseState,
+  releaseLeadPause,
+} from "@/lib/services/lead-pause.service"
 import { RedisService } from "@/lib/services/redis.service"
 
 export const runtime = "nodejs"
@@ -699,6 +704,77 @@ async function fetchAudioAsBase64(url: string): Promise<{
   }
 }
 
+const AUDIO_TRANSCRIPTION_EMPTY_MARKER = "[audio_sem_fala_inteligivel]"
+
+function normalizeAudioTranscriptionResult(value: any): string {
+  const text = String(value || "").trim()
+  if (!text) return ""
+  const compact = text.replace(/\s+/g, " ").trim()
+  if (!compact) return ""
+  if (/^\[audio[_\s-]*sem[_\s-]*fala[_\s-]*inteligivel\]$/i.test(compact)) {
+    return AUDIO_TRANSCRIPTION_EMPTY_MARKER
+  }
+  return compact.replace(/^["'`]+|["'`]+$/g, "").trim()
+}
+
+function buildAudioTranscriptionPrompts(): string[] {
+  return [
+    [
+      "Transcreva com fidelidade maxima este audio em portugues do Brasil.",
+      "Nao resuma, nao reescreva, nao explique e nao traduza.",
+      "Preserve exatamente nomes proprios, numeros, datas, horarios, valores, siglas, links e gírias quando estiverem audiveis.",
+      `Se realmente nao houver fala util ou inteligivel, retorne somente: ${AUDIO_TRANSCRIPTION_EMPTY_MARKER}.`,
+      "Retorne somente a transcricao em texto.",
+    ].join(" "),
+    [
+      "Revise o mesmo audio com maxima atencao aos detalhes.",
+      "Corrija omissoes e preserve integralmente nomes, numeros, datas, horarios e valores.",
+      "Nao invente fatos, nao resuma e nao comente.",
+      `Se ainda assim nao houver fala inteligivel, retorne somente: ${AUDIO_TRANSCRIPTION_EMPTY_MARKER}.`,
+      "Retorne somente a transcricao em texto corrido.",
+    ].join(" "),
+  ]
+}
+
+function buildAudioTranscriptionConfigVariants(config: NativeAgentConfig): NativeAgentConfig[] {
+  const variants: NativeAgentConfig[] = [
+    config,
+    { ...config, aiProvider: "vertexai" },
+    { ...config, aiProvider: "google" },
+  ]
+
+  const seen = new Set<string>()
+  return variants.filter((candidate) => {
+    const provider = String(candidate.aiProvider || "google").trim().toLowerCase()
+    const model =
+      provider === "openai"
+        ? String(candidate.openaiModel || "").trim()
+        : provider === "anthropic"
+          ? String(candidate.anthropicModel || "").trim()
+          : provider === "groq"
+            ? String(candidate.groqModel || "").trim()
+            : provider === "openrouter"
+              ? String(candidate.openRouterModel || "").trim()
+              : String(candidate.geminiModel || "").trim()
+    const key = `${provider}|${model}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+function resolveAudioTranscriptionModelLabel(config: NativeAgentConfig): string {
+  const provider = String(config.aiProvider || "google").trim().toLowerCase()
+  if (provider === "vertexai") {
+    return String(process.env.VERTEX_MODEL || config.geminiModel || "gemini-2.5-flash").trim()
+  }
+  if (provider === "openai") return String(config.openaiModel || "gpt-5.4").trim()
+  if (provider === "anthropic") return String(config.anthropicModel || "claude-4.7").trim()
+  if (provider === "groq") return String(config.groqModel || "llama3-70b-8192").trim()
+  if (provider === "openrouter") return String(config.openRouterModel || "google/gemini-2.5-flash").trim()
+  return String(config.geminiModel || "gemini-2.5-flash").trim()
+}
+
 async function transcribeAudioForEvent(params: {
   tenant: string
   event: ZapiMessageEvent
@@ -710,10 +786,6 @@ async function transcribeAudioForEvent(params: {
   if (!event.hasAudio) return {}
   if (!config) {
     return { error: "missing_native_agent_config_for_audio_transcription" }
-  }
-  const llm = LLMFactory.getService(config, { tenant })
-  if (typeof llm.transcribeAudio !== "function") {
-    return { error: "audio_transcription_not_supported" }
   }
 
   let mimeType = normalizeAudioMimeType(String(event.audioMimeType || "audio/ogg"))
@@ -729,21 +801,54 @@ async function transcribeAudioForEvent(params: {
     return { error: "audio_payload_unavailable" }
   }
 
-  try {
-    const transcript = await llm.transcribeAudio({
-      audioBase64: base64,
-      mimeType,
-      prompt:
-        "Transcreva fielmente este audio em portugues do Brasil. Retorne somente a transcricao em texto, sem comentarios extras. Se nao houver fala inteligivel, retorne apenas: [audio_sem_fala_inteligivel].",
-    })
-    const text = String(transcript || "").trim()
-    if (!text) return { error: "audio_transcription_empty" }
-    event.metadata.audioTranscriptionProvider = "llm_factory"
-    event.metadata.audioTranscriptionModel = String(process.env.VERTEX_MODEL || config.geminiModel || "gemini-2.5-flash")
-    return { text }
-  } catch (error: any) {
-    return { error: String(error?.message || "audio_transcription_failed") }
+  const prompts = buildAudioTranscriptionPrompts()
+  const configVariants = buildAudioTranscriptionConfigVariants(config)
+  const errors: string[] = []
+  let placeholderAttempt:
+    | { provider: string; model: string }
+    | null = null
+
+  for (const candidateConfig of configVariants) {
+    const provider = String(candidateConfig.aiProvider || "google").trim().toLowerCase()
+    const model = resolveAudioTranscriptionModelLabel(candidateConfig)
+    const llm = LLMFactory.getService(candidateConfig, { tenant })
+    if (typeof llm.transcribeAudio !== "function") {
+      errors.push(`audio_transcription_not_supported:${provider}`)
+      continue
+    }
+
+    for (const prompt of prompts) {
+      try {
+        const transcript = await llm.transcribeAudio({
+          audioBase64: base64,
+          mimeType,
+          prompt,
+        })
+        const text = normalizeAudioTranscriptionResult(transcript)
+        if (!text) {
+          errors.push(`audio_transcription_empty:${provider}`)
+          continue
+        }
+        if (text === AUDIO_TRANSCRIPTION_EMPTY_MARKER) {
+          placeholderAttempt = { provider, model }
+          continue
+        }
+        event.metadata.audioTranscriptionProvider = `llm_factory:${provider}`
+        event.metadata.audioTranscriptionModel = model
+        return { text }
+      } catch (error: any) {
+        errors.push(String(error?.message || `audio_transcription_failed:${provider}`))
+      }
+    }
   }
+
+  if (placeholderAttempt) {
+    event.metadata.audioTranscriptionProvider = `llm_factory:${placeholderAttempt.provider}`
+    event.metadata.audioTranscriptionModel = placeholderAttempt.model
+    return { text: AUDIO_TRANSCRIPTION_EMPTY_MARKER }
+  }
+
+  return { error: errors[0] || "audio_transcription_failed" }
 }
 
 async function fetchMediaAsBase64(params: {
@@ -2226,6 +2331,17 @@ function buildMessageIdForPersistence(event: ZapiMessageEvent): string | undefin
   const type = readString(event.type, event.callbackType)
   const status = readString(event.status)
   const moment = event.moment ? String(event.moment) : ""
+  if (event.callbackType === "received" && event.isReaction) {
+    const phoneSeed = normalizePhoneNumber(String(event.phone || event.sessionId || event.chatLid || ""))
+    const reactionSeed = normalizeComparableText(String(event.reactionValue || "reaction")).slice(0, 120) || "reaction"
+    const replySeed = String(event.replyToMessageId || primary || "sem_referencia").trim()
+    const temporalAnchor = moment || String(Date.now())
+    const digest = createHash("sha1")
+      .update(`reaction|${phoneSeed}|${replySeed}|${reactionSeed}|${temporalAnchor}`)
+      .digest("hex")
+      .slice(0, 24)
+    return `zapi_reaction_${digest}`
+  }
   const hasConversationalPayload = Boolean(
     event.text || event.hasAudio || event.hasMedia || event.isReaction || event.isGif,
   )
@@ -2277,6 +2393,7 @@ function shouldPersistInChatHistory(event: ZapiMessageEvent): boolean {
   // Persistimos no chat somente mensagens reais de conversa.
   // Callbacks de status/presenca/conexao devem ficar fora da timeline.
   if (event.callbackType !== "received") return false
+  if (event.isReaction && event.fromMe === true) return false
   const hasConversationalPayload = Boolean(
     event.text || event.hasAudio || event.hasMedia || event.isReaction || event.isGif,
   )
@@ -2403,11 +2520,16 @@ async function pauseAiForLead(
     pauseMinutes > 0
       ? new Date(Date.now() + pauseMinutes * 60 * 1000).toISOString()
       : null
+  const normalizedReason = String(options?.reason || "").trim().toLowerCase()
+  const isManualLikePause =
+    normalizedReason.includes("manual") ||
+    normalizedReason.includes("human_intervention") ||
+    normalizedReason.includes("handoff_human")
   const payload: Record<string, any> = {
     numero: normalized,
     pausar: true,
-    vaga: true,
-    agendamento: true,
+    vaga: !isManualLikePause,
+    agendamento: false,
     updated_at: nowIso,
     pausado_em: nowIso,
     paused_until: pausedUntilIso,
@@ -3414,6 +3536,15 @@ export async function POST(req: NextRequest) {
       })
     }
 
+    if (event.callbackType === "received" && event.isReaction && event.fromMe === true) {
+      return NextResponse.json({
+        received: true,
+        ignored: true,
+        reason: "outbound_reaction_callback_ignored",
+        tenant,
+      })
+    }
+
     if (config.autoLearningEnabled !== false && event.callbackType === "received") {
       const senderType = resolveSenderTypeForEvent(event)
       const learningMessage = String(
@@ -3729,15 +3860,35 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const paused = canonicalPhone ? await isAiPausedForPhone(tenant, canonicalPhone) : false
-    if (paused) {
+    const pauseLookupPhone = normalizeLikelyWhatsappPhone(
+      replyPhone || canonicalPhone || canonicalSessionId || routing.phone || event.phone,
+    )
+    const pauseState = pauseLookupPhone
+      ? await getLeadPauseState({ tenant, phone: pauseLookupPhone })
+      : null
+    if (pauseState?.paused) {
       const inboundText = String(event.text || "")
       const isInboundFromLead = event.callbackType === "received" && event.fromMe !== true
-      const isReschedule = isInboundFromLead && isRescheduleIntentMessage(inboundText)
+      const explicitResumeRequested =
+        isInboundFromLead && detectsExplicitPausedLeadResumeIntent(inboundText)
 
-      if (isReschedule && canonicalPhone) {
-        // reagendamento: remove a pausa completamente para retomar o fluxo
-        await unpauseAiForLead(tenant, canonicalPhone)
+      if (explicitResumeRequested && pauseLookupPhone && !pauseState.isManual) {
+        const releaseResult = await releaseLeadPause({ tenant, phone: pauseLookupPhone })
+        if (releaseResult.released) {
+          // segue o fluxo normalmente apos liberar uma pausa nao manual
+        } else {
+          const taskInsight = await taskInsightPromise
+          return NextResponse.json({
+            received: true,
+            ignored: true,
+            reason: "ai_paused_by_human",
+            tenant,
+            persisted,
+            taskInsight,
+            pauseReason: pauseState.pauseReason || null,
+            releaseReason: releaseResult.reason || null,
+          })
+        }
       } else {
         const taskInsight = await taskInsightPromise
         return NextResponse.json({
@@ -3747,6 +3898,8 @@ export async function POST(req: NextRequest) {
           tenant,
           persisted,
           taskInsight,
+          pauseReason: pauseState.pauseReason || null,
+          pauseIsManual: pauseState.isManual,
         })
       }
     }
@@ -3754,9 +3907,12 @@ export async function POST(req: NextRequest) {
     const inboundBufferSeconds = clampInboundBufferSeconds(config.inboundMessageBufferSeconds)
     const sessionForInbound = canonicalSessionId
     const inboundText = String(event.text || "")
+    // NOTA: isReaction === true NÃO deve aumentar a janela de buffer.
+    // Reações são tratadas com early-return silencioso no orquestrador — não
+    // precisam aguardar 90s. Manter isReaction aqui travava o fluxo de resposta
+    // quando o lead reagia e depois enviava uma mensagem de texto.
     const isShortContinuationInbound =
       isLikelyContinuationFragment(inboundText) ||
-      event.isReaction === true ||
       event.waitingMessage === true
     const inboundAggregationWindowSeconds = Math.max(
       Math.max(1, inboundBufferSeconds),

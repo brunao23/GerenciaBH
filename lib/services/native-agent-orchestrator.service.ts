@@ -40,6 +40,11 @@ import { LlmUsageCostService } from "@/lib/services/llm-usage-cost.service"
 import { sendErrorWebhook } from "@/lib/helpers/error-webhook"
 import { scheduleRemindersForTenant } from "@/lib/services/reminder-scheduler.service"
 import {
+  detectsExplicitPausedLeadResumeIntent,
+  getLeadPauseState,
+  releaseLeadPause,
+} from "@/lib/services/lead-pause.service"
+import {
   adjustToBusinessHours,
   parseTenantBusinessHours,
 } from "@/lib/helpers/business-hours"
@@ -2582,7 +2587,13 @@ function mergeLlmUsageMetrics(
 function hasMeaningfulDecisionOutput(decision: GeminiToolDecision | null | undefined): boolean {
   if (!decision) return false
   const reply = String(decision.reply || "").trim()
-  const hasExecutions = Array.isArray(decision.executions) && decision.executions.length > 0
+  const hasExecutions =
+    Array.isArray(decision.executions) &&
+    decision.executions.some((execution) => {
+      const callName = String(execution?.call?.name || "").trim().toLowerCase()
+      const actionType = String(execution?.action?.type || "none").trim().toLowerCase()
+      return callName !== "send_reaction" || actionType !== "none"
+    })
   const hasNonNoneActions =
     Array.isArray(decision.actions) &&
     decision.actions.some((action) => String(action?.type || "none") !== "none")
@@ -2619,6 +2630,7 @@ export class NativeAgentOrchestratorService {
     const tenant = normalizeTenant(input.tenant)
     let content = String(input.message || "").trim()
     const phone = normalizePhoneNumber(input.phone)
+    const pauseLookupPhone = phone || normalizePhoneNumber(input.sessionId || "")
     const recipient = normalizeRecipientForMessaging({
       phone: input.phone,
       chatLid: input.chatLid,
@@ -2791,13 +2803,17 @@ export class NativeAgentOrchestratorService {
     // -----------------------------------------------------------------------
     // Global Pause Check: ensure paused leads are NOT engaged
     // -----------------------------------------------------------------------
-    if (phone) {
-      const isPaused = await this.taskQueue.isLeadPaused(tenant, phone)
-      if (isPaused) {
-        const canResumePausedConversation =
+    if (pauseLookupPhone) {
+      const pauseState = await getLeadPauseState({
+        tenant,
+        phone: pauseLookupPhone,
+        supabase: this.supabase,
+      })
+      if (pauseState.paused) {
+        const explicitResumeRequested =
           !(input.fromMeTrigger === true) &&
-          (detectsSchedulingIntent(content) || detectsReturnFromPauseIntent(content))
-        if (!canResumePausedConversation) {
+          detectsExplicitPausedLeadResumeIntent(content)
+        if (!explicitResumeRequested || pauseState.isManual) {
           await chat.persistMessage({
             sessionId,
             role: "system",
@@ -2807,7 +2823,10 @@ export class NativeAgentOrchestratorService {
             additional: {
               debug_event: "lead_is_paused_global_block",
               debug_severity: "info",
-              phone: phone || recipient,
+              phone: pauseLookupPhone || recipient,
+              pause_reason: pauseState.pauseReason || null,
+              pause_is_manual: pauseState.isManual === true,
+              paused_until: pauseState.pausedUntil || null,
             },
           }).catch(() => {})
 
@@ -2818,21 +2837,35 @@ export class NativeAgentOrchestratorService {
             reason: "lead_is_paused_global_block",
           }
         } else {
-          // Lead is paused but showed scheduling intent (reschedule). Unpause automatically!
-          const { pausar: pauseTable } = getTablesForTenant(tenant)
-          // Normalizar phone para garantir match exato com coluna "numero" da tabela
-          const _normalizedPhoneForUnpause = normalizePhoneNumber(phone)
-          const _unpauseVariants = Array.from(new Set([
-            _normalizedPhoneForUnpause,
-            _normalizedPhoneForUnpause.startsWith("55") ? _normalizedPhoneForUnpause.slice(2) : `55${_normalizedPhoneForUnpause}`,
-          ].filter(Boolean)))
-          try {
-            await this.supabase
-              .from(pauseTable)
-              .update({ pausar: false, vaga: false, agendamento: false, paused_until: null, pause_reason: null })
-              .in("numero", _unpauseVariants)
-          } catch {
-            // silently ignore unpause errors
+          const releaseResult = await releaseLeadPause({
+            tenant,
+            phone: pauseLookupPhone,
+            supabase: this.supabase,
+          })
+          if (!releaseResult.released) {
+            await chat.persistMessage({
+              sessionId,
+              role: "system",
+              type: "status",
+              content: "native_agent_ignored_paused_lead",
+              source: "native-agent",
+              additional: {
+                debug_event: "lead_is_paused_release_failed",
+                debug_severity: "warn",
+                phone: pauseLookupPhone || recipient,
+                pause_reason: pauseState.pauseReason || null,
+                pause_is_manual: false,
+                paused_until: pauseState.pausedUntil || null,
+                release_reason: releaseResult.reason || null,
+              },
+            }).catch(() => {})
+
+            return {
+              processed: true,
+              replied: false,
+              actions: [],
+              reason: "lead_is_paused_global_block",
+            }
           }
         }
       }
@@ -4886,7 +4919,7 @@ export class NativeAgentOrchestratorService {
       ? "- USO DE EMOJIS: VocÃª pode usar emojis nas respostas de forma equilibrada para gerar conexÃ£o. PROIBIDO ABSOLUTO: NUNCA coloque emoji no inÃ­cio de uma frase ou mensagem. Emoji vai SEMPRE ao final da frase, apÃ³s o ponto final ou reticÃªncias. NUNCA copie emojis do display name ou mensagens do lead â€” use apenas emojis escolhidos por vocÃª para o contexto."
       : "- NÃ£o use emojis nas respostas. NUNCA reproduza emojis que apareÃ§am no display name ou mensagens do lead."
     const reactionsRule = config.reactionsEnabled
-      ? "- REAÃƒâ€¡Ã•ES (OBRIGATÃƒâ€œRIO): A unidade habilitou as reaÃ§Ãµes. Quando o lead enviar foto, elogio, confirmaÃ§Ã£o ou mensagem curta (ex: 'ok', 'perfeito'), vocÃª DEVE reagir enviando um emoji na chamada da ferramenta (se disponÃ­vel)."
+      ? "- REAÃƒâ€¡Ã•ES (OBRIGATÃƒâ€œRIO): A unidade habilitou as reaÃ§Ãµes. Quando o lead enviar foto, elogio, confirmaÃ§Ã£o ou mensagem curta (ex: 'ok', 'perfeito'), vocÃª DEVE reagir enviando um emoji na chamada da ferramenta (se disponÃ­vel). REGRA ABSOLUTA: a reaÃ§Ã£o NUNCA substitui a resposta textual quando o lead enviou uma mensagem com conteÃºdo. Se vocÃª usar send_reaction em uma mensagem do lead que exige resposta, continue gerando a resposta em texto na MESMA interaÃ§Ã£o."
       : ""
     const replyRule = config.replyEnabled
       ? "- REPLY (OBRIGATÃƒâ€œRIO): A unidade habilitou reply. Use o recurso de responder em cima de uma mensagem especÃ­fica se o sistema oferecer a possibilidade em sua ferramenta de envio."
@@ -5019,6 +5052,12 @@ export class NativeAgentOrchestratorService {
     const inboundMediaRule = inboundMediaContext
       ? `- CONTEXTO MULTIMODAL DO ULTIMO EVENTO: ${inboundMediaContext.slice(0, 900)}. Use esse contexto na resposta sem mencionar que veio de analise interna.`
       : ""
+    const inboundAudioRule = [
+      "- AUDIO DO LEAD E UM CANAL VALIDO E DEVE SER ATENDIDO NORMALMENTE.",
+      "- Quando houver transcricao de audio no contexto, trate essa transcricao como fala real do lead, com o mesmo peso de uma mensagem digitada.",
+      "- NUNCA diga que o lead precisa digitar porque enviou audio, nem que audio nao e aceito, se a transcricao ja estiver disponivel.",
+      "- Se a transcricao vier como [audio_sem_fala_inteligivel], peca de forma curta e natural para o lead repetir o ponto principal por audio ou texto.",
+    ].join("\n")
     const contextHint = String(ctx.contextHint || "").trim()
     const contextHintRule = contextHint
       ? `- CONTEXTO INTERNO DO PERFIL DO LEAD: ${contextHint.slice(0, 1600)}. Use para personalizar a conversa de forma natural e nao invasiva. NUNCA diga explicitamente que analisou perfil, foto ou posts.`
@@ -5372,6 +5411,7 @@ export class NativeAgentOrchestratorService {
       googleEventsRule,
       internalFromMeRule,
       inboundMediaRule,
+      inboundAudioRule,
       replyAnchorRule,
       contextHintRule,
       channelRule,

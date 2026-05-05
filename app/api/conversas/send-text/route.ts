@@ -45,10 +45,11 @@ async function pauseAiForLead(tenant: string, phone: string, pausedUntil?: strin
   const payload: Record<string, any> = {
     numero: normalized,
     pausar: true,
-    vaga: true,
-    agendamento: true,
+    vaga: false,
+    agendamento: false,
     updated_at: nowIso,
     pausado_em: nowIso,
+    pause_reason: "manual_human_panel",
   }
 
   if (pausedUntil) {
@@ -65,6 +66,7 @@ async function pauseAiForLead(tenant: string, phone: string, pausedUntil?: strin
     const fallback = { ...payload }
     delete fallback.pausado_em
     delete fallback.paused_until
+    delete fallback.pause_reason
     upsert = await supabase
       .from(pauseTable)
       .upsert(fallback, { onConflict: "numero", ignoreDuplicates: false })

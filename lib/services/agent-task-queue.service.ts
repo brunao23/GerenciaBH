@@ -17,6 +17,7 @@ import {
 } from "@/lib/services/reminder-scheduler.service"
 import { buildFollowupWeekdayConstraint, resolveEffectiveFollowupBusinessDays } from "@/lib/helpers/effective-followup-days"
 import { LLMFactory } from "@/lib/services/llm-factory"
+import { getLeadPauseState } from "@/lib/services/lead-pause.service"
 import { normalizePhoneNumber, normalizeSessionId, TenantChatHistoryService } from "./tenant-chat-history.service"
 import { TenantMessagingService } from "./tenant-messaging.service"
 import { GroupNotificationDispatcherService } from "./group-notification-dispatcher.service"
@@ -1875,34 +1876,12 @@ export class AgentTaskQueueService {
 
   public async isLeadPaused(tenant: string, phone: string): Promise<boolean> {
     try {
-      const tables = getTablesForTenant(tenant)
-      const normalized = normalizePhoneNumber(phone)
-      if (!normalized) return false
-
-      const variants = Array.from(
-        new Set([
-          normalized,
-          normalized.startsWith("55") ? normalized.slice(2) : "",
-          !normalized.startsWith("55") ? `55${normalized}` : "",
-        ].filter(Boolean)),
-      )
-
-      const { data, error } = await this.supabase
-        .from(tables.pausar)
-        .select("*")
-        .in("numero", variants)
-        .order("updated_at", { ascending: false })
-        .limit(1)
-
-      if (error || !Array.isArray(data) || data.length === 0) return false
-      const row: any = data[0]
-      const paused = row?.pausar === true || String(row?.pausar || "").toLowerCase() === "true"
-      if (!paused) return false
-      const pausedUntil = String(row?.paused_until || "").trim()
-      if (!pausedUntil) return true
-      const until = new Date(pausedUntil)
-      if (Number.isNaN(until.getTime())) return true
-      return until.getTime() > Date.now()
+      const pauseState = await getLeadPauseState({
+        tenant,
+        phone,
+        supabase: this.supabase,
+      })
+      return pauseState.paused
     } catch {
       return false
     }
@@ -1913,12 +1892,38 @@ export class AgentTaskQueueService {
       const tables = getTablesForTenant(tenant)
       const normalized = normalizePhoneNumber(phone)
       if (!normalized) return
-      await this.supabase
+      let upsert = await this.supabase
         .from(tables.pausar)
         .upsert(
-          { numero: normalized, pausar: true, updated_at: new Date().toISOString() },
+          {
+            numero: normalized,
+            pausar: true,
+            vaga: true,
+            agendamento: false,
+            updated_at: new Date().toISOString(),
+            pause_reason: "scheduled_auto_pause",
+          },
           { onConflict: "numero" },
         )
+
+      if (upsert.error && String(upsert.error.message || "").toLowerCase().includes("pause_reason")) {
+        upsert = await this.supabase
+          .from(tables.pausar)
+          .upsert(
+            {
+              numero: normalized,
+              pausar: true,
+              vaga: true,
+              agendamento: false,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "numero" },
+          )
+      }
+
+      if (upsert.error) {
+        throw upsert.error
+      }
       console.log(`[AgentTaskQueue] Lead ${normalized} pausado automaticamente (etapa final de follow-up)`)
     } catch (err) {
       console.error("[AgentTaskQueue] Erro ao pausar lead:", err)
