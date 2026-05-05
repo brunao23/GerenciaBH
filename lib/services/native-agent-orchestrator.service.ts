@@ -32,6 +32,7 @@ import {
 } from "@/lib/services/tenant-messaging.service"
 import { AgentTaskQueueService } from "@/lib/services/agent-task-queue.service"
 import { normalizeTenant } from "@/lib/helpers/normalize-tenant"
+import { resolveChatHistoriesTable } from "@/lib/helpers/resolve-chat-table"
 import { NativeAgentLearningService } from "@/lib/services/native-agent-learning.service"
 import { createNotification } from "@/lib/services/notifications"
 import { TtsService, type TtsProvider } from "@/lib/services/tts.service"
@@ -4259,6 +4260,75 @@ export class NativeAgentOrchestratorService {
     return undefined
   }
 
+  private async resolveRecentScheduleDateHintFromHistory(params: {
+    tenant: string
+    sessionId: string
+    requestedTime?: string
+    requestedDate?: string
+  }): Promise<string | undefined> {
+    const normalizedSessionId = normalizeSessionId(params.sessionId)
+    if (!normalizedSessionId) return undefined
+
+    const table = await resolveChatHistoriesTable(this.supabase as any, params.tenant)
+    const sessionVariants = Array.from(
+      new Set([normalizedSessionId, String(params.sessionId || "").trim()].filter(Boolean)),
+    )
+
+    let query: any = this.supabase
+      .from(table)
+      .select("created_at, message")
+      .order("created_at", { ascending: false })
+      .limit(40)
+
+    query =
+      sessionVariants.length > 1
+        ? query.in("session_id", sessionVariants)
+        : query.eq("session_id", normalizedSessionId)
+
+    const { data, error } = await query
+    if (error || !Array.isArray(data)) return undefined
+
+    const requestedTime = normalizeTimeToHHmm(params.requestedTime)
+    const requestedDate = normalizeDateToIso(params.requestedDate)
+
+    for (const row of data) {
+      const message = row?.message || {}
+      const role = String(message?.role || "").trim().toLowerCase()
+      const type = String(message?.type || "").trim().toLowerCase()
+      if (role !== "system" || type !== "status") continue
+
+      const slotsRaw = [
+        ...(Array.isArray(message?.tool_response?.slots) ? message.tool_response.slots : []),
+        ...(Array.isArray(message?.tool_response?.alternativeSlots)
+          ? message.tool_response.alternativeSlots
+          : []),
+      ]
+
+      if (!slotsRaw.length) continue
+
+      const matchingDates = Array.from(
+        new Set(
+          slotsRaw
+            .map((slot: any) => ({
+              date: normalizeDateToIso(slot?.date),
+              time: normalizeTimeToHHmm(slot?.time),
+            }))
+            .filter(
+              (slot: { date: string | null; time: string | null }) =>
+                Boolean(slot.date) && (!requestedTime || slot.time === requestedTime),
+            )
+            .map((slot: { date: string | null }) => String(slot.date)),
+        ),
+      )
+
+      if (!matchingDates.length) continue
+      if (requestedDate && matchingDates.includes(requestedDate)) return requestedDate
+      if (matchingDates.length === 1) return matchingDates[0]
+    }
+
+    return undefined
+  }
+
   private async processToolExecutions(params: {
     tenant: string
     phone: string
@@ -5785,13 +5855,21 @@ export class NativeAgentOrchestratorService {
         }
       }
 
+      const explicitLeadDate = resolveTemporalDateFromLeadMessage({
+        leadMessage: params.leadMessageContext,
+        timezone: params.config.timezone || "America/Sao_Paulo",
+        timeValue: args.time,
+      })
+      const recentSlotDateHint = explicitLeadDate
+        ? undefined
+        : await this.resolveRecentScheduleDateHintFromHistory({
+          tenant: params.tenant,
+          sessionId: params.sessionId,
+          requestedTime: args.time,
+          requestedDate: args.date,
+        })
       const coercedScheduleDate = coerceSchedulingDateToCurrentContext({
-        dateValue:
-          resolveTemporalDateFromLeadMessage({
-            leadMessage: params.leadMessageContext,
-            timezone: params.config.timezone || "America/Sao_Paulo",
-            timeValue: args.time,
-          }) || args.date,
+        dateValue: explicitLeadDate || recentSlotDateHint || args.date,
         timeValue: args.time,
         timezone: params.config.timezone || "America/Sao_Paulo",
       })
@@ -5896,13 +5974,21 @@ export class NativeAgentOrchestratorService {
         }
       }
 
+      const explicitLeadDate = resolveTemporalDateFromLeadMessage({
+        leadMessage: params.leadMessageContext,
+        timezone: params.config.timezone || "America/Sao_Paulo",
+        timeValue: args.time,
+      })
+      const recentSlotDateHint = explicitLeadDate
+        ? undefined
+        : await this.resolveRecentScheduleDateHintFromHistory({
+          tenant: params.tenant,
+          sessionId: params.sessionId,
+          requestedTime: args.time,
+          requestedDate: args.date,
+        })
       const coercedEditDate = coerceSchedulingDateToCurrentContext({
-        dateValue:
-          resolveTemporalDateFromLeadMessage({
-            leadMessage: params.leadMessageContext,
-            timezone: params.config.timezone || "America/Sao_Paulo",
-            timeValue: args.time,
-          }) || args.date,
+        dateValue: explicitLeadDate || recentSlotDateHint || args.date,
         timeValue: args.time,
         timezone: params.config.timezone || "America/Sao_Paulo",
       })
