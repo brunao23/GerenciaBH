@@ -143,6 +143,7 @@ export interface NativeAgentConfig {
   calendarMaxAdvanceDays: number
   calendarMaxAdvanceWeeks: number
   calendarMaxAppointmentsPerDay: number
+  calendarMaxSlotsPerQuery: number
   allowOverlappingAppointments: boolean
   calendarBlockedDates: string[]
   calendarBlockedTimeRanges: string[]
@@ -311,6 +312,7 @@ const DEFAULT_BUFFER_MIN = 0
 const DEFAULT_MAX_ADVANCE_DAYS = 30
 const DEFAULT_MAX_ADVANCE_WEEKS = 0
 const DEFAULT_MAX_APPOINTMENTS_PER_DAY = 0
+const DEFAULT_MAX_SLOTS_PER_QUERY = 100
 const DEFAULT_ALLOW_OVERLAPPING_APPOINTMENTS = false
 const DEFAULT_BLOCKED_DATES: string[] = []
 const DEFAULT_BLOCKED_TIME_RANGES: string[] = []
@@ -1059,6 +1061,12 @@ function normalizeConfig(input: any): NativeAgentConfig {
       0,
       300,
     ),
+    calendarMaxSlotsPerQuery: readNumber(
+      raw.calendarMaxSlotsPerQuery,
+      DEFAULT_MAX_SLOTS_PER_QUERY,
+      1,
+      1000,
+    ),
     allowOverlappingAppointments: readBoolean(
       raw.allowOverlappingAppointments,
       DEFAULT_ALLOW_OVERLAPPING_APPOINTMENTS,
@@ -1438,6 +1446,10 @@ export function validateNativeAgentConfig(config: NativeAgentConfig): string | n
       return "calendarMaxAppointmentsPerDay must be >= 0"
     }
 
+    if (config.calendarMaxSlotsPerQuery < 1 || config.calendarMaxSlotsPerQuery > 1000) {
+      return "calendarMaxSlotsPerQuery must be between 1 and 1000"
+    }
+
     if (!config.calendarBusinessDays || config.calendarBusinessDays.length === 0) {
       return "calendarBusinessDays must have at least one day"
     }
@@ -1638,6 +1650,7 @@ export async function updateNativeAgentConfigForTenant(
       calendarMaxAdvanceDays: config.calendarMaxAdvanceDays,
       calendarMaxAdvanceWeeks: config.calendarMaxAdvanceWeeks,
       calendarMaxAppointmentsPerDay: config.calendarMaxAppointmentsPerDay,
+      calendarMaxSlotsPerQuery: config.calendarMaxSlotsPerQuery,
       allowOverlappingAppointments: config.allowOverlappingAppointments,
       calendarBlockedDates: config.calendarBlockedDates,
       calendarBlockedTimeRanges: config.calendarBlockedTimeRanges,

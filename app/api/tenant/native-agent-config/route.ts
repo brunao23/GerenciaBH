@@ -528,6 +528,7 @@ export async function POST(req: Request) {
       calendarMaxAdvanceDays: 30,
       calendarMaxAdvanceWeeks: 0,
       calendarMaxAppointmentsPerDay: 0,
+      calendarMaxSlotsPerQuery: 100,
       allowOverlappingAppointments: false,
       calendarBlockedDates: [],
       calendarBlockedTimeRanges: [],
@@ -1016,6 +1017,12 @@ export async function POST(req: Request) {
         current.calendarMaxAppointmentsPerDay,
         0,
         300,
+      ),
+      calendarMaxSlotsPerQuery: toNumber(
+        body?.calendarMaxSlotsPerQuery,
+        current.calendarMaxSlotsPerQuery,
+        1,
+        1000,
       ),
       allowOverlappingAppointments: toBool(
         body?.allowOverlappingAppointments,

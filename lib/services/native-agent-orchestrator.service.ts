@@ -5110,6 +5110,10 @@ export class NativeAgentOrchestratorService {
     const lunchBreakRule = config.calendarLunchBreakEnabled
       ? `- HORARIO DE ALMOCO (bloqueado para agendamentos): ${config.calendarLunchBreakStart || "12:00"} ate ${config.calendarLunchBreakEnd || "13:00"}. NUNCA oferecer ou aceitar horario dentro deste periodo.`
       : "- Sem horario de almoco configurado."
+    const tenantHoursTalkingRule =
+      tenantPrefix === "bia_vox"
+        ? '- AO FALAR DOS HORARIOS DE ATENDIMENTO DA UNIDADE, USE ESTA FORMULACAO COMO REFERENCIA: "Temos horarios de segunda a sexta das 9h as 19h (com pausa das 12h as 14h) e sabado ate meio-dia."'
+        : ""
 
     const googleEventsRule = config.calendarCheckGoogleEvents !== false && config.googleCalendarEnabled
       ? "- O sistema verifica eventos no Google Agenda automaticamente. Se um horario estiver ocupado no Google Calendar, ele NAO aparecera nos slots disponiveis."
@@ -5124,8 +5128,11 @@ export class NativeAgentOrchestratorService {
       : ""
     const inboundAudioRule = [
       "- AUDIO DO LEAD E UM CANAL VALIDO E DEVE SER ATENDIDO NORMALMENTE.",
+      "- SE O LEAD PERGUNTAR SE PODE ENVIAR AUDIO, SE PREFERE EXPLICAR POR AUDIO OU DISSER QUE VAI MANDAR AUDIO, RESPONDA CONFIRMANDO DE FORMA CLARA E NATURAL QUE PODE ENVIAR SIM.",
+      "- NESSE CENARIO, CONFIRME EXPLICITAMENTE QUE PODE ENVIAR SIM E QUE VOCE VAI ANALISAR COM ATENCAO E RESPONDER COM PRECISAO.",
       "- Quando houver transcricao de audio no contexto, trate essa transcricao como fala real do lead, com o mesmo peso de uma mensagem digitada.",
       "- NUNCA diga que o lead precisa digitar porque enviou audio, nem que audio nao e aceito, se a transcricao ja estiver disponivel.",
+      "- AO INTERPRETAR AUDIO, PRESERVE COM MAXIMA FIDELIDADE NOMES, NUMEROS, DATAS, HORARIOS, VALORES E DETALHES CONCRETOS.",
       "- Se a transcricao vier como [audio_sem_fala_inteligivel], peca de forma curta e natural para o lead repetir o ponto principal por audio ou texto.",
     ].join("\n")
     const contextHint = String(ctx.contextHint || "").trim()
@@ -5310,6 +5317,7 @@ export class NativeAgentOrchestratorService {
         holidaysRule,
         blockedDatesRule,
         blockedTimesRule,
+        tenantHoursTalkingRule,
         dayScheduleRule,
         lunchBreakRule,
         googleEventsRule,
@@ -5476,6 +5484,7 @@ export class NativeAgentOrchestratorService {
       holidaysRule,
       blockedDatesRule,
       blockedTimesRule,
+      tenantHoursTalkingRule,
       dayScheduleRule,
       lunchBreakRule,
       googleEventsRule,
@@ -5785,6 +5794,14 @@ export class NativeAgentOrchestratorService {
 
     if (name === "get_available_slots") {
       const timezone = params.config.timezone || "America/Sao_Paulo"
+      const configuredMaxSlots = Math.max(
+        1,
+        Math.min(1000, Number(params.config.calendarMaxSlotsPerQuery || 100)),
+      )
+      const requestedMaxSlots =
+        args.max_slots !== undefined && Number.isFinite(Number(args.max_slots))
+          ? Number(args.max_slots)
+          : undefined
       const leadDateHint = resolveTemporalDateFromLeadMessage({
         leadMessage: params.leadMessageContext,
         timezone,
@@ -5805,9 +5822,9 @@ export class NativeAgentOrchestratorService {
             timezone,
           }),
         max_slots:
-          args.max_slots !== undefined && Number.isFinite(Number(args.max_slots))
-            ? Number(args.max_slots)
-            : undefined,
+          requestedMaxSlots !== undefined
+            ? Math.max(configuredMaxSlots, requestedMaxSlots)
+            : configuredMaxSlots,
       }
 
       const result = await this.getAvailableSlots({
@@ -6460,7 +6477,6 @@ export class NativeAgentOrchestratorService {
         5,
         Math.min(240, Number(params.config.calendarEventDurationMinutes || 50)),
       )
-      const maxSlots = Math.max(1, Math.min(1000, Number(params.action.max_slots || 500)))
 
       const defaultBusinessStart = parseTimeToMinutes(params.config.calendarBusinessStart || "08:00")
       const defaultBusinessEnd = parseTimeToMinutes(params.config.calendarBusinessEnd || "20:00")
@@ -6525,6 +6541,12 @@ export class NativeAgentOrchestratorService {
       const startDateIso = formatDateFromParts(requestedStart)
       const endReference = requestedEnd || addMinutesToParts(requestedStart, 24 * 60 * 7)
       const endDateIso = formatDateFromParts(endReference)
+      const isExactSingleDayQuery = startDateIso === endDateIso
+      const rawMaxSlots = Math.max(1, Math.min(1000, Number(params.action.max_slots || 500)))
+      // Para consulta de um dia exato, nunca truncar cedo demais. Caso contrario
+      // horarios validos do fim do expediente somem do payload e a IA conclui
+      // incorretamente que o horario pedido "nao existe".
+      const maxSlots = isExactSingleDayQuery ? Math.max(rawMaxSlots, 120) : rawMaxSlots
       const holidaysInRange =
         params.config.calendarHolidaysEnabled !== false
           ? getBrazilianNationalHolidaysInRange(startDateIso, endDateIso)

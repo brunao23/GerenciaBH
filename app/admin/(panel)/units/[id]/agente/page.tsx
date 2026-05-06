@@ -120,6 +120,7 @@ type TenantNativeAgentConfig = {
   calendarMaxAdvanceDays: number
   calendarMaxAdvanceWeeks: number
   calendarMaxAppointmentsPerDay: number
+  calendarMaxSlotsPerQuery: number
   allowOverlappingAppointments: boolean
   calendarBlockedDates: string[]
   calendarBlockedTimeRanges: string[]
@@ -242,6 +243,7 @@ const defaultConfig: TenantNativeAgentConfig = {
   calendarMaxAdvanceDays: 30,
   calendarMaxAdvanceWeeks: 0,
   calendarMaxAppointmentsPerDay: 0,
+  calendarMaxSlotsPerQuery: 100,
   allowOverlappingAppointments: false,
   calendarBlockedDates: [],
   calendarBlockedTimeRanges: [],
@@ -477,6 +479,9 @@ function normalizeConfig(raw: any): TenantNativeAgentConfig {
     calendarMaxAppointmentsPerDay: Number.isFinite(Number(source.calendarMaxAppointmentsPerDay))
       ? Number(source.calendarMaxAppointmentsPerDay)
       : 0,
+    calendarMaxSlotsPerQuery: Number.isFinite(Number(source.calendarMaxSlotsPerQuery))
+      ? Number(source.calendarMaxSlotsPerQuery)
+      : 100,
     allowOverlappingAppointments: source.allowOverlappingAppointments === true,
     calendarBlockedDates: Array.isArray(source.calendarBlockedDates)
       ? source.calendarBlockedDates
@@ -899,6 +904,10 @@ export default function AdminAgenteIAPage({ params }: { params: Promise<{ id: st
           0,
           Math.min(300, Number(config.calendarMaxAppointmentsPerDay || 0)),
         ),
+        calendarMaxSlotsPerQuery: Math.max(
+          1,
+          Math.min(1000, Number(config.calendarMaxSlotsPerQuery || 100)),
+        ),
         allowOverlappingAppointments: config.allowOverlappingAppointments,
         calendarBlockedDates: parseBlockedDatesInput(calendarBlockedDatesInput),
         calendarBlockedTimeRanges: parseBlockedTimeRangesInput(calendarBlockedTimeRangesInput),
@@ -1262,7 +1271,7 @@ export default function AdminAgenteIAPage({ params }: { params: Promise<{ id: st
             </div>
           </div>
 
-          <div className="grid md:grid-cols-4 gap-4">
+          <div className="grid md:grid-cols-5 gap-4">
             <div className="space-y-2">
               <Label>Humanizacao (%)</Label>
               <Input
@@ -2661,6 +2670,23 @@ export default function AdminAgenteIAPage({ params }: { params: Promise<{ id: st
                   setConfig((prev) => ({
                     ...prev,
                     calendarMaxAppointmentsPerDay: Number(e.target.value || 0),
+                  }))
+                }
+                className="bg-secondary border-border text-foreground"
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Max slots por consulta</Label>
+              <Input
+                type="number"
+                min={1}
+                max={1000}
+                value={config.calendarMaxSlotsPerQuery}
+                onChange={(e) =>
+                  setConfig((prev) => ({
+                    ...prev,
+                    calendarMaxSlotsPerQuery: Number(e.target.value || 100),
                   }))
                 }
                 className="bg-secondary border-border text-foreground"
