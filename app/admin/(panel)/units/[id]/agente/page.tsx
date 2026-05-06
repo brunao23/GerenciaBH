@@ -1271,7 +1271,7 @@ export default function AdminAgenteIAPage({ params }: { params: Promise<{ id: st
             </div>
           </div>
 
-          <div className="grid md:grid-cols-5 gap-4">
+          <div className="grid md:grid-cols-4 gap-4">
             <div className="space-y-2">
               <Label>Humanizacao (%)</Label>
               <Input
@@ -1438,7 +1438,7 @@ export default function AdminAgenteIAPage({ params }: { params: Promise<{ id: st
             />
           </div>
 
-          <div className="grid md:grid-cols-5 gap-4">
+          <div className="grid md:grid-cols-4 gap-4">
             <div className="space-y-2">
               <Label>Delay IA min (s)</Label>
               <Input

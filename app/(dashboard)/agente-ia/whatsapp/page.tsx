@@ -1269,7 +1269,7 @@ export default function AgenteIAPage() {
             </div>
           </div>
 
-          <div className="grid md:grid-cols-5 gap-4">
+          <div className="grid md:grid-cols-4 gap-4">
             <div className="space-y-2">
               <Label>Humanizacao (%)</Label>
               <Input
@@ -1436,7 +1436,7 @@ export default function AgenteIAPage() {
             />
           </div>
 
-          <div className="grid md:grid-cols-5 gap-4">
+          <div className="grid md:grid-cols-4 gap-4">
             <div className="space-y-2">
               <Label>Delay IA min (s)</Label>
               <Input
