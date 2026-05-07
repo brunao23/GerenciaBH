@@ -3749,6 +3749,51 @@ export async function POST(req: NextRequest) {
         .catch(() => { })
     }
 
+    // =========================================================================
+    // PAUSA POR HUMANO — verificação antecipada (ANTES de task intelligence).
+    // Se o lead estiver pausado, interrompemos TUDO aqui:
+    // nenhuma notificação de grupo, nenhum processamento de tarefa, nenhuma IA.
+    // =========================================================================
+    const earlyPauseLookupPhone = normalizeLikelyWhatsappPhone(
+      canonicalPhone || canonicalSessionId || routing.phone || event.phone,
+    )
+    if (earlyPauseLookupPhone && event.callbackType === "received" && event.fromMe !== true) {
+      const earlyPauseState = await getLeadPauseState({ tenant, phone: earlyPauseLookupPhone })
+      if (earlyPauseState?.paused) {
+        const inboundText = String(event.text || "")
+        const explicitResume = detectsExplicitPausedLeadResumeIntent(inboundText)
+
+        if (!explicitResume || earlyPauseState.isManual) {
+          // Lead pausado por humano (ou pausa manual) — silêncio absoluto.
+          // Não notifica grupo, não processa task, não responde.
+          return NextResponse.json({
+            received: true,
+            ignored: true,
+            reason: "ai_paused_by_human",
+            tenant,
+            persisted,
+            pauseReason: earlyPauseState.pauseReason || null,
+            pauseIsManual: earlyPauseState.isManual,
+          })
+        }
+
+        // Pausa automática + lead pediu explicitamente para retomar
+        const releaseResult = await releaseLeadPause({ tenant, phone: earlyPauseLookupPhone })
+        if (!releaseResult.released) {
+          return NextResponse.json({
+            received: true,
+            ignored: true,
+            reason: "ai_paused_by_human",
+            tenant,
+            persisted,
+            pauseReason: earlyPauseState.pauseReason || null,
+            releaseReason: releaseResult.reason || null,
+          })
+        }
+        // Pausa liberada → continua o fluxo normalmente
+      }
+    }
+
     const taskInsightPromise = processConversationTaskIntelligence({
       tenant,
       config,

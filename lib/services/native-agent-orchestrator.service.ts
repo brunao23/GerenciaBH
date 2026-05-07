@@ -1,4 +1,4 @@
-﻿import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
+import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { SemanticCacheService, type CacheHitResult } from "@/lib/services/semantic-cache.service"
 import { getTablesForTenant } from "@/lib/helpers/tenant"
 import { getTableColumns } from "@/lib/helpers/supabase-table-columns"
@@ -6477,6 +6477,13 @@ export class NativeAgentOrchestratorService {
         5,
         Math.min(240, Number(params.config.calendarEventDurationMinutes || 50)),
       )
+      // calendarSlotIntervalMinutes: passo entre slots ofertados (separado da duração).
+      // Ex: duração 50min com intervalo 10min → 08:00, 08:10, 08:20... 17:40, 17:50.
+      // Default = durationMinutes para manter comportamento original.
+      const slotIntervalMinutes = Math.max(
+        5,
+        Math.min(120, Number((params.config as any).calendarSlotIntervalMinutes || durationMinutes)),
+      )
 
       const defaultBusinessStart = parseTimeToMinutes(params.config.calendarBusinessStart || "08:00")
       const defaultBusinessEnd = parseTimeToMinutes(params.config.calendarBusinessEnd || "20:00")
@@ -6734,7 +6741,9 @@ export class NativeAgentOrchestratorService {
           if (!(maxPerDay > 0 && (appointmentStats?.count || 0) >= maxPerDay)) {
             const gcalRangesForDay = googleEventRanges.get(dayIso) || []
 
-            for (let startMinutes = businessStart; startMinutes + durationMinutes + bufferMinutes <= businessEnd; startMinutes += durationMinutes) {
+            // Slot válido se COMEÇA antes do fechamento do expediente.
+            // businessEnd = último horário de início permitido (não de término).
+            for (let startMinutes = businessStart; startMinutes < businessEnd; startMinutes += slotIntervalMinutes) {
               const slotHour = Math.floor(startMinutes / 60)
               const slotMinute = startMinutes % 60
               const slotParts: LocalDateTimeParts = {
@@ -7310,8 +7319,10 @@ export class NativeAgentOrchestratorService {
     const businessEnd = dayWindow.end
 
     const startMinutes = requested.hour * 60 + requested.minute
-    const endMinutesWithBuffer = startMinutes + durationMinutes + bufferMinutes
-    if (startMinutes < businessStart || endMinutesWithBuffer > businessEnd) {
+    // businessEnd representa o ÚLTIMO HORÁRIO DE INÍCIO permitido, não o horário
+    // obrigatório de término. Assim, 17:40 é aceito mesmo que a sessão de 50min
+    // termine às 18:30 quando o expediente encerra às 18:00.
+    if (startMinutes < businessStart || startMinutes >= businessEnd) {
       return { ok: false, error: "outside_business_hours" }
     }
 
@@ -7383,110 +7394,115 @@ export class NativeAgentOrchestratorService {
 
     if (columns.size > 0 && mappedColumns.dateColumn && mappedColumns.timeColumn) {
       const maxPerDay = Math.max(0, Number(params.config.calendarMaxAppointmentsPerDay || 0))
-      if (maxPerDay > 0 || !params.config.allowOverlappingAppointments) {
-        const dateVariants = Array.from(new Set([date, toBrDateFromIso(date)]))
-        const sameDayQuery: any = this.supabase
-          .from(agendamentosTable)
-          .select("*")
-          .in(mappedColumns.dateColumn, dateVariants)
-          .limit(2000)
+      // Sempre buscamos os agendamentos do mesmo dia para:
+      // 1) checar idempotência (mesmo lead+horário → editar ao invés de duplicar)
+      // 2) validar maxPerDay e overlap quando configurados
+      const dateVariants = Array.from(new Set([date, toBrDateFromIso(date)]))
+      const sameDayQuery: any = this.supabase
+        .from(agendamentosTable)
+        .select("*")
+        .in(mappedColumns.dateColumn, dateVariants)
+        .limit(2000)
 
-        const sameDayResult = await sameDayQuery
-        if (sameDayResult.error) {
-          return { ok: false, error: sameDayResult.error.message || "same_day_conflict_check_failed" }
-        }
-        const sameDayRows = Array.isArray(sameDayResult.data) ? sameDayResult.data : []
+      const sameDayResult = await sameDayQuery
+      if (sameDayResult.error) {
+        return { ok: false, error: sameDayResult.error.message || "same_day_conflict_check_failed" }
+      }
+      const sameDayRows = Array.isArray(sameDayResult.data) ? sameDayResult.data : []
 
-        const activeSameDayRows = sameDayRows.filter((row: any) => {
-          const rowDate = normalizeDateToIso(row?.[mappedColumns.dateColumn!])
-          if (rowDate !== date) return false
-          const rowStatus = mappedColumns.statusColumn ? row?.[mappedColumns.statusColumn] : row?.status
-          return !isCancelledAppointmentStatus(rowStatus)
+      const activeSameDayRows = sameDayRows.filter((row: any) => {
+        const rowDate = normalizeDateToIso(row?.[mappedColumns.dateColumn!])
+        if (rowDate !== date) return false
+        const rowStatus = mappedColumns.statusColumn ? row?.[mappedColumns.statusColumn] : row?.status
+        return !isCancelledAppointmentStatus(rowStatus)
+      })
+
+      // -----------------------------------------------------------------------
+      // IDEMPOTÊNCIA CRÍTICA — sempre ativa, independe de allowOverlap/maxPerDay.
+      // Se o mesmo lead já tem o mesmo horário reservado, converte para edição
+      // em vez de inserir um novo registro (previne duplicatas no Berrini e outros).
+      // -----------------------------------------------------------------------
+      const normalizedPhone = normalizePhoneNumber(params.phone)
+      const normalizedSession = normalizeSessionId(params.sessionId)
+      const requestedTime = normalizeTimeToHHmm(time)
+      if (requestedTime) {
+        const sameLeadSameSlot = activeSameDayRows.find((row: any) => {
+          const rowTime = normalizeTimeToHHmm(row?.[mappedColumns.timeColumn!])
+          if (!rowTime || rowTime !== requestedTime) return false
+
+          const phoneMatches =
+            mappedColumns.phoneColumns.length > 0 &&
+            mappedColumns.phoneColumns.some(
+              (column) => normalizePhoneNumber(String(row?.[column] || "")) === normalizedPhone,
+            )
+          const sessionMatches =
+            mappedColumns.sessionColumns.length > 0 &&
+            mappedColumns.sessionColumns.some(
+              (column) => normalizeSessionId(String(row?.[column] || "")) === normalizedSession,
+            )
+          return phoneMatches || sessionMatches
         })
 
-        // Idempotencia critica: se o mesmo lead ja reservou o mesmo horario,
-        // converte para edicao do agendamento existente em vez de tratar como conflito.
-        const normalizedPhone = normalizePhoneNumber(params.phone)
-        const normalizedSession = normalizeSessionId(params.sessionId)
-        const requestedTime = normalizeTimeToHHmm(time)
-        if (requestedTime) {
-          const sameLeadSameSlot = activeSameDayRows.find((row: any) => {
-            const rowTime = normalizeTimeToHHmm(row?.[mappedColumns.timeColumn!])
-            if (!rowTime || rowTime !== requestedTime) return false
-
-            const phoneMatches =
-              mappedColumns.phoneColumns.length > 0 &&
-              mappedColumns.phoneColumns.some(
-                (column) => normalizePhoneNumber(String(row?.[column] || "")) === normalizedPhone,
-              )
-            const sessionMatches =
-              mappedColumns.sessionColumns.length > 0 &&
-              mappedColumns.sessionColumns.some(
-                (column) => normalizeSessionId(String(row?.[column] || "")) === normalizedSession,
-              )
-            return phoneMatches || sessionMatches
+        const existingId = String(sameLeadSameSlot?.id || "").trim()
+        if (existingId) {
+          return this.editAppointment({
+            tenant: params.tenant,
+            phone: params.phone,
+            sessionId: params.sessionId,
+            contactName: params.contactName,
+            config: params.config,
+            action: {
+              type: "edit_appointment",
+              appointment_id: existingId,
+              old_date: date,
+              old_time: requestedTime,
+              date,
+              time,
+              appointment_mode: appointmentMode,
+              note: params.action.note,
+              customer_email: customerEmail,
+            },
           })
-
-          const existingId = String(sameLeadSameSlot?.id || "").trim()
-          if (existingId) {
-            return this.editAppointment({
-              tenant: params.tenant,
-              phone: params.phone,
-              sessionId: params.sessionId,
-              contactName: params.contactName,
-              config: params.config,
-              action: {
-                type: "edit_appointment",
-                appointment_id: existingId,
-                old_date: date,
-                old_time: requestedTime,
-                date,
-                time,
-                appointment_mode: appointmentMode,
-                note: params.action.note,
-                customer_email: customerEmail,
-              },
-            })
-          }
-        }
-
-        if (maxPerDay > 0 && activeSameDayRows.length >= maxPerDay) {
-          return { ok: false, error: "max_appointments_per_day_reached" }
-        }
-
-        if (!params.config.allowOverlappingAppointments) {
-          const requestedStartMinutes = parseTimeToMinutes(time)
-          if (requestedStartMinutes === null) {
-            return { ok: false, error: "invalid_date_or_time" }
-          }
-          const requestedEndMinutes = requestedStartMinutes + durationMinutes + bufferMinutes
-
-          const overlapsExisting = activeSameDayRows.some((row: any) => {
-            const rowTime = normalizeTimeToHHmm(row?.[mappedColumns.timeColumn!])
-            const rowStartMinutes = rowTime ? parseTimeToMinutes(rowTime) : null
-            if (rowStartMinutes === null) return false
-
-            const rowDuration = Math.max(
-              5,
-              Math.min(
-                240,
-                Number(
-                  row?.duracao_minutos ??
-                    row?.duracao ??
-                    row?.duration_minutes ??
-                    durationMinutes,
-                ),
-              ),
-            )
-            const rowEndMinutes = rowStartMinutes + rowDuration + bufferMinutes
-            return requestedStartMinutes < rowEndMinutes && requestedEndMinutes > rowStartMinutes
-          })
-
-          if (overlapsExisting) {
-            return { ok: false, error: "time_slot_unavailable" }
-          }
         }
       }
+
+      if (maxPerDay > 0 && activeSameDayRows.length >= maxPerDay) {
+        return { ok: false, error: "max_appointments_per_day_reached" }
+      }
+
+      if (!params.config.allowOverlappingAppointments) {
+        const requestedStartMinutes = parseTimeToMinutes(time)
+        if (requestedStartMinutes === null) {
+          return { ok: false, error: "invalid_date_or_time" }
+        }
+        const requestedEndMinutes = requestedStartMinutes + durationMinutes + bufferMinutes
+
+        const overlapsExisting = activeSameDayRows.some((row: any) => {
+          const rowTime = normalizeTimeToHHmm(row?.[mappedColumns.timeColumn!])
+          const rowStartMinutes = rowTime ? parseTimeToMinutes(rowTime) : null
+          if (rowStartMinutes === null) return false
+
+          const rowDuration = Math.max(
+            5,
+            Math.min(
+              240,
+              Number(
+                row?.duracao_minutos ??
+                  row?.duracao ??
+                  row?.duration_minutes ??
+                  durationMinutes,
+              ),
+            ),
+          )
+          const rowEndMinutes = rowStartMinutes + rowDuration + bufferMinutes
+          return requestedStartMinutes < rowEndMinutes && requestedEndMinutes > rowStartMinutes
+        })
+
+        if (overlapsExisting) {
+          return { ok: false, error: "time_slot_unavailable" }
+        }
+      }
+
     }
 
     // --- Check Google Calendar for conflicts (respects allowOverlappingAppointments) ---
