@@ -26,6 +26,7 @@ import {
   getLeadPauseState,
   releaseLeadPause,
 } from "@/lib/services/lead-pause.service"
+import { detectGroupPauseIntent } from "@/lib/services/group-pause-intent.service"
 import { RedisService } from "@/lib/services/redis.service"
 
 export const runtime = "nodejs"
@@ -3375,6 +3376,90 @@ export async function POST(req: NextRequest) {
         shouldTriggerFromExternalStarter = false
         event.metadata.externalStarterBlockedReason = gate.reason
       }
+    }
+
+    if (event.isGroup && event.callbackType === "received" && event.fromMe !== true && !groupActionRequest) {
+      // -----------------------------------------------------------------------
+      // PAUSA LIVRE VIA GRUPO: detecta pedido de pausa sem token estruturado.
+      // Suporta texto ("pausar 5531..."), imagem (print WhatsApp) e áudio transcrito.
+      // Só processa se o grupo for um dos configurados no tenant.
+      // -----------------------------------------------------------------------
+      const allowedGroupsForFreePause = normalizeNotificationGroupTargets(config.toolNotificationTargets)
+      const eventGroupBase = extractEventGroupId(event)
+      const isAllowedGroup =
+        allowedGroupsForFreePause.length > 0 &&
+        !!eventGroupBase &&
+        allowedGroupsForFreePause
+          .map((g) => normalizeGroupIdForComparison(g))
+          .filter(Boolean)
+          .includes(normalizeGroupIdForComparison(eventGroupBase))
+
+      if (isAllowedGroup) {
+        const messageText = String(event.text || event.mediaAnalysis || event.mediaCaption || "").trim()
+        const imageUrl = event.hasMedia && !event.hasAudio && event.mediaUrl
+          ? String(event.mediaUrl || "").trim()
+          : ""
+        const openaiApiKey = String(config.openaiApiKey || process.env.OPENAI_API_KEY || "").trim()
+
+        const pauseIntent = await detectGroupPauseIntent({
+          text: messageText || undefined,
+          imageUrl: imageUrl || undefined,
+          imageCaption: String(event.mediaCaption || "").trim() || undefined,
+          isAudio: event.hasAudio === true,
+          openaiApiKey: openaiApiKey || undefined,
+        })
+
+        if (pauseIntent.detected && pauseIntent.phone) {
+          const targetPhone = pauseIntent.phone
+
+          await pauseAiForLead(tenant, targetPhone, {
+            minutes: 24 * 60,
+            reason: "group_manual_pause",
+          })
+
+          await new AgentTaskQueueService()
+            .cancelPendingFollowups({
+              tenant,
+              sessionId: targetPhone,
+              phone: targetPhone,
+            })
+            .catch(() => {})
+
+          const sourceLabel =
+            pauseIntent.source === "image"
+              ? "imagem"
+              : pauseIntent.source === "audio"
+                ? "áudio"
+                : "texto"
+
+          await new TenantMessagingService()
+            .sendText({
+              tenant,
+              phone: `${eventGroupBase}-group`,
+              sessionId: `${eventGroupBase}-group`,
+              message: `✅ Lead ${targetPhone} pausado via grupo (${sourceLabel}). A IA não responderá até ser despausado.`,
+              source: "group-free-pause",
+              persistInHistory: false,
+            })
+            .catch(() => {})
+
+          return NextResponse.json({
+            received: true,
+            handled: true,
+            reason: "group_free_pause_executed",
+            phone: targetPhone,
+            source: pauseIntent.source,
+            tenant,
+          })
+        }
+      }
+
+      return NextResponse.json({
+        received: true,
+        ignored: true,
+        reason: "group_message_ignored_global",
+        tenant,
+      })
     }
 
     if (event.isGroup && (!groupActionRequest || event.callbackType !== "received" || event.fromMe === true)) {
