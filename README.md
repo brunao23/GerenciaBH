@@ -1,73 +1,71 @@
-# GerencIA - Multi-Tenant AI Dashboard
-> O sistema escalável definitivo para gestão multi-tenant de inteligência artificial aplicada ao WhatsApp. Transforme IA previsional e reativa em dados e resultados mensuráveis acompanhados em tempo real.
+# GerencIA - Plataforma de Inteligência Artificial para Gestão WhatsApp
 
-## 🚀 Arquitetura & Stack Tecnológica
-* **Frontend:** Next.js 16 (App Router), React 19, TypeScript 5.
-* **Estilização:** Tailwind CSS 4 + shadcn/ui.
-* **Backend:** Next.js API Routes com tipagem estrita de Zod.
-* **Banco de Dados:** Supabase (PostgreSQL Cloud) com isolamento nativo (RLS agressivo) suportando provisionamento dinâmico e auto-scaling.
-* **Autenticação:** JWT Customizado implementado via `jose` focado em JWT Claims (stateless Auth), reduzindo gargalos com o banco e elevando performance em edge.
-* **Integrações de Core:** N8N para controle de fluxos, Evolution API / Z-Api para disparos diretos de WhatsApp, Node.js + gRPC (onde aplicável) e Provedores LLM em Pool (OpenAI, Anthropic, Gemini, Vertex).
+> Um ecossistema de infraestrutura robusta, multi-tenant e guiado por IAs autônomas. Criado para automatizar atendimentos e agendamentos médicos/comerciais através da integração profunda entre WhatsApp, Supabase e Google Calendar.
 
 ---
 
-## 📚 Documentação Principal (Source of Truth)
-Para engenheiros e LLMs atuando neste projeto, é **OBRIGATÓRIO** ler o documento de contexto arquitetural antes de realizar qualquer alteração profunda ou criar novas lógicas de webhook/IA:
-👉 **[Ler o CONTEXT.md](./CONTEXT.md)**
+## 📚 Arquitetura Completa e Documentação
+**ATENÇÃO DESENVOLVEDORES E LLMs (Copilot, Cursor, Claude):** 
+O documento primário para compreensão de engenharia, regras inquebráveis, fluxo do webhook, sistemas de pausa e sincronização de agenda está localizado no arquivo `CONTEXT.md`.
+👉 **[LEIA O CONTEXT.MD AQUI](./CONTEXT.md)**
 
 ---
 
-## 🏗️ Padrão Multi-Tenant e Isolamento (CRÍTICO)
-
-A plataforma GerenciaBH opera unicamente através de uma infraestrutura robusta do tipo **SaaS Multi-Tenant**. Cada cliente final ou franqueado opera num casulo de dados virtual isolado por **Prefixos de Tabela Dinâmicos**. Nenhuma consulta deve furar esse padrão.
-
-### Regras Matrix de Operação:
-1. **TABELAS CÓDIGO-FONTE SÃO MUTÁVEIS DADOS SÃO IMUTÁVEIS.** Não use under-the-hood nomenclaturas duras. Se precisa buscar "agendamentos", não declare string bruta na table, prefira `const table = getTablesForTenant(prefix).agendamentos`.
-2. A validade do escopo do inquilino está centralizada: Todo prefixo (`unitPrefix`) está listado no `REGISTERED_TENANTS`.
-3. Validação de Interceptação nas Camadas de Rota (APIs):
-   ```typescript
-   import { getTenantFromRequest } from '@/lib/helpers/api-tenant'
-   // ...
-   const { unitPrefix, error } = await getTenantFromRequest(req)
-   if (error) return new Response('Unauthorized Access', { status: 401 })
-   
-   // Consulta Supabase com Isolamento Seguro:
-   const { data } = await supabase.from(`${unitPrefix}_agendamentos`).select('*')
-   ```
-4. **JWT Isolator Strategy**: Claims transportam dados essenciais `isAdmin`, `unitPrefix` e permissões de ACL limitando a visão estrita do usuário aos dados daquela Unidade. 
+## 🚀 Stack Tecnológica e Engenharia
+* **Frontend:** Next.js 16 (App Router), React 19, Tailwind CSS 4, shadcn/ui.
+* **Backend:** Next.js API Routes / Vercel Serverless.
+* **Banco de Dados:** Supabase (PostgreSQL Cloud) com forte uso de RLS.
+* **Cache & Fila:** Upstash Redis (usado para idempotência de webhooks Z-API e rate-limiting).
+* **LLM Engine:** Arquitetura `LLMFactory` agnóstica. Suporte a Vertex AI (Gemini), OpenAI, Anthropic e Groq. O projeto prioriza Vertex AI e service accounts do GCP para processamento multimodal (transcrição de áudios em grupo, OCR em imagens).
 
 ---
 
-## 🏢 Flexibilidade de Unidades (Tenant Management)
-A lógica suporta e gerencia estruturas corporativas de "Filiais" no mesmo painel através de reconfiguração de estados (semelhante ao Clerk B2B), ativando as `units_registry`.
-- Novas unidades podem ser ligadas mediante a execução de um script SQL gerador da estrutura limpa que herda as views master. Ao adicionar uma unidade nova, você SEMPRE DEVE rodar as migrations essenciais e registrar no Typescript central de constantes.
-- Exemplo das tabelas autogeradas: `{prefix}_agendamentos`, `{prefix}_sofian8n_chat_histories`, `{prefix}_crm_leads`.
+## 🏗️ Operação Multi-Tenant Matrix (CRÍTICO)
+
+A plataforma GerenciaBH opera 100% num modelo **SaaS Multi-Tenant**. Cada clínica ou unidade de negócio opera num silo de dados.
+
+### As Regras Base:
+1. **PREFIXOS DE TABELAS:** Nenhuma IA ou Dev deve rodar selects em tabelas com nomes crus (ex: `agendamentos`). O sistema funciona via duplicidade de schemas por prefixo (`vox_bh_agendamentos`, `vox_sp_crm_leads`).
+2. **HELPER OBRIGATÓRIO:** Toda interação de banco DEVE utilizar `const table = getTablesForTenant(prefix)`.
+3. **ISOLAMENTO NAS ROTAS (JWT):** A rota de API valida o JWT Stateless via `getTenantFromRequest(req)`. O token carrega o escopo de qual unidade o operador pode ver.
+
+---
+
+## 🤖 Orquestração de IA e Integração Google Calendar
+
+Diferente de chatbots comuns, a IA aqui possui livre arbítrio sobre funções restritas (*Function Calling/Tools*). O motor `NativeAgentOrchestrator` executa ações vitais cruzando dados locais com sistemas externos:
+
+1. **`get_available_slots`:** A IA não chuta horários. Ela faz um cross-check em tempo real validando as restrições de horário do painel (almoços, dias úteis, etc), os registros do **Supabase** e bloqueios reais do **Google Calendar** daquela unidade, garantindo slots perfeitos.
+2. **`schedule_appointment`:** Ao agendar, a IA reserva a vaga no Supabase e aciona a sincronização em tempo real via **Google Calendar API** (`GoogleCalendarService`), disparando convites e bloqueando a agenda médica de fato. Reagendamentos (`edit_appointment`) e cancelamentos (`cancel_appointment`) também sincronizam simultaneamente em ambos os serviços.
+
+---
+
+## 🛑 Guardrails, Handoff e Silêncio da IA
+
+A plataforma possui um sistema de defesa robusto implementado direto no Webhook (`app/api/agent/webhooks/zapi/route.ts`).
+- **Pausa Automática:** Acionada se a IA detecta pedido de falar com humano.
+- **Pausa do Painel (Permanente):** Quando o operador manda parar, o campo `paused_until` zera e a IA só volta se autorizada.
+- **Grupo de Inteligência Multimodal:** Um funcionário pode mandar um "Print" do WhatsApp com a foto do lead no grupo. O Vertex AI usa visão computacional (OCR) para extrair o número de telefone da imagem e congelar a automação daquele lead.
+- **Silêncio Absoluto:** Enquanto a IA está pausada, a barreira de *Early Pause* do Webhook garante que absolutamente **nenhuma task intelligence** rode, evitando spam de notificações falsas para a equipe enquanto o humano já estiver conversando.
 
 ---
 
 ## 🛠️ Onboarding e Desenvolvimento Local
 
-**1. Clone e Build (CUIDADO COM REACT 19 PEER DEPS):**
-Para garantir coerência de pacotes na subida do dashboard inteiro instale ignorando dependências conflituosas em pacotes defasados de gráficos ou radix.
+**1. Instalação (Necessário `--legacy-peer-deps` devido ao React 19):**
 ```bash
 npm install --legacy-peer-deps
 ```
 
-**2. Injeção Contextual de Variáveis (Env):**
-As chaves do projeto (`.env.local`) estão bloqueadas. Obtenha as chaves mestras e provisione um Supabase local ou staging key:
+**2. Variáveis Críticas de Ambiente:**
+As chaves do Supabase e da GCP Vertex (`VERTEX_PROJECT_ID`, `VERTEX_SERVICE_ACCOUNT_PRIVATE_KEY`) devem ser preenchidas no `.env.local`. 
 ```env
-# Banco de Dados
-NEXT_PUBLIC_SUPABASE_URL=https://<your-project>.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon-key>
-SUPABASE_SERVICE_ROLE_KEY=<secret> (NUNCA NO FRONTEND)
+NEXT_PUBLIC_SUPABASE_URL=https://<seu-projeto>.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<sua-chave>
+SUPABASE_SERVICE_ROLE_KEY=<secret>
 ```
 
-**3. Test Drive:**
+**3. Iniciar Servidor:**
 ```bash
 npm run dev
 ```
-
-## 🔒 Postura de Segurança Defensiva e Git
-O `.gitignore` restringe **completamente** diretórios provados em vazamento: (Configs de IA e IDE como `.agent`, `.claude`, `.cursor`).
-- Ao implementar views e server actions, execute o fetch sob o wrapper de Server Authentication do Supabase Auth Helpers ou JWT local.
-- Respeitar estritamente a divisão de rotas predefinida: `/app/(dashboard)/` (Interfaces dos Clientes Tenants) x `/app/admin/(panel)/` (Área restrita de gestão raiz Genial Labs).
