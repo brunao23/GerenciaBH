@@ -3846,11 +3846,14 @@ export async function POST(req: NextRequest) {
     const earlyPauseLookupPhone = normalizeLikelyWhatsappPhone(
       canonicalPhone || canonicalSessionId || routing.phone || event.phone,
     )
-    if (earlyPauseLookupPhone && event.callbackType === "received" && event.fromMe !== true) {
+    if (earlyPauseLookupPhone && event.callbackType === "received") {
       const earlyPauseState = await getLeadPauseState({ tenant, phone: earlyPauseLookupPhone })
       if (earlyPauseState?.paused) {
-        const inboundText = String(event.text || "")
-        const explicitResume = detectsExplicitPausedLeadResumeIntent(inboundText)
+        let explicitResume = false
+        if (event.fromMe !== true) {
+          const inboundText = String(event.text || "")
+          explicitResume = detectsExplicitPausedLeadResumeIntent(inboundText)
+        }
 
         if (!explicitResume || earlyPauseState.isManual) {
           // Lead pausado por humano (ou pausa manual) — silêncio absoluto.

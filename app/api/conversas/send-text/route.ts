@@ -50,10 +50,7 @@ async function pauseAiForLead(tenant: string, phone: string, pausedUntil?: strin
     updated_at: nowIso,
     pausado_em: nowIso,
     pause_reason: "manual_human_panel",
-  }
-
-  if (pausedUntil) {
-    payload.paused_until = pausedUntil
+    paused_until: pausedUntil || null,
   }
 
   let upsert = await supabase
