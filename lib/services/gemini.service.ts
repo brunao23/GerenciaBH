@@ -803,7 +803,7 @@ export class GeminiService {
     const mimeType = String(input.mimeType || "").trim() || "audio/ogg"
     const prompt = String(
       input.prompt ||
-      "Transcreva fielmente o audio em portugues do Brasil. Retorne apenas a transcricao em texto, sem explicacoes.",
+      "Transcreva fielmente o audio em portugues do Brasil. Preserve com maxima precisao nomes, numeros, datas, horarios, valores, e-mails, telefones e detalhes concretos. Nao resuma, nao reescreva, nao corrija sentido, nao invente palavras. Retorne apenas a transcricao em texto, sem explicacoes.",
     ).trim()
 
     const payload = {

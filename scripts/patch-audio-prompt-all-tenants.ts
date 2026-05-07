@@ -14,6 +14,8 @@ import { normalizeTenant } from "../lib/helpers/normalize-tenant"
 const AUDIO_PROMPT_BLOCK = [
   "## REGRAS DE AUDIO DO LEAD (OBRIGATORIAS):",
   "- O usuario pode enviar audio normalmente. Audio e um formato valido de atendimento.",
+  "- Se o lead perguntar se pode mandar audio, se prefere explicar por audio ou disser que vai enviar audio, responda de forma curta e natural confirmando que pode enviar sim.",
+  "- Quando o lead pedir esse formato, confirme explicitamente que pode enviar sim e que voce vai analisar com atencao e responder com precisao.",
   "- Quando o sistema fornecer a transcricao do audio, trate essa transcricao como a mensagem real do lead, com o mesmo peso de uma mensagem digitada.",
   "- NUNCA recuse atendimento por ser audio e NUNCA diga que o lead precisa digitar se a transcricao estiver disponivel.",
   "- Ao interpretar audio, preserve com maxima atencao nomes, numeros, datas, horarios, valores e detalhes concretos mencionados pelo lead.",
@@ -22,21 +24,16 @@ const AUDIO_PROMPT_BLOCK = [
 
 function patchPromptBase(promptBase?: string): { nextPromptBase: string; changed: boolean } {
   const current = String(promptBase || "").trim()
-  const normalized = current.toLowerCase()
-
-  if (
-    normalized.includes("## regras de audio do lead (obrigatorias):".toLowerCase()) ||
-    normalized.includes("o usuario pode enviar audio normalmente")
-  ) {
-    return {
-      nextPromptBase: current,
-      changed: false,
-    }
-  }
+  const withoutExistingAudioBlock = current
+    .replace(/\n{0,2}## REGRAS DE AUDIO DO LEAD \(OBRIGATORIAS\):[\s\S]*$/i, "")
+    .trim()
+  const nextPromptBase = withoutExistingAudioBlock
+    ? `${withoutExistingAudioBlock}\n\n${AUDIO_PROMPT_BLOCK}`
+    : AUDIO_PROMPT_BLOCK
 
   return {
-    nextPromptBase: current ? `${current}\n\n${AUDIO_PROMPT_BLOCK}` : AUDIO_PROMPT_BLOCK,
-    changed: true,
+    nextPromptBase,
+    changed: nextPromptBase !== current,
   }
 }
 

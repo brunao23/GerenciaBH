@@ -445,29 +445,29 @@ function extractMediaPayload(payload: any): ExtractedMediaPayload {
 
   const imageNode = asObject(
     event?.image ||
-      event?.media?.image ||
-      message?.imageMessage ||
-      data?.image ||
-      data?.media?.image ||
-      dataMessage?.imageMessage,
+    event?.media?.image ||
+    message?.imageMessage ||
+    data?.image ||
+    data?.media?.image ||
+    dataMessage?.imageMessage,
   )
   const videoNode = asObject(
     event?.video ||
-      event?.media?.video ||
-      message?.videoMessage ||
-      data?.video ||
-      data?.media?.video ||
-      dataMessage?.videoMessage,
+    event?.media?.video ||
+    message?.videoMessage ||
+    data?.video ||
+    data?.media?.video ||
+    dataMessage?.videoMessage,
   )
   const documentNode = asObject(
     event?.document ||
-      event?.file ||
-      event?.media?.document ||
-      message?.documentMessage ||
-      data?.document ||
-      data?.file ||
-      data?.media?.document ||
-      dataMessage?.documentMessage,
+    event?.file ||
+    event?.media?.document ||
+    message?.documentMessage ||
+    data?.document ||
+    data?.file ||
+    data?.media?.document ||
+    dataMessage?.documentMessage,
   )
 
   const explicitMediaType: ZapiMediaType | undefined = imageNode && Object.keys(imageNode).length
@@ -2576,7 +2576,7 @@ async function pauseAiForLead(
     })
     .in("phone_number", phoneVariants)
     .eq("is_active", true)
-    .then(null, () => {})
+    .then(null, () => { })
 }
 
 async function unpauseAiForLead(tenant: string, phone: string): Promise<void> {
@@ -3495,7 +3495,7 @@ export async function POST(req: NextRequest) {
             sessionId: targetPhone,
             phone: targetPhone,
           })
-          .catch(() => {})
+          .catch(() => { })
       } else {
         await unpauseAiForLead(tenant, targetPhone)
       }
@@ -3515,7 +3515,7 @@ export async function POST(req: NextRequest) {
           source: "group-followup-action",
           persistInHistory: false,
         })
-        .catch(() => {})
+        .catch(() => { })
 
       return NextResponse.json({
         received: true,
@@ -3662,7 +3662,7 @@ export async function POST(req: NextRequest) {
             dedupeKey: `call_event:${canonicalSessionId}:${phoneToPause}:10`,
             dedupeWindowSeconds: 900,
           })
-          .catch(() => {})
+          .catch(() => { })
       }
       return NextResponse.json({
         received: true,
@@ -3838,7 +3838,7 @@ export async function POST(req: NextRequest) {
             dedupeKey: `lid_no_phone:${canonicalSessionId}`,
             dedupeWindowSeconds: 300,
           })
-          .catch(() => {})
+          .catch(() => { })
       }
       console.log(
         `[zapi-webhook] ⚠️ @lid contact sem telefone: tenant=${tenant} lid=${event.chatLid || replyPhone} canal=${event.channelSource || "?"} session=${canonicalSessionId}`,
