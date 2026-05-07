@@ -3399,12 +3399,20 @@ export async function POST(req: NextRequest) {
         const imageUrl = event.hasMedia && !event.hasAudio && event.mediaUrl
           ? String(event.mediaUrl || "").trim()
           : ""
+        const audioUrl = event.hasAudio && event.audioUrl
+          ? String(event.audioUrl || "").trim()
+          : ""
+        const audioBase64 = event.hasAudio && event.audioBase64
+          ? String(event.audioBase64 || "").trim()
+          : ""
 
         const pauseIntent = await detectGroupPauseIntent({
           text: messageText || undefined,
           imageUrl: imageUrl || undefined,
           imageCaption: String(event.mediaCaption || "").trim() || undefined,
-          isAudio: event.hasAudio === true,
+          audioUrl: audioUrl || undefined,
+          audioBase64: audioBase64 || undefined,
+          audioMimeType: String(event.audioMimeType || "audio/ogg").trim() || undefined,
         })
 
         if (pauseIntent.detected && pauseIntent.phone) {
