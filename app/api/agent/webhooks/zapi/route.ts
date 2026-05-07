@@ -3413,7 +3413,6 @@ export async function POST(req: NextRequest) {
           const targetPhone = pauseIntent.phone
 
           await pauseAiForLead(tenant, targetPhone, {
-            minutes: 24 * 60,
             reason: "group_manual_pause",
           })
 
@@ -3571,7 +3570,6 @@ export async function POST(req: NextRequest) {
 
       if (parsedToken.action === "pause") {
         await pauseAiForLead(tenant, targetPhone, {
-          minutes: 24 * 60,
           reason: "group_manual_pause",
         })
         await new AgentTaskQueueService()
