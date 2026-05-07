@@ -4,11 +4,13 @@
  * Detecta intenção de pausar um lead a partir de mensagens enviadas dentro
  * dos grupos configurados no tenant. Suporta:
  *   - Texto livre: "pausar 5511999998888", "pause esse número 11999998888"
- *   - Imagem (print de WhatsApp): OCR via GPT-4o Vision extrai o número
+ *   - Imagem (print de WhatsApp): análise via Vertex AI (Gemini) extrai o número
  *   - Áudio transcrito: mesmo parsing de texto livre
  *
  * Uso interno exclusivo — chamado pelo webhook zapi/route.ts.
  */
+
+import { VertexAIService } from "@/lib/services/vertexai.service"
 
 // ─── tipos ─────────────────────────────────────────────────────────────────
 
@@ -117,19 +119,21 @@ export function detectPauseIntentFromText(text: string): GroupPauseIntentResult 
 // ─── detecção via imagem (GPT-4o Vision) ────────────────────────────────────
 
 /**
- * Analisa uma imagem (URL ou base64 data-url) com GPT-4o Vision para:
- * 1. Determinar se é um print de conversa WhatsApp com pedido de pausa
- * 2. Extrair o número de telefone do remetente da conversa
+ * Analisa uma imagem (URL pública) com Vertex AI (Gemini) para:
+ * 1. Determinar se é um print de conversa WhatsApp
+ * 2. Extrair o número de telefone do contato/remetente visível
  */
 export async function detectPauseIntentFromImage(params: {
-  imageUrl: string          // URL pública ou data:image/...;base64,...
-  openaiApiKey: string
-  caption?: string          // legenda da imagem (texto junto à foto)
+  imageUrl: string
+  caption?: string
+  vertexProjectId?: string
+  vertexLocation?: string
+  vertexModel?: string
 }): Promise<GroupPauseIntentResult> {
-  const { imageUrl, openaiApiKey, caption } = params
+  const { imageUrl, caption } = params
 
-  if (!imageUrl || !openaiApiKey) {
-    return { detected: false, reason: "missing_image_or_key" }
+  if (!imageUrl) {
+    return { detected: false, reason: "missing_image_url" }
   }
 
   // Se a legenda já tiver pedido de pausa E número → evita chamada Vision
@@ -138,77 +142,84 @@ export async function detectPauseIntentFromImage(params: {
     if (fromCaption.detected) return { ...fromCaption, source: "image" }
   }
 
-  const systemPrompt = [
-    "Você é um sistema de extração de dados de imagens de conversas WhatsApp.",
-    "Analise a imagem enviada e responda APENAS com um JSON no formato:",
-    '{"is_whatsapp_screenshot": true/false, "has_pause_request": true/false, "phone_number": "5531999998888_ou_null"}',
+  const projectId = String(
+    params.vertexProjectId ||
+    process.env.VERTEX_PROJECT_ID ||
+    process.env.GOOGLE_CLOUD_PROJECT ||
+    "",
+  ).trim()
+
+  if (!projectId) {
+    return { detected: false, reason: "vertex_project_id_not_configured" }
+  }
+
+  // Baixa a imagem e converte para base64
+  let imageBase64 = ""
+  let mimeType = "image/jpeg"
+  try {
+    const imgResponse = await fetch(imageUrl, { signal: AbortSignal.timeout(10_000) })
+    if (!imgResponse.ok) {
+      return { detected: false, reason: `image_fetch_error_${imgResponse.status}` }
+    }
+    const contentType = imgResponse.headers.get("content-type") || ""
+    if (contentType.includes("image/")) {
+      mimeType = contentType.split(";")[0].trim()
+    }
+    const buffer = await imgResponse.arrayBuffer()
+    imageBase64 = Buffer.from(buffer).toString("base64")
+  } catch (err: any) {
+    return { detected: false, reason: `image_fetch_exception: ${String(err?.message || err)}` }
+  }
+
+  if (!imageBase64) {
+    return { detected: false, reason: "image_base64_empty" }
+  }
+
+  const prompt = [
+    "Analise esta imagem. Ela pode ser um print (screenshot) de conversa do WhatsApp.",
+    "Responda APENAS com JSON no formato:",
+    '{"is_whatsapp_screenshot": true/false, "phone_number": "5531999998888_ou_null"}',
     "",
     "Regras:",
-    "- is_whatsapp_screenshot: true se a imagem parece ser um print de conversa WhatsApp",
-    "- has_pause_request: true se há texto indicando que alguém quer pausar, parar, silenciar a IA ou o bot para esse contato",
-    "- phone_number: número de telefone visível na imagem (remetente/contato da conversa). Incluir DDI 55 se for número brasileiro. Retorne null se não encontrar.",
-    "- Se não for screenshot de WhatsApp, retorne is_whatsapp_screenshot: false e os demais como false/null",
-    "- RESPONDA APENAS O JSON SEM MARKDOWN",
+    "- is_whatsapp_screenshot: true se parece ser screenshot de conversa WhatsApp",
+    "- phone_number: número de telefone visível (remetente ou contato da conversa). Inclua DDI 55 se for Brasil. Retorne null se não encontrar.",
+    "- RESPONDA APENAS O JSON, SEM MARKDOWN, SEM EXPLICAÇÃO.",
+    caption ? `\nLegenda da imagem: "${caption}"` : "",
   ].join("\n")
 
   try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${openaiApiKey}`,
-      },
-      body: JSON.stringify({
-        model: "gpt-4o",
-        max_tokens: 256,
-        messages: [
-          {
-            role: "system",
-            content: systemPrompt,
-          },
-          {
-            role: "user",
-            content: [
-              {
-                type: "image_url",
-                image_url: {
-                  url: imageUrl,
-                  detail: "low", // low = mais barato, suficiente para extrair número
-                },
-              },
-              caption
-                ? { type: "text", text: `Legenda da imagem: "${caption}"` }
-                : { type: "text", text: "Analise a imagem acima." },
-            ],
-          },
-        ],
-      }),
-      signal: AbortSignal.timeout(15_000),
+    const vertexService = new VertexAIService(
+      projectId,
+      String(params.vertexLocation || process.env.VERTEX_LOCATION || "us-central1").trim(),
+      String(params.vertexModel || process.env.VERTEX_MODEL || "gemini-2.5-flash").trim(),
+    )
+
+    const analysisText = await vertexService.analyzeMedia({
+      mediaBase64: imageBase64,
+      mimeType,
+      mediaType: "image",
+      prompt,
     })
 
-    if (!response.ok) {
-      return { detected: false, reason: `vision_api_error_${response.status}` }
+    // Parse JSON — tolerante a markdown eventual
+    const jsonStr = analysisText.replace(/```json?\n?/gi, "").replace(/```/g, "").trim()
+    const jsonStart = jsonStr.indexOf("{")
+    const jsonEnd = jsonStr.lastIndexOf("}")
+    if (jsonStart < 0 || jsonEnd < jsonStart) {
+      return { detected: false, reason: "vertex_response_no_json" }
     }
 
-    const data = await response.json()
-    const rawContent = String(data?.choices?.[0]?.message?.content || "").trim()
-
-    // Parse JSON — tolerante a markdown eventual
-    const jsonStr = rawContent.replace(/```json?\n?/gi, "").replace(/```/g, "").trim()
     let parsed: Record<string, any>
     try {
-      parsed = JSON.parse(jsonStr)
+      parsed = JSON.parse(jsonStr.slice(jsonStart, jsonEnd + 1))
     } catch {
-      return { detected: false, reason: "vision_response_parse_failed" }
+      return { detected: false, reason: "vertex_response_parse_failed" }
     }
 
     if (!parsed.is_whatsapp_screenshot) {
       return { detected: false, reason: "not_whatsapp_screenshot" }
     }
 
-    // Pedido de pausa NÃO é obrigatório na imagem — a intenção pode vir da
-    // legenda ou do contexto do grupo (operador enviou print para pausar).
-    // Apenas extraímos o número se houver um.
     const rawPhone = String(parsed.phone_number || "").trim()
     if (!rawPhone || rawPhone === "null") {
       return { detected: false, reason: "no_phone_in_image" }
@@ -219,14 +230,9 @@ export async function detectPauseIntentFromImage(params: {
       return { detected: false, reason: "phone_invalid_in_image", rawExtracted: rawPhone }
     }
 
-    return {
-      detected: true,
-      phone: normalized,
-      source: "image",
-      rawExtracted: rawPhone,
-    }
+    return { detected: true, phone: normalized, source: "image", rawExtracted: rawPhone }
   } catch (err: any) {
-    return { detected: false, reason: `vision_exception: ${String(err?.message || err)}` }
+    return { detected: false, reason: `vertex_exception: ${String(err?.message || err)}` }
   }
 }
 
@@ -241,8 +247,12 @@ export interface GroupPauseIntentInput {
   imageCaption?: string
   /** true se veio de transcrição de áudio */
   isAudio?: boolean
-  /** Chave OpenAI para análise de imagem */
-  openaiApiKey?: string
+  /** Vertex AI project ID (usa VERTEX_PROJECT_ID de env se não informado) */
+  vertexProjectId?: string
+  /** Vertex AI location (default: us-central1) */
+  vertexLocation?: string
+  /** Vertex AI model (default: gemini-2.5-flash) */
+  vertexModel?: string
 }
 
 /**
@@ -260,12 +270,14 @@ export async function detectGroupPauseIntent(
     }
   }
 
-  // 2. Imagem — só tenta se tiver API key e URL
-  if (input.imageUrl && input.openaiApiKey) {
+  // 2. Imagem — tenta análise via Vertex AI (VERTEX_PROJECT_ID de env)
+  if (input.imageUrl) {
     const fromImage = await detectPauseIntentFromImage({
       imageUrl: input.imageUrl,
-      openaiApiKey: input.openaiApiKey,
       caption: input.imageCaption || input.text,
+      vertexProjectId: input.vertexProjectId,
+      vertexLocation: input.vertexLocation,
+      vertexModel: input.vertexModel,
     })
     if (fromImage.detected) return fromImage
   }

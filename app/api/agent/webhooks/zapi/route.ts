@@ -3399,14 +3399,12 @@ export async function POST(req: NextRequest) {
         const imageUrl = event.hasMedia && !event.hasAudio && event.mediaUrl
           ? String(event.mediaUrl || "").trim()
           : ""
-        const openaiApiKey = String(config.openaiApiKey || process.env.OPENAI_API_KEY || "").trim()
 
         const pauseIntent = await detectGroupPauseIntent({
           text: messageText || undefined,
           imageUrl: imageUrl || undefined,
           imageCaption: String(event.mediaCaption || "").trim() || undefined,
           isAudio: event.hasAudio === true,
-          openaiApiKey: openaiApiKey || undefined,
         })
 
         if (pauseIntent.detected && pauseIntent.phone) {
