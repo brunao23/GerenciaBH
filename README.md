@@ -11,6 +11,12 @@
 
 ---
 
+## 📚 Documentação Principal (Source of Truth)
+Para engenheiros e LLMs atuando neste projeto, é **OBRIGATÓRIO** ler o documento de contexto arquitetural antes de realizar qualquer alteração profunda ou criar novas lógicas de webhook/IA:
+👉 **[Ler o CONTEXT.md](./CONTEXT.md)**
+
+---
+
 ## 🏗️ Padrão Multi-Tenant e Isolamento (CRÍTICO)
 
 A plataforma GerenciaBH opera unicamente através de uma infraestrutura robusta do tipo **SaaS Multi-Tenant**. Cada cliente final ou franqueado opera num casulo de dados virtual isolado por **Prefixos de Tabela Dinâmicos**. Nenhuma consulta deve furar esse padrão.
