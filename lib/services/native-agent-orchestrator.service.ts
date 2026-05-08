@@ -3831,11 +3831,36 @@ export class NativeAgentOrchestratorService {
       }
     }
     if (!responseText) {
-      return {
-        processed: true,
-        replied: false,
-        actions: actionResults,
-        reason: "empty_reply",
+      if (hasSuccessfulSchedulingAction) {
+        const scheduledExecution = decision.executions.find(
+          (execution) =>
+            execution.ok &&
+            (execution.action.type === "schedule_appointment" ||
+              execution.action.type === "edit_appointment"),
+        )
+        const rawDate = String((scheduledExecution?.action as any)?.date || "").trim()
+        const rawTime = String((scheduledExecution?.action as any)?.time || "").trim()
+        const dateLabel =
+          rawDate && rawDate.includes("-") ? rawDate.split("-").reverse().join("/") : rawDate
+        const modeRaw = String((scheduledExecution?.action as any)?.appointment_mode || "").trim().toLowerCase()
+        const meetLink = String((scheduledExecution?.response as any)?.meetLink || "").trim()
+        const lines = ["Perfeito, seu agendamento esta confirmado."]
+        if (dateLabel || rawTime) {
+          lines.push(
+            `Data${dateLabel ? `: ${dateLabel}` : ""}${rawTime ? `${dateLabel ? " | " : ": "}${rawTime}` : ""}`,
+          )
+        }
+        if (modeRaw === "online" && meetLink) {
+          lines.push(`Google Meet: ${meetLink}`)
+        }
+        responseText = lines.join("\n")
+      } else {
+        return {
+          processed: true,
+          replied: false,
+          actions: actionResults,
+          reason: "empty_reply",
+        }
       }
     }
 
@@ -3917,6 +3942,10 @@ export class NativeAgentOrchestratorService {
             contactName: input.contactName,
           })
           .catch(() => {})
+      }
+
+      if (hasSuccessfulSchedulingAction) {
+        await this.pauseLeadAfterScheduling(tenant, phone).catch(() => {})
       }
 
       // REGRA ABSOLUTA: leads com agendamento ativo JAMAIS recebem follow-up
@@ -7106,6 +7135,7 @@ export class NativeAgentOrchestratorService {
         sessionId: params.sessionId,
         contactName: params.contactName,
         config: params.config,
+        skipPause: true,
         appointmentData: {
           date,
           time,
@@ -7655,6 +7685,7 @@ export class NativeAgentOrchestratorService {
         sessionId: params.sessionId,
         contactName: params.contactName,
         config: params.config,
+        skipPause: true,
         appointmentData: {
           date,
           time,
