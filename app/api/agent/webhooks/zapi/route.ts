@@ -3337,7 +3337,28 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const config = await getNativeAgentConfigForTenant(tenant)
+    let config: Awaited<ReturnType<typeof getNativeAgentConfigForTenant>>
+    try {
+      config = await getNativeAgentConfigForTenant(tenant)
+    } catch (configError: any) {
+      const errorCode = String(configError?.code || configError?.message || "").toLowerCase()
+      if (errorCode.includes("native_agent_registry_unavailable")) {
+        console.error("[zapi-webhook] native agent registry temporarily unavailable:", configError)
+        return NextResponse.json(
+          {
+            received: false,
+            error: "native_agent_registry_unavailable",
+            tenant,
+          },
+          {
+            status: 503,
+            headers: { "Retry-After": "3" },
+          },
+        )
+      }
+      throw configError
+    }
+
     if (!config) {
       return NextResponse.json(
         {

@@ -1176,7 +1176,10 @@ async function findRegistryUnitRow(
   supabase: any,
   lookupCandidates: string[],
   select: string,
-): Promise<any | null> {
+): Promise<{ data: any | null; hadError: boolean; lastError?: any }> {
+  let hadError = false
+  let lastError: any
+
   for (const candidate of lookupCandidates) {
     const { data, error } = await supabase
       .from("units_registry")
@@ -1185,15 +1188,17 @@ async function findRegistryUnitRow(
       .maybeSingle()
 
     if (error) {
+      hadError = true
+      lastError = error
       continue
     }
 
     if (data) {
-      return data
+      return { data, hadError, lastError }
     }
   }
 
-  return null
+  return { data: null, hadError, lastError }
 }
 
 function timeToMinutes(hhmm: string): number {
@@ -1477,7 +1482,15 @@ export async function getNativeAgentConfigForTenant(
   const supabase = createBiaSupabaseServerClient()
   const registryTenant = await resolveTenantRegistryPrefix(normalizedTenant)
   const lookupCandidates = buildRegistryLookupCandidates(normalizedTenant, registryTenant)
-  const data = await findRegistryUnitRow(supabase, lookupCandidates, "metadata")
+  const lookup = await findRegistryUnitRow(supabase, lookupCandidates, "metadata")
+  if (!lookup.data && lookup.hadError) {
+    const err: any = new Error("native_agent_registry_unavailable")
+    err.code = "native_agent_registry_unavailable"
+    err.cause = lookup.lastError
+    throw err
+  }
+
+  const data = lookup.data
   const metadata = safeMetadata(data?.metadata)
   const candidate = metadata.nativeAgent ?? metadata.aiAgent ?? null
 
@@ -1501,7 +1514,11 @@ export async function updateNativeAgentConfigForTenant(
   const supabase = createBiaSupabaseServerClient()
   const registryTenant = await resolveTenantRegistryPrefix(normalizedTenant)
   const lookupCandidates = buildRegistryLookupCandidates(normalizedTenant, registryTenant)
-  const data = await findRegistryUnitRow(supabase, lookupCandidates, "id, metadata")
+  const lookup = await findRegistryUnitRow(supabase, lookupCandidates, "id, metadata")
+  const data = lookup.data
+  if (!data && lookup.hadError) {
+    throw new Error("Unit registry unavailable")
+  }
   if (!data) {
     throw new Error("Unit not found")
   }
