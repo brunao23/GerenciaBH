@@ -7142,6 +7142,13 @@ export class NativeAgentOrchestratorService {
           service: params.action.note,
           appointmentId: String(existingId),
           mode: appointmentMode,
+          previousDate:
+            (dateColumn ? String(existing?.[dateColumn] || "").trim() : oldDate) || undefined,
+          previousTime:
+            (timeColumn
+              ? normalizeTimeToHHmm(existing?.[timeColumn]) ||
+                String(existing?.[timeColumn] || "").trim().slice(0, 5)
+              : oldTime) || undefined,
         },
       })
       .catch(() => {})
@@ -8202,6 +8209,8 @@ export class NativeAgentOrchestratorService {
       service?: string
       appointmentId?: string
       mode?: string
+      previousDate?: string
+      previousTime?: string
     }
   }): Promise<void> {
     if (!params.skipPause) {
@@ -8225,6 +8234,52 @@ export class NativeAgentOrchestratorService {
         console.warn("[native-agent] failed to refresh appointment reminders:", error)
       }),
     ]
+
+    // Fallback global: garante notificacao de sucesso no grupo mesmo se a etapa
+    // anterior de notificacao do tool-flow falhar em algum tenant.
+    const notificationTargets = normalizeNotificationTargets(params.config.toolNotificationTargets)
+    if (
+      params.config.toolNotificationsEnabled &&
+      params.config.notifyOnScheduleSuccess &&
+      notificationTargets.length > 0
+    ) {
+      const isEdit = Boolean(
+        String(params.appointmentData?.previousDate || "").trim() ||
+        String(params.appointmentData?.previousTime || "").trim(),
+      )
+
+      const action: AgentActionPlan = {
+        type: isEdit ? "edit_appointment" : "schedule_appointment",
+        date: params.appointmentData?.date,
+        time: params.appointmentData?.time,
+        note: params.appointmentData?.service,
+        appointment_mode:
+          String(params.appointmentData?.mode || "").toLowerCase() === "online"
+            ? "online"
+            : "presencial",
+        old_date: params.appointmentData?.previousDate,
+        old_time: params.appointmentData?.previousTime,
+      }
+
+      const message = this.buildScheduleSuccessNotification({
+        phone: params.phone,
+        contactName: params.contactName,
+        action,
+        isEdit,
+      })
+      const dedupeKind = isEdit ? "reschedule" : "schedule"
+      const dedupeKey = `schedule_success:${dedupeKind}:${params.phone}:${action.date || ""}:${action.time || ""}`
+
+      tasks.push(
+        this.sendToolNotifications(params.tenant, notificationTargets, message, {
+          anchorSessionId: params.sessionId,
+          dedupeKey,
+          dedupeWindowSeconds: 3600,
+        }).catch((error) => {
+          console.warn("[native-agent] schedule success group notification fallback failed:", error)
+        }),
+      )
+    }
 
     if (params.config.postScheduleWebhookEnabled && params.config.postScheduleWebhookUrl) {
       tasks.push(
