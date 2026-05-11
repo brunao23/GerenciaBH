@@ -2,6 +2,7 @@
 
 import type React from "react"
 import { lazy, Suspense, useState } from "react"
+import { usePathname } from "next/navigation"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "../../components/ui/sidebar"
 import { AppSidebar } from "../../components/app-sidebar"
 import NotificationsMenu from "../../components/notifications-menu"
@@ -15,6 +16,8 @@ const FeedbackWidget = lazy(() => import("../../components/feedback-widget"))
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [onboardingForceOpen, setOnboardingForceOpen] = useState(false)
+  const pathname = usePathname()
+  const isConversationsPage = pathname?.startsWith("/conversas")
 
   return (
     <SidebarProvider>
@@ -36,7 +39,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </button>
             </div>
           </header>
-          <main className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-3 sm:p-4 md:p-6 pb-24 md:pb-6 genial-scrollbar scroll-smooth-gpu safe-area-bottom">
+          <main
+            className={
+              isConversationsPage
+                ? "flex-1 min-h-0 overflow-hidden p-0 genial-scrollbar scroll-smooth-gpu"
+                : "flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-3 sm:p-4 md:p-6 pb-24 md:pb-6 genial-scrollbar scroll-smooth-gpu safe-area-bottom"
+            }
+          >
             {children}
           </main>
           <Suspense fallback={null}>

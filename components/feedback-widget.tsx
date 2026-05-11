@@ -70,8 +70,10 @@ export default function FeedbackWidget() {
     }
   }
 
+  const hideOnConversationsMobile = pathname?.startsWith("/conversas")
+
   return (
-    <div className="fixed bottom-4 left-4 z-[60]">
+    <div className={`${hideOnConversationsMobile ? "hidden md:block " : ""}fixed bottom-4 left-4 z-[60]`}>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger asChild>
           <Button className="bg-accent-green text-black hover:bg-accent-green/90 shadow-[0_10px_30px_rgba(34,197,94,0.22)]">

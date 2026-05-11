@@ -8,6 +8,7 @@ import { useToast } from "@/hooks/use-toast"
 import { Button } from "./ui/button"
 import { Bell, BellOff } from "lucide-react"
 import { useTenant } from "@/lib/contexts/TenantContext"
+import { usePathname } from "next/navigation"
 
 type PostgresChangePayload<T> = {
   schema: string
@@ -48,6 +49,7 @@ function mapNotificationTone(type: string | undefined): "message" | "error" | "v
 export default function NotificationCenter() {
   const { toast } = useToast()
   const { tenant } = useTenant()
+  const pathname = usePathname()
   const [supa, setSupa] = useState<ReturnType<typeof supabaseClient> | null>(null)
   const [muted, setMuted] = useState(false)
   const mounted = useRef(false)
@@ -227,8 +229,10 @@ export default function NotificationCenter() {
     }
   }, [supa, toast, muted, tenant])
 
+  const hideOnConversationsMobile = pathname?.startsWith("/conversas")
+
   return (
-    <div className="fixed bottom-4 right-4 z-[60]">
+    <div className={`${hideOnConversationsMobile ? "hidden md:block " : ""}fixed bottom-4 right-4 z-[60]`}>
       <Button
         onClick={() => setMuted((m) => !m)}
         size="icon"

@@ -18,7 +18,6 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card"
-import { ScrollArea } from "../../../components/ui/scroll-area"
 import { Avatar, AvatarFallback, AvatarImage } from "../../../components/ui/avatar"
 import { Badge } from "../../../components/ui/badge"
 import { Button } from "../../../components/ui/button"
@@ -1361,7 +1360,7 @@ export default function ConversasPage() {
   // Scroll to bottom when changing chat
   useEffect(() => {
     if (scrollAreaRef.current) {
-      const scrollContainer = scrollAreaRef.current.querySelector('[data-radix-scroll-area-viewport]');
+      const scrollContainer = scrollAreaRef.current.querySelector('[data-radix-scroll-area-viewport]') || scrollAreaRef.current;
       if (scrollContainer) {
         scrollContainer.scrollTop = scrollContainer.scrollHeight;
       }
@@ -2226,7 +2225,7 @@ export default function ConversasPage() {
         </CardHeader>
         <CardContent className="p-0 flex-1 min-h-0 overflow-hidden">
           {activeTab === "contatos" && (
-             <ScrollArea className="h-full min-h-0 genial-scrollbar p-4">
+             <div className="h-full min-h-0 overflow-y-auto overscroll-contain touch-pan-y genial-scrollbar p-4">
                 <div className="space-y-4">
                    <h3 className="text-lg font-medium text-pure-white">Novo Contato</h3>
                    <div className="space-y-2">
@@ -2274,11 +2273,11 @@ export default function ConversasPage() {
                      Cadastrar e Salvar
                    </Button>
                 </div>
-             </ScrollArea>
+             </div>
           )}
 
           {activeTab !== "contatos" && (
-            <ScrollArea className="h-full min-h-0 genial-scrollbar bg-gradient-to-b from-transparent via-white/[0.015] to-transparent">
+            <div className="h-full min-h-0 overflow-y-auto overscroll-contain touch-pan-y genial-scrollbar bg-gradient-to-b from-transparent via-white/[0.015] to-transparent">
               {loading ? (
                 <div className="flex items-center justify-center h-32">
                   <Loader2 className="w-6 h-6 animate-spin text-accent-green" />
@@ -2459,7 +2458,7 @@ export default function ConversasPage() {
                 ))}
               </div>
             )}
-            </ScrollArea>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -2649,7 +2648,7 @@ export default function ConversasPage() {
             </CardHeader>
 
             <CardContent className="flex-1 min-h-0 overflow-hidden p-0 bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.08),transparent_28%),radial-gradient(circle_at_bottom_right,rgba(14,165,233,0.06),transparent_26%)]">
-              <ScrollArea ref={scrollAreaRef} className="h-full min-h-0 genial-scrollbar">
+              <div ref={scrollAreaRef} className="h-full min-h-0 overflow-y-auto overscroll-contain touch-pan-y genial-scrollbar">
                 <div className="p-3 sm:p-5 space-y-3 sm:space-y-4">
                   {/* Dados do Formulário */}
                   {current.formData && (
@@ -2788,7 +2787,7 @@ export default function ConversasPage() {
                     )
                   })}
                 </div>
-              </ScrollArea>
+              </div>
             </CardContent>
 
             {/* Footer de Envio de Mensagem */}
