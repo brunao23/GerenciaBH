@@ -490,19 +490,19 @@
 /* WhatsApp-like responsive split for the conversations screen */
 @media (min-width: 1024px) {
   .conversations-whatsapp-shell .conversation-list-panel {
-    width: 420px;
+    width: 440px;
   }
 }
 
 @media (min-width: 1280px) {
   .conversations-whatsapp-shell .conversation-list-panel {
-    width: 480px;
+    width: 520px;
   }
 }
 
 @media (min-width: 1536px) {
   .conversations-whatsapp-shell .conversation-list-panel {
-    width: 540px;
+    width: 600px;
   }
 }
 

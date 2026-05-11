@@ -2337,9 +2337,9 @@ export default function ConversasPage() {
                           </h4>
                           <Badge
                             variant="outline"
-                            className={`text-[10px] px-1.5 py-0 border ${session.channel === "instagram" ? "border-pink-400/60 text-pink-300" : "border-emerald-400/60 text-emerald-300"}`}
+                            className={`shrink-0 justify-center text-[10px] min-w-8 px-1.5 py-0 border ${session.channel === "instagram" ? "border-pink-400/60 text-pink-300" : "border-emerald-400/60 text-emerald-300"}`}
                           >
-                            {session.channel === "instagram" ? "Instagram" : "WhatsApp"}
+                            {session.channel === "instagram" ? "IG" : "WA"}
                           </Badge>
                           {session.error && <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />}
                           {session.success && <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />}
@@ -2399,7 +2399,10 @@ export default function ConversasPage() {
                             </Badge>
                           )}
                         </div>
-                        <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1 genial-scrollbar" onClick={(e) => e.stopPropagation()}>
+                        <div
+                          className={`${active === session.session_id ? "flex" : "hidden group-hover:flex group-focus-within:flex"} mt-2 gap-1.5 overflow-x-auto pb-1 genial-scrollbar`}
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           <Button
                             size="sm"
                             variant="ghost"
@@ -2729,7 +2732,7 @@ export default function ConversasPage() {
                         className={`flex w-full ${isLead ? "justify-end" : "justify-start"}`}
                       >
                         <div
-                          className={`relative max-w-[92%] sm:max-w-[78%] lg:max-w-[66%] xl:max-w-[58%] rounded-[1.35rem] px-4 sm:px-5 py-3 sm:py-4 shadow-lg transition-all hover:shadow-xl ${isLead
+                          className={`relative max-w-[96%] sm:max-w-[88%] lg:max-w-[80%] xl:max-w-[76%] 2xl:max-w-[72%] rounded-[1.35rem] px-4 sm:px-5 py-3 sm:py-4 shadow-lg transition-all hover:shadow-xl ${isLead
                             ? "bg-gradient-to-br from-[#00ff88] to-[#00cc6a] text-black border border-[#00cc6a]/30"
                             : isHuman
                               ? "bg-gradient-to-br from-amber-900/55 to-amber-800/40 text-amber-50 border border-amber-500/50"
@@ -2823,7 +2826,7 @@ export default function ConversasPage() {
                   value={messageInput}
                   onChange={e => setMessageInput(e.target.value)}
                   placeholder="Digite sua resposta aqui... (Enter envia)"
-                  className="min-h-[76px] sm:min-h-[54px] max-h-[150px] rounded-2xl bg-foreground/8 border-white/10 resize-none text-pure-white placeholder:text-gray-600 focus:border-accent-green genial-scrollbar"
+                  className="min-h-[76px] sm:min-h-[52px] max-h-[120px] rounded-2xl bg-foreground/8 border-white/10 resize-none text-pure-white placeholder:text-gray-600 focus:border-accent-green genial-scrollbar"
                   onKeyDown={e => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault()
@@ -2831,12 +2834,12 @@ export default function ConversasPage() {
                     }
                   }}
                 />
-                <div className="grid grid-cols-4 gap-2 sm:flex sm:flex-col sm:shrink-0">
+                <div className="grid grid-cols-4 gap-2 sm:w-[220px] sm:shrink-0">
                   <Button
                     onClick={() => handleGenerateAiSuggestion(false)}
                     disabled={isGeneratingSuggestion || !current}
                     variant="outline"
-                    className="h-11 w-full rounded-2xl border-white/10 text-pure-white hover:bg-white/10 sm:h-[50px] sm:w-[50px]"
+                    className="h-11 w-full rounded-2xl border-white/10 text-pure-white hover:bg-white/10 sm:h-[52px]"
                     title="Gerar resposta contextual com IA"
                   >
                     {isGeneratingSuggestion ? (
@@ -2849,7 +2852,7 @@ export default function ConversasPage() {
                     onClick={() => handleGenerateAiSuggestion(true)}
                     disabled={isGeneratingSuggestion || !current || (!messageInput.trim() && !lastSuggestedText)}
                     variant="outline"
-                    className="h-11 w-full rounded-2xl border-white/10 text-pure-white hover:bg-white/10 sm:h-[50px] sm:w-[50px]"
+                    className="h-11 w-full rounded-2xl border-white/10 text-pure-white hover:bg-white/10 sm:h-[52px]"
                     title="Gerar outra versao da sugestao"
                   >
                     <RefreshCcw className="w-4 h-4" />
@@ -2858,7 +2861,7 @@ export default function ConversasPage() {
                     onClick={handleCopySuggestion}
                     disabled={!messageInput.trim()}
                     variant="outline"
-                    className="h-11 w-full rounded-2xl border-white/10 text-pure-white hover:bg-white/10 sm:h-[50px] sm:w-[50px]"
+                    className="h-11 w-full rounded-2xl border-white/10 text-pure-white hover:bg-white/10 sm:h-[52px]"
                     title="Copiar sugestao"
                   >
                     <Copy className="w-4 h-4" />
@@ -2866,7 +2869,7 @@ export default function ConversasPage() {
                   <Button
                     onClick={handleSendMessage}
                     disabled={!messageInput.trim() || isSending}
-                    className="h-11 w-full rounded-2xl bg-accent-green hover:bg-green-600 shadow-lg shadow-green-900/20 sm:h-[50px] sm:w-[50px]"
+                    className="h-11 w-full rounded-2xl bg-accent-green hover:bg-green-600 shadow-lg shadow-green-900/20 sm:h-[52px]"
                   >
                     {isSending ? (
                       <Loader2 className="w-5 h-5 animate-spin text-white" />
