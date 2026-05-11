@@ -2069,6 +2069,187 @@ const WEEKDAY_REFERENCE_PATTERNS: Array<{ weekday: number; pattern: RegExp }> = 
   { weekday: 7, pattern: /\bdomingo\b/ },
 ]
 
+const WEEKDAY_OUTPUT_REPLACEMENTS: Array<{ weekday: number; pattern: RegExp }> = [
+  { weekday: 1, pattern: /\bsegunda(?:\s*-\s*feira|\s+feira)?\b/gi },
+  { weekday: 2, pattern: /\bter[cç]a(?:\s*-\s*feira|\s+feira)?\b/gi },
+  { weekday: 3, pattern: /\bquarta(?:\s*-\s*feira|\s+feira)?\b/gi },
+  { weekday: 4, pattern: /\bquinta(?:\s*-\s*feira|\s+feira)?\b/gi },
+  { weekday: 5, pattern: /\bsexta(?:\s*-\s*feira|\s+feira)?\b/gi },
+  { weekday: 6, pattern: /\bs[aá]bado(?:\s*-\s*feira|\s+feira)?\b/gi },
+  { weekday: 7, pattern: /\bdomingo\b/gi },
+]
+
+function getWeekdayInfoForDateIso(dateIso?: string | null): { weekday: number; weekday_name_pt: string; date_br: string } | null {
+  const date = normalizeDateToIso(String(dateIso || ""))
+  if (!date) return null
+  const parsed = parseDateTimeParts(date, "12:00")
+  if (!parsed) return null
+  const weekday = localDayOfWeek(parsed)
+  return {
+    weekday,
+    weekday_name_pt: WEEKDAY_NAME_PT[weekday] || "",
+    date_br: formatDateIsoToBr(date),
+  }
+}
+
+function extractReferencedWeekdayFromText(value: any): number | null {
+  const normalized = normalizeComparableMessage(String(value || ""))
+  if (!normalized) return null
+  const match = WEEKDAY_REFERENCE_PATTERNS.find((item) => item.pattern.test(normalized))
+  return match?.weekday || null
+}
+
+function dateIsoMatchesWeekday(dateIso: string | undefined, weekday: number | null): boolean {
+  if (!dateIso || !weekday) return true
+  const info = getWeekdayInfoForDateIso(dateIso)
+  return !info || info.weekday === weekday
+}
+
+function resolveDateFromReferencedWeekday(params: {
+  weekday: number | null
+  leadMessage?: string | null
+  timezone: string
+  timeValue?: any
+}): string | undefined {
+  const referencedWeekday = params.weekday
+  if (!referencedWeekday) return undefined
+
+  const timezone = params.timezone || "America/Sao_Paulo"
+  const nowParts = getNowPartsForTimezone(timezone)
+  const normalized = normalizeComparableMessage(String(params.leadMessage || ""))
+  const normalizedTime = normalizeTimeToHHmm(params.timeValue) || "00:00"
+  const nowComparable = toComparableMs(nowParts)
+  const [resolvedHour, resolvedMinute] = normalizedTime.split(":").map(Number)
+
+  const currentWeekday = localDayOfWeek(nowParts)
+  const explicitTodayReference = /\b(hoje|agora|essa|esta)\b/.test(normalized)
+  let daysAhead = (referencedWeekday - currentWeekday + 7) % 7
+
+  if (daysAhead === 0) {
+    if (explicitTodayReference) {
+      const sameDayCandidate: LocalDateTimeParts = {
+        ...nowParts,
+        hour: Number.isFinite(resolvedHour) ? resolvedHour : 0,
+        minute: Number.isFinite(resolvedMinute) ? resolvedMinute : 0,
+        second: 0,
+      }
+      if (toComparableMs(sameDayCandidate) >= nowComparable) {
+        return formatDateFromParts(sameDayCandidate)
+      }
+    }
+    daysAhead = 7
+  }
+
+  const anchor: LocalDateTimeParts = {
+    ...nowParts,
+    hour: 12,
+    minute: 0,
+    second: 0,
+  }
+  return formatDateFromParts(addMinutesToParts(anchor, daysAhead * 24 * 60))
+}
+
+function coerceDateToLeadWeekdayContext(params: {
+  dateValue?: any
+  leadMessage?: string | null
+  timezone: string
+  timeValue?: any
+}): { date?: string; corrected: boolean; expectedWeekday?: number; originalDate?: string } {
+  const date = typeof params.dateValue === "string" ? normalizeDateToIso(params.dateValue) || params.dateValue : undefined
+  const referencedWeekday = extractReferencedWeekdayFromText(params.leadMessage || "")
+  if (!date || !referencedWeekday || dateIsoMatchesWeekday(date, referencedWeekday)) {
+    return { date, corrected: false, expectedWeekday: referencedWeekday || undefined }
+  }
+
+  const correctedDate = resolveDateFromReferencedWeekday({
+    weekday: referencedWeekday,
+    leadMessage: params.leadMessage,
+    timezone: params.timezone,
+    timeValue: params.timeValue,
+  })
+
+  return {
+    date: correctedDate || date,
+    corrected: Boolean(correctedDate),
+    expectedWeekday: referencedWeekday,
+    originalDate: date,
+  }
+}
+
+function enforceSchedulingResponseWeekdayConsistency(
+  responseText: string,
+  executions: Array<{ ok?: boolean; action?: any; response?: any }> | undefined,
+  timezone: string,
+): string {
+  if (!responseText || !Array.isArray(executions) || !executions.length) return responseText
+
+  const schedulingExecution = executions.find((execution) => {
+    if (!execution?.ok) return false
+    const type = execution.action?.type || execution.response?.action_type
+    return type === "schedule_appointment" || type === "edit_appointment"
+  })
+
+  const slotLookupExecution = schedulingExecution
+    ? undefined
+    : executions.find((execution) => {
+      if (!execution?.ok) return false
+      const type = execution.action?.type || execution.response?.action_type
+      if (type !== "get_available_slots") return false
+      const from = normalizeDateToIso(execution.action?.date_from || execution.response?.searched_date_from)
+      const to = normalizeDateToIso(execution.action?.date_to || execution.response?.searched_date_to)
+      const daysWithFreeSlots = Array.isArray(execution.response?.days_with_free_slots)
+        ? execution.response.days_with_free_slots
+        : []
+      return Boolean(execution.response?.resolved_lead_date_hint || (from && to && from === to) || daysWithFreeSlots.length === 1)
+    })
+
+  const singleSlotDay =
+    Array.isArray(slotLookupExecution?.response?.days_with_free_slots) &&
+      slotLookupExecution?.response?.days_with_free_slots.length === 1
+      ? slotLookupExecution.response.days_with_free_slots[0]?.date
+      : undefined
+  const dateIso =
+    schedulingExecution?.response?.confirmed_date ||
+    schedulingExecution?.response?.date ||
+    schedulingExecution?.action?.date ||
+    slotLookupExecution?.response?.resolved_lead_date_hint ||
+    singleSlotDay ||
+    (normalizeDateToIso(slotLookupExecution?.action?.date_from || slotLookupExecution?.response?.searched_date_from) ===
+      normalizeDateToIso(slotLookupExecution?.action?.date_to || slotLookupExecution?.response?.searched_date_to)
+      ? normalizeDateToIso(slotLookupExecution?.action?.date_from || slotLookupExecution?.response?.searched_date_from)
+      : undefined)
+  const info = getWeekdayInfoForDateIso(dateIso)
+  if (!info?.weekday_name_pt) return responseText
+
+  let next = responseText
+  for (const item of WEEKDAY_OUTPUT_REPLACEMENTS) {
+    if (item.weekday === info.weekday) continue
+    next = next.replace(item.pattern, info.weekday_name_pt)
+  }
+
+  const nowParts = getNowPartsForTimezone(timezone || "America/Sao_Paulo")
+  const targetParts = parseDateTimeParts(String(dateIso || ""), "12:00")
+  const todayComparable = toComparableMs({ ...nowParts, hour: 0, minute: 0, second: 0 })
+  const targetComparable = targetParts
+    ? toComparableMs({ ...targetParts, hour: 0, minute: 0, second: 0 })
+    : null
+  const daysFromToday = targetComparable !== null
+    ? Math.round((targetComparable - todayComparable) / (24 * 60 * 60 * 1000))
+    : null
+
+  if (daysFromToday !== 2) {
+    next = next.replace(/\bdepois\s+de\s+amanh[aã]\b/gi, info.weekday_name_pt)
+  }
+  if (daysFromToday !== 1) {
+    next = next.replace(/\bamanh[aã]\b/gi, info.weekday_name_pt)
+  }
+  if (daysFromToday !== 0) {
+    next = next.replace(/\bhoje\b/gi, info.weekday_name_pt)
+  }
+
+  return next
+}
+
 function resolveTemporalDateFromLeadMessage(params: {
   leadMessage?: string
   timezone: string
@@ -2081,6 +2262,7 @@ function resolveTemporalDateFromLeadMessage(params: {
   if (!normalized) return undefined
 
   const timezone = params.timezone || "America/Sao_Paulo"
+  const referencedWeekday = extractReferencedWeekdayFromText(rawLeadMessage)
   const nowParts = getNowPartsForTimezone(timezone)
   const normalizedTime = normalizeTimeToHHmm(params.timeValue) || "00:00"
   const nowComparable = toComparableMs(nowParts)
@@ -2118,7 +2300,17 @@ function resolveTemporalDateFromLeadMessage(params: {
     const month = Number(isoMatch[2])
     const day = Number(isoMatch[3])
     const iso = toIso(year, month, day)
-    if (iso) return iso
+    if (iso) {
+      if (!dateIsoMatchesWeekday(iso, referencedWeekday)) {
+        return resolveDateFromReferencedWeekday({
+          weekday: referencedWeekday,
+          leadMessage: rawLeadMessage,
+          timezone,
+          timeValue: params.timeValue,
+        }) || iso
+      }
+      return iso
+    }
   }
 
   const brWithYearMatch = normalized.match(/\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/)
@@ -2127,7 +2319,17 @@ function resolveTemporalDateFromLeadMessage(params: {
     const month = Number(brWithYearMatch[2])
     const year = Number(brWithYearMatch[3])
     const iso = resolveBrDateWithOptionalYear(day, month, year)
-    if (iso) return iso
+    if (iso) {
+      if (!dateIsoMatchesWeekday(iso, referencedWeekday)) {
+        return resolveDateFromReferencedWeekday({
+          weekday: referencedWeekday,
+          leadMessage: rawLeadMessage,
+          timezone,
+          timeValue: params.timeValue,
+        }) || iso
+      }
+      return iso
+    }
   }
 
   const brWithoutYearMatch = normalized.match(/\b(\d{1,2})\/(\d{1,2})(?!\/)\b/)
@@ -2135,14 +2337,16 @@ function resolveTemporalDateFromLeadMessage(params: {
     const day = Number(brWithoutYearMatch[1])
     const month = Number(brWithoutYearMatch[2])
     const iso = resolveBrDateWithOptionalYear(day, month)
-    if (iso) return iso
-  }
-
-  let referencedWeekday: number | null = null
-  for (const weekdayRef of WEEKDAY_REFERENCE_PATTERNS) {
-    if (weekdayRef.pattern.test(normalized)) {
-      referencedWeekday = weekdayRef.weekday
-      break
+    if (iso) {
+      if (!dateIsoMatchesWeekday(iso, referencedWeekday)) {
+        return resolveDateFromReferencedWeekday({
+          weekday: referencedWeekday,
+          leadMessage: rawLeadMessage,
+          timezone,
+          timeValue: params.timeValue,
+        }) || iso
+      }
+      return iso
     }
   }
 
@@ -3792,6 +3996,11 @@ export class NativeAgentOrchestratorService {
 
     responseText = fixGreetingTemporalAndVocative(responseText, config, input.contactName)
     responseText = applyTemporalPeriodGuard(responseText, config)
+    responseText = enforceSchedulingResponseWeekdayConsistency(
+      responseText,
+      decision.executions,
+      config.timezone || "America/Sao_Paulo",
+    )
     // Prompt Base e o regente principal do fluxo comercial.
     // Desabilitamos guardas estaticos de qualificacao para evitar conflito com o script do tenant.
     if (isInstagramCommentChannel) {
@@ -3840,8 +4049,10 @@ export class NativeAgentOrchestratorService {
         )
         const rawDate = String((scheduledExecution?.action as any)?.date || "").trim()
         const rawTime = String((scheduledExecution?.action as any)?.time || "").trim()
-        const dateLabel =
-          rawDate && rawDate.includes("-") ? rawDate.split("-").reverse().join("/") : rawDate
+        const confirmedDateInfo = getWeekdayInfoForDateIso(rawDate)
+        const dateLabel = confirmedDateInfo
+          ? `${confirmedDateInfo.weekday_name_pt} (${confirmedDateInfo.date_br})`
+          : rawDate && rawDate.includes("-") ? rawDate.split("-").reverse().join("/") : rawDate
         const modeRaw = String((scheduledExecution?.action as any)?.appointment_mode || "").trim().toLowerCase()
         const meetLink = String((scheduledExecution?.response as any)?.meetLink || "").trim()
         const lines = ["Perfeito, seu agendamento esta confirmado."]
@@ -5188,6 +5399,7 @@ export class NativeAgentOrchestratorService {
       "- [OBRIGATORIO] ANTES de qualquer resposta que mencione datas, dias, horarios, disponibilidade ou 'quando', voce DEVE chamar get_available_slots. SEM EXCECAO.",
       "- [PROIBIDO] NUNCA mencione datas, dias da semana, turnos (manha/tarde/noite) ou horarios sem ANTES chamar get_available_slots e usar os resultados reais da ferramenta.",
       "- [PROIBIDO] NUNCA use seu conhecimento de treinamento para responder sobre disponibilidade. Datas do seu treinamento estao ERRADAS. Use SOMENTE o retorno de get_available_slots.",
+      "- [PROIBIDO] NUNCA calcule dia da semana pela sua memoria. Para falar segunda/terca/quarta/quinta/sexta/sabado/domingo, use SOMENTE weekday_name_pt/date_br retornados pela ferramenta. Se o lead pediu sexta e a ferramenta resolveu outra data, corrija antes de responder.",
       "- [PROIBIDO] NUNCA responda 'amanha tenho horario', 'semana que vem', 'segunda-feira', 'de manha' ou qualquer variacao sem antes chamar a ferramenta.",
       "- [PROIBIDO] NUNCA pergunte 'prefere manha ou tarde?' sem ANTES ter chamado get_available_slots â€” voce precisa saber quais periodos realmente tem vagas antes de oferecer opcoes.",
       "- [PROIBIDO] NUNCA diga 'nao tenho acesso a agenda', 'nao consigo ver agenda' ou 'so tenho acesso a X periodo'. Voce DEVE consultar get_available_slots e responder com base no retorno real.",
@@ -5836,6 +6048,7 @@ export class NativeAgentOrchestratorService {
         timezone,
         timeValue: "12:00",
       })
+      const requestedWeekdayFromLead = extractReferencedWeekdayFromText(params.leadMessageContext || "")
       const action: AgentActionPlan = {
         type: "get_available_slots",
         date_from: coerceSchedulingDateToCurrentContext({
@@ -5886,6 +6099,11 @@ export class NativeAgentOrchestratorService {
           business_days_configured: result.business_days_configured,
           business_hours_per_day: result.business_hours_per_day,
           days_with_free_slots: result.days_with_free_slots,
+          requested_weekday_from_lead: requestedWeekdayFromLead || undefined,
+          requested_weekday_name_pt: requestedWeekdayFromLead
+            ? WEEKDAY_NAME_PT[requestedWeekdayFromLead] || undefined
+            : undefined,
+          resolved_lead_date_hint: leadDateHint,
           error: result.error,
         },
       }
@@ -5919,10 +6137,16 @@ export class NativeAgentOrchestratorService {
         timeValue: args.time,
         timezone: params.config.timezone || "America/Sao_Paulo",
       })
+      const weekdayCoercion = coerceDateToLeadWeekdayContext({
+        dateValue: coercedScheduleDate,
+        leadMessage: params.leadMessageContext,
+        timezone: params.config.timezone || "America/Sao_Paulo",
+        timeValue: args.time,
+      })
 
       const action: AgentActionPlan = {
         type: "schedule_appointment",
-        date: coercedScheduleDate,
+        date: weekdayCoercion.date,
         time: args.time ? String(args.time) : undefined,
         appointment_mode:
           String(args.appointment_mode || "").toLowerCase() === "online" ? "online" : "presencial",
@@ -5989,12 +6213,22 @@ export class NativeAgentOrchestratorService {
         }
       }
 
+      const confirmedDateInfo = getWeekdayInfoForDateIso(action.date)
       return {
         ok: scheduleOk,
         action,
         error: result.error,
         response: {
           ok: scheduleOk,
+          action_type: "schedule_appointment",
+          confirmed_date: action.date,
+          confirmed_time: normalizeTimeToHHmm(action.time) || action.time,
+          confirmed_date_br: confirmedDateInfo?.date_br,
+          confirmed_weekday_number: confirmedDateInfo?.weekday,
+          confirmed_weekday_name_pt: confirmedDateInfo?.weekday_name_pt,
+          weekday_corrected_from_lead: weekdayCoercion.corrected,
+          original_date_from_model: weekdayCoercion.originalDate,
+          expected_weekday_from_lead: weekdayCoercion.expectedWeekday,
           appointmentPersisted: result.ok,
           appointmentId: result.appointmentId,
           eventId: result.eventId,
@@ -6038,13 +6272,19 @@ export class NativeAgentOrchestratorService {
         timeValue: args.time,
         timezone: params.config.timezone || "America/Sao_Paulo",
       })
+      const weekdayCoercion = coerceDateToLeadWeekdayContext({
+        dateValue: coercedEditDate,
+        leadMessage: params.leadMessageContext,
+        timezone: params.config.timezone || "America/Sao_Paulo",
+        timeValue: args.time,
+      })
 
       const action: AgentActionPlan = {
         type: "edit_appointment",
         appointment_id: args.appointment_id ? String(args.appointment_id) : undefined,
         old_date: args.old_date ? String(args.old_date) : undefined,
         old_time: args.old_time ? String(args.old_time) : undefined,
-        date: coercedEditDate,
+        date: weekdayCoercion.date,
         time: args.time ? String(args.time) : undefined,
         appointment_mode:
           String(args.appointment_mode || "").toLowerCase() === "online" ? "online" : "presencial",
@@ -6108,12 +6348,22 @@ export class NativeAgentOrchestratorService {
         }
       }
 
+      const confirmedDateInfo = getWeekdayInfoForDateIso(action.date)
       return {
         ok: result.ok,
         action,
         error: result.error,
         response: {
           ok: result.ok,
+          action_type: "edit_appointment",
+          confirmed_date: action.date,
+          confirmed_time: normalizeTimeToHHmm(action.time) || action.time,
+          confirmed_date_br: confirmedDateInfo?.date_br,
+          confirmed_weekday_number: confirmedDateInfo?.weekday,
+          confirmed_weekday_name_pt: confirmedDateInfo?.weekday_name_pt,
+          weekday_corrected_from_lead: weekdayCoercion.corrected,
+          original_date_from_model: weekdayCoercion.originalDate,
+          expected_weekday_from_lead: weekdayCoercion.expectedWeekday,
           appointmentId: result.appointmentId,
           previousAppointmentId: result.previousAppointmentId,
           eventId: result.eventId,
