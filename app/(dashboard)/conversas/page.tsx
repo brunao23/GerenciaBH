@@ -117,14 +117,6 @@ type PauseStatus = {
   agendamento: boolean
 }
 
-type NativeAgentOverview = {
-  enabled: boolean
-  autoReplyEnabled: boolean
-  webhookEnabled: boolean
-  webhookPrimaryUrl?: string
-  webhookExtraUrls?: string[]
-}
-
 function fmtBR(iso: string | undefined | null) {
   if (!iso) return ""
   const d = new Date(iso)
@@ -756,7 +748,6 @@ export default function ConversasPage() {
   const [clearingMemory, setClearingMemory] = useState(false)
   const [serverSearching, setServerSearching] = useState(false)
   const [detailLoadingSessionId, setDetailLoadingSessionId] = useState<string | null>(null)
-  const [nativeAgentOverview, setNativeAgentOverview] = useState<NativeAgentOverview | null>(null)
   const [busyEvents, setBusyEvents] = useState<Set<string>>(new Set())
   const [saleModal, setSaleModal] = useState<{ open: boolean; session: ChatSession | null }>({ open: false, session: null })
   const [saleForm, setSaleForm] = useState({ amount: "", day: "", month: "", year: "" })
@@ -1084,60 +1075,6 @@ export default function ConversasPage() {
         setServerSearching(false)
       })
   }, [params, tenant])
-
-  useEffect(() => {
-    let active = true
-    if (!tenant?.prefix) {
-      setNativeAgentOverview(null)
-      return
-    }
-
-    fetch("/api/tenant/native-agent-config", {
-      headers: {
-        "x-tenant-prefix": tenant.prefix,
-      },
-      cache: "no-store",
-    })
-      .then(async (response) => {
-        const payload = await response.json().catch(() => ({}))
-        if (!response.ok) {
-          throw new Error(payload?.error || `Erro ao buscar agente nativo (${response.status})`)
-        }
-
-        const config = payload?.config || {}
-        if (!active) return
-
-        setNativeAgentOverview({
-          enabled: config?.enabled === true,
-          autoReplyEnabled: config?.autoReplyEnabled !== false,
-          webhookEnabled: config?.webhookEnabled !== false,
-          webhookPrimaryUrl: String(config?.webhookPrimaryUrl || "").trim() || undefined,
-          webhookExtraUrls: Array.isArray(config?.webhookExtraUrls)
-            ? config.webhookExtraUrls.map((value: any) => String(value || "").trim()).filter(Boolean)
-            : [],
-        })
-      })
-      .catch((error) => {
-        console.error("[Conversas] Erro ao carregar config do agente:", error)
-        if (active) setNativeAgentOverview(null)
-      })
-
-    return () => {
-      active = false
-    }
-  }, [tenant?.prefix])
-
-  const webhookEndpoint = useMemo(() => {
-    const configured = String(nativeAgentOverview?.webhookPrimaryUrl || "").trim()
-    if (configured) return configured
-    if (!tenant?.prefix) return ""
-
-    if (typeof window !== "undefined" && window.location?.origin) {
-      return `${window.location.origin.replace(/\/+$/, "")}/api/agent/webhooks/zapi?tenant=${encodeURIComponent(tenant.prefix)}`
-    }
-
-    return `/api/agent/webhooks/zapi?tenant=${encodeURIComponent(tenant.prefix)}`
-  }, [nativeAgentOverview?.webhookPrimaryUrl, tenant?.prefix])
 
   const currentPausePhone = useMemo(() => {
     return toCanonicalWhatsappPhone(current?.numero)
@@ -2172,10 +2109,10 @@ export default function ConversasPage() {
 
 
   return (
-    <div className="h-full min-h-0 flex flex-col lg:flex-row gap-0 lg:gap-4 overflow-hidden">
+    <div className="h-full min-h-0 flex flex-col lg:flex-row gap-3 lg:gap-4 overflow-hidden">
       {/* Sidebar - Lista de Sessões */}
-      <Card className={`genial-card w-full lg:w-96 min-h-0 flex flex-shrink-0 flex-col overflow-hidden border-border-gray ${showListOnMobile ? "flex" : "hidden lg:flex"}`}>
-        <CardHeader className="border-b border-border-gray pb-3 sm:pb-4 shrink-0 px-3 sm:px-6 pt-3 sm:pt-6">
+      <Card className={`genial-card w-full lg:w-[390px] xl:w-[430px] min-h-0 flex flex-shrink-0 flex-col overflow-hidden border border-white/10 bg-card/95 shadow-2xl shadow-black/20 ${showListOnMobile ? "flex" : "hidden lg:flex"}`}>
+        <CardHeader className="border-b border-white/10 bg-gradient-to-b from-white/[0.04] to-transparent pb-3 sm:pb-4 shrink-0 px-3 sm:px-4 pt-3 sm:pt-4">
           <div className="flex items-center justify-between">
             {isSelectionMode ? (
               <div className="flex items-center gap-2 w-full">
@@ -2205,9 +2142,14 @@ export default function ConversasPage() {
               </div>
             ) : (
               <>
-                <CardTitle className="text-pure-white flex items-center gap-2 text-lg">
-                  <MessageSquare className="w-5 h-5 text-accent-green" />
-                  Conversas ({filtered.length})
+                <CardTitle className="text-pure-white flex items-center gap-2 text-lg leading-tight">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-2xl bg-accent-green/15 ring-1 ring-accent-green/25">
+                    <MessageSquare className="w-4 h-4 text-accent-green" />
+                  </span>
+                  <span>
+                    Conversas
+                    <span className="ml-2 text-sm font-medium text-text-gray">({filtered.length})</span>
+                  </span>
                 </CardTitle>
                 <Button
                   variant="ghost"
@@ -2233,12 +2175,12 @@ export default function ConversasPage() {
           </div>
 
           {activeTab !== "contatos" && (
-            <div className="mt-3 flex items-center gap-2 flex-wrap">
+            <div className="mt-3 grid grid-cols-3 gap-2">
               <Button
                 type="button"
                 size="sm"
                 variant={activeChannelFilter === "all" ? "default" : "outline"}
-                className={`h-7 text-xs ${activeChannelFilter === "all" ? "bg-accent-green text-black hover:bg-accent-green/90" : "border-border-gray text-text-gray hover:text-white"}`}
+                className={`h-8 rounded-xl text-xs ${activeChannelFilter === "all" ? "bg-accent-green text-black hover:bg-accent-green/90" : "border-white/10 bg-white/[0.03] text-text-gray hover:text-white hover:bg-white/[0.06]"}`}
                 onClick={() => setActiveChannelFilter("all")}
               >
                 Todos
@@ -2247,7 +2189,7 @@ export default function ConversasPage() {
                 type="button"
                 size="sm"
                 variant={activeChannelFilter === "whatsapp" ? "default" : "outline"}
-                className={`h-7 text-xs ${activeChannelFilter === "whatsapp" ? "bg-emerald-500 text-black hover:bg-emerald-500/90" : "border-border-gray text-text-gray hover:text-white"}`}
+                className={`h-8 rounded-xl text-xs ${activeChannelFilter === "whatsapp" ? "bg-emerald-500 text-black hover:bg-emerald-500/90" : "border-white/10 bg-white/[0.03] text-text-gray hover:text-white hover:bg-white/[0.06]"}`}
                 onClick={() => setActiveChannelFilter("whatsapp")}
               >
                 WhatsApp
@@ -2256,7 +2198,7 @@ export default function ConversasPage() {
                 type="button"
                 size="sm"
                 variant={activeChannelFilter === "instagram" ? "default" : "outline"}
-                className={`h-7 text-xs ${activeChannelFilter === "instagram" ? "bg-pink-500 text-white hover:bg-pink-500/90" : "border-border-gray text-text-gray hover:text-white"}`}
+                className={`h-8 rounded-xl text-xs ${activeChannelFilter === "instagram" ? "bg-pink-500 text-white hover:bg-pink-500/90" : "border-white/10 bg-white/[0.03] text-text-gray hover:text-white hover:bg-white/[0.06]"}`}
                 onClick={() => setActiveChannelFilter("instagram")}
               >
                 Instagram
@@ -2270,46 +2212,16 @@ export default function ConversasPage() {
               <Loader2 className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-accent-green animate-spin" />
             )}
             <Input
-              placeholder="Buscar por nome, assunto ou número..."
+              placeholder="Buscar por nome, assunto ou telefone..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              className="pl-10 pr-10 bg-secondary-black border-border-gray focus:border-accent-green transition-all"
+              className="h-10 rounded-2xl pl-10 pr-10 bg-secondary-black/80 border-white/10 focus:border-accent-green transition-all"
             />
           </div>
           {trimmedQuery && (
             <p className="text-[11px] text-text-gray mt-2">
-              Destaque: <span className="px-1 rounded bg-green-400/65 text-black">verde</span> termo encontrado,{" "}
-              <span className="px-1 rounded bg-red-500/55 text-red-50">vermelho</span> frase exata.
+              Buscando nas conversas e nos dados do contato.
             </p>
-          )}
-          {tenant?.prefix && (
-            <div className="mt-3 rounded-md border border-border-gray bg-secondary-black/60 p-2 space-y-1">
-              <div className="flex items-center justify-between gap-2 text-[11px]">
-                <span className="text-text-gray">Webhook IA ({tenant.prefix})</span>
-                <span
-                  className={`font-medium ${
-                    nativeAgentOverview?.enabled &&
-                    nativeAgentOverview?.webhookEnabled &&
-                    nativeAgentOverview?.autoReplyEnabled
-                      ? "text-emerald-400"
-                      : "text-amber-400"
-                  }`}
-                >
-                  {nativeAgentOverview?.enabled &&
-                  nativeAgentOverview?.webhookEnabled &&
-                  nativeAgentOverview?.autoReplyEnabled
-                    ? "Ativo"
-                    : "Inativo/Pausado"}
-                </span>
-              </div>
-              <p className="text-[11px] font-mono text-accent-green break-all">{webhookEndpoint || "-"}</p>
-              {Array.isArray(nativeAgentOverview?.webhookExtraUrls) &&
-                nativeAgentOverview!.webhookExtraUrls!.length > 0 && (
-                  <p className="text-[11px] text-text-gray">
-                    Links extras: {nativeAgentOverview!.webhookExtraUrls!.length}
-                  </p>
-                )}
-            </div>
           )}
         </CardHeader>
         <CardContent className="p-0 flex-1 min-h-0 overflow-hidden">
@@ -2366,7 +2278,7 @@ export default function ConversasPage() {
           )}
 
           {activeTab !== "contatos" && (
-            <ScrollArea className="h-full min-h-0 genial-scrollbar">
+            <ScrollArea className="h-full min-h-0 genial-scrollbar bg-gradient-to-b from-transparent via-white/[0.015] to-transparent">
               {loading ? (
                 <div className="flex items-center justify-center h-32">
                   <Loader2 className="w-6 h-6 animate-spin text-accent-green" />
@@ -2383,18 +2295,18 @@ export default function ConversasPage() {
                   <p>{query ? "Nenhuma conversa encontrada" : "Nenhuma conversa disponível"}</p>
                 </div>
               ) : (
-              <div className="divide-y divide-border-gray">
+              <div className="space-y-2 p-2">
                 {filtered.map(({ session }) => (
                   <button
                     key={session.session_id}
                     onClick={() => setActive(session.session_id)}
-                    className={`w-full p-4 text-left transition-all hover:bg-hover-gray ${active === session.session_id
+                    className={`group relative w-full rounded-2xl p-3 sm:p-4 text-left transition-all hover:bg-white/[0.05] hover:shadow-lg hover:shadow-black/20 ${active === session.session_id
                       ? session.channel === "instagram"
-                        ? "bg-pink-500/10 border-l-4 border-pink-400"
-                        : "bg-accent-green/10 border-l-4 border-accent-green"
+                        ? "bg-pink-500/10 ring-1 ring-pink-400/30"
+                        : "bg-accent-green/10 ring-1 ring-accent-green/30"
                       : session.channel === "instagram"
-                        ? "border-l-4 border-pink-500/30 bg-pink-500/[0.04]"
-                        : "border-l-4 border-transparent"
+                        ? "bg-pink-500/[0.04] ring-1 ring-pink-500/10"
+                        : "ring-1 ring-white/[0.04]"
                       }`}
                   >
                     <div className="flex items-start gap-3">
@@ -2406,7 +2318,7 @@ export default function ConversasPage() {
                           />
                         </div>
                       )}
-                      <Avatar className="w-10 h-10 border border-border-gray/50 shrink-0">
+                      <Avatar className="w-11 h-11 border border-white/10 shadow-sm shadow-black/20 shrink-0">
                         {resolveAvatarImageSrc(session.profile_pic) ? (
                           <AvatarImage
                             src={resolveAvatarImageSrc(session.profile_pic)}
@@ -2487,14 +2399,14 @@ export default function ConversasPage() {
                             </Badge>
                           )}
                         </div>
-                        <div className="mt-1 text-[11px] text-text-gray/80">
+                        <div className="mt-1 hidden xl:block text-[11px] text-text-gray/70">
                           In {formatTokenCount(session.usage_input_tokens)} • Out {formatTokenCount(session.usage_output_tokens)} • Total {formatTokenCount(session.usage_total_tokens)} • {formatMoneyBRL(session.usage_total_cost_brl)}
                         </div>
-                <div className="flex gap-1 mt-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
+                        <div className="mt-2 flex gap-1 overflow-x-auto pb-1 genial-scrollbar" onClick={(e) => e.stopPropagation()}>
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="h-6 text-[10px] px-1.5 text-emerald-400 hover:bg-emerald-400/10 hover:text-emerald-300"
+                            className="h-7 shrink-0 rounded-full px-2 text-[10px] text-emerald-400 hover:bg-emerald-400/10 hover:text-emerald-300"
                             disabled={busyEvents.has(`${session.session_id}:attendance`)}
                             onClick={() => submitQuickEvent(session, "attendance")}
                             title="Registrar comparecimento"
@@ -2504,7 +2416,7 @@ export default function ConversasPage() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="h-6 text-[10px] px-1.5 text-yellow-400 hover:bg-yellow-400/10 hover:text-yellow-300"
+                            className="h-7 shrink-0 rounded-full px-2 text-[10px] text-yellow-400 hover:bg-yellow-400/10 hover:text-yellow-300"
                             disabled={busyEvents.has(`${session.session_id}:no_show`)}
                             onClick={() => submitQuickEvent(session, "no_show")}
                             title="Registrar bolo / não compareceu"
@@ -2514,18 +2426,18 @@ export default function ConversasPage() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="h-6 text-[10px] px-1.5 text-blue-400 hover:bg-blue-400/10 hover:text-blue-300"
+                            className="h-7 shrink-0 rounded-full px-2 text-[10px] text-blue-400 hover:bg-blue-400/10 hover:text-blue-300"
                             onClick={() => submitQuickEvent(session, "sale")}
                             title="Registrar venda realizada"
                           >
                             <DollarSign className="w-3 h-3 mr-1" />Venda
                           </Button>
                         </div>
-                        <div className="flex gap-1 mt-1 flex-wrap" onClick={(e) => e.stopPropagation()}>
+                        <div className="mt-1 flex gap-1 overflow-x-auto pb-1 genial-scrollbar" onClick={(e) => e.stopPropagation()}>
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="h-6 text-[10px] px-1.5 text-emerald-300 hover:bg-emerald-500/10 hover:text-emerald-200"
+                            className="h-7 shrink-0 rounded-full px-2 text-[10px] text-emerald-300 hover:bg-emerald-500/10 hover:text-emerald-200"
                             disabled={busyEvents.has(`${session.session_id}:student:yes`)}
                             onClick={() => submitStudentFlag(session, true)}
                             title="Marcar como aluno"
@@ -2535,7 +2447,7 @@ export default function ConversasPage() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="h-6 text-[10px] px-1.5 text-amber-300 hover:bg-amber-500/10 hover:text-amber-200"
+                            className="h-7 shrink-0 rounded-full px-2 text-[10px] text-amber-300 hover:bg-amber-500/10 hover:text-amber-200"
                             disabled={busyEvents.has(`${session.session_id}:student:no`)}
                             onClick={() => submitStudentFlag(session, false)}
                             title="Marcar como não aluno"
@@ -2555,10 +2467,10 @@ export default function ConversasPage() {
       </Card>
 
       {/* Main Chat Area */}
-      <Card className={`genial-card flex-1 min-h-0 flex flex-col overflow-hidden border-border-gray ${showConversationOnMobile ? "flex" : "hidden lg:flex"}`}>
+      <Card className={`genial-card flex-1 min-h-0 flex flex-col overflow-hidden border border-white/10 bg-card/95 shadow-2xl shadow-black/20 ${showConversationOnMobile ? "flex" : "hidden lg:flex"}`}>
         {current ? (
           <>
-            <CardHeader className="border-b border-border-gray pb-3 sm:pb-4 shrink-0 px-3 sm:px-6 pt-3 sm:pt-6">
+            <CardHeader className="border-b border-white/10 bg-gradient-to-r from-white/[0.04] via-transparent to-accent-green/[0.03] pb-3 sm:pb-4 shrink-0 px-3 sm:px-5 pt-3 sm:pt-5">
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                 <div className="flex items-center gap-2 sm:gap-3 min-w-0 w-full sm:w-auto">
                   <Button
@@ -2570,7 +2482,7 @@ export default function ConversasPage() {
                   >
                     <ArrowLeft className="w-4 h-4 text-text-gray" />
                   </Button>
-                  <Avatar className="w-12 h-12 shrink-0 border border-border-gray/50">
+                  <Avatar className="w-12 h-12 shrink-0 border border-white/10 shadow-md shadow-black/25">
                     {resolveAvatarImageSrc(current.profile_pic) ? (
                       <AvatarImage
                         src={resolveAvatarImageSrc(current.profile_pic)}
@@ -2626,7 +2538,7 @@ export default function ConversasPage() {
                         {current.messages_count ?? current.messages.length} mensagens
                       </span>
                     </div>
-                    <div className="mt-1 text-xs text-text-gray/80">
+                    <div className="mt-1 hidden xl:block text-xs text-text-gray/70">
                       Input {formatTokenCount(current.usage_input_tokens)} • Output {formatTokenCount(current.usage_output_tokens)} • Total {formatTokenCount(current.usage_total_tokens)} • {formatMoneyBRL(current.usage_total_cost_brl)}
                     </div>
                     {current.channel === "instagram" && (inferInstagramHandle(current) || current.instagram_bio) && (
@@ -2643,7 +2555,7 @@ export default function ConversasPage() {
                 </div>
 
                 {/* Controles de Pausa e Follow-up AI */}
-                <div className="flex w-full sm:w-auto flex-nowrap sm:flex-wrap gap-2 overflow-x-auto pb-1 sm:pb-0">
+                <div className="flex w-full sm:w-auto flex-nowrap sm:flex-wrap gap-2 overflow-x-auto pb-1 sm:pb-0 genial-scrollbar">
                   {pauseStatus && (
                     <>
                       <Button
@@ -2741,12 +2653,12 @@ export default function ConversasPage() {
               </div>
             </CardHeader>
 
-            <CardContent className="flex-1 min-h-0 overflow-hidden p-0">
+            <CardContent className="flex-1 min-h-0 overflow-hidden p-0 bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.08),transparent_28%),radial-gradient(circle_at_bottom_right,rgba(14,165,233,0.06),transparent_26%)]">
               <ScrollArea ref={scrollAreaRef} className="h-full min-h-0 genial-scrollbar">
-                <div className="p-3 sm:p-4 space-y-4">
+                <div className="p-3 sm:p-5 space-y-3 sm:space-y-4">
                   {/* Dados do Formulário */}
                   {current.formData && (
-                    <div className="bg-secondary rounded-lg p-4 mb-4 border border-border-gray">
+                    <div className="bg-secondary-black/75 rounded-2xl p-4 mb-4 border border-white/10 shadow-lg shadow-black/20">
                       <h4 className="text-sm font-semibold text-pure-white mb-3 flex items-center gap-2">
                         <User className="w-4 h-4 text-accent-green" />
                         Dados do Formulário
@@ -2822,10 +2734,10 @@ export default function ConversasPage() {
                       <div
                         key={`${msg.message_id || idx}`}
                         id={`msg-${msg.message_id}`}
-                        className={`flex w-full mb-4 ${isLead ? "justify-end" : "justify-start"}`}
+                        className={`flex w-full ${isLead ? "justify-end" : "justify-start"}`}
                       >
                         <div
-                          className={`relative max-w-[88%] sm:max-w-[75%] md:max-w-[65%] lg:max-w-[55%] rounded-2xl px-4 sm:px-5 py-3 sm:py-4 shadow-lg transition-all hover:shadow-xl ${isLead
+                          className={`relative max-w-[92%] sm:max-w-[78%] lg:max-w-[66%] xl:max-w-[58%] rounded-[1.35rem] px-4 sm:px-5 py-3 sm:py-4 shadow-lg transition-all hover:shadow-xl ${isLead
                             ? "bg-gradient-to-br from-[#00ff88] to-[#00cc6a] text-black border border-[#00cc6a]/30"
                             : isHuman
                               ? "bg-gradient-to-br from-amber-900/55 to-amber-800/40 text-amber-50 border border-amber-500/50"
@@ -2885,39 +2797,41 @@ export default function ConversasPage() {
             </CardContent>
 
             {/* Footer de Envio de Mensagem */}
-            <div className="p-3 sm:p-4 border-t border-border-gray bg-card safe-area-bottom">
-              <div className="flex items-center gap-3 mb-3 flex-wrap">
+            <div className="p-3 sm:p-4 border-t border-white/10 bg-card/95 backdrop-blur-xl safe-area-bottom">
+              <div className="mb-3 flex flex-col gap-2 rounded-2xl border border-white/10 bg-white/[0.03] p-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                 <span className="text-xs text-text-gray font-medium flex items-center gap-1">
                   <PauseCircle className="w-3 h-3 text-green-500" />
                   Ao assumir, pausar IA por:
                 </span>
-                <Select value={pauseDuration} onValueChange={setPauseDuration}>
-                  <SelectTrigger className="h-7 w-[140px] text-xs bg-foreground/8 border-border-gray text-pure-white focus:ring-accent-green">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="bg-secondary border-border text-pure-white">
-                    <SelectItem value="10">10 minutos</SelectItem>
-                    <SelectItem value="20">20 minutos</SelectItem>
-                    <SelectItem value="30">30 minutos</SelectItem>
-                    <SelectItem value="60">1 hora</SelectItem>
-                    <SelectItem value="permanent">Permanente</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Button
-                  onClick={handleActivatePause}
-                  disabled={takeoverLoading || pauseStatus?.pausar}
-                  variant="outline"
-                  className="h-7 text-xs border-green-500/30 text-green-400 hover:bg-green-500/10"
-                >
-                  {pauseStatus?.pausar ? "Tempo ativo" : takeoverLoading ? "Ativando..." : "Ativar tempo"}
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Select value={pauseDuration} onValueChange={setPauseDuration}>
+                    <SelectTrigger className="h-8 w-full min-w-[130px] text-xs bg-foreground/8 border-white/10 text-pure-white focus:ring-accent-green sm:w-[140px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-secondary border-border text-pure-white">
+                      <SelectItem value="10">10 minutos</SelectItem>
+                      <SelectItem value="20">20 minutos</SelectItem>
+                      <SelectItem value="30">30 minutos</SelectItem>
+                      <SelectItem value="60">1 hora</SelectItem>
+                      <SelectItem value="permanent">Permanente</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    onClick={handleActivatePause}
+                    disabled={takeoverLoading || pauseStatus?.pausar}
+                    variant="outline"
+                    className="h-8 shrink-0 text-xs border-green-500/30 text-green-400 hover:bg-green-500/10"
+                  >
+                    {pauseStatus?.pausar ? "Tempo ativo" : takeoverLoading ? "Ativando..." : "Ativar tempo"}
+                  </Button>
+                </div>
               </div>
-              <div className="flex gap-2 sm:gap-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:gap-3">
                 <Textarea
                   value={messageInput}
                   onChange={e => setMessageInput(e.target.value)}
                   placeholder="Digite sua resposta aqui... (Enter envia)"
-                  className="min-h-[48px] sm:min-h-[50px] max-h-[140px] bg-foreground/8 border-border-gray resize-none text-pure-white placeholder:text-gray-600 focus:border-accent-green genial-scrollbar"
+                  className="min-h-[76px] sm:min-h-[54px] max-h-[150px] rounded-2xl bg-foreground/8 border-white/10 resize-none text-pure-white placeholder:text-gray-600 focus:border-accent-green genial-scrollbar"
                   onKeyDown={e => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault()
@@ -2925,12 +2839,12 @@ export default function ConversasPage() {
                     }
                   }}
                 />
-                <div className="flex flex-row sm:flex-col gap-2 shrink-0">
+                <div className="grid grid-cols-4 gap-2 sm:flex sm:flex-col sm:shrink-0">
                   <Button
                     onClick={() => handleGenerateAiSuggestion(false)}
                     disabled={isGeneratingSuggestion || !current}
                     variant="outline"
-                    className="h-[48px] w-[48px] sm:h-[50px] sm:w-[50px] border-border-gray text-pure-white hover:bg-white/10"
+                    className="h-11 w-full rounded-2xl border-white/10 text-pure-white hover:bg-white/10 sm:h-[50px] sm:w-[50px]"
                     title="Gerar resposta contextual com IA"
                   >
                     {isGeneratingSuggestion ? (
@@ -2943,7 +2857,7 @@ export default function ConversasPage() {
                     onClick={() => handleGenerateAiSuggestion(true)}
                     disabled={isGeneratingSuggestion || !current || (!messageInput.trim() && !lastSuggestedText)}
                     variant="outline"
-                    className="h-[48px] w-[48px] sm:h-[50px] sm:w-[50px] border-border-gray text-pure-white hover:bg-white/10"
+                    className="h-11 w-full rounded-2xl border-white/10 text-pure-white hover:bg-white/10 sm:h-[50px] sm:w-[50px]"
                     title="Gerar outra versao da sugestao"
                   >
                     <RefreshCcw className="w-4 h-4" />
@@ -2952,7 +2866,7 @@ export default function ConversasPage() {
                     onClick={handleCopySuggestion}
                     disabled={!messageInput.trim()}
                     variant="outline"
-                    className="h-[48px] w-[48px] sm:h-[50px] sm:w-[50px] border-border-gray text-pure-white hover:bg-white/10"
+                    className="h-11 w-full rounded-2xl border-white/10 text-pure-white hover:bg-white/10 sm:h-[50px] sm:w-[50px]"
                     title="Copiar sugestao"
                   >
                     <Copy className="w-4 h-4" />
@@ -2960,7 +2874,7 @@ export default function ConversasPage() {
                   <Button
                     onClick={handleSendMessage}
                     disabled={!messageInput.trim() || isSending}
-                    className="h-[48px] w-[48px] sm:h-[50px] sm:w-[50px] bg-accent-green hover:bg-green-600 shadow-lg shadow-green-900/20"
+                    className="h-11 w-full rounded-2xl bg-accent-green hover:bg-green-600 shadow-lg shadow-green-900/20 sm:h-[50px] sm:w-[50px]"
                   >
                     {isSending ? (
                       <Loader2 className="w-5 h-5 animate-spin text-white" />
@@ -2995,7 +2909,7 @@ export default function ConversasPage() {
           <div className="space-y-4">
             <div className="flex items-center justify-between text-xs text-text-gray">
               <span>
-                Provider:{" "}
+                Canal de envio:{" "}
                 {bulkProvider === "meta"
                   ? "Meta Cloud API"
                   : bulkProvider === "evolution"
