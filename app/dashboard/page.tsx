@@ -715,10 +715,10 @@ export default function DashboardPage() {
       : `${period === "7d" ? "7" : period === "15d" ? "15" : period === "30d" ? "30" : "90"} dias`
 
   const mainMetrics = [
-    { title: "Conversas", value: data?.conversas ?? 0, subtitle: `${data?.totalMessages ?? 0} mensagens`, icon: MessageSquare, color: "text-blue-400", bg: "bg-blue-400/10", border: "border-blue-400/20" },
-    { title: "Leads Unicos", value: data?.totalLeads ?? 0, subtitle: `${data?.conversationLeads ?? 0} conversas + ${data?.capturedLeads ?? 0} captados`, icon: Users, color: "text-accent-green", bg: "bg-accent-green/10", border: "border-accent-green/20" },
-    { title: "Agendamentos", value: data?.agendamentos ?? 0, subtitle: `${data?.conversionRate?.toFixed?.(1) ?? "0.0"}% dos leads`, icon: CalendarClock, color: "text-cyan-300", bg: "bg-cyan-400/10", border: "border-cyan-400/20" },
-    { title: "Follow-ups", value: data?.followups ?? 0, subtitle: "enviados pela fila oficial", icon: Workflow, color: "text-orange-400", bg: "bg-orange-400/10", border: "border-orange-400/20" },
+    { title: "Conversas", value: data?.conversas ?? 0, subtitle: `${data?.totalMessages ?? 0} mensagens no periodo`, icon: MessageSquare, color: "text-blue-400", bg: "bg-blue-400/10", border: "border-blue-400/20" },
+    { title: "Leads", value: data?.totalLeads ?? 0, subtitle: "contatos acompanhados", icon: Users, color: "text-accent-green", bg: "bg-accent-green/10", border: "border-accent-green/20" },
+    { title: "Agendamentos", value: data?.agendamentos ?? 0, subtitle: `${data?.conversionRate?.toFixed?.(1) ?? "0.0"}% de conversao`, icon: CalendarClock, color: "text-cyan-300", bg: "bg-cyan-400/10", border: "border-cyan-400/20" },
+    { title: "Follow-ups", value: data?.followups ?? 0, subtitle: "acompanhamentos enviados", icon: Workflow, color: "text-orange-400", bg: "bg-orange-400/10", border: "border-orange-400/20" },
   ]
 
   const performanceMetrics = [
@@ -740,26 +740,11 @@ export default function DashboardPage() {
     <div className="space-y-6 pb-10">
       {/* Header */}
       <div className="genial-surface genial-hero-grid overflow-hidden rounded-2xl border border-white/10 px-4 py-4 shadow-2xl shadow-black/20 sm:px-6 sm:py-6">
-        <div className="relative z-[1] flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <Badge variant="secondary" className="mb-3 border-accent-green/30 bg-accent-green/10 text-accent-green">
-              Metricas tenant-aware
-            </Badge>
-            <h1 className="text-2xl font-bold text-pure-white font-display sm:text-4xl">Dashboard</h1>
-            <p className="mt-2 max-w-3xl text-sm text-text-gray sm:text-base">
-              Visao operacional com leads unificados, agenda real, follow-ups da fila oficial e qualidade da IA.
-            </p>
-          </div>
-          <div className="grid grid-cols-2 gap-2 text-xs sm:flex sm:items-center">
-            <div className="rounded-xl border border-white/10 bg-black/25 px-3 py-2">
-              <p className="text-text-gray">Tenant</p>
-              <p className="font-semibold text-pure-white">{tenant?.name || "Unidade atual"}</p>
-            </div>
-            <div className="rounded-xl border border-white/10 bg-black/25 px-3 py-2">
-              <p className="text-text-gray">Janela</p>
-              <p className="font-semibold text-pure-white">{periodLabel}</p>
-            </div>
-          </div>
+        <div className="relative z-[1]">
+          <h1 className="text-2xl font-bold text-pure-white font-display sm:text-4xl">Dashboard</h1>
+          <p className="mt-2 max-w-3xl text-sm text-text-gray sm:text-base">
+            Acompanhe resultados, atendimentos, agendamentos e oportunidades em um unico lugar.
+          </p>
         </div>
       </div>
 
@@ -794,26 +779,6 @@ export default function DashboardPage() {
               loading={loading}
             />
           </div>
-
-          {!loading && data && (
-            <div className="grid gap-3 md:grid-cols-3">
-              <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-accent-green/15 to-transparent p-4">
-                <p className="text-xs uppercase tracking-[0.2em] text-text-gray">Base de leads</p>
-                <p className="mt-2 text-2xl font-bold text-pure-white">{data.totalLeads ?? 0}</p>
-                <p className="mt-1 text-xs text-text-gray">Unifica conversas, captacao e disparos por telefone.</p>
-              </div>
-              <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-cyan-400/15 to-transparent p-4">
-                <p className="text-xs uppercase tracking-[0.2em] text-text-gray">Agenda real</p>
-                <p className="mt-2 text-2xl font-bold text-cyan-200">{data.agendamentos ?? 0}</p>
-                <p className="mt-1 text-xs text-text-gray">Conta pela data do compromisso, nao pela criacao do registro.</p>
-              </div>
-              <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-orange-400/15 to-transparent p-4">
-                <p className="text-xs uppercase tracking-[0.2em] text-text-gray">Follow-up oficial</p>
-                <p className="mt-2 text-2xl font-bold text-orange-200">{data.followups ?? 0}</p>
-                <p className="mt-1 text-xs text-text-gray">Prioriza tarefas enviadas em agent_task_queue.</p>
-              </div>
-            </div>
-          )}
 
           {/* Conversion alert */}
           {conversionRateLow && (
