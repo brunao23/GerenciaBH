@@ -55,10 +55,10 @@ export function TenantSelector() {
     }
 
     return (
-        <div className="flex items-center gap-2">
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-accent-green/10 rounded-md border border-accent-green/30">
-                <Building2 className="w-4 h-4 text-accent-green" />
-                <span className="text-sm font-medium text-accent-green">
+        <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
+            <div className="flex min-w-0 items-center gap-1.5 rounded-md border border-accent-green/30 bg-accent-green/10 px-2 py-1.5 sm:gap-2 sm:px-3">
+                <Building2 className="h-4 w-4 shrink-0 text-accent-green" />
+                <span className="max-w-[7.5rem] truncate whitespace-nowrap text-xs font-medium text-accent-green sm:max-w-[12rem] sm:text-sm">
                     {tenant.name}
                 </span>
             </div>
@@ -85,4 +85,3 @@ export function TenantSelector() {
         </div>
     )
 }
-

@@ -2106,11 +2106,28 @@ export default function ConversasPage() {
     }
   }
 
+  const conversationMobileSafeHeight = "min(100%, var(--app-visual-height, 100svh))"
+  const conversationMobileSafePanelStyle: React.CSSProperties = {
+    height: conversationMobileSafeHeight,
+    minHeight: 0,
+    maxHeight: conversationMobileSafeHeight,
+  }
+  const conversationMobileSafeShellStyle: React.CSSProperties = {
+    ...conversationMobileSafePanelStyle,
+    width: "100%",
+    maxWidth: "100vw",
+  }
 
   return (
-    <div className="conversations-whatsapp-shell h-full min-h-0 flex flex-col lg:flex-row gap-0 overflow-hidden">
+    <div
+      className="conversations-whatsapp-shell h-full min-h-0 w-full max-w-full flex flex-col lg:flex-row gap-0 overflow-hidden"
+      style={conversationMobileSafeShellStyle}
+    >
       {/* Sidebar - Lista de Sessões */}
-      <Card className={`genial-card conversation-list-panel w-full min-h-0 flex flex-shrink-0 flex-col overflow-hidden rounded-none lg:rounded-l-2xl lg:rounded-r-none border border-white/10 bg-card/95 shadow-2xl shadow-black/20 ${showListOnMobile ? "flex" : "hidden lg:flex"}`}>
+      <Card
+        className={`genial-card conversation-list-panel w-full max-w-full min-h-0 flex flex-shrink-0 flex-col overflow-hidden rounded-none lg:rounded-l-2xl lg:rounded-r-none border border-white/10 bg-card/95 shadow-2xl shadow-black/20 ${showListOnMobile ? "flex" : "hidden lg:flex"}`}
+        style={conversationMobileSafePanelStyle}
+      >
         <CardHeader className="border-b border-white/10 bg-gradient-to-b from-white/[0.04] to-transparent pb-3 sm:pb-4 shrink-0 px-4 sm:px-5 pt-3 sm:pt-4">
           <div className="flex items-center justify-between">
             {isSelectionMode ? (
@@ -2464,22 +2481,25 @@ export default function ConversasPage() {
       </Card>
 
       {/* Main Chat Area */}
-      <Card className={`genial-card conversation-chat-panel flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden rounded-none lg:rounded-r-2xl lg:rounded-l-none border border-l-0 border-white/10 bg-card/95 shadow-2xl shadow-black/20 ${showConversationOnMobile ? "flex" : "hidden lg:flex"}`}>
+      <Card
+        className={`genial-card conversation-chat-panel flex-1 min-w-0 max-w-full min-h-0 flex flex-col overflow-hidden rounded-none lg:rounded-r-2xl lg:rounded-l-none border border-l-0 border-white/10 bg-card/95 shadow-2xl shadow-black/20 ${showConversationOnMobile ? "flex" : "hidden lg:flex"}`}
+        style={conversationMobileSafePanelStyle}
+      >
         {current ? (
           <>
-            <CardHeader className="border-b border-white/10 bg-gradient-to-r from-white/[0.04] via-transparent to-accent-green/[0.03] pb-3 shrink-0 px-3 pt-3 sm:px-5 sm:pt-4">
-              <div className="flex flex-col xl:flex-row items-start xl:items-center justify-between gap-3">
+            <CardHeader className="conversation-chat-header border-b border-white/10 bg-gradient-to-r from-white/[0.04] via-transparent to-accent-green/[0.03] shrink-0 px-3 py-2 sm:px-5 sm:py-4">
+              <div className="flex min-w-0 flex-col xl:flex-row items-start xl:items-center justify-between gap-2 sm:gap-3">
                 <div className="flex items-center gap-2 sm:gap-3 min-w-0 w-full xl:w-auto">
                   <Button
                     size="icon"
                     variant="ghost"
-                    className="h-8 w-8 lg:hidden hover:bg-white/10 shrink-0"
+                    className="h-9 w-9 lg:hidden hover:bg-white/10 shrink-0"
                     onClick={() => setActive(null)}
                     title="Voltar para lista"
                   >
                     <ArrowLeft className="w-4 h-4 text-text-gray" />
                   </Button>
-                  <Avatar className="w-12 h-12 shrink-0 border border-white/10 shadow-md shadow-black/25">
+                  <Avatar className="h-10 w-10 shrink-0 border border-white/10 shadow-md shadow-black/25 sm:h-12 sm:w-12">
                     {resolveAvatarImageSrc(current.profile_pic) ? (
                       <AvatarImage
                         src={resolveAvatarImageSrc(current.profile_pic)}
@@ -2487,23 +2507,23 @@ export default function ConversasPage() {
                         className="object-cover"
                       />
                     ) : null}
-                    <AvatarFallback className="bg-secondary-black text-accent-green font-bold text-lg">
+                    <AvatarFallback className="bg-secondary-black text-accent-green font-bold text-base sm:text-lg">
                       {current.contact_name?.charAt(0).toUpperCase() || "L"}
                     </AvatarFallback>
                   </Avatar>
                   <div className="min-w-0 flex-1 xl:flex-none">
-                    <h3 className="text-base sm:text-lg font-bold text-pure-white flex items-center gap-2 flex-wrap">
-                       {current.contact_name || "Lead"}
+                    <h3 className="flex min-w-0 items-center gap-1.5 text-base sm:text-lg font-bold text-pure-white">
+                       <span className="min-w-0 truncate">{current.contact_name || "Lead"}</span>
                        <Badge
                          variant="outline"
-                         className={`text-[10px] border ${current.channel === "instagram" ? "border-pink-400/60 text-pink-300" : "border-emerald-400/60 text-emerald-300"}`}
+                         className={`hidden shrink-0 text-[10px] border min-[360px]:inline-flex ${current.channel === "instagram" ? "border-pink-400/60 text-pink-300" : "border-emerald-400/60 text-emerald-300"}`}
                        >
                          {current.channel === "instagram" ? "Instagram" : "WhatsApp"}
                        </Badge>
                        {current.isStudent !== null && current.isStudent !== undefined && (
                          <Badge
                            variant="outline"
-                           className={`text-[10px] border ${
+                            className={`hidden shrink-0 text-[10px] border sm:inline-flex ${
                              current.isStudent
                                ? "border-emerald-500/40 text-emerald-300 bg-emerald-500/10"
                                : "border-amber-500/40 text-amber-300 bg-amber-500/10"
@@ -2513,24 +2533,24 @@ export default function ConversasPage() {
                            {current.isStudent ? "Aluno" : "Não aluno"}
                          </Badge>
                        )}
-                       <Button size="icon" variant="ghost" className="h-6 w-6 hover:bg-white/10" onClick={() => {
+                        <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0 hover:bg-white/10" onClick={() => {
                           setEditContactName(current.contact_name || "")
                           setEditContactModalOpen(true)
                        }}>
                           <Edit2 className="w-3 h-3 text-text-gray" />
                        </Button>
                     </h3>
-                    <div className="flex items-center gap-2 text-sm text-text-gray mt-1 min-w-0">
-                      <Phone className="w-3 h-3" />
-                      <span className="font-mono truncate">
+                    <div className="flex min-w-0 items-center gap-1.5 text-xs sm:text-sm text-text-gray mt-0.5 sm:mt-1">
+                      <Phone className="w-3 h-3 shrink-0" />
+                      <span className="min-w-0 truncate font-mono">
                         {current.channel === "instagram"
                           ? inferInstagramHandle(current)
                             ? `@${inferInstagramHandle(current)}`
                             : `IG ${current.session_id.replace(/^ig_/, "")}`
                           : current.numero || "Sem número"}
                       </span>
-                      <span>•</span>
-                      <span>
+                      <span className="shrink-0">•</span>
+                      <span className="shrink-0">
                         {current.isSummary ? "~" : ""}
                         {current.messages_count ?? current.messages.length} mensagens
                       </span>
@@ -2549,7 +2569,7 @@ export default function ConversasPage() {
                 </div>
 
                 {/* Controles de Pausa e Follow-up AI */}
-                <div className="flex w-full xl:w-auto flex-nowrap xl:flex-wrap gap-2 overflow-x-auto pb-1 xl:pb-0 genial-scrollbar">
+                <div className="conversation-actions-strip grid w-full min-w-0 grid-cols-3 gap-1.5 xl:w-auto xl:flex xl:flex-wrap xl:gap-2">
                   {pauseStatus && (
                     <>
                       <Button
@@ -2611,7 +2631,10 @@ export default function ConversasPage() {
                       ) : (
                         <Zap className="w-3 h-3 mr-1" />
                       )}
-                      {followupAILoading ? "Processando..." : followupAIEnabled ? "Follow-up AI Ativo" : "Follow-up AI Inativo"}
+                      <span className="sm:hidden">Follow-up</span>
+                      <span className="hidden sm:inline">
+                        {followupAILoading ? "Processando..." : followupAIEnabled ? "Follow-up AI Ativo" : "Follow-up AI Inativo"}
+                      </span>
                     </Button>
                   )}
                   {current?.numero && (
@@ -2623,7 +2646,7 @@ export default function ConversasPage() {
                       title="Baixar conversa em TXT"
                     >
                       <Download className="w-3 h-3 mr-1" />
-                      Exportar
+                      <span className="hidden min-[360px]:inline">Exportar</span>
                     </Button>
                   )}
                   {current && (
@@ -2640,7 +2663,8 @@ export default function ConversasPage() {
                       ) : (
                         <Trash2 className="w-3 h-3 mr-1" />
                       )}
-                      {clearingMemory ? "Apagando..." : "Apagar Memoria"}
+                      <span className="sm:hidden">{clearingMemory ? "..." : "Memoria"}</span>
+                      <span className="hidden sm:inline">{clearingMemory ? "Apagando..." : "Apagar Memoria"}</span>
                     </Button>
                   )}
                 </div>
@@ -2649,7 +2673,7 @@ export default function ConversasPage() {
 
             <CardContent className="flex-1 min-h-0 overflow-hidden p-0 bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.08),transparent_28%),radial-gradient(circle_at_bottom_right,rgba(14,165,233,0.06),transparent_26%)]">
               <div ref={scrollAreaRef} className="h-full min-h-0 overflow-y-auto overscroll-contain touch-pan-y genial-scrollbar">
-                <div className="p-3 sm:p-5 space-y-3 sm:space-y-4">
+                <div className="p-2.5 sm:p-5 space-y-2.5 sm:space-y-4">
                   {/* Dados do Formulário */}
                   {current.formData && (
                     <div className="bg-secondary-black/75 rounded-2xl p-4 mb-4 border border-white/10 shadow-lg shadow-black/20">
@@ -2731,7 +2755,7 @@ export default function ConversasPage() {
                         className={`flex w-full ${isLead ? "justify-end" : "justify-start"}`}
                       >
                         <div
-                          className={`relative max-w-[96%] sm:max-w-[88%] lg:max-w-[80%] xl:max-w-[76%] 2xl:max-w-[72%] rounded-[1.35rem] px-4 sm:px-5 py-3 sm:py-4 shadow-lg transition-all hover:shadow-xl ${isLead
+                          className={`relative max-w-[94%] sm:max-w-[88%] lg:max-w-[80%] xl:max-w-[76%] 2xl:max-w-[72%] rounded-[1.1rem] px-3.5 py-3 shadow-lg transition-all hover:shadow-xl sm:rounded-[1.35rem] sm:px-5 sm:py-4 ${isLead
                             ? "bg-gradient-to-br from-[#00ff88] to-[#00cc6a] text-black border border-[#00cc6a]/30"
                             : isHuman
                               ? "bg-gradient-to-br from-amber-900/55 to-amber-800/40 text-amber-50 border border-amber-500/50"
@@ -2791,15 +2815,15 @@ export default function ConversasPage() {
             </CardContent>
 
             {/* Footer de Envio de Mensagem */}
-            <div className="p-3 sm:p-4 border-t border-white/10 bg-card/95 backdrop-blur-xl safe-area-bottom">
-              <div className="mb-3 flex flex-col gap-2 rounded-2xl border border-white/10 bg-white/[0.03] p-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-                <span className="text-xs text-text-gray font-medium flex items-center gap-1">
+            <div className="conversation-composer border-t border-white/10 bg-card/95 p-2.5 backdrop-blur-xl safe-area-bottom sm:p-4">
+              <div className="conversation-pausebar mb-2 flex items-center justify-between gap-2 rounded-2xl border border-white/10 bg-white/[0.03] p-2 sm:mb-3 sm:gap-3">
+                <span className="min-w-0 shrink text-[11px] text-text-gray font-medium flex items-center gap-1 sm:text-xs">
                   <PauseCircle className="w-3 h-3 text-green-500" />
-                  Ao assumir, pausar IA por:
+                  <span className="hidden min-[380px]:inline">Ao assumir, </span>pausar IA:
                 </span>
-                <div className="flex items-center gap-2">
+                <div className="flex min-w-0 shrink-0 items-center gap-2">
                   <Select value={pauseDuration} onValueChange={setPauseDuration}>
-                    <SelectTrigger className="h-8 w-full min-w-[130px] text-xs bg-foreground/8 border-white/10 text-pure-white focus:ring-accent-green sm:w-[140px]">
+                    <SelectTrigger className="h-9 w-[122px] min-w-0 text-xs bg-foreground/8 border-white/10 text-pure-white focus:ring-accent-green sm:h-8 sm:w-[140px]">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="bg-secondary border-border text-pure-white">
@@ -2814,18 +2838,18 @@ export default function ConversasPage() {
                     onClick={handleActivatePause}
                     disabled={takeoverLoading || pauseStatus?.pausar}
                     variant="outline"
-                    className="h-8 shrink-0 text-xs border-green-500/30 text-green-400 hover:bg-green-500/10"
+                    className="h-9 shrink-0 px-3 text-xs border-green-500/30 text-green-400 hover:bg-green-500/10 sm:h-8"
                   >
-                    {pauseStatus?.pausar ? "Tempo ativo" : takeoverLoading ? "Ativando..." : "Ativar tempo"}
+                    {pauseStatus?.pausar ? "Ativo" : takeoverLoading ? "..." : "Ativar"}
                   </Button>
                 </div>
               </div>
-              <div className="flex flex-col gap-2 sm:flex-row sm:gap-3">
+              <div className="conversation-input-row flex flex-col gap-2 sm:flex-row sm:gap-3">
                 <Textarea
                   value={messageInput}
                   onChange={e => setMessageInput(e.target.value)}
                   placeholder="Digite sua resposta aqui... (Enter envia)"
-                  className="min-h-[76px] sm:min-h-[52px] max-h-[120px] rounded-2xl bg-foreground/8 border-white/10 resize-none text-pure-white placeholder:text-gray-600 focus:border-accent-green genial-scrollbar"
+                  className="min-h-[58px] max-h-[104px] rounded-2xl bg-foreground/8 border-white/10 resize-none text-pure-white placeholder:text-gray-600 focus:border-accent-green genial-scrollbar sm:min-h-[52px] sm:max-h-[120px]"
                   onKeyDown={e => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault()
@@ -2838,7 +2862,7 @@ export default function ConversasPage() {
                     onClick={() => handleGenerateAiSuggestion(false)}
                     disabled={isGeneratingSuggestion || !current}
                     variant="outline"
-                    className="h-11 w-full rounded-2xl border-white/10 text-pure-white hover:bg-white/10 sm:h-[52px]"
+                    className="h-10 w-full rounded-2xl border-white/10 text-pure-white hover:bg-white/10 sm:h-[52px]"
                     title="Gerar resposta contextual com IA"
                   >
                     {isGeneratingSuggestion ? (
@@ -2851,7 +2875,7 @@ export default function ConversasPage() {
                     onClick={() => handleGenerateAiSuggestion(true)}
                     disabled={isGeneratingSuggestion || !current || (!messageInput.trim() && !lastSuggestedText)}
                     variant="outline"
-                    className="h-11 w-full rounded-2xl border-white/10 text-pure-white hover:bg-white/10 sm:h-[52px]"
+                    className="h-10 w-full rounded-2xl border-white/10 text-pure-white hover:bg-white/10 sm:h-[52px]"
                     title="Gerar outra versao da sugestao"
                   >
                     <RefreshCcw className="w-4 h-4" />
@@ -2860,7 +2884,7 @@ export default function ConversasPage() {
                     onClick={handleCopySuggestion}
                     disabled={!messageInput.trim()}
                     variant="outline"
-                    className="h-11 w-full rounded-2xl border-white/10 text-pure-white hover:bg-white/10 sm:h-[52px]"
+                    className="h-10 w-full rounded-2xl border-white/10 text-pure-white hover:bg-white/10 sm:h-[52px]"
                     title="Copiar sugestao"
                   >
                     <Copy className="w-4 h-4" />
@@ -2868,7 +2892,7 @@ export default function ConversasPage() {
                   <Button
                     onClick={handleSendMessage}
                     disabled={!messageInput.trim() || isSending}
-                    className="h-11 w-full rounded-2xl bg-accent-green hover:bg-green-600 shadow-lg shadow-green-900/20 sm:h-[52px]"
+                    className="h-10 w-full rounded-2xl bg-accent-green hover:bg-green-600 shadow-lg shadow-green-900/20 sm:h-[52px]"
                   >
                     {isSending ? (
                       <Loader2 className="w-5 h-5 animate-spin text-white" />

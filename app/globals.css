@@ -507,9 +507,16 @@
 }
 
 @media (max-width: 1023px) {
+  :root {
+    --conversation-mobile-height: var(--app-visual-height, 100svh);
+  }
+
   .conversations-whatsapp-shell {
-    height: calc(100vh - 3.5rem);
-    min-height: calc(100vh - 3.5rem);
+    height: var(--conversation-mobile-height);
+    min-height: var(--conversation-mobile-height);
+    max-height: var(--conversation-mobile-height);
+    width: 100%;
+    max-width: 100vw;
   }
 
   .conversations-whatsapp-shell .conversation-list-panel,
@@ -517,9 +524,48 @@
     border-left: 0;
     border-radius: 0;
     border-right: 0;
-    height: calc(100vh - 3.5rem);
+    height: var(--conversation-mobile-height);
     width: 100%;
-    min-height: calc(100vh - 3.5rem);
+    max-width: 100vw;
+    min-height: var(--conversation-mobile-height);
+    max-height: var(--conversation-mobile-height);
+  }
+
+  .conversations-whatsapp-shell .conversation-chat-header {
+    max-width: 100vw;
+  }
+
+  .conversations-whatsapp-shell .conversation-actions-strip {
+    max-width: 100%;
+    overflow: visible;
+  }
+
+  .conversations-whatsapp-shell .conversation-actions-strip > button {
+    width: 100%;
+    min-width: 0;
+    height: 2.25rem;
+    border-radius: 999px;
+    justify-content: center;
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+    white-space: nowrap;
+  }
+
+  .conversations-whatsapp-shell .conversation-composer {
+    padding-bottom: max(0.625rem, env(safe-area-inset-bottom, 0px));
+  }
+
+  .conversations-whatsapp-shell .conversation-pausebar {
+    max-width: 100%;
+  }
+
+  .conversations-whatsapp-shell .conversation-input-row {
+    max-width: 100%;
+  }
+
+  .conversations-whatsapp-shell textarea {
+    font-size: 16px;
+    line-height: 1.35;
   }
 }
 
@@ -527,8 +573,9 @@
   .conversations-whatsapp-shell,
   .conversations-whatsapp-shell .conversation-list-panel,
   .conversations-whatsapp-shell .conversation-chat-panel {
-    height: calc(100vh - 4rem);
-    min-height: calc(100vh - 4rem);
+    height: var(--conversation-mobile-height);
+    min-height: var(--conversation-mobile-height);
+    max-height: var(--conversation-mobile-height);
   }
 }
 
