@@ -53,10 +53,13 @@ import {
 type AppointmentResult = {
   ok: boolean
   appointmentId?: string
+  previousAppointmentId?: string
   eventId?: string
   htmlLink?: string
   meetLink?: string
   appointmentMode?: "presencial" | "online"
+  idempotentExistingAppointment?: boolean
+  effectiveActionType?: "schedule_appointment" | "edit_appointment"
   error?: string
 }
 
@@ -4580,7 +4583,11 @@ export class NativeAgentOrchestratorService {
     executions: GeminiToolExecution[]
   }): Promise<void> {
     for (const execution of params.executions) {
-      const actionType = execution.action?.type || "none"
+      const actionType = String(execution.response?.action_type || execution.action?.type || "none")
+      const isIdempotentExistingAppointment = Boolean(
+        execution.response?.idempotent_existing_appointment ||
+          execution.response?.idempotentExistingAppointment,
+      )
       const isGuardrail = this.isScheduleGuardrailExecution(execution)
       const event = `tool_${actionType}_${execution.ok ? "ok" : isGuardrail ? "guardrail" : "error"}`
       const severity = execution.ok ? "info" : isGuardrail ? "warning" : "error"
@@ -4607,10 +4614,10 @@ export class NativeAgentOrchestratorService {
       const isSchedule = actionType === "schedule_appointment" || isEdit
 
       // NotificaÃƒÃ‚Â§ÃƒÃ‚Âµes no painel interno (independente de toolNotificationsEnabled)
-      if (isSchedule) {
+      if (isSchedule && !isIdempotentExistingAppointment) {
         const leadLabel = firstName(params.contactName) || params.contactName || params.phone
-        const day = formatDateToBr(execution.action?.date)
-        const time = String(execution.action?.time || "").trim()
+        const day = formatDateToBr(execution.response?.confirmed_date || execution.action?.date)
+        const time = String(execution.response?.confirmed_time || execution.action?.time || "").trim()
         const when = day && time ? `${day} ÃƒÃ‚Â s ${time}` : day || time || "horÃƒÃ‚Â¡rio nÃƒÃ‚Â£o informado"
 
         if (execution.ok) {
@@ -4621,8 +4628,8 @@ export class NativeAgentOrchestratorService {
             phoneNumber: params.phone,
             leadName: params.contactName || undefined,
             metadata: {
-              date: execution.action?.date,
-              time: execution.action?.time,
+              date: execution.response?.confirmed_date || execution.action?.date,
+              time: execution.response?.confirmed_time || execution.action?.time,
               mode: execution.action?.appointment_mode,
               appointmentId: execution.response?.appointmentId,
               meetLink: execution.response?.meetLink,
@@ -4684,11 +4691,19 @@ export class NativeAgentOrchestratorService {
       if (!targets.length) continue
 
       if (isSchedule) {
-        if (execution.ok && params.config.notifyOnScheduleSuccess) {
+        if (execution.ok && params.config.notifyOnScheduleSuccess && !isIdempotentExistingAppointment) {
+          const notificationAction: AgentActionPlan = {
+            ...(execution.action || ({ type: actionType } as AgentActionPlan)),
+            type: actionType as AgentActionPlan["type"],
+            date: execution.response?.confirmed_date || execution.action?.date,
+            time: execution.response?.confirmed_time || execution.action?.time,
+            old_date: execution.response?.previous_date || execution.action?.old_date,
+            old_time: execution.response?.previous_time || execution.action?.old_time,
+          }
           const message = this.buildScheduleSuccessNotification({
             phone: params.phone,
             contactName: params.contactName,
-            action: execution.action,
+            action: notificationAction,
             result: {
               meetLink: String(execution.response?.meetLink || ""),
               htmlLink: String(execution.response?.htmlLink || ""),
@@ -4698,7 +4713,7 @@ export class NativeAgentOrchestratorService {
           const dedupeKind = isEdit ? "reschedule" : "schedule"
           const notifyResult = await this.sendToolNotifications(params.tenant, targets, message, {
             anchorSessionId: params.sessionId,
-            dedupeKey: `schedule_success:${dedupeKind}:${params.phone}:${execution.action?.date || ""}:${execution.action?.time || ""}`,
+            dedupeKey: `schedule_success:${dedupeKind}:${params.phone}:${notificationAction.date || ""}:${notificationAction.time || ""}`,
             dedupeWindowSeconds: 3600,
           })
           if (notifyResult.failed > 0) {
@@ -6214,18 +6229,20 @@ export class NativeAgentOrchestratorService {
       }
 
       const confirmedDateInfo = getWeekdayInfoForDateIso(action.date)
+      const effectiveActionType = result.effectiveActionType || "schedule_appointment"
       return {
         ok: scheduleOk,
         action,
         error: result.error,
         response: {
           ok: scheduleOk,
-          action_type: "schedule_appointment",
+          action_type: effectiveActionType,
           confirmed_date: action.date,
           confirmed_time: normalizeTimeToHHmm(action.time) || action.time,
           confirmed_date_br: confirmedDateInfo?.date_br,
           confirmed_weekday_number: confirmedDateInfo?.weekday,
           confirmed_weekday_name_pt: confirmedDateInfo?.weekday_name_pt,
+          idempotent_existing_appointment: result.idempotentExistingAppointment,
           weekday_corrected_from_lead: weekdayCoercion.corrected,
           original_date_from_model: weekdayCoercion.originalDate,
           expected_weekday_from_lead: weekdayCoercion.expectedWeekday,
@@ -7732,24 +7749,17 @@ export class NativeAgentOrchestratorService {
 
         const existingId = String(sameLeadSameSlot?.id || "").trim()
         if (existingId) {
-          return this.editAppointment({
-            tenant: params.tenant,
-            phone: params.phone,
-            sessionId: params.sessionId,
-            contactName: params.contactName,
-            config: params.config,
-            action: {
-              type: "edit_appointment",
-              appointment_id: existingId,
-              old_date: date,
-              old_time: requestedTime,
-              date,
-              time,
-              appointment_mode: appointmentMode,
-              note: params.action.note,
-              customer_email: customerEmail,
-            },
-          })
+          return {
+            ok: true,
+            appointmentId: existingId,
+            previousAppointmentId: existingId,
+            eventId: String(sameLeadSameSlot?.google_event_id || "").trim() || undefined,
+            htmlLink: String(sameLeadSameSlot?.google_event_link || "").trim() || undefined,
+            meetLink: String(sameLeadSameSlot?.google_meet_link || "").trim() || undefined,
+            appointmentMode,
+            idempotentExistingAppointment: true,
+            effectiveActionType: "schedule_appointment",
+          }
         }
       }
 
@@ -8433,17 +8443,67 @@ export class NativeAgentOrchestratorService {
     }
   }
 
-  private buildPostScheduleMessageTemplate(config: NativeAgentConfig, contactName?: string): string {
-    const fallbackMessage =
-      "Perfeito, seu agendamento esta confirmado. Se precisar de algo antes, estou por aqui."
-    const rawTemplate = String(config.postScheduleTextTemplate || "").trim() || fallbackMessage
+  private renderPostScheduleTemplate(
+    rawTemplate: string,
+    contactName?: string,
+    appointmentData?: {
+      date?: string
+      time?: string
+      mode?: string
+      service?: string
+      appointmentId?: string
+    },
+  ): string {
+    const raw = String(rawTemplate || "").trim()
     const leadFirstName = firstName(contactName || "") || ""
-    return rawTemplate
+    const dateInfo = getWeekdayInfoForDateIso(appointmentData?.date)
+    const dateBr = dateInfo?.date_br || formatDateToBr(appointmentData?.date) || ""
+    const weekday = dateInfo?.weekday_name_pt || ""
+    const time = normalizeTimeToHHmm(appointmentData?.time) || String(appointmentData?.time || "").trim()
+    const mode =
+      String(appointmentData?.mode || "").toLowerCase() === "online"
+        ? "online"
+        : String(appointmentData?.mode || "").toLowerCase() === "presencial"
+          ? "presencial"
+          : ""
+    return raw
       .replace(/\{\{\s*first_name\s*\}\}/gi, leadFirstName)
       .replace(/\{\{\s*lead_name\s*\}\}/gi, leadFirstName)
       .replace(/\[nome\]/gi, leadFirstName)
+      .replace(/\{\{\s*(date|data|dia)\s*\}\}/gi, dateBr)
+      .replace(/\{(?:date|data|dia)\}/gi, dateBr)
+      .replace(/\[(?:date|data|dia)\]/gi, dateBr)
+      .replace(/\{\{\s*(time|hor[aá]rio|hora)\s*\}\}/gi, time)
+      .replace(/\{(?:time|hor[aá]rio|hora)\}/gi, time)
+      .replace(/\[(?:time|hor[aá]rio|hora)\]/gi, time)
+      .replace(/\{\{\s*(weekday|dia_semana)\s*\}\}/gi, weekday)
+      .replace(/\{(?:weekday|dia_semana)\}/gi, weekday)
+      .replace(/\[(?:weekday|dia_semana)\]/gi, weekday)
+      .replace(/\{\{\s*(mode|modalidade)\s*\}\}/gi, mode)
+      .replace(/\{(?:mode|modalidade)\}/gi, mode)
+      .replace(/\[(?:mode|modalidade)\]/gi, mode)
+      .replace(/\{\{\s*(service|servi[cç]o|observacoes|observa[cç][oõ]es)\s*\}\}/gi, String(appointmentData?.service || ""))
+      .replace(/\{(?:service|servi[cç]o|observacoes|observa[cç][oõ]es)\}/gi, String(appointmentData?.service || ""))
+      .replace(/\[(?:service|servi[cç]o|observacoes|observa[cç][oõ]es)\]/gi, String(appointmentData?.service || ""))
       .replace(/\s+/g, " ")
       .trim()
+  }
+
+  private buildPostScheduleMessageTemplate(
+    config: NativeAgentConfig,
+    contactName?: string,
+    appointmentData?: {
+      date?: string
+      time?: string
+      service?: string
+      appointmentId?: string
+      mode?: string
+    },
+  ): string {
+    const fallbackMessage =
+      "Perfeito, seu agendamento esta confirmado. Se precisar de algo antes, estou por aqui."
+    const rawTemplate = String(config.postScheduleTextTemplate || "").trim() || fallbackMessage
+    return this.renderPostScheduleTemplate(rawTemplate, contactName, appointmentData)
   }
 
   private async onAppointmentScheduled(params: {
@@ -8467,7 +8527,7 @@ export class NativeAgentOrchestratorService {
       await this.pauseLeadAfterScheduling(params.tenant, params.phone).catch(() => {})
     }
 
-    const tasks: Array<Promise<unknown>> = [
+    await Promise.allSettled([
       this.markLeadAsAgendado(params.tenant, params.sessionId),
       this.taskQueue.cancelPendingFollowups({
         tenant: params.tenant,
@@ -8480,10 +8540,13 @@ export class NativeAgentOrchestratorService {
         phone: params.phone,
         reason: "cancelled_by_new_schedule_sync",
       }),
-      scheduleRemindersForTenant(params.tenant).catch((error) => {
-        console.warn("[native-agent] failed to refresh appointment reminders:", error)
-      }),
-    ]
+    ])
+
+    await scheduleRemindersForTenant(params.tenant).catch((error) => {
+      console.warn("[native-agent] failed to refresh appointment reminders:", error)
+    })
+
+    const postScheduleTasks: Array<Promise<unknown>> = []
 
     // Fallback global: garante notificacao de sucesso no grupo mesmo se a etapa
     // anterior de notificacao do tool-flow falhar em algum tenant.
@@ -8520,7 +8583,7 @@ export class NativeAgentOrchestratorService {
       const dedupeKind = isEdit ? "reschedule" : "schedule"
       const dedupeKey = `schedule_success:${dedupeKind}:${params.phone}:${action.date || ""}:${action.time || ""}`
 
-      tasks.push(
+      postScheduleTasks.push(
         this.sendToolNotifications(params.tenant, notificationTargets, message, {
           anchorSessionId: params.sessionId,
           dedupeKey,
@@ -8532,7 +8595,7 @@ export class NativeAgentOrchestratorService {
     }
 
     if (params.config.postScheduleWebhookEnabled && params.config.postScheduleWebhookUrl) {
-      tasks.push(
+      postScheduleTasks.push(
         fetch(params.config.postScheduleWebhookUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -8551,10 +8614,19 @@ export class NativeAgentOrchestratorService {
     } else if (params.config.postScheduleAutomationEnabled) {
       const delayMinutes = Math.max(0, Number(params.config.postScheduleDelayMinutes ?? 2))
       const runAt = new Date(Date.now() + delayMinutes * 60 * 1000).toISOString()
-      const messageText = this.buildPostScheduleMessageTemplate(params.config, params.contactName)
+      const messageText = this.buildPostScheduleMessageTemplate(
+        params.config,
+        params.contactName,
+        params.appointmentData,
+      )
+      const captionText = this.renderPostScheduleTemplate(
+        String(params.config.postScheduleCaption || messageText),
+        params.contactName,
+        params.appointmentData,
+      )
       const mode = params.config.postScheduleMessageMode || "text"
 
-      tasks.push(
+      postScheduleTasks.push(
         this.taskQueue
           .enqueueReminder({
             tenant: params.tenant,
@@ -8566,8 +8638,12 @@ export class NativeAgentOrchestratorService {
               source: "native_agent_post_schedule",
               message_mode: mode,
               media_url: String(params.config.postScheduleMediaUrl || "").trim(),
-              caption: String(params.config.postScheduleCaption || messageText).trim(),
+              caption: captionText,
               file_name: String(params.config.postScheduleDocumentFileName || "").trim(),
+              appointment_id: params.appointmentData?.appointmentId,
+              appointment_date: params.appointmentData?.date,
+              appointment_time: params.appointmentData?.time,
+              appointment_mode: params.appointmentData?.mode,
             },
           })
           .catch((err) => {
@@ -8576,7 +8652,7 @@ export class NativeAgentOrchestratorService {
       )
     }
 
-    await Promise.all(tasks)
+    await Promise.all(postScheduleTasks)
   }
 }
 

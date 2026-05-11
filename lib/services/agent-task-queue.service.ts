@@ -1785,22 +1785,22 @@ export class AgentTaskQueueService {
         .eq("tenant", tenant)
         .eq("task_type", "reminder")
         .eq("status", "pending")
-
-      if (!appointmentId) {
-        if (sessionId) {
-          query = query.eq("session_id", sessionId)
-        } else if (phone) {
-          query = query.eq("phone_number", phone)
-        }
-      }
-
-      const { data, error } = await query.limit(500)
+      const { data, error } = await query.limit(2000)
       if (error) {
         if (isMissingTableError(error)) {
           return { ok: true, cancelled: 0 }
         }
         return { ok: false, cancelled: 0, error: error.message }
       }
+
+      const phoneVariants = phone
+        ? Array.from(
+            new Set([
+              phone,
+              phone.startsWith("55") ? phone.slice(2) : `55${phone}`,
+            ].filter(Boolean)),
+          )
+        : []
 
       const ids = (Array.isArray(data) ? data : [])
         .filter((row: any) => {
@@ -1815,7 +1815,7 @@ export class AgentTaskQueueService {
 
           if (!appointmentId) {
             if (sessionId && rowSessionId === sessionId) return true
-            if (phone && rowPhone === phone) return true
+            if (phoneVariants.length > 0 && phoneVariants.includes(rowPhone)) return true
           }
 
           return false
@@ -2148,7 +2148,17 @@ export class AgentTaskQueueService {
       input.taskType === "followup"
         ? input.runtimeConfig.followupCaption
         : input.runtimeConfig.reminderCaption
-    const caption = String(input.payload?.caption || fromConfigCaption || input.message || "").trim()
+    const isOfficialReminderCaption =
+      input.taskType === "reminder" &&
+      OFFICIAL_REMINDER_TYPES.includes(
+        String(input.payload?.reminder_type || "").trim().toLowerCase() as OfficialReminderType,
+      )
+    const caption = String(
+      input.payload?.caption ||
+        (isOfficialReminderCaption ? input.message : fromConfigCaption) ||
+        input.message ||
+        "",
+    ).trim()
     const fromConfigFileName =
       input.taskType === "followup"
         ? input.runtimeConfig.followupDocumentFileName

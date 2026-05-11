@@ -449,6 +449,18 @@ function parseAppointmentDateTime(dia: string, horario: string, timezone: string
   })
 }
 
+function formatAppointmentDateBr(appointmentDate: Date, timezone: string): string {
+  const info = getDateInfoInTimezone(appointmentDate, timezone)
+  if (!info) return ""
+  return `${String(info.day).padStart(2, "0")}/${String(info.month).padStart(2, "0")}/${String(info.year).padStart(4, "0")}`
+}
+
+function formatAppointmentTimeHHmm(appointmentDate: Date, timezone: string): string {
+  const info = getDateInfoInTimezone(appointmentDate, timezone)
+  if (!info) return ""
+  return `${String(info.hour).padStart(2, "0")}:${String(info.minute).padStart(2, "0")}`
+}
+
 function adjustToBusinessHours(
   targetDate: Date,
   config: ReminderConfig,
@@ -558,6 +570,8 @@ export function renderReminderTemplate(
   const primeiroNome = sanitizePersonName(nomeRaw) || "voce"
   const appointmentDateInfo = getDateInfoInTimezone(appointmentDate, timezone)
   const diaSemana = DIAS_SEMANA[appointmentDateInfo?.dayOfWeek ?? appointmentDate.getDay()] || ""
+  const dataBr = formatAppointmentDateBr(appointmentDate, timezone) || String(appointment.dia || "")
+  const horario = formatAppointmentTimeHHmm(appointmentDate, timezone) || String(appointment.horario || "").slice(0, 5)
   const hasLeadName = primeiroNome !== "voce"
   const saudacaoOlaTudoBem = hasLeadName
     ? `Ola, ${primeiroNome}! Tudo bem? 😊`
@@ -575,8 +589,8 @@ export function renderReminderTemplate(
     .replace(/\{saudacao_reforco_hoje\}/gi, saudacaoReforcoHoje)
     .replace(/\{nome\}/gi, primeiroNome)
     .replace(/\{nome_completo\}/gi, hasLeadName ? nomeRaw : "voce")
-    .replace(/\{data\}/gi, String(appointment.dia || ""))
-    .replace(/\{horario\}/gi, appointment.horario?.replace(/:00$/, "") || "")
+    .replace(/\{data\}/gi, dataBr)
+    .replace(/\{horario\}/gi, horario)
     .replace(/\{dia_semana\}/gi, diaSemana)
     .replace(/\{servico\}/gi, appointment.observacoes || "atendimento")
     .replace(/[ \t]+\n/g, "\n")
@@ -809,6 +823,10 @@ export async function scheduleRemindersForTenant(
         const template = config.templates[rt.type] || DEFAULT_REMINDER_CONFIG.templates[rt.type]
         const message = renderReminderTemplate(template, appointment, appointmentDate, config.timezone)
         if (!message) continue
+        const appointmentDateInfo = getDateInfoInTimezone(appointmentDate, config.timezone)
+        const appointmentDateBr = formatAppointmentDateBr(appointmentDate, config.timezone)
+        const appointmentTime = formatAppointmentTimeHHmm(appointmentDate, config.timezone)
+        const appointmentWeekday = DIAS_SEMANA[appointmentDateInfo?.dayOfWeek ?? appointmentDate.getDay()] || ""
 
         if (options?.dryRun) {
           result.scheduled++
@@ -828,7 +846,11 @@ export async function scheduleRemindersForTenant(
             official_reminder: true,
             appointment_id: appointment.id,
             appointment_date: appointment.dia,
+            appointment_date_br: appointmentDateBr,
             appointment_time: appointment.horario,
+            appointment_time_hhmm: appointmentTime,
+            appointment_weekday_name_pt: appointmentWeekday,
+            appointment_datetime_iso: appointmentDate.toISOString(),
             lead_name: appointment.nome_aluno,
           },
           run_at: sendAt.toISOString(),
