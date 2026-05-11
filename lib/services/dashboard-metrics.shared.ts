@@ -3,7 +3,7 @@ import { resolveChatHistoriesTable } from "@/lib/helpers/resolve-chat-table"
 type FollowupMetricSnapshot = {
   count: number
   byDay: Map<string, number>
-  source: "logs" | "schedule" | "legacy" | "none"
+  source: "agent_task_queue" | "logs" | "schedule" | "legacy" | "none"
 }
 
 function toDayKey(date: Date): string {
@@ -97,6 +97,43 @@ export function resolveAgendamentoMetricDate(agendamento: any): Date | null {
   )
 }
 
+function resolveAgendamentoMetricTime(agendamento: any): string {
+  return String(
+    agendamento?.horario ||
+      agendamento?.hora ||
+      agendamento?.horario_inicio ||
+      agendamento?.start_time ||
+      agendamento?.time ||
+      "",
+  )
+    .trim()
+    .toLowerCase()
+}
+
+export function resolveAgendamentoMetricIdentity(agendamento: any): string {
+  const id = String(agendamento?.id || agendamento?.appointment_id || agendamento?.google_event_id || "").trim()
+  if (id) return `id:${id}`
+
+  const phone = normalizeMetricPhone(
+    String(
+      agendamento?.contato ||
+        agendamento?.numero ||
+        agendamento?.phone_number ||
+        agendamento?.telefone ||
+        agendamento?.whatsapp ||
+        "",
+    ),
+  )
+  const date = resolveAgendamentoMetricDate(agendamento)
+  const time = resolveAgendamentoMetricTime(agendamento)
+  const sessionId = String(agendamento?.session_id || "").trim().toLowerCase()
+
+  if (phone && date && time) return `phone_date_time:${phone}:${toDayKey(date)}:${time}`
+  if (sessionId && date && time) return `session_date_time:${sessionId}:${toDayKey(date)}:${time}`
+
+  return ""
+}
+
 export function isAgendamentoMetricExplicito(agendamento: any): boolean {
   try {
     const status = String(
@@ -175,6 +212,14 @@ export async function fetchAgendamentoMetricRows(params: {
 }): Promise<any[]> {
   const { supabase, table, startDate, endDate } = params
   const limit = Number.isFinite(params.limit) ? Number(params.limit) : 10000
+  const rowsByKey = new Map<string, any>()
+  const pushRows = (rows: any[] | null | undefined) => {
+    for (const row of rows || []) {
+      const identity = resolveAgendamentoMetricIdentity(row)
+      const key = identity || `row:${rowsByKey.size}`
+      if (!rowsByKey.has(key)) rowsByKey.set(key, row)
+    }
+  }
 
   let query = supabase
     .from(table)
@@ -185,7 +230,25 @@ export async function fetchAgendamentoMetricRows(params: {
     .limit(limit)
 
   const primary = await query
-  if (!primary.error) return primary.data || []
+  if (!primary.error) {
+    pushRows(primary.data || [])
+
+    // created_at is not always the appointment date. Merge a broader tenant slice and
+    // let buildAgendamentoMetricSnapshot filter by the resolved appointment date.
+    const broad = await supabase
+      .from(table)
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(limit)
+
+    if (!broad.error) {
+      pushRows(broad.data || [])
+    } else if (!isMissingColumnError(broad.error, "created_at") && !isMissingTableError(broad.error)) {
+      console.warn(`[DashboardMetrics] Erro ao buscar agendamentos amplos em ${table}:`, broad.error.message)
+    }
+
+    return Array.from(rowsByKey.values())
+  }
   if (!isMissingColumnError(primary.error, "created_at")) {
     if (isMissingTableError(primary.error)) return []
     console.warn(`[DashboardMetrics] Erro ao buscar agendamentos em ${table}:`, primary.error.message)
@@ -204,6 +267,7 @@ export function buildAgendamentoMetricSnapshot(rows: any[], startDate: Date, end
   const startMs = startDate.getTime()
   const endMs = endDate.getTime()
   const byDay = new Map<string, number>()
+  const seen = new Set<string>()
   let count = 0
 
   for (const row of rows || []) {
@@ -212,6 +276,11 @@ export function buildAgendamentoMetricSnapshot(rows: any[], startDate: Date, end
     const ms = date.getTime()
     if (ms < startMs || ms > endMs) continue
     if (!isAgendamentoMetricExplicito(row)) continue
+    const identity = resolveAgendamentoMetricIdentity(row)
+    if (identity) {
+      if (seen.has(identity)) continue
+      seen.add(identity)
+    }
 
     count += 1
     const dayKey = toDayKey(date)
@@ -256,6 +325,15 @@ function isScheduleFollowupCountable(row: any): boolean {
   if (parseMetricDate(row?.last_mensager)) return true
   if (parseMetricDate(row?.sent_at)) return true
   return false
+}
+
+function resolveAgentTaskQueueFollowupDate(row: any): Date | null {
+  return (
+    parseMetricDate(row?.executed_at) ||
+    parseMetricDate(row?.updated_at) ||
+    parseMetricDate(row?.run_at) ||
+    parseMetricDate(row?.created_at)
+  )
 }
 
 async function filterRowsByTenantSessions<T extends { session_id?: string }>(
@@ -362,6 +440,85 @@ async function fetchFollowupLogRows(params: {
   })
 }
 
+async function fetchAgentTaskQueueFollowupRows(params: {
+  supabase: any
+  tenant: string
+  startDate: Date
+  endDate: Date
+}): Promise<any[]> {
+  const { supabase, tenant, startDate, endDate } = params
+  const startIso = startDate.toISOString()
+  const endIso = endDate.toISOString()
+
+  const query = await supabase
+    .from("agent_task_queue")
+    .select("id, tenant, session_id, phone_number, task_type, status, run_at, executed_at, created_at, updated_at, payload")
+    .eq("tenant", tenant)
+    .eq("task_type", "followup")
+    .eq("status", "done")
+    .gte("executed_at", startIso)
+    .lte("executed_at", endIso)
+    .order("executed_at", { ascending: false })
+    .limit(20000)
+
+  if (!query.error) {
+    const rowsById = new Map<string, any>()
+    for (const row of query.data || []) {
+      const id = String(row?.id || "").trim()
+      rowsById.set(id || `row:${rowsById.size}`, row)
+    }
+
+    const updatedFallback = await supabase
+      .from("agent_task_queue")
+      .select("id, tenant, session_id, phone_number, task_type, status, run_at, executed_at, created_at, updated_at, payload")
+      .eq("tenant", tenant)
+      .eq("task_type", "followup")
+      .eq("status", "done")
+      .gte("updated_at", startIso)
+      .lte("updated_at", endIso)
+      .order("updated_at", { ascending: false })
+      .limit(20000)
+
+    if (!updatedFallback.error) {
+      for (const row of updatedFallback.data || []) {
+        const id = String(row?.id || "").trim()
+        rowsById.set(id || `row:${rowsById.size}`, row)
+      }
+    } else if (!isMissingColumnError(updatedFallback.error, "updated_at") && !isMissingTableError(updatedFallback.error)) {
+      console.warn("[DashboardMetrics] Erro ao buscar agent_task_queue por updated_at:", updatedFallback.error.message)
+    }
+
+    return Array.from(rowsById.values()).filter((row) => {
+      const date = resolveAgentTaskQueueFollowupDate(row)
+      return Boolean(date && date.getTime() >= startDate.getTime() && date.getTime() <= endDate.getTime())
+    })
+  }
+
+  if (!isMissingColumnError(query.error, "executed_at")) {
+    if (!isMissingTableError(query.error)) {
+      console.warn("[DashboardMetrics] Erro ao buscar agent_task_queue:", query.error.message)
+    }
+    return []
+  }
+
+  const fallback = await supabase
+    .from("agent_task_queue")
+    .select("id, tenant, session_id, phone_number, task_type, status, run_at, created_at, updated_at, payload")
+    .eq("tenant", tenant)
+    .eq("task_type", "followup")
+    .eq("status", "done")
+    .gte("updated_at", startIso)
+    .lte("updated_at", endIso)
+    .order("updated_at", { ascending: false })
+    .limit(20000)
+
+  if (!fallback.error) return fallback.data || []
+  if (!isMissingTableError(fallback.error)) {
+    console.warn("[DashboardMetrics] Erro no fallback de agent_task_queue:", fallback.error.message)
+  }
+  return []
+}
+
 async function fetchFollowupScheduleRows(params: {
   supabase: any
   tenant: string
@@ -431,6 +588,12 @@ export async function fetchFollowupMetricSnapshot(params: {
   endDate: Date
 }): Promise<FollowupMetricSnapshot> {
   const { supabase, tenant, tableCandidates, startDate, endDate } = params
+
+  const queueRows = await fetchAgentTaskQueueFollowupRows({ supabase, tenant, startDate, endDate })
+  if (queueRows.length > 0) {
+    const snapshot = buildCountSnapshot(queueRows, resolveAgentTaskQueueFollowupDate)
+    return { ...snapshot, source: "agent_task_queue" }
+  }
 
   const logRows = await fetchFollowupLogRows({ supabase, tenant, startDate, endDate })
   if (logRows.length > 0) {

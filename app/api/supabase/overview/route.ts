@@ -1180,9 +1180,16 @@ export async function GET(req: Request) {
         anonymousSessions += 1
       }
     }
-    const totalLeads = chatPhoneSet.size + anonymousSessions
+    const disparosLeads = await getDisparosLeads(metricTenant, startDate, logicalTenant || metricTenant, endDate)
+    const totalLeadPhoneSet = new Set<string>(chatPhoneSet)
+    for (const phone of disparosLeads.phoneSet) {
+      if (phone) totalLeadPhoneSet.add(phone)
+    }
+    const totalLeads = totalLeadPhoneSet.size + anonymousSessions
     const totalConversas = conversationSessions.length
-    console.log(`[v0] Total de Leads: ${totalLeads} (Chat unicos: ${chatPhoneSet.size}, Anonimos: ${anonymousSessions})`)
+    console.log(
+      `[v0] Total de Leads: ${totalLeads} (chat=${chatPhoneSet.size}, captacao/disparos=${disparosLeads.leads}, unificados=${totalLeadPhoneSet.size}, anonimos=${anonymousSessions})`,
+    )
     console.log(`[v0] Total de Conversas: ${totalConversas}`)
 
     let totalMessages = 0
@@ -1288,6 +1295,10 @@ export async function GET(req: Request) {
 
       // Leads e conversÃÂµes
       totalLeads,
+      conversationLeads: chatPhoneSet.size + anonymousSessions,
+      capturedLeads: disparosLeads.leads,
+      unifiedKnownLeadPhones: totalLeadPhoneSet.size,
+      anonymousLeads: anonymousSessions,
       conversionRate: Math.round(conversionRate * 10) / 10,
 
       // MÃÂ©tricas da IA corrigidas

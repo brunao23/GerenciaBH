@@ -33,6 +33,10 @@ type Overview = {
   successPercent?: number
   conversionRate?: number
   totalLeads?: number
+  conversationLeads?: number
+  capturedLeads?: number
+  unifiedKnownLeadPhones?: number
+  anonymousLeads?: number
   totalMessages?: number
   avgFirstResponseTime?: number
   chartData?: any[]
@@ -711,10 +715,10 @@ export default function DashboardPage() {
       : `${period === "7d" ? "7" : period === "15d" ? "15" : period === "30d" ? "30" : "90"} dias`
 
   const mainMetrics = [
-    { title: "Conversas", value: data?.conversas ?? 0, icon: MessageSquare, color: "text-blue-400", bg: "bg-blue-400/10", border: "border-blue-400/20" },
-    { title: "Leads Únicos", value: data?.totalLeads ?? 0, icon: Users, color: "text-accent-green", bg: "bg-accent-green/10", border: "border-accent-green/20" },
-    { title: "Agendamentos", value: data?.agendamentos ?? 0, icon: CalendarClock, color: "text-purple-400", bg: "bg-purple-400/10", border: "border-purple-400/20" },
-    { title: "Follow-ups", value: data?.followups ?? 0, icon: Workflow, color: "text-orange-400", bg: "bg-orange-400/10", border: "border-orange-400/20" },
+    { title: "Conversas", value: data?.conversas ?? 0, subtitle: `${data?.totalMessages ?? 0} mensagens`, icon: MessageSquare, color: "text-blue-400", bg: "bg-blue-400/10", border: "border-blue-400/20" },
+    { title: "Leads Unicos", value: data?.totalLeads ?? 0, subtitle: `${data?.conversationLeads ?? 0} conversas + ${data?.capturedLeads ?? 0} captados`, icon: Users, color: "text-accent-green", bg: "bg-accent-green/10", border: "border-accent-green/20" },
+    { title: "Agendamentos", value: data?.agendamentos ?? 0, subtitle: `${data?.conversionRate?.toFixed?.(1) ?? "0.0"}% dos leads`, icon: CalendarClock, color: "text-cyan-300", bg: "bg-cyan-400/10", border: "border-cyan-400/20" },
+    { title: "Follow-ups", value: data?.followups ?? 0, subtitle: "enviados pela fila oficial", icon: Workflow, color: "text-orange-400", bg: "bg-orange-400/10", border: "border-orange-400/20" },
   ]
 
   const performanceMetrics = [
@@ -735,16 +739,33 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6 pb-10">
       {/* Header */}
-      <div className="genial-surface genial-hero-grid px-4 sm:px-6 py-4 sm:py-5">
-        <div className="relative z-[1]">
-          <h1 className="text-2xl sm:text-3xl font-bold text-pure-white font-display">Dashboard</h1>
-          <p className="text-text-gray mt-1">Visão completa da operação — Visão Geral · Captação · Relatórios</p>
+      <div className="genial-surface genial-hero-grid overflow-hidden rounded-2xl border border-white/10 px-4 py-4 shadow-2xl shadow-black/20 sm:px-6 sm:py-6">
+        <div className="relative z-[1] flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <Badge variant="secondary" className="mb-3 border-accent-green/30 bg-accent-green/10 text-accent-green">
+              Metricas tenant-aware
+            </Badge>
+            <h1 className="text-2xl font-bold text-pure-white font-display sm:text-4xl">Dashboard</h1>
+            <p className="mt-2 max-w-3xl text-sm text-text-gray sm:text-base">
+              Visao operacional com leads unificados, agenda real, follow-ups da fila oficial e qualidade da IA.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-xs sm:flex sm:items-center">
+            <div className="rounded-xl border border-white/10 bg-black/25 px-3 py-2">
+              <p className="text-text-gray">Tenant</p>
+              <p className="font-semibold text-pure-white">{tenant?.name || "Unidade atual"}</p>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-black/25 px-3 py-2">
+              <p className="text-text-gray">Janela</p>
+              <p className="font-semibold text-pure-white">{periodLabel}</p>
+            </div>
+          </div>
         </div>
       </div>
 
       <Tabs defaultValue="visao-geral" className="w-full px-0">
-        <div className="px-1">
-          <TabsList className="mb-2 w-full sm:w-auto">
+        <div className="overflow-x-auto px-1 pb-1">
+          <TabsList className="mb-2 min-w-max border border-white/10 bg-black/25 p-1 sm:w-auto">
             <TabsTrigger value="visao-geral" className="flex items-center gap-1.5">
               <BarChart3 className="h-4 w-4" /> Visão Geral
             </TabsTrigger>
@@ -774,6 +795,26 @@ export default function DashboardPage() {
             />
           </div>
 
+          {!loading && data && (
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-accent-green/15 to-transparent p-4">
+                <p className="text-xs uppercase tracking-[0.2em] text-text-gray">Base de leads</p>
+                <p className="mt-2 text-2xl font-bold text-pure-white">{data.totalLeads ?? 0}</p>
+                <p className="mt-1 text-xs text-text-gray">Unifica conversas, captacao e disparos por telefone.</p>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-cyan-400/15 to-transparent p-4">
+                <p className="text-xs uppercase tracking-[0.2em] text-text-gray">Agenda real</p>
+                <p className="mt-2 text-2xl font-bold text-cyan-200">{data.agendamentos ?? 0}</p>
+                <p className="mt-1 text-xs text-text-gray">Conta pela data do compromisso, nao pela criacao do registro.</p>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-orange-400/15 to-transparent p-4">
+                <p className="text-xs uppercase tracking-[0.2em] text-text-gray">Follow-up oficial</p>
+                <p className="mt-2 text-2xl font-bold text-orange-200">{data.followups ?? 0}</p>
+                <p className="mt-1 text-xs text-text-gray">Prioriza tarefas enviadas em agent_task_queue.</p>
+              </div>
+            </div>
+          )}
+
           {/* Conversion alert */}
           {conversionRateLow && (
             <Alert variant="destructive" className="border-red-500/50 bg-red-500/10 relative">
@@ -800,7 +841,7 @@ export default function DashboardPage() {
           {/* Loading skeleton */}
           {loading && (
             <div className="space-y-4 animate-pulse">
-              <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 {[1, 2, 3, 4].map((i) => <div key={i} className="h-28 rounded-xl bg-card/50 border border-border/50" />)}
               </div>
               <div className="h-[300px] rounded-xl bg-card/50 border border-border/50" />
@@ -810,7 +851,7 @@ export default function DashboardPage() {
           {!loading && data && (
             <>
               {/* Main metrics */}
-              <div className="grid gap-3 sm:gap-4 grid-cols-2 lg:grid-cols-4">
+              <div className="grid gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
                 {mainMetrics.map((metric) => {
                   const Icon = metric.icon
                   return (
@@ -823,6 +864,7 @@ export default function DashboardPage() {
                       </CardHeader>
                       <CardContent>
                         <div className={`text-2xl sm:text-3xl font-bold ${metric.color}`}>{metric.value}</div>
+                        <p className="mt-1 text-[11px] leading-snug text-text-gray">{metric.subtitle}</p>
                       </CardContent>
                     </Card>
                   )

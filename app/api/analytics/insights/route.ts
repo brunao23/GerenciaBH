@@ -1,6 +1,15 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { getTenantFromHeaderOrBody, getTenantFromRequest } from "@/lib/helpers/api-tenant"
+import { getTablesForTenant } from "@/lib/helpers/tenant"
 import { resolveChatHistoriesTable } from "@/lib/helpers/resolve-chat-table"
+import {
+    buildAgendamentoMetricSnapshot,
+    fetchAgendamentoMetricRows,
+    isAgendamentoMetricExplicito,
+    normalizeMetricPhone,
+    resolveAgendamentoMetricDate,
+} from "@/lib/services/dashboard-metrics.shared"
 
 // Cliente Supabase com Service Role para acesso administrativo
 function createServiceRoleClient() {
@@ -14,6 +23,24 @@ function createServiceRoleClient() {
             detectSessionInUrl: false
         }
     })
+}
+
+async function resolveAnalyticsTenant(req: Request, explicitTenant?: string | null) {
+    try {
+        const tenantInfo = await getTenantFromRequest()
+        return {
+            tenant: tenantInfo.tenant,
+            tables: tenantInfo.tables,
+            source: "session",
+        }
+    } catch {
+        const tenant = await getTenantFromHeaderOrBody(req, { tenant: explicitTenant || undefined })
+        return {
+            tenant,
+            tables: getTablesForTenant(tenant),
+            source: "header_or_query",
+        }
+    }
 }
 
 // Tipos
@@ -271,42 +298,14 @@ export async function GET(req: Request) {
 
         console.log(`[Analytics] Iniciando análise para período: ${period}`)
 
-        // ✅ OBTER TENANT DO HEADER
-        let tenant = req.headers.get('x-tenant-prefix')
-
-        // Se não vier no header, tenta pegar da URL se existir parametro, ou fallback
-        if (!tenant) {
-            tenant = searchParams.get("tenant")
-        }
-
-        if (!tenant) {
-            console.warn("⚠️ Tenant não especificado em analytics/insights. Usando 'vox_bh' como fallback.")
-            tenant = 'vox_bh'
-        }
+        const tenantInfo = await resolveAnalyticsTenant(req, searchParams.get("tenant"))
+        const tenant = tenantInfo.tenant
 
         const supabase = createServiceRoleClient()
         const chatHistoriesTable = await resolveChatHistoriesTable(supabase as any, tenant)
-        const agendamentosTable = `${tenant}_agendamentos`
+        const agendamentosTable = tenantInfo.tables.agendamentos || `${tenant}_agendamentos`
 
-        console.log(`[Analytics] [${tenant}] Usando tabelas: ${chatHistoriesTable}, ${agendamentosTable}`)
-
-        // ✅ BUSCAR AGENDAMENTOS DIRETAMENTE DA TABELA
-        let agendamentosCount = 0
-        let agendamentosDoPeríodo: any[] = []
-        try {
-            const { data: agendamentos, error: agError } = await supabase
-                .from(agendamentosTable)
-                .select('*')
-
-            if (!agError && agendamentos) {
-                agendamentosDoPeríodo = agendamentos
-                console.log(`[Analytics] ✅ Encontrados ${agendamentos.length} agendamentos na tabela ${agendamentosTable}`)
-            } else {
-                console.warn(`[Analytics] ⚠️ Erro ao buscar agendamentos: ${agError?.message || 'Tabela não encontrada'}`)
-            }
-        } catch (e: any) {
-            console.warn(`[Analytics] ⚠️ Tabela de agendamentos não acessível: ${e.message}`)
-        }
+        console.log(`[Analytics] [${tenant}] Tenant via ${tenantInfo.source}. Usando tabelas: ${chatHistoriesTable}, ${agendamentosTable}`)
 
         // Calcula data de início baseado no período
         const now = new Date()
@@ -333,6 +332,37 @@ export async function GET(req: Request) {
                 endDate.setHours(23, 59, 59, 999)
                 break
         }
+
+        const agendamentoRows = await fetchAgendamentoMetricRows({
+            supabase,
+            table: agendamentosTable,
+            startDate,
+            endDate,
+            limit: 20000,
+        })
+        const agendamentoSnapshot = buildAgendamentoMetricSnapshot(agendamentoRows, startDate, endDate)
+        const agendamentosCount = agendamentoSnapshot.count
+        const convertedPhones = new Set<string>()
+        const convertedSessions = new Set<string>()
+        for (const appointment of agendamentoRows) {
+            if (!isAgendamentoMetricExplicito(appointment)) continue
+            const date = resolveAgendamentoMetricDate(appointment)
+            if (!date || date.getTime() < startDate.getTime() || date.getTime() > endDate.getTime()) continue
+            const phone = normalizeMetricPhone(
+                String(
+                    appointment?.contato ||
+                        appointment?.numero ||
+                        appointment?.phone_number ||
+                        appointment?.telefone ||
+                        appointment?.whatsapp ||
+                        "",
+                ),
+            )
+            if (phone) convertedPhones.add(phone)
+            const sessionId = String(appointment?.session_id || "").trim()
+            if (sessionId) convertedSessions.add(sessionId)
+        }
+        console.log(`[Analytics] Agendamentos reais no periodo: ${agendamentosCount}`)
 
         // LEI INVIOLÁVEL: Busca TODAS as mensagens sem limite artificial
         console.log(`[Analytics] Buscando dados do período: ${startDate.toISOString()} até ${endDate.toISOString()}`)
@@ -667,7 +697,15 @@ export async function GET(req: Request) {
             // 1. Tiver menção EXATA a "Diagnóstico Estratégico da Comunicação" E padrão de agendamento encontrado
             // 2. OU tiver agendamento REAL confirmado (com data e horário definidos E confirmação explícita)
             // NÃO marca como sucesso apenas por palavras soltas, pedidos, solicitações ou interesses sem confirmação
-            const hasSuccess = (temDiagnosticoEstrategico && foundSuccessPattern && !!successTime) ||
+            const sessionPhone = normalizeMetricPhone(sessionId)
+            const hasRealAppointment =
+                convertedSessions.has(sessionId) ||
+                (sessionPhone ? convertedPhones.has(sessionPhone) : false)
+            if (hasRealAppointment && !successTime) {
+                successTime = firstTime || new Date()
+            }
+            const hasSuccess = hasRealAppointment ||
+                (temDiagnosticoEstrategico && foundSuccessPattern && !!successTime) ||
                 (temAgendamentoReal && foundSuccessPattern && !!successTime)
 
             // Log para debug
@@ -958,7 +996,7 @@ export async function GET(req: Request) {
 
         // ✅ USAR AGENDAMENTOS DA TABELA (FONTE PRINCIPAL) + análise de conversas (backup)
         // Prioriza dados da tabela de agendamentos, mas se estiver vazia, usa análise de conversas
-        const agendamentosDaTabela = agendamentosDoPeríodo.length
+        const agendamentosDaTabela = agendamentosCount
         const agendamentosDasConversas = convertedBySuccess.length
         const appointments = agendamentosDaTabela > 0
             ? agendamentosDaTabela

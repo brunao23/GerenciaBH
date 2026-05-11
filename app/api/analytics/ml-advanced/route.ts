@@ -1,7 +1,16 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import OpenAI from "openai"
+import { getTenantFromHeaderOrBody, getTenantFromRequest } from "@/lib/helpers/api-tenant"
+import { getTablesForTenant } from "@/lib/helpers/tenant"
 import { resolveChatHistoriesTable } from "@/lib/helpers/resolve-chat-table"
+import {
+    buildAgendamentoMetricSnapshot,
+    fetchAgendamentoMetricRows,
+    isAgendamentoMetricExplicito,
+    normalizeMetricPhone,
+    resolveAgendamentoMetricDate,
+} from "@/lib/services/dashboard-metrics.shared"
 
 // Cliente Supabase com Service Role para acesso administrativo
 function createServiceRoleClient() {
@@ -15,6 +24,24 @@ function createServiceRoleClient() {
             detectSessionInUrl: false
         }
     })
+}
+
+async function resolveAnalyticsTenant(req: Request, body?: any) {
+    try {
+        const tenantInfo = await getTenantFromRequest()
+        return {
+            tenant: tenantInfo.tenant,
+            tables: tenantInfo.tables,
+            source: "session",
+        }
+    } catch {
+        const tenant = await getTenantFromHeaderOrBody(req, body)
+        return {
+            tenant,
+            tables: getTablesForTenant(tenant),
+            source: "header_or_body",
+        }
+    }
 }
 
 // Tipos
@@ -84,9 +111,16 @@ class KMeans {
     }
 
     private initializeCentroids(data: number[][]): void {
-        // Random initialization
-        const shuffled = [...data].sort(() => Math.random() - 0.5)
-        this.centroids = shuffled.slice(0, this.k)
+        const sorted = [...data].sort((a, b) => {
+            const scoreA = a.reduce((sum, value, index) => sum + value * (index + 1), 0)
+            const scoreB = b.reduce((sum, value, index) => sum + value * (index + 1), 0)
+            return scoreA - scoreB
+        })
+        const safeData = sorted.length > 0 ? sorted : [[0]]
+        this.centroids = Array.from({ length: this.k }, (_, index) => {
+            const position = Math.min(safeData.length - 1, Math.floor((index * safeData.length) / this.k))
+            return [...safeData[position]]
+        })
     }
 
     fit(data: number[][]): number[] {
@@ -193,21 +227,47 @@ export async function POST(req: Request) {
         const body = await req.json()
         const { openaiApiKey } = body
 
-        // ✅ OBTER TENANT DO HEADER OU BODY
-        let tenant = req.headers.get('x-tenant-prefix')
-        if (!tenant && body.tenant) {
-            tenant = body.tenant
-        }
+        const tenantInfo = await resolveAnalyticsTenant(req, body)
+        const tenant = tenantInfo.tenant
 
-        if (!tenant) {
-            console.warn("⚠️ Tenant não especificado em ML Advanced. Usando 'vox_bh' como fallback.")
-            tenant = 'vox_bh'
-        }
-
-        console.log(`[ML Advanced] [${tenant}] Iniciando análise avançada com ML...`)
+        console.log(`[ML Advanced] [${tenant}] Tenant via ${tenantInfo.source}. Iniciando analise avancada com ML...`)
 
         const supabase = createServiceRoleClient()
         const chatHistoriesTable = await resolveChatHistoriesTable(supabase as any, tenant)
+        const agendamentosTable = tenantInfo.tables.agendamentos || `${tenant}_agendamentos`
+        const metricStart = new Date(0)
+        const metricEnd = new Date("2999-12-31T23:59:59.999Z")
+        const appointmentRows = await fetchAgendamentoMetricRows({
+            supabase,
+            table: agendamentosTable,
+            startDate: metricStart,
+            endDate: metricEnd,
+            limit: 20000,
+        })
+        const appointmentSnapshot = buildAgendamentoMetricSnapshot(appointmentRows, metricStart, metricEnd)
+        const convertedPhones = new Set<string>()
+        const convertedSessions = new Set<string>()
+
+        for (const appointment of appointmentRows) {
+            if (!isAgendamentoMetricExplicito(appointment)) continue
+            if (!resolveAgendamentoMetricDate(appointment)) continue
+
+            const phone = normalizeMetricPhone(
+                String(
+                    appointment?.contato ||
+                        appointment?.numero ||
+                        appointment?.phone_number ||
+                        appointment?.telefone ||
+                        appointment?.whatsapp ||
+                        "",
+                ),
+            )
+            if (phone) convertedPhones.add(phone)
+
+            const sessionId = String(appointment?.session_id || "").trim()
+            if (sessionId) convertedSessions.add(sessionId)
+        }
+        console.log(`[ML Advanced] Agendamentos reais usados como label: ${appointmentSnapshot.count}`)
 
         // Busca dados
         const { data: chats, error } = await supabase
@@ -253,13 +313,16 @@ export async function POST(req: Request) {
             }
             const avgResponseTime = responseTimes.length > 0 ? responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length : 0
 
-            const hasSuccess = contents.some(m => /agendad|confirmad|marcad|fechad|contrat/i.test(m))
-            const hasError = contents.some(m => /erro|problem|falh/i.test(m))
-
             let numero = sessionId
             if (sessionId.endsWith('@s.whatsapp.net')) {
                 numero = sessionId.replace('@s.whatsapp.net', '')
             }
+            const normalizedNumero = normalizeMetricPhone(numero)
+            const hasSuccess =
+                convertedSessions.has(sessionId) ||
+                (normalizedNumero ? convertedPhones.has(normalizedNumero) : false) ||
+                contents.some(m => /agendad|confirmad|marcad|fechad|contrat/i.test(m))
+            const hasError = contents.some(m => /erro|problem|falh/i.test(m))
 
             conversationsData.push({
                 sessionId,
@@ -299,6 +362,19 @@ export async function POST(req: Request) {
             labels.push(hasSuccess ? 1 : 0)
         }
 
+        if (mlFeatures.length === 0) {
+            return NextResponse.json({
+                success: true,
+                mlAnalysis: {
+                    totalConversations: 0,
+                    totalConverted: 0,
+                    segments: [],
+                    predictions: [],
+                    semanticInsights: null,
+                },
+            })
+        }
+
         console.log("[ML Advanced] Aplicando K-means clustering...")
 
         // K-means clustering para segmentação
@@ -314,6 +390,7 @@ export async function POST(req: Request) {
             const segmentConvs = segmentIndices.map(idx => conversationsData[idx])
             const segmentFeatures = segmentIndices.map(idx => mlFeatures[idx])
             const segmentLabels = segmentIndices.map(idx => labels[idx])
+            if (segmentConvs.length === 0 || segmentFeatures.length === 0) continue
 
             const avgMessages = segmentFeatures.reduce((sum, f) => sum + f.messageCount, 0) / segmentFeatures.length
             const avgDuration = segmentFeatures.reduce((sum, f) => sum + f.conversationDuration, 0) / segmentFeatures.length

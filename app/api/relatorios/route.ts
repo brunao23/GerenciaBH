@@ -627,7 +627,12 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const totalLeads = chatPhoneSet.size + anonymousSessions
+    const disparosLeads = await getDisparosLeads(tenant, dataInicio, tenant, dataFim)
+    const totalLeadPhoneSet = new Set<string>(chatPhoneSet)
+    for (const phone of disparosLeads.phoneSet) {
+      if (phone) totalLeadPhoneSet.add(phone)
+    }
+    const totalLeads = totalLeadPhoneSet.size + anonymousSessions
     const totalConversas = validSessions.length
     const conversasFinalizadas = Math.max(totalConversas - conversasAtivas, 0)
     const leadTimeHoras =

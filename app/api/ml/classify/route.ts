@@ -7,6 +7,8 @@ import { NextResponse } from 'next/server'
 import { resolveTenant } from '@/lib/helpers/resolve-tenant'
 import { createBiaSupabaseServerClient } from '@/lib/supabase/bia-client'
 import { resolveChatHistoriesTable } from '@/lib/helpers/resolve-chat-table'
+import { getTablesForTenant } from '@/lib/helpers/tenant'
+import { isAgendamentoMetricExplicito, resolveAgendamentoMetricDate } from '@/lib/services/dashboard-metrics.shared'
 
 /**
  * Extrai features de um lead para classificação
@@ -60,7 +62,7 @@ function extractFeatures(messages: any[], agendamentos: any[], followups: any[])
     // Conteúdo
     const allText = messages.map(m => String(m.message?.content || m.content || '')).join(' ').toLowerCase()
 
-    const hasScheduling = agendamentos.length > 0
+    const hasScheduling = agendamentos.some((row) => isAgendamentoMetricExplicito(row) && !!resolveAgendamentoMetricDate(row))
     const hasFollowup = followups.length > 0
     const mentionedPrice = /preço|preco|valor|custo|quanto custa/i.test(allText)
     const mentionedWhen = /quando|que dia|que hora|horário|horario/i.test(allText)
@@ -186,12 +188,20 @@ export async function GET(req: Request) {
         const supabase = createBiaSupabaseServerClient()
 
         const chatTable = await resolveChatHistoriesTable(supabase as any, tenant)
+        const tables = getTablesForTenant(tenant)
+        const agendamentosTable = tables.agendamentos || `${tenant}_agendamentos`
 
         // Buscar dados do lead
         const [messagesResult, agendamentosResult, followupsResult] = await Promise.all([
             supabase.from(chatTable).select('*').eq('session_id', leadId).order('id', { ascending: true }),
-            supabase.from(`${tenant}_agendamentos`).select('*').eq('session_id', leadId),
-            supabase.from(`${tenant}_followup`).select('*').eq('session_id', leadId)
+            supabase.from(agendamentosTable).select('*').eq('session_id', leadId),
+            supabase
+                .from('agent_task_queue')
+                .select('*')
+                .eq('tenant', tenant)
+                .eq('task_type', 'followup')
+                .eq('status', 'done')
+                .eq('session_id', leadId)
         ])
 
         if (messagesResult.error) {
@@ -260,6 +270,8 @@ export async function POST(req: Request) {
         const supabase = createBiaSupabaseServerClient()
 
         const chatTable = await resolveChatHistoriesTable(supabase as any, tenant)
+        const tables = getTablesForTenant(tenant)
+        const agendamentosTable = tables.agendamentos || `${tenant}_agendamentos`
 
         // Classificar cada lead
         const results = []
@@ -267,8 +279,14 @@ export async function POST(req: Request) {
         for (const leadId of leadIds) {
             const [messagesResult, agendamentosResult, followupsResult] = await Promise.all([
                 supabase.from(chatTable).select('*').eq('session_id', leadId).order('id', { ascending: true }),
-                supabase.from(`${tenant}_agendamentos`).select('*').eq('session_id', leadId),
-                supabase.from(`${tenant}_followup`).select('*').eq('session_id', leadId)
+                supabase.from(agendamentosTable).select('*').eq('session_id', leadId),
+                supabase
+                    .from('agent_task_queue')
+                    .select('*')
+                    .eq('tenant', tenant)
+                    .eq('task_type', 'followup')
+                    .eq('status', 'done')
+                    .eq('session_id', leadId)
             ])
 
             const features = extractFeatures(
