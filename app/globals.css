@@ -487,6 +487,37 @@
   overscroll-behavior: contain;
 }
 
+/* WhatsApp-like responsive split for the conversations screen */
+@media (min-width: 1024px) {
+  .conversations-whatsapp-shell .conversation-list-panel {
+    width: 420px;
+  }
+}
+
+@media (min-width: 1280px) {
+  .conversations-whatsapp-shell .conversation-list-panel {
+    width: 480px;
+  }
+}
+
+@media (min-width: 1536px) {
+  .conversations-whatsapp-shell .conversation-list-panel {
+    width: 540px;
+  }
+}
+
+@media (max-width: 1023px) {
+  .conversations-whatsapp-shell {
+    min-height: calc(100vh - 7rem);
+  }
+
+  .conversations-whatsapp-shell .conversation-list-panel,
+  .conversations-whatsapp-shell .conversation-chat-panel {
+    width: 100%;
+    min-height: calc(100vh - 7rem);
+  }
+}
+
 /* Safe area for mobile notch/bar */
 @supports (padding: env(safe-area-inset-bottom)) {
   .safe-area-bottom {

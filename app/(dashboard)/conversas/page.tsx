@@ -2109,10 +2109,10 @@ export default function ConversasPage() {
 
 
   return (
-    <div className="h-full min-h-0 flex flex-col lg:flex-row gap-3 lg:gap-4 overflow-hidden">
+    <div className="conversations-whatsapp-shell h-full min-h-0 flex flex-col lg:flex-row gap-0 overflow-hidden">
       {/* Sidebar - Lista de Sessões */}
-      <Card className={`genial-card w-full lg:w-[390px] xl:w-[430px] min-h-0 flex flex-shrink-0 flex-col overflow-hidden border border-white/10 bg-card/95 shadow-2xl shadow-black/20 ${showListOnMobile ? "flex" : "hidden lg:flex"}`}>
-        <CardHeader className="border-b border-white/10 bg-gradient-to-b from-white/[0.04] to-transparent pb-3 sm:pb-4 shrink-0 px-3 sm:px-4 pt-3 sm:pt-4">
+      <Card className={`genial-card conversation-list-panel w-full min-h-0 flex flex-shrink-0 flex-col overflow-hidden rounded-none lg:rounded-l-2xl lg:rounded-r-none border border-white/10 bg-card/95 shadow-2xl shadow-black/20 ${showListOnMobile ? "flex" : "hidden lg:flex"}`}>
+        <CardHeader className="border-b border-white/10 bg-gradient-to-b from-white/[0.04] to-transparent pb-3 sm:pb-4 shrink-0 px-4 sm:px-5 pt-3 sm:pt-4">
           <div className="flex items-center justify-between">
             {isSelectionMode ? (
               <div className="flex items-center gap-2 w-full">
@@ -2295,12 +2295,12 @@ export default function ConversasPage() {
                   <p>{query ? "Nenhuma conversa encontrada" : "Nenhuma conversa disponível"}</p>
                 </div>
               ) : (
-              <div className="space-y-2 p-2">
+              <div className="space-y-1 p-2">
                 {filtered.map(({ session }) => (
                   <button
                     key={session.session_id}
                     onClick={() => setActive(session.session_id)}
-                    className={`group relative w-full rounded-2xl p-3 sm:p-4 text-left transition-all hover:bg-white/[0.05] hover:shadow-lg hover:shadow-black/20 ${active === session.session_id
+                    className={`group relative w-full rounded-2xl p-3 text-left transition-all hover:bg-white/[0.05] hover:shadow-lg hover:shadow-black/20 sm:p-3.5 ${active === session.session_id
                       ? session.channel === "instagram"
                         ? "bg-pink-500/10 ring-1 ring-pink-400/30"
                         : "bg-accent-green/10 ring-1 ring-accent-green/30"
@@ -2318,7 +2318,7 @@ export default function ConversasPage() {
                           />
                         </div>
                       )}
-                      <Avatar className="w-11 h-11 border border-white/10 shadow-sm shadow-black/20 shrink-0">
+                      <Avatar className="w-10 h-10 border border-white/10 shadow-sm shadow-black/20 shrink-0 2xl:w-11 2xl:h-11">
                         {resolveAvatarImageSrc(session.profile_pic) ? (
                           <AvatarImage
                             src={resolveAvatarImageSrc(session.profile_pic)}
@@ -2399,60 +2399,55 @@ export default function ConversasPage() {
                             </Badge>
                           )}
                         </div>
-                        <div className="mt-1 hidden xl:block text-[11px] text-text-gray/70">
-                          In {formatTokenCount(session.usage_input_tokens)} • Out {formatTokenCount(session.usage_output_tokens)} • Total {formatTokenCount(session.usage_total_tokens)} • {formatMoneyBRL(session.usage_total_cost_brl)}
-                        </div>
-                        <div className="mt-2 flex gap-1 overflow-x-auto pb-1 genial-scrollbar" onClick={(e) => e.stopPropagation()}>
+                        <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1 genial-scrollbar" onClick={(e) => e.stopPropagation()}>
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="h-7 shrink-0 rounded-full px-2 text-[10px] text-emerald-400 hover:bg-emerald-400/10 hover:text-emerald-300"
+                            className="h-8 w-8 shrink-0 rounded-full px-0 text-[10px] text-emerald-400 hover:bg-emerald-400/10 hover:text-emerald-300 2xl:w-auto 2xl:px-2"
                             disabled={busyEvents.has(`${session.session_id}:attendance`)}
                             onClick={() => submitQuickEvent(session, "attendance")}
                             title="Registrar comparecimento"
                           >
-                            <CheckCircle2 className="w-3 h-3 mr-1" />Compareceu
+                            <CheckCircle2 className="w-3.5 h-3.5 2xl:mr-1" /><span className="hidden 2xl:inline">Compareceu</span>
                           </Button>
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="h-7 shrink-0 rounded-full px-2 text-[10px] text-yellow-400 hover:bg-yellow-400/10 hover:text-yellow-300"
+                            className="h-8 w-8 shrink-0 rounded-full px-0 text-[10px] text-yellow-400 hover:bg-yellow-400/10 hover:text-yellow-300 2xl:w-auto 2xl:px-2"
                             disabled={busyEvents.has(`${session.session_id}:no_show`)}
                             onClick={() => submitQuickEvent(session, "no_show")}
                             title="Registrar bolo / não compareceu"
                           >
-                            <UserMinus className="w-3 h-3 mr-1" />Bolo
+                            <UserMinus className="w-3.5 h-3.5 2xl:mr-1" /><span className="hidden 2xl:inline">Bolo</span>
                           </Button>
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="h-7 shrink-0 rounded-full px-2 text-[10px] text-blue-400 hover:bg-blue-400/10 hover:text-blue-300"
+                            className="h-8 w-8 shrink-0 rounded-full px-0 text-[10px] text-blue-400 hover:bg-blue-400/10 hover:text-blue-300 2xl:w-auto 2xl:px-2"
                             onClick={() => submitQuickEvent(session, "sale")}
                             title="Registrar venda realizada"
                           >
-                            <DollarSign className="w-3 h-3 mr-1" />Venda
+                            <DollarSign className="w-3.5 h-3.5 2xl:mr-1" /><span className="hidden 2xl:inline">Venda</span>
                           </Button>
-                        </div>
-                        <div className="mt-1 flex gap-1 overflow-x-auto pb-1 genial-scrollbar" onClick={(e) => e.stopPropagation()}>
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="h-7 shrink-0 rounded-full px-2 text-[10px] text-emerald-300 hover:bg-emerald-500/10 hover:text-emerald-200"
+                            className="h-8 w-8 shrink-0 rounded-full px-0 text-[10px] text-emerald-300 hover:bg-emerald-500/10 hover:text-emerald-200 2xl:w-auto 2xl:px-2"
                             disabled={busyEvents.has(`${session.session_id}:student:yes`)}
                             onClick={() => submitStudentFlag(session, true)}
                             title="Marcar como aluno"
                           >
-                            <GraduationCap className="w-3 h-3 mr-1" />Aluno
+                            <GraduationCap className="w-3.5 h-3.5 2xl:mr-1" /><span className="hidden 2xl:inline">Aluno</span>
                           </Button>
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="h-7 shrink-0 rounded-full px-2 text-[10px] text-amber-300 hover:bg-amber-500/10 hover:text-amber-200"
+                            className="h-8 w-8 shrink-0 rounded-full px-0 text-[10px] text-amber-300 hover:bg-amber-500/10 hover:text-amber-200 2xl:w-auto 2xl:px-2"
                             disabled={busyEvents.has(`${session.session_id}:student:no`)}
                             onClick={() => submitStudentFlag(session, false)}
                             title="Marcar como não aluno"
                           >
-                            <UserMinus className="w-3 h-3 mr-1" />Não aluno
+                            <UserMinus className="w-3.5 h-3.5 2xl:mr-1" /><span className="hidden 2xl:inline">Não aluno</span>
                           </Button>
                         </div>
                       </div>
@@ -2467,12 +2462,12 @@ export default function ConversasPage() {
       </Card>
 
       {/* Main Chat Area */}
-      <Card className={`genial-card flex-1 min-h-0 flex flex-col overflow-hidden border border-white/10 bg-card/95 shadow-2xl shadow-black/20 ${showConversationOnMobile ? "flex" : "hidden lg:flex"}`}>
+      <Card className={`genial-card conversation-chat-panel flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden rounded-none lg:rounded-r-2xl lg:rounded-l-none border border-l-0 border-white/10 bg-card/95 shadow-2xl shadow-black/20 ${showConversationOnMobile ? "flex" : "hidden lg:flex"}`}>
         {current ? (
           <>
-            <CardHeader className="border-b border-white/10 bg-gradient-to-r from-white/[0.04] via-transparent to-accent-green/[0.03] pb-3 sm:pb-4 shrink-0 px-3 sm:px-5 pt-3 sm:pt-5">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-2 sm:gap-3 min-w-0 w-full sm:w-auto">
+            <CardHeader className="border-b border-white/10 bg-gradient-to-r from-white/[0.04] via-transparent to-accent-green/[0.03] pb-3 shrink-0 px-3 pt-3 sm:px-5 sm:pt-4">
+              <div className="flex flex-col xl:flex-row items-start xl:items-center justify-between gap-3">
+                <div className="flex items-center gap-2 sm:gap-3 min-w-0 w-full xl:w-auto">
                   <Button
                     size="icon"
                     variant="ghost"
@@ -2494,7 +2489,7 @@ export default function ConversasPage() {
                       {current.contact_name?.charAt(0).toUpperCase() || "L"}
                     </AvatarFallback>
                   </Avatar>
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1 xl:flex-none">
                     <h3 className="text-base sm:text-lg font-bold text-pure-white flex items-center gap-2 flex-wrap">
                        {current.contact_name || "Lead"}
                        <Badge
@@ -2523,9 +2518,9 @@ export default function ConversasPage() {
                           <Edit2 className="w-3 h-3 text-text-gray" />
                        </Button>
                     </h3>
-                    <div className="flex items-center gap-2 text-sm text-text-gray mt-1">
+                    <div className="flex items-center gap-2 text-sm text-text-gray mt-1 min-w-0">
                       <Phone className="w-3 h-3" />
-                      <span className="font-mono">
+                      <span className="font-mono truncate">
                         {current.channel === "instagram"
                           ? inferInstagramHandle(current)
                             ? `@${inferInstagramHandle(current)}`
@@ -2537,9 +2532,6 @@ export default function ConversasPage() {
                         {current.isSummary ? "~" : ""}
                         {current.messages_count ?? current.messages.length} mensagens
                       </span>
-                    </div>
-                    <div className="mt-1 hidden xl:block text-xs text-text-gray/70">
-                      Input {formatTokenCount(current.usage_input_tokens)} • Output {formatTokenCount(current.usage_output_tokens)} • Total {formatTokenCount(current.usage_total_tokens)} • {formatMoneyBRL(current.usage_total_cost_brl)}
                     </div>
                     {current.channel === "instagram" && (inferInstagramHandle(current) || current.instagram_bio) && (
                       <div className="mt-1 space-y-0.5">
@@ -2555,7 +2547,7 @@ export default function ConversasPage() {
                 </div>
 
                 {/* Controles de Pausa e Follow-up AI */}
-                <div className="flex w-full sm:w-auto flex-nowrap sm:flex-wrap gap-2 overflow-x-auto pb-1 sm:pb-0 genial-scrollbar">
+                <div className="flex w-full xl:w-auto flex-nowrap xl:flex-wrap gap-2 overflow-x-auto pb-1 xl:pb-0 genial-scrollbar">
                   {pauseStatus && (
                     <>
                       <Button
