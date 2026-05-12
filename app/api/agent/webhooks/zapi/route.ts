@@ -1493,11 +1493,30 @@ async function processConversationTaskIntelligence(params: {
 }
 
 function extractSharedContactPhone(payload: any): string {
+  const vcardList = asArray(
+    payload?.vcardList || 
+    payload?.data?.vcardList || 
+    payload?.contactMessage?.vcardList || 
+    payload?.data?.contactMessage?.vcardList || 
+    payload?.message?.contactMessage?.vcardList ||
+    payload?.contacts ||
+    payload?.data?.contacts ||
+    payload?.message?.contactsArrayMessage?.contacts
+  )
+  for (const item of vcardList) {
+    if (item?.vcard) {
+      const match = item.vcard.match(/waid=(\d+)/i) || item.vcard.match(/TEL[^:]*:([^\n\r]+)/i)
+      if (match && match[1]) return normalizeLikelyWhatsappPhone(match[1])
+    }
+  }
+
   const vcard = readString(
     payload?.vcard,
     payload?.data?.vcard,
     payload?.message?.contactMessage?.vcard,
-    payload?.data?.message?.contactMessage?.vcard
+    payload?.data?.message?.contactMessage?.vcard,
+    payload?.contact?.vcard,
+    payload?.data?.contact?.vcard
   )
   if (vcard) {
     const match = vcard.match(/waid=(\d+)/i) || vcard.match(/TEL[^:]*:([^\n\r]+)/i)
