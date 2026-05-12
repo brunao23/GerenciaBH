@@ -30,6 +30,10 @@ export interface GroupPauseIntentInput {
   imageUrl?: string
   /** Legenda enviada junto com a imagem */
   imageCaption?: string
+  /** Base64 da imagem (se já vier no payload da ZAPI) */
+  imageBase64?: string
+  /** MIME type da imagem */
+  imageMimeType?: string
   /** URL pública do áudio (quando não tiver base64) */
   audioUrl?: string
   /** Base64 do áudio */
@@ -116,12 +120,14 @@ export function detectPauseIntentFromText(text: string): GroupPauseIntentResult 
 // ─── 2. Imagem → Vertex AI ───────────────────────────────────────────────────
 
 export async function detectPauseIntentFromImage(params: {
-  imageUrl: string
+  imageUrl?: string
+  imageBase64?: string
+  imageMimeType?: string
   caption?: string
 }): Promise<GroupPauseIntentResult> {
-  const { imageUrl, caption } = params
+  const { imageUrl, imageBase64: paramBase64, imageMimeType, caption } = params
 
-  if (!imageUrl) return { detected: false, reason: "missing_image_url" }
+  if (!imageUrl && !paramBase64) return { detected: false, reason: "missing_image_payload" }
 
   // Atalho: legenda já tem número + palavra de pausa
   if (caption) {
@@ -132,17 +138,20 @@ export async function detectPauseIntentFromImage(params: {
   const vertex = buildVertexService()
   if (!vertex) return { detected: false, reason: "vertex_project_id_not_configured" }
 
-  // Baixa imagem e converte para base64
-  let imageBase64 = ""
-  let mimeType = "image/jpeg"
-  try {
-    const res = await fetch(imageUrl, { signal: AbortSignal.timeout(12_000) })
-    if (!res.ok) return { detected: false, reason: `image_fetch_error_${res.status}` }
-    const ct = res.headers.get("content-type") || ""
-    if (ct.includes("image/")) mimeType = ct.split(";")[0].trim()
-    imageBase64 = Buffer.from(await res.arrayBuffer()).toString("base64")
-  } catch (err: any) {
-    return { detected: false, reason: `image_fetch_exception: ${String(err?.message || err)}` }
+  // Baixa imagem ou usa base64 recebido
+  let imageBase64 = String(paramBase64 || "").replace(/\s+/g, "").trim()
+  let mimeType = String(imageMimeType || "image/jpeg").trim()
+
+  if (!imageBase64 && imageUrl) {
+    try {
+      const res = await fetch(imageUrl, { signal: AbortSignal.timeout(12_000) })
+      if (!res.ok) return { detected: false, reason: `image_fetch_error_${res.status}` }
+      const ct = res.headers.get("content-type") || ""
+      if (ct.includes("image/")) mimeType = ct.split(";")[0].trim()
+      imageBase64 = Buffer.from(await res.arrayBuffer()).toString("base64")
+    } catch (err: any) {
+      return { detected: false, reason: `image_fetch_exception: ${String(err?.message || err)}` }
+    }
   }
 
   if (!imageBase64) return { detected: false, reason: "image_base64_empty" }
@@ -264,9 +273,11 @@ export async function detectGroupPauseIntent(
   }
 
   // 3. Imagem (OCR via Vertex AI → extração de número)
-  if (input.imageUrl) {
+  if (input.imageUrl || input.imageBase64) {
     const fromImage = await detectPauseIntentFromImage({
       imageUrl: input.imageUrl,
+      imageBase64: input.imageBase64,
+      imageMimeType: input.imageMimeType,
       caption: input.imageCaption || input.text,
     })
     if (fromImage.detected) return fromImage

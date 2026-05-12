@@ -3430,6 +3430,8 @@ export async function POST(req: NextRequest) {
         const pauseIntent = await detectGroupPauseIntent({
           text: messageText || undefined,
           imageUrl: imageUrl || undefined,
+          imageBase64: (event.hasMedia && !event.hasAudio && event.mediaBase64) ? String(event.mediaBase64).trim() : undefined,
+          imageMimeType: (event.hasMedia && !event.hasAudio && event.mediaMimeType) ? String(event.mediaMimeType).trim() : undefined,
           imageCaption: String(event.mediaCaption || "").trim() || undefined,
           audioUrl: audioUrl || undefined,
           audioBase64: audioBase64 || undefined,
@@ -4265,3 +4267,4 @@ export async function POST(req: NextRequest) {
     )
   }
 }
+
