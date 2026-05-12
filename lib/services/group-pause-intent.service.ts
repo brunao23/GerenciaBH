@@ -110,8 +110,8 @@ function buildVertexService(): VertexAIService | null {
 // ─── 1. Texto ─────────────────────────────────────────────────────────────────
 
 export function detectPauseIntentFromText(text?: string, sharedContactPhone?: string): GroupPauseIntentResult {
-  // Se enviou apenas um contato (vCard) mas sem texto, assumimos que é uma intenção de pausa
-  if (!text && sharedContactPhone) {
+  // Se enviou um contato (vCard) (mesmo com o nome do contato no texto), assumimos que a intenção é pausar
+  if (sharedContactPhone && (!text || !isPauseCommand(text))) {
     return { detected: true, phone: sharedContactPhone, source: "text" }
   }
 

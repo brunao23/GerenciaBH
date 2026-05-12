@@ -1500,7 +1500,7 @@ function extractSharedContactPhone(payload: any): string {
     payload?.data?.message?.contactMessage?.vcard
   )
   if (vcard) {
-    const match = vcard.match(/waid=(\d+)/i) || vcard.match(/TEL.*:.*?\+?(\d+)/i)
+    const match = vcard.match(/waid=(\d+)/i) || vcard.match(/TEL[^:]*:([^\n\r]+)/i)
     if (match && match[1]) return normalizeLikelyWhatsappPhone(match[1])
   }
 
@@ -1511,7 +1511,7 @@ function extractSharedContactPhone(payload: any): string {
     payload?.data?.message?.extendedTextMessage?.contextInfo?.quotedMessage?.contactMessage?.vcard
   )
   if (quotedVcard) {
-    const match = quotedVcard.match(/waid=(\d+)/i) || quotedVcard.match(/TEL.*:.*?\+?(\d+)/i)
+    const match = quotedVcard.match(/waid=(\d+)/i) || quotedVcard.match(/TEL[^:]*:([^\n\r]+)/i)
     if (match && match[1]) return normalizeLikelyWhatsappPhone(match[1])
   }
 
