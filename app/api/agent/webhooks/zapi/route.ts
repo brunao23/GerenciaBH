@@ -23,6 +23,7 @@ import { TenantMessagingService } from "@/lib/services/tenant-messaging.service"
 import { GroupNotificationDispatcherService } from "@/lib/services/group-notification-dispatcher.service"
 import {
   detectsExplicitPausedLeadResumeIntent,
+  detectsFinancialInterventionIntent,
   getLeadPauseState,
   releaseLeadPause,
 } from "@/lib/services/lead-pause.service"
@@ -4310,6 +4311,7 @@ export async function POST(req: NextRequest) {
     )
   }
 }
+
 
 
 

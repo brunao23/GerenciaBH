@@ -91,6 +91,22 @@ export function detectsPausedLeadSchedulingSignal(rawMessage: string): boolean {
   return false
 }
 
+export function detectsFinancialInterventionIntent(rawMessage: string): boolean {
+  const text = normalizeComparablePauseText(rawMessage)
+  if (!text || text.length < 3) return false
+
+  const financialPatterns = [
+    /\b(comprovante|recibo|extrato)\b/,
+    /\b(pix|transferencia|deposito|ted|doc)\b/,
+    /\b(paguei|pagamento|pago|pagar|quitado|quitei)\b/,
+    /\b(parcela|boleto|fatura|mensalidade|cartao)\b/,
+    /\b(dar\s+baixa|dei\s+baixa|baixa\s+na\s+parcela)\b/,
+    /\b(enviando\s+o\s+comprovante|segue\s+o\s+comprovante)\b/
+  ]
+
+  return financialPatterns.some((pattern) => pattern.test(text))
+}
+
 export function detectsExplicitPausedLeadResumeIntent(rawMessage: string): boolean {
   const text = normalizeComparablePauseText(rawMessage)
   if (!text || text.length < 6) return false
