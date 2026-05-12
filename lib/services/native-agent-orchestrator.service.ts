@@ -1,4 +1,4 @@
-import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
+﻿import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { SemanticCacheService, type CacheHitResult } from "@/lib/services/semantic-cache.service"
 import { getTablesForTenant } from "@/lib/helpers/tenant"
 import { getTableColumns } from "@/lib/helpers/supabase-table-columns"
@@ -5463,10 +5463,8 @@ export class NativeAgentOrchestratorService {
       "- [USO DE business_days_configured] Quando apresentar opcoes ao lead, use apenas os dias que estao em 'business_days_configured'. Se o lead pedir um dia que NAO esta na lista, informe que nao ha atendimento naquele dia da semana e sugira os dias configurados.",
       "- [USO DE days_with_free_slots] Sempre priorize dias com vagas reais (days_with_free_slots). NUNCA ofereca data/horario ocupado.",
       "- [PRECISAO DE RANGE] Se o lead pedir um periodo especifico ('semana que vem', 'mes que vem', 'proximo mes'), ajuste date_from e date_to exatamente para cobrir esse periodo ao chamar get_available_slots.",
-      "- REGRA DE DATA RELATIVA: use o campo relative_label do slot como referencia. FORMATO CORRETO por distancia temporal: (1) HOJE → 'hoje as 14h'; (2) AMANHA (apenas quando for literalmente o proximo dia) → 'amanha as 10h'; (3) QUALQUER OUTRO DIA → use SEMPRE o nome do dia da semana: 'quarta as 9h', 'quinta as 15h', 'proxima terca as 14h'. PROIBIDO dizer 'depois de amanha' — use o nome do dia (ex: 'quinta as 14h30' em vez de 'depois de amanha as 14h30'). NUNCA use apenas o numero do dia sem o nome do dia da semana.",
-      "- REGRA DE CONSISTENCIA: NUNCA escreva duas opcoes equivalentes para o mesmo dia no mesmo turno (ex.: 'amanha 20h' e 'quarta-feira 20h' quando representam o mesmo dia).",
-      "- PROIBIDO ABSOLUTO â€” DATAS ENTRE PARENTESES: NUNCA use o formato 'amanha (24/04)', 'quarta-feira (29/04)', 'terca (dia 21)' ou qualquer variante com data numerica entre parenteses. Isso soa robotico e nÃ£o Ã© natural. Use SOMENTE o dia da semana ou o label relativo: 'amanha as 14h', 'quarta as 10h', 'proxima sexta as 9h'. Se a data for distante (mais de 2 semanas), diga 'em duas semanas, na quarta as 10h' â€” nunca o numero entre parenteses.",
-      "- PROIBIDO: 'depois de amanha' (use o nome do dia), 'amanha dia 24', 'quarta dia 29', 'na terca, dia 21', 'terca-feira, 21 de abril' â€” sempre prefira a forma simples e falada: 'amanha', 'quarta', 'proxima terca'.",
+      "- REGRA DE DATA RELATIVA - APRESENTACAO AO LEAD: ao oferecer opcoes de horario, use a seguinte logica: (1) HOJE: 'hoje as 14h'. (2) AMANHA (literalmente o proximo dia): 'amanha as 10h'. (3) QUALQUER OUTRO DIA ALEM DE AMANHA: use OBRIGATORIAMENTE o nome do dia da semana + a data exata no formato 'dia dd/MM'. Exemplo de pergunta ao lead: 'Voce prefere hoje, amanha ou quinta-feira, dia 15/05?' â€” o lead precisa saber exatamente qual data esta sendo oferecida. PROIBIDO usar 'depois de amanha', 'daqui a dois dias' ou qualquer referencia relativa alem de 'hoje' e 'amanha'. NUNCA use apenas o numero do dia sem o nome do dia da semana. Exemplos corretos: 'quarta-feira, dia 14/05', 'proxima sexta-feira, dia 16/05'.",
+      "- REGRA DE CONSISTENCIA: NUNCA escreva duas opcoes equivalentes para o mesmo dia no mesmo turno (ex.: 'amanha as 20h' e 'quarta-feira, dia 14/05 as 20h' quando representam o mesmo dia).",
       "",
       "FLUXO OBRIGATORIO DE APRESENTACAO DE HORARIOS:",
       "- PASSO 1 â€” CONSULTAR: chame get_available_slots. Identifique quais periodos (manha / tarde / noite) possuem vagas reais.",
@@ -5480,13 +5478,11 @@ export class NativeAgentOrchestratorService {
       "- REGRA DE FERIADO: quando a data estiver em holidays_in_range, informe o nome exato do feriado e em seguida ofereca os proximos slots livres.",
       "",
       "FORMATO OBRIGATORIO DA MENSAGEM DE CONFIRMACAO DE AGENDAMENTO:",
-      "- Quando schedule_appointment ou edit_appointment retornar ok=true, DIVIDA a mensagem de confirmacao em BLOCOS SEPARADOS por linha em branco (\\n\\n entre cada bloco). NUNCA junte tudo em um paragrafo so.",
-      "- BLOCO 1 â€” CONFIRMACAO: apenas a confirmacao do agendamento. Exemplo: 'Perfeito, Bruno! Agendado para quinta as 18h30.'",
-      "- BLOCO 2 â€” ENDERECO (se houver endereco configurado): apenas o endereco e como chegar. Exemplo: 'Nosso endereco e Av. Dr. Julio Marques Luz, 1433 A, Jatiuca. Estamos em frente ao Hospital Veterinario DOK.'",
-      "- BLOCO 3 â€” ENCERRAMENTO: frase de encerramento leve e breve. Exemplo: 'Te espero! Qualquer duvida, e so falar.'",
-      "- PROIBIDO: colocar confirmacao, endereco e encerramento todos na mesma linha ou paragrafo.",
-      "- PROIBIDO: repetir o horario ou data no bloco de endereco ou encerramento.",
-      "- PROIBIDO: usar 'dia 30/04', 'quinta-feira, 30 de abril' ou qualquer formato de data numerica. Use APENAS o dia da semana e o horario: 'quinta as 18h30'.",
+      "- Quando schedule_appointment ou edit_appointment retornar ok=true, envie a confirmacao em mensagens curtas e separadas â€” nao junte tudo em um unico paragrafo.",
+      "- MENSAGEM 1: apenas a confirmacao do agendamento, usando o nome do dia da semana + a data exata no formato 'dia dd/MM'. Exemplo: 'Perfeito! Agendado para quinta-feira, dia 15/05, as 18h30.'",
+      "- MENSAGEM 2 (somente se houver endereco configurado): apenas o endereco e como chegar. Exemplo: 'Nosso endereco e Av. Dr. Julio Marques Luz, 1433 A, Jatiuca. Estamos em frente ao Hospital Veterinario DOK.'",
+      "- MENSAGEM 3: frase de encerramento leve e breve, sem repetir data ou horario. Exemplo: 'Qualquer duvida, e so falar.'",
+      "- PROIBIDO: usar apenas o nome do dia sem a data numerica na confirmacao (ex: so 'quinta as 18h30' e insuficiente â€” use 'quinta-feira, dia 15/05, as 18h30').",
     ] as (string | null)[]).filter((v): v is string => v !== null).join("\n")
 
     const nowForPrompt = getNowPartsForTimezone(config.timezone || "America/Sao_Paulo")
