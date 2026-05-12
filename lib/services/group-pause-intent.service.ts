@@ -26,6 +26,8 @@ export interface GroupPauseIntentResult {
 export interface GroupPauseIntentInput {
   /** Texto livre da mensagem (já transcrito ou digitado) */
   text?: string
+  /** Telefone extraído de contato compartilhado (vCard) */
+  sharedContactPhone?: string
   /** URL pública da imagem */
   imageUrl?: string
   /** Legenda enviada junto com a imagem */
@@ -107,14 +109,19 @@ function buildVertexService(): VertexAIService | null {
 
 // ─── 1. Texto ─────────────────────────────────────────────────────────────────
 
-export function detectPauseIntentFromText(text: string): GroupPauseIntentResult {
+export function detectPauseIntentFromText(text?: string, sharedContactPhone?: string): GroupPauseIntentResult {
+  // Se enviou apenas um contato (vCard) mas sem texto, assumimos que é uma intenção de pausa
+  if (!text && sharedContactPhone) {
+    return { detected: true, phone: sharedContactPhone, source: "text" }
+  }
+
   if (!text || text.length < 4) return { detected: false, reason: "text_too_short" }
   if (!isPauseCommand(text)) return { detected: false, reason: "no_pause_keyword" }
 
-  const phone = extractPhoneFromText(text)
-  if (!phone) return { detected: false, reason: "no_phone_found_in_text" }
+  const phone = extractPhoneFromText(text) || sharedContactPhone
+  if (!phone) return { detected: false, reason: "no_phone_found_in_text_or_contact" }
 
-  return { detected: true, phone, source: "text", rawExtracted: phone }
+  return { detected: true, phone, source: "text" }
 }
 
 // ─── 2. Imagem → Vertex AI ───────────────────────────────────────────────────
@@ -256,9 +263,9 @@ export async function detectPauseIntentFromAudio(params: {
 export async function detectGroupPauseIntent(
   input: GroupPauseIntentInput,
 ): Promise<GroupPauseIntentResult> {
-  // 1. Texto
-  if (input.text) {
-    const fromText = detectPauseIntentFromText(input.text)
+  // 1. Texto ou Contato Compartilhado
+  if (input.text || input.sharedContactPhone) {
+    const fromText = detectPauseIntentFromText(input.text, input.sharedContactPhone)
     if (fromText.detected) return fromText
   }
 

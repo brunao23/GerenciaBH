@@ -58,6 +58,7 @@ type ZapiMessageEvent = {
   profilePicUrl?: string
   chatName?: string
   chatLid?: string
+  sharedContactPhone?: string
   instanceId?: string
   token?: string
   status?: string
@@ -1490,6 +1491,44 @@ async function processConversationTaskIntelligence(params: {
   }
 }
 
+function extractSharedContactPhone(payload: any): string {
+  const vcard = readString(
+    payload?.vcard,
+    payload?.data?.vcard,
+    payload?.message?.contactMessage?.vcard,
+    payload?.data?.message?.contactMessage?.vcard
+  )
+  if (vcard) {
+    const match = vcard.match(/waid=(\d+)/i) || vcard.match(/TEL.*:.*?\+?(\d+)/i)
+    if (match && match[1]) return normalizeLikelyWhatsappPhone(match[1])
+  }
+
+  const quotedVcard = readString(
+    payload?.quotedMsg?.vcard,
+    payload?.data?.quotedMsg?.vcard,
+    payload?.message?.extendedTextMessage?.contextInfo?.quotedMessage?.contactMessage?.vcard,
+    payload?.data?.message?.extendedTextMessage?.contextInfo?.quotedMessage?.contactMessage?.vcard
+  )
+  if (quotedVcard) {
+    const match = quotedVcard.match(/waid=(\d+)/i) || quotedVcard.match(/TEL.*:.*?\+?(\d+)/i)
+    if (match && match[1]) return normalizeLikelyWhatsappPhone(match[1])
+  }
+
+  const phonesArray = asArray(
+    payload?.phones || payload?.data?.phones || payload?.contact?.phones || payload?.data?.contact?.phones
+  )
+  if (phonesArray.length > 0) {
+    return normalizeLikelyWhatsappPhone(phonesArray[0])
+  }
+
+  const quotedPhones = asArray(payload?.quotedMsg?.phones || payload?.data?.quotedMsg?.phones)
+  if (quotedPhones.length > 0) {
+    return normalizeLikelyWhatsappPhone(quotedPhones[0])
+  }
+
+  return ""
+}
+
 function extractPhone(payload: any): string {
   const candidates = [
     payload?.phone,
@@ -1782,6 +1821,7 @@ function parseZapiEvent(raw: any): ZapiMessageEvent {
     undefined
   const senderName = readString(event.senderName, body.senderName, data.senderName) || undefined
   const chatName = readString(event.chatName, body.chatName, data.chatName) || undefined
+  const sharedContactPhone = extractSharedContactPhone(event) || extractSharedContactPhone(body) || extractSharedContactPhone(data) || undefined
 
   const ids = asArray<any>(event.ids)
     .map((id) => String(id || "").trim())
@@ -1921,6 +1961,7 @@ function parseZapiEvent(raw: any): ZapiMessageEvent {
     profilePicUrl: profilePicture || undefined,
     chatName,
     chatLid: chatLid || undefined,
+    sharedContactPhone: sharedContactPhone || undefined,
     instanceId: readString(event.instanceId, body.instanceId, data.instanceId) || undefined,
     token: readString(event.token, body.token, data.token) || undefined,
     status,
@@ -2102,6 +2143,7 @@ function resolveSenderTypeForEvent(event: ZapiMessageEvent): "lead" | "ia" | "hu
   if (!event.fromMe) return "lead"
   return event.fromApi === true ? "ia" : "human"
 }
+
 
 function extractPhoneFromHistoryRow(row: any): string {
   const message = asObject(row?.message)
@@ -3429,6 +3471,7 @@ export async function POST(req: NextRequest) {
 
         const pauseIntent = await detectGroupPauseIntent({
           text: messageText || undefined,
+          sharedContactPhone: event.sharedContactPhone || undefined,
           imageUrl: imageUrl || undefined,
           imageBase64: (event.hasMedia && !event.hasAudio && event.mediaBase64) ? String(event.mediaBase64).trim() : undefined,
           imageMimeType: (event.hasMedia && !event.hasAudio && event.mediaMimeType) ? String(event.mediaMimeType).trim() : undefined,
@@ -4267,4 +4310,8 @@ export async function POST(req: NextRequest) {
     )
   }
 }
+
+
+
+
 
