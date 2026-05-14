@@ -37,29 +37,30 @@ import {
   Clock,
   ChevronDown,
   ChevronRight,
+  GraduationCap,
 } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useState } from "react"
 
 const items = [
-  { title: "Dashboard", url: "/dashboard", icon: BarChart3 },
-  { title: "CRM", url: "/crm", icon: LayoutTemplate },
+  { title: "Visão Geral", url: "/dashboard", icon: BarChart3 },
+  { title: "Pipeline", url: "/crm", icon: LayoutTemplate },
   { title: "Conversas", url: "/conversas", icon: MessageCircle },
   { title: "Contatos", url: "/contatos", icon: BookUser },
-  { title: "Agendamentos", url: "/agendamentos", icon: Calendar },
+  { title: "Agenda", url: "/agendamentos", icon: Calendar },
   { title: "Lembretes", url: "/lembretes", icon: Bell },
   { title: "Follow-ups", url: "/followups", icon: Workflow },
   { title: "Pausas", url: "/pausas", icon: PauseCircle },
-  { title: "Disparos", url: "/disparos", icon: Megaphone },
-  { title: "Configuracao", url: "/configuracao", icon: ShieldCheck },
+  { title: "Campanhas", url: "/disparos", icon: Megaphone },
+  { title: "Configurações", url: "/configuracao", icon: ShieldCheck },
 ]
 
 const agentesItems = [
-  { title: "Agente Qualificador WhatsApp", slug: "whatsapp", icon: MessageCircle },
-  { title: "Agente Social Seller Instagram", slug: "instagram", icon: Instagram },
-  { title: "Agente de Engajamento (Bolo)", slug: "engajamento", icon: Zap },
-  { title: "Agente de Boas Vindas", slug: "boas-vindas", icon: Heart },
-  { title: "Agente de Follow-Up", slug: "followup", icon: Clock },
+  { title: "Agente de Matrículas WhatsApp", slug: "whatsapp", icon: MessageCircle },
+  { title: "Social Seller Instagram", slug: "instagram", icon: Instagram },
+  { title: "Engajamento", slug: "engajamento", icon: Zap },
+  { title: "Boas-vindas", slug: "boas-vindas", icon: Heart },
+  { title: "Follow-up", slug: "followup", icon: Clock },
 ]
 
 export function AppSidebar() {
@@ -101,16 +102,16 @@ export function AppSidebar() {
   }
 
   return (
-    <Sidebar className="bg-sidebar border-sidebar-border">
-      <SidebarHeader className="px-4 py-5 border-b border-sidebar-border">
+    <Sidebar className="border-sidebar-border bg-sidebar/95 backdrop-blur-xl">
+      <SidebarHeader className="border-b border-sidebar-border px-4 py-5">
         <div className="flex items-center gap-3 px-2">
-          <div className="w-10 h-10 bg-gradient-to-br from-[var(--accent-green)] to-[var(--dark-green)] rounded-xl flex items-center justify-center shadow-md shadow-[var(--accent-green)]/20">
-            <Zap className="h-5 w-5 text-white font-bold" />
+          <div className="brand-mark flex h-11 w-11 items-center justify-center rounded-2xl">
+            <GraduationCap className="h-5 w-5" />
           </div>
-          <div className="flex-1">
-            <span className="font-bold text-foreground text-lg tracking-tight">GerencIA</span>
-            <div className="text-[10px] text-muted-foreground uppercase tracking-[0.2em] font-medium">
-              Genial Labs AI
+          <div className="min-w-0 flex-1">
+            <span className="block truncate text-lg font-bold tracking-tight text-foreground">GerencIA</span>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--accent-green)]">
+              Educação
             </div>
           </div>
         </div>
@@ -118,10 +119,10 @@ export function AppSidebar() {
         {/* Nome da Unidade */}
         {!loading && sessionData?.session?.unitName && (
           <div className="mt-3 px-2">
-            <div className="flex items-center gap-2 p-2.5 rounded-lg bg-[var(--accent-green)]/8 border border-[var(--accent-green)]/15">
+            <div className="flex items-center gap-2 rounded-2xl border border-[var(--accent-green)]/20 bg-[var(--accent-green)]/8 p-2.5 shadow-sm">
               <Building2 className="w-4 h-4 text-[var(--accent-green)]" />
               <div className="flex-1">
-                <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Unidade Ativa</div>
+                <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Unidade</div>
                 <div className="font-semibold text-[var(--accent-green)] text-sm">{sessionData.session.unitName}</div>
               </div>
             </div>
@@ -151,8 +152,8 @@ export function AppSidebar() {
 
       <SidebarContent className="px-2">
         <SidebarGroup>
-          <SidebarGroupLabel className="text-muted-foreground text-[10px] uppercase tracking-[0.15em] font-semibold px-4 py-3">
-            Menu Principal
+          <SidebarGroupLabel className="px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
+            Operação educacional
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu className="space-y-0.5">

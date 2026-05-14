@@ -715,16 +715,16 @@ export default function DashboardPage() {
       : `${period === "7d" ? "7" : period === "15d" ? "15" : period === "30d" ? "30" : "90"} dias`
 
   const mainMetrics = [
-    { title: "Conversas", value: data?.conversas ?? 0, subtitle: `${data?.totalMessages ?? 0} mensagens no periodo`, icon: MessageSquare, color: "text-blue-400", bg: "bg-blue-400/10", border: "border-blue-400/20" },
-    { title: "Leads", value: data?.totalLeads ?? 0, subtitle: "contatos acompanhados", icon: Users, color: "text-accent-green", bg: "bg-accent-green/10", border: "border-accent-green/20" },
-    { title: "Agendamentos", value: data?.agendamentos ?? 0, subtitle: `${data?.conversionRate?.toFixed?.(1) ?? "0.0"}% de conversao`, icon: CalendarClock, color: "text-cyan-300", bg: "bg-cyan-400/10", border: "border-cyan-400/20" },
-    { title: "Follow-ups", value: data?.followups ?? 0, subtitle: "acompanhamentos enviados", icon: Workflow, color: "text-orange-400", bg: "bg-orange-400/10", border: "border-orange-400/20" },
+    { title: "Atendimentos", value: data?.conversas ?? 0, subtitle: `${data?.totalMessages ?? 0} mensagens no periodo`, icon: MessageSquare, color: "text-accent-blue", bg: "bg-accent-blue/10", border: "border-accent-blue/20" },
+    { title: "Leads qualificados", value: data?.totalLeads ?? 0, subtitle: "alunos em potencial", icon: Users, color: "text-accent-green", bg: "bg-accent-green/10", border: "border-accent-green/20" },
+    { title: "Diagnósticos", value: data?.agendamentos ?? 0, subtitle: `${data?.conversionRate?.toFixed?.(1) ?? "0.0"}% de conversao`, icon: CalendarClock, color: "text-accent-gold", bg: "bg-accent-gold/10", border: "border-accent-gold/20" },
+    { title: "Retomadas", value: data?.followups ?? 0, subtitle: "follow-ups enviados", icon: Workflow, color: "text-orange-400", bg: "bg-orange-400/10", border: "border-orange-400/20" },
   ]
 
   const performanceMetrics = [
-    { title: "Taxa de Agendamento", value: `${data?.conversionRate?.toFixed?.(1) ?? "0.0"}%`, subtitle: "Agendamentos / Leads", icon: Target, color: "text-accent-green" },
-    { title: "Taxa de Sucesso IA", value: `${data?.successPercent?.toFixed?.(1) ?? "0.0"}%`, subtitle: `${data?.successCount ?? 0} respostas corretas`, icon: TrendingUp, color: "text-emerald-400" },
-    { title: "Tempo Médio Resposta", value: `${data?.avgFirstResponseTime ?? 0}s`, subtitle: "Primeira resposta da IA", icon: Clock, color: "text-blue-400" },
+    { title: "Conversão para diagnóstico", value: `${data?.conversionRate?.toFixed?.(1) ?? "0.0"}%`, subtitle: "Diagnósticos / leads", icon: Target, color: "text-accent-green" },
+    { title: "Qualidade da IA", value: `${data?.successPercent?.toFixed?.(1) ?? "0.0"}%`, subtitle: `${data?.successCount ?? 0} respostas corretas`, icon: TrendingUp, color: "text-accent-gold" },
+    { title: "Tempo médio de resposta", value: `${data?.avgFirstResponseTime ?? 0}s`, subtitle: "Primeira resposta da IA", icon: Clock, color: "text-accent-blue" },
   ]
 
   const conversionRateLow =
@@ -739,18 +739,33 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6 pb-10">
       {/* Header */}
-      <div className="genial-surface genial-hero-grid overflow-hidden rounded-2xl border border-white/10 px-4 py-4 shadow-2xl shadow-black/20 sm:px-6 sm:py-6">
-        <div className="relative z-[1]">
-          <h1 className="text-2xl font-bold text-pure-white font-display sm:text-4xl">Dashboard</h1>
-          <p className="mt-2 max-w-3xl text-sm text-text-gray sm:text-base">
-            Acompanhe resultados, atendimentos, agendamentos e oportunidades em um unico lugar.
-          </p>
+      <div className="genial-surface genial-hero-grid overflow-hidden rounded-[1.75rem] px-4 py-5 shadow-2xl shadow-black/10 sm:px-7 sm:py-7">
+        <div className="relative z-[1] flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <div className="education-badge mb-3 inline-flex rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em]">
+              GerencIA Educação
+            </div>
+            <h1 className="font-display text-2xl font-bold text-pure-white sm:text-4xl">Painel de matrículas</h1>
+            <p className="mt-2 max-w-3xl text-sm text-text-gray sm:text-base">
+              Visão clara da captação, atendimentos, diagnósticos marcados e retomadas que movem a operação educacional.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:flex">
+            <div className="rounded-2xl border border-accent-green/20 bg-accent-green/10 px-4 py-3">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-text-gray">Funil ativo</div>
+              <div className="text-lg font-bold text-accent-green">{data?.totalLeads ?? 0}</div>
+            </div>
+            <div className="rounded-2xl border border-accent-gold/25 bg-accent-gold/10 px-4 py-3">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-text-gray">Agenda</div>
+              <div className="text-lg font-bold text-accent-gold">{data?.agendamentos ?? 0}</div>
+            </div>
+          </div>
         </div>
       </div>
 
       <Tabs defaultValue="visao-geral" className="w-full px-0">
         <div className="overflow-x-auto px-1 pb-1">
-          <TabsList className="mb-2 min-w-max border border-white/10 bg-black/25 p-1 sm:w-auto">
+          <TabsList className="mb-2 min-w-max rounded-2xl border border-border/70 bg-card/80 p-1 shadow-sm sm:w-auto">
             <TabsTrigger value="visao-geral" className="flex items-center gap-1.5">
               <BarChart3 className="h-4 w-4" /> Visão Geral
             </TabsTrigger>
@@ -787,10 +802,10 @@ export default function DashboardPage() {
                 <X className="h-4 w-4" />
               </Button>
               <AlertTriangle className="h-5 w-5 text-red-400" />
-              <AlertTitle className="text-red-400 font-semibold pr-8">Atenção: Taxa de Agendamento baixa</AlertTitle>
+              <AlertTitle className="text-red-400 font-semibold pr-8">Atenção: conversão para diagnóstico baixa</AlertTitle>
               <AlertDescription className="text-red-300/90 mt-2">
                 <p>Taxa em <strong>{data.conversionRate?.toFixed(1)}%</strong>, abaixo do mínimo recomendado de <strong>5%</strong>.</p>
-                <p className="mt-2 text-sm">Leads: <strong>{data.totalLeads}</strong> | Agendamentos: <strong>{data.agendamentos}</strong></p>
+                <p className="mt-2 text-sm">Leads: <strong>{data.totalLeads}</strong> | Diagnósticos: <strong>{data.agendamentos}</strong></p>
               </AlertDescription>
             </Alert>
           )}
@@ -839,7 +854,7 @@ export default function DashboardPage() {
               {/* Business Summary */}
               <Card className="genial-card genial-elevate">
                 <CardHeader className="flex flex-row items-center justify-between">
-                  <CardTitle className="text-pure-white">Resumo Comercial</CardTitle>
+                  <CardTitle className="text-pure-white">Resumo de matrículas</CardTitle>
                   <Button variant="ghost" size="sm" onClick={refreshBusinessPanel} className="text-text-gray hover:text-pure-white h-8 px-2">
                     <RefreshCw className="h-3.5 w-3.5" />
                   </Button>
@@ -848,7 +863,7 @@ export default function DashboardPage() {
                   {[
                     { label: "Comparecimentos", value: businessMetrics.attendanceCount },
                     { label: "No-show", value: businessMetrics.noShowCount },
-                    { label: "Vendas", value: businessMetrics.salesCount },
+                    { label: "Matrículas", value: businessMetrics.salesCount },
                   ].map((row) => (
                     <div key={row.label} className="flex items-center justify-between text-sm">
                       <span className="text-text-gray">{row.label}</span>
@@ -856,7 +871,7 @@ export default function DashboardPage() {
                     </div>
                   ))}
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-text-gray">Valor vendido</span>
+                    <span className="text-text-gray">Receita registrada</span>
                     <span className="font-semibold text-accent-green">
                       {businessMetrics.totalSalesAmount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
                     </span>
@@ -956,7 +971,7 @@ export default function DashboardPage() {
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
                   <CardTitle className="text-pure-white flex items-center gap-2">
                     <Megaphone className="h-5 w-5 text-accent-green" />
-                    Captação de Leads
+                    Captação educacional
                   </CardTitle>
                   <span className="text-xs text-text-gray">Veja detalhes na aba Captação</span>
                 </CardHeader>

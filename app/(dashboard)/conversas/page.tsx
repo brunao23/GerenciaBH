@@ -2125,10 +2125,10 @@ export default function ConversasPage() {
     >
       {/* Sidebar - Lista de Sessões */}
       <Card
-        className={`genial-card conversation-list-panel w-full max-w-full min-h-0 flex flex-shrink-0 flex-col overflow-hidden rounded-none lg:rounded-l-2xl lg:rounded-r-none border border-white/10 bg-card/95 shadow-2xl shadow-black/20 ${showListOnMobile ? "flex" : "hidden lg:flex"}`}
+        className={`genial-card conversation-list-panel w-full max-w-full min-h-0 flex flex-shrink-0 flex-col overflow-hidden rounded-none border border-border/70 bg-card/95 shadow-2xl shadow-black/10 lg:rounded-l-[1.75rem] lg:rounded-r-none ${showListOnMobile ? "flex" : "hidden lg:flex"}`}
         style={conversationMobileSafePanelStyle}
       >
-        <CardHeader className="border-b border-white/10 bg-gradient-to-b from-white/[0.04] to-transparent pb-3 sm:pb-4 shrink-0 px-4 sm:px-5 pt-3 sm:pt-4">
+        <CardHeader className="shrink-0 border-b border-border/70 bg-gradient-to-b from-accent-green/8 via-card/80 to-transparent px-4 pb-3 pt-3 sm:px-5 sm:pb-4 sm:pt-4">
           <div className="flex items-center justify-between">
             {isSelectionMode ? (
               <div className="flex items-center gap-2 w-full">
@@ -2159,7 +2159,7 @@ export default function ConversasPage() {
             ) : (
               <>
                 <CardTitle className="text-pure-white flex items-center gap-2 text-lg leading-tight">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-2xl bg-accent-green/15 ring-1 ring-accent-green/25">
+                  <span className="brand-mark flex h-9 w-9 items-center justify-center rounded-2xl">
                     <MessageSquare className="w-4 h-4 text-accent-green" />
                   </span>
                   <span>
@@ -2182,7 +2182,7 @@ export default function ConversasPage() {
           
           <div className="mt-3">
             <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">
-              <TabsList className="w-full grid border-none bg-secondary-black rounded-lg" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
+              <TabsList className="grid w-full rounded-2xl border border-border/60 bg-secondary/80" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
                 <TabsTrigger value="leads">Leads</TabsTrigger>
                 <TabsTrigger value="grupos">Grupos</TabsTrigger>
                 <TabsTrigger value="contatos">Novo Contato</TabsTrigger>
@@ -2196,7 +2196,7 @@ export default function ConversasPage() {
                 type="button"
                 size="sm"
                 variant={activeChannelFilter === "all" ? "default" : "outline"}
-                className={`h-8 rounded-xl text-xs ${activeChannelFilter === "all" ? "bg-accent-green text-black hover:bg-accent-green/90" : "border-white/10 bg-white/[0.03] text-text-gray hover:text-white hover:bg-white/[0.06]"}`}
+                className={`h-8 rounded-xl text-xs ${activeChannelFilter === "all" ? "bg-accent-green text-white hover:bg-accent-green/90" : "border-border/60 bg-card/70 text-text-gray hover:bg-accent-green/8 hover:text-pure-white"}`}
                 onClick={() => setActiveChannelFilter("all")}
               >
                 Todos
@@ -2205,7 +2205,7 @@ export default function ConversasPage() {
                 type="button"
                 size="sm"
                 variant={activeChannelFilter === "whatsapp" ? "default" : "outline"}
-                className={`h-8 rounded-xl text-xs ${activeChannelFilter === "whatsapp" ? "bg-emerald-500 text-black hover:bg-emerald-500/90" : "border-white/10 bg-white/[0.03] text-text-gray hover:text-white hover:bg-white/[0.06]"}`}
+                className={`h-8 rounded-xl text-xs ${activeChannelFilter === "whatsapp" ? "bg-accent-green text-white hover:bg-accent-green/90" : "border-border/60 bg-card/70 text-text-gray hover:bg-accent-green/8 hover:text-pure-white"}`}
                 onClick={() => setActiveChannelFilter("whatsapp")}
               >
                 WhatsApp
@@ -2214,7 +2214,7 @@ export default function ConversasPage() {
                 type="button"
                 size="sm"
                 variant={activeChannelFilter === "instagram" ? "default" : "outline"}
-                className={`h-8 rounded-xl text-xs ${activeChannelFilter === "instagram" ? "bg-pink-500 text-white hover:bg-pink-500/90" : "border-white/10 bg-white/[0.03] text-text-gray hover:text-white hover:bg-white/[0.06]"}`}
+                className={`h-8 rounded-xl text-xs ${activeChannelFilter === "instagram" ? "bg-accent-gold text-black hover:bg-accent-gold/90" : "border-border/60 bg-card/70 text-text-gray hover:bg-accent-gold/10 hover:text-pure-white"}`}
                 onClick={() => setActiveChannelFilter("instagram")}
               >
                 Instagram
@@ -2231,7 +2231,7 @@ export default function ConversasPage() {
               placeholder="Buscar por nome, assunto ou telefone..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              className="h-10 rounded-2xl pl-10 pr-10 bg-secondary-black/80 border-white/10 focus:border-accent-green transition-all"
+              className="h-10 rounded-2xl border-border/70 bg-secondary/80 pl-10 pr-10 transition-all focus:border-accent-green"
             />
           </div>
           {trimmedQuery && (
@@ -2482,12 +2482,12 @@ export default function ConversasPage() {
 
       {/* Main Chat Area */}
       <Card
-        className={`genial-card conversation-chat-panel flex-1 min-w-0 max-w-full min-h-0 flex flex-col overflow-hidden rounded-none lg:rounded-r-2xl lg:rounded-l-none border border-l-0 border-white/10 bg-card/95 shadow-2xl shadow-black/20 ${showConversationOnMobile ? "flex" : "hidden lg:flex"}`}
+        className={`genial-card conversation-chat-panel flex-1 min-w-0 max-w-full min-h-0 flex flex-col overflow-hidden rounded-none border border-border/70 bg-card/95 shadow-2xl shadow-black/10 lg:rounded-l-none lg:rounded-r-[1.75rem] lg:border-l-0 ${showConversationOnMobile ? "flex" : "hidden lg:flex"}`}
         style={conversationMobileSafePanelStyle}
       >
         {current ? (
           <>
-            <CardHeader className="conversation-chat-header border-b border-white/10 bg-gradient-to-r from-white/[0.04] via-transparent to-accent-green/[0.03] shrink-0 px-3 py-2 sm:px-5 sm:py-4 lg:px-4 lg:py-3 2xl:px-5 2xl:py-4">
+            <CardHeader className="conversation-chat-header shrink-0 border-b border-border/70 bg-gradient-to-r from-accent-green/10 via-card/80 to-accent-gold/10 px-3 py-2 sm:px-5 sm:py-4 lg:px-4 lg:py-3 2xl:px-5 2xl:py-4">
               <div className="flex min-w-0 flex-col items-start justify-between gap-2 sm:gap-3 min-[1800px]:flex-row min-[1800px]:items-center">
                 <div className="conversation-contact-summary flex items-center gap-2 sm:gap-3 min-w-0 w-full min-[1800px]:w-auto">
                   <Button
@@ -2499,7 +2499,7 @@ export default function ConversasPage() {
                   >
                     <ArrowLeft className="w-4 h-4 text-text-gray" />
                   </Button>
-                  <Avatar className="h-10 w-10 shrink-0 border border-white/10 shadow-md shadow-black/25 sm:h-12 sm:w-12">
+                  <Avatar className="h-10 w-10 shrink-0 border border-accent-green/25 shadow-md shadow-black/15 sm:h-12 sm:w-12">
                     {resolveAvatarImageSrc(current.profile_pic) ? (
                       <AvatarImage
                         src={resolveAvatarImageSrc(current.profile_pic)}
@@ -2578,8 +2578,8 @@ export default function ConversasPage() {
                         onClick={() => togglePauseParam("pausar")}
                         disabled={pauseLoading}
                         className={`shrink-0 text-xs ${pauseStatus.pausar
-                          ? "bg-green-500/20 text-green-400 border-green-500/30"
-                          : "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
+                          ? "bg-accent-gold/20 text-accent-gold border-accent-gold/35"
+                          : "bg-accent-green/15 text-accent-green border-accent-green/30"
                           }`}
                       >
                         {pauseStatus.pausar ? <PauseCircle className="w-3 h-3 mr-1" /> : <PlayCircle className="w-3 h-3 mr-1" />}
@@ -2604,7 +2604,7 @@ export default function ConversasPage() {
                         onClick={() => togglePauseParam("agendamento")}
                         disabled={pauseLoading}
                         className={`shrink-0 text-xs ${pauseStatus.agendamento
-                          ? "bg-purple-500/20 text-purple-400 border-purple-500/30"
+                          ? "bg-accent-gold/20 text-accent-gold border-accent-gold/35"
                           : "bg-gray-500/20 text-gray-400 border-gray-500/30"
                           }`}
                       >
@@ -2620,7 +2620,7 @@ export default function ConversasPage() {
                       onClick={toggleFollowupAI}
                       disabled={followupAILoading}
                       className={`shrink-0 text-xs ${followupAIEnabled
-                        ? "bg-gradient-to-r from-blue-500/20 to-purple-500/20 text-blue-400 border-blue-500/30"
+                        ? "bg-gradient-to-r from-accent-green/15 to-accent-gold/15 text-accent-green border-accent-green/30"
                         : "bg-gray-500/20 text-gray-400 border-gray-500/30"
                         }`}
                     >
@@ -2671,7 +2671,7 @@ export default function ConversasPage() {
               </div>
             </CardHeader>
 
-            <CardContent className="flex-1 min-h-0 overflow-hidden p-0 bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.08),transparent_28%),radial-gradient(circle_at_bottom_right,rgba(14,165,233,0.06),transparent_26%)]">
+            <CardContent className="flex-1 min-h-0 overflow-hidden bg-[radial-gradient(circle_at_top_left,rgba(15,118,110,0.12),transparent_30%),radial-gradient(circle_at_bottom_right,rgba(242,184,75,0.10),transparent_28%)] p-0">
               <div ref={scrollAreaRef} className="h-full min-h-0 overflow-y-auto overscroll-contain touch-pan-y genial-scrollbar">
                 <div className="p-2.5 sm:p-5 space-y-2.5 sm:space-y-4">
                   {/* Dados do Formulário */}
@@ -2756,14 +2756,14 @@ export default function ConversasPage() {
                       >
                         <div
                           className={`relative max-w-[94%] sm:max-w-[88%] lg:max-w-[80%] xl:max-w-[76%] 2xl:max-w-[72%] rounded-[1.1rem] px-3.5 py-3 shadow-lg transition-all hover:shadow-xl sm:rounded-[1.35rem] sm:px-5 sm:py-4 ${isLead
-                            ? "bg-gradient-to-br from-[#00ff88] to-[#00cc6a] text-black border border-[#00cc6a]/30"
+                            ? "border border-accent-green/30 bg-gradient-to-br from-accent-green to-dark-green text-white"
                             : isHuman
-                              ? "bg-gradient-to-br from-amber-900/55 to-amber-800/40 text-amber-50 border border-amber-500/50"
+                              ? "border border-accent-gold/45 bg-gradient-to-br from-amber-900/60 to-amber-800/45 text-amber-50"
                               : msg.isError
                                 ? "bg-gradient-to-br from-red-900/50 to-red-800/40 text-red-50 border-2 border-red-500/50"
                                 : msg.isSuccess
-                                  ? "bg-gradient-to-br from-emerald-900/50 to-emerald-800/40 text-emerald-50 border-2 border-emerald-500/50"
-                                  : "bg-gradient-to-br from-gray-800/95 to-gray-700/80 text-white border border-gray-600/50"
+                                  ? "border-2 border-accent-green/50 bg-gradient-to-br from-accent-green/35 to-dark-green/25 text-pure-white"
+                                  : "border border-border/70 bg-gradient-to-br from-card/95 to-secondary/80 text-pure-white"
                             }`}
                         >
                           <button
@@ -2772,7 +2772,7 @@ export default function ConversasPage() {
                             disabled={!msg.message_id || !msg.provider_message_id || deletingMessageId === msg.message_id}
                             title={!msg.provider_message_id ? "Mensagem sem ID no WhatsApp" : "Excluir mensagem"}
                             className={`absolute right-2 top-2 rounded-full p-1 text-xs transition-opacity ${isLead
-                              ? "text-black/70 hover:text-black"
+                              ? "text-white/70 hover:text-white"
                               : "text-white/60 hover:text-white"
                               } ${!msg.message_id || !msg.provider_message_id ? "opacity-40 cursor-not-allowed" : "opacity-80 hover:opacity-100"}`}
                           >
@@ -2815,15 +2815,15 @@ export default function ConversasPage() {
             </CardContent>
 
             {/* Footer de Envio de Mensagem */}
-            <div className="conversation-composer border-t border-white/10 bg-card/95 p-2.5 backdrop-blur-xl safe-area-bottom sm:p-4">
-              <div className="conversation-pausebar mb-2 flex items-center justify-between gap-2 rounded-2xl border border-white/10 bg-white/[0.03] p-2 sm:mb-3 sm:gap-3">
+            <div className="conversation-composer safe-area-bottom border-t border-border/70 bg-card/95 p-2.5 backdrop-blur-xl sm:p-4">
+              <div className="conversation-pausebar mb-2 flex items-center justify-between gap-2 rounded-2xl border border-border/70 bg-secondary/70 p-2 sm:mb-3 sm:gap-3">
                 <span className="min-w-0 shrink text-[11px] text-text-gray font-medium flex items-center gap-1 sm:text-xs">
                   <PauseCircle className="w-3 h-3 text-green-500" />
                   <span className="hidden min-[380px]:inline">Ao assumir, </span>pausar IA:
                 </span>
                 <div className="flex min-w-0 shrink-0 items-center gap-2">
                   <Select value={pauseDuration} onValueChange={setPauseDuration}>
-                    <SelectTrigger className="h-9 w-[122px] min-w-0 text-xs bg-foreground/8 border-white/10 text-pure-white focus:ring-accent-green sm:h-8 sm:w-[140px]">
+                    <SelectTrigger className="h-9 w-[122px] min-w-0 border-border/70 bg-card/80 text-xs text-pure-white focus:ring-accent-green sm:h-8 sm:w-[140px]">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="bg-secondary border-border text-pure-white">

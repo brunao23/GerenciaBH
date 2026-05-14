@@ -10,6 +10,7 @@ import { Toaster } from "../../components/ui/sonner"
 import { TenantSelector } from "../../components/saas/TenantSelector"
 import { ThemeToggle } from "../../components/theme-toggle"
 import OnboardingTour from "../../components/onboarding/OnboardingTour"
+import { GraduationCap } from "lucide-react"
 
 const NotificationCenter = lazy(() => import("../../components/notification-center"))
 const FeedbackWidget = lazy(() => import("../../components/feedback-widget"))
@@ -46,10 +47,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <SidebarProvider>
       <AppSidebar />
-      <SidebarInset className="h-dvh min-h-dvh max-h-dvh overflow-hidden">
-          <header className={`sticky top-0 z-20 items-center border-b border-border bg-card/90 backdrop-blur-xl safe-area-top ${isConversationsPage ? "hidden h-16 gap-3 overflow-hidden px-4 lg:flex" : "flex h-14 gap-2 px-3 sm:h-16 sm:gap-3 sm:px-4"}`}>
+      <SidebarInset className="education-app-shell h-dvh min-h-dvh max-h-dvh overflow-hidden">
+          <header className={`education-topbar sticky top-0 z-20 items-center backdrop-blur-xl safe-area-top ${isConversationsPage ? "hidden h-16 gap-3 overflow-hidden px-4 lg:flex" : "flex h-14 gap-2 px-3 sm:h-16 sm:gap-3 sm:px-4"}`}>
             <SidebarTrigger className="genial-hover border border-transparent hover:border-primary/30 hover:bg-primary/8 rounded-lg" />
-            <div className={`font-semibold text-primary font-display tracking-tight text-sm sm:text-base ${isConversationsPage ? "hidden min-[380px]:block" : ""}`}>GerencIA</div>
+            <div className={`min-w-0 items-center gap-2 ${isConversationsPage ? "hidden min-[380px]:flex" : "flex"}`}>
+              <span className="brand-mark flex h-8 w-8 shrink-0 items-center justify-center rounded-xl">
+                <GraduationCap className="h-4 w-4" />
+              </span>
+              <div className="min-w-0 leading-tight">
+                <div className="truncate font-display text-sm font-bold tracking-tight text-primary sm:text-base">GerencIA Educação</div>
+                <div className="hidden text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground sm:block">captação e matrículas</div>
+              </div>
+            </div>
             <div className={`ml-auto flex min-w-0 items-center ${isConversationsPage ? "gap-1.5 sm:gap-2" : "gap-2"}`}>
               <TenantSelector />
               <ThemeToggle />

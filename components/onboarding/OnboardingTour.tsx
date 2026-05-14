@@ -255,12 +255,12 @@ const STEPS: Step[] = [
   {
     id: "welcome", Icon: Zap,
     subtitle: "Bem-vindo à plataforma",
-    title: "GerencIA — IA para Atendimento",
-    description: "Automação inteligente que transforma conversas no WhatsApp em agendamentos confirmados. Vamos te mostrar tudo em 2 minutos.",
+    title: "GerencIA Educação",
+    description: "IA para captação, atendimento, diagnósticos e matrículas em uma operação educacional mais previsível. Vamos te mostrar tudo em 2 minutos.",
     highlights: [
       { Icon: Bot,        text: "Agente IA que atende 24h por dia" },
       { Icon: Smartphone, text: "WhatsApp e Instagram integrados" },
-      { Icon: BarChart3,  text: "CRM, follow-up e analytics em tempo real" },
+      { Icon: BarChart3,  text: "Pipeline, follow-up e métricas de matrícula" },
     ],
     mockup: <WelcomeMockup />,
   },
@@ -304,7 +304,7 @@ const STEPS: Step[] = [
     id: "agendamentos", Icon: CalendarDays,
     subtitle: "Módulo Agendamentos",
     title: "Agendamentos + Follow-up Automático",
-    description: "Gerencie todos os agendamentos e configure lembretes automáticos. O sistema reenvia mensagens para leads sumidos, sozinho.",
+    description: "Gerencie diagnósticos, visitas e lembretes automáticos. O sistema retoma interessados com contexto, sem perder agenda.",
     highlights: [
       { Icon: Bell,         text: "Lembretes 3 dias, 1 dia e 4 horas antes" },
       { Icon: RefreshCw,    text: "Follow-up inteligente para leads sumidos" },
@@ -340,7 +340,7 @@ const STEPS: Step[] = [
     id: "relatorios", Icon: BarChart3,
     subtitle: "Módulo Relatórios",
     title: "Métricas Que Importam",
-    description: "Taxa de conversão, lead time médio, follow-ups enviados, agendamentos por período. Tome decisões com dados concretos.",
+    description: "Taxa de conversão, lead time médio, follow-ups enviados e diagnósticos por período. Tome decisões com dados concretos.",
     highlights: [
       { Icon: TrendingUp, text: "Taxa de conversão de leads" },
       { Icon: Timer,      text: "Lead time médio por etapa" },

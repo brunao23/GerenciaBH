@@ -69,7 +69,7 @@ export default function LoginPage() {
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500 font-semibold text-white text-sm">
             G
           </div>
-          <span className="text-[15px] font-semibold tracking-tight text-white/90">GerencIA</span>
+          <span className="text-[15px] font-semibold tracking-tight text-white/90">GerencIA Educação</span>
         </Link>
 
         <div className="flex items-center gap-2">
@@ -101,10 +101,10 @@ export default function LoginPage() {
 
             <div className="space-y-5">
               <h1 className="text-[1.875rem] sm:text-[2.5rem] md:text-[2.75rem] font-semibold leading-[1.08] tracking-[-0.02em] text-white max-w-lg">
-                Atendimento, pipeline e agenda em um único painel.
+                Captação, atendimento e matrículas em um único painel.
               </h1>
               <p className="max-w-[460px] text-[15px] leading-[1.7] text-white/35">
-                O GerencIA unifica os canais comerciais da operação para que o time foque no que gera receita — com contexto completo e execução contínua.
+                O GerencIA Educação organiza os canais da operação educacional para que o time acompanhe interessados, diagnósticos e matrículas com contexto completo.
               </p>
             </div>
 
@@ -128,14 +128,14 @@ export default function LoginPage() {
 
               <div className="group bg-neutral-950 p-5 transition-colors hover:bg-white/[0.015] animate-[fadeUp_0.5s_ease_both]" style={{ animationDelay: "0.20s" }}>
                 <Brain className="h-4 w-4 text-white/15 mb-3 transition-colors group-hover:text-emerald-400/60" strokeWidth={1.5} />
-                <div className="text-[13px] font-semibold text-white/75 mb-1">Atendimento autônomo</div>
-                <div className="text-[12px] leading-[1.65] text-white/30">O agente qualifica, responde e agenda sem intervenção — disponível 24 horas.</div>
+                <div className="text-[13px] font-semibold text-white/75 mb-1">Atendimento educacional</div>
+                <div className="text-[12px] leading-[1.65] text-white/30">O agente qualifica, responde dúvidas e conduz o interessado até o diagnóstico com precisão.</div>
               </div>
 
               <div className="group bg-neutral-950 p-5 transition-colors hover:bg-white/[0.015] animate-[fadeUp_0.5s_ease_both]" style={{ animationDelay: "0.25s" }}>
                 <BarChart3 className="h-4 w-4 text-white/15 mb-3 transition-colors group-hover:text-emerald-400/60" strokeWidth={1.5} />
                 <div className="text-[13px] font-semibold text-white/75 mb-1">Painel analítico</div>
-                <div className="text-[12px] leading-[1.65] text-white/30">Métricas visuais de performance, volume de leads e taxas de conversão por unidade.</div>
+                <div className="text-[12px] leading-[1.65] text-white/30">Métricas visuais de captação, diagnósticos, follow-ups e conversão por unidade.</div>
               </div>
 
               <div className="group bg-neutral-950 p-5 transition-colors hover:bg-white/[0.015] animate-[fadeUp_0.5s_ease_both]" style={{ animationDelay: "0.30s" }}>

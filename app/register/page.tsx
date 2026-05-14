@@ -29,7 +29,7 @@ const steps = [
 const benefits = [
   { icon: <ShieldCheck className="h-4 w-4 text-white/15 shrink-0" strokeWidth={1.5} />, label: "Ambiente isolado e seguro por unidade" },
   { icon: <Gauge className="h-4 w-4 text-white/15 shrink-0" strokeWidth={1.5} />, label: "Acesso imediato após o cadastro" },
-  { icon: <Server className="h-4 w-4 text-white/15 shrink-0" strokeWidth={1.5} />, label: "CRM, agenda e agente prontos para uso" },
+  { icon: <Server className="h-4 w-4 text-white/15 shrink-0" strokeWidth={1.5} />, label: "Pipeline, agenda e agente prontos para uso" },
 ]
 
 export default function RegisterPage() {
@@ -84,7 +84,7 @@ export default function RegisterPage() {
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500 font-semibold text-white text-sm">
               G
             </div>
-            <span className="text-[15px] font-semibold tracking-tight text-white/90">GerencIA</span>
+            <span className="text-[15px] font-semibold tracking-tight text-white/90">GerencIA Educação</span>
           </Link>
 
           <div className="space-y-4">
@@ -93,10 +93,10 @@ export default function RegisterPage() {
               Primeiro acesso
             </div>
             <h1 className="text-[1.75rem] sm:text-[2.25rem] font-semibold leading-[1.1] tracking-[-0.02em] text-white max-w-md">
-              Crie o acesso da unidade e comece a operar.
+              Crie o acesso da unidade educacional e comece a operar.
             </h1>
             <p className="max-w-md text-[14px] sm:text-[15px] leading-[1.7] text-white/35">
-              Cadastro direto, sem etapas desnecessárias. Após a criação, a operação já acessa o dashboard com tudo configurado.
+              Cadastro direto, sem etapas desnecessárias. Após a criação, a operação já acessa captação, conversas, agenda e matrículas em um só lugar.
             </p>
           </div>
 

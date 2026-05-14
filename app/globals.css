@@ -4,123 +4,127 @@
 @custom-variant dark (&:is(.dark *));
 
 /* ============================================
-   PREMIUM THEME — GerencIA
-   Light: Branco Gelo (Ice White)
-   Dark:  Preto Fosco (Matte Black)
-   Accent: Emerald Green (#10B981)
+   PREMIUM THEME - GerencIA Educacao
+   Core: verde petroleo + dourado academico
    ============================================ */
 
 :root {
   /* Semantic tokens (used by components via var()) */
-  --primary-black: #F7F8FA;
-  --secondary-black: #EFF1F5;
-  --card-black: #FFFFFF;
-  --accent-green: #10B981;
-  --dark-green: #059669;
-  --accent-yellow: #10B981;
-  --dark-yellow: #059669;
-  --pure-white: #111827;
-  --border-gray: #E2E8F0;
-  --text-gray: #64748B;
-  --hover-gray: #F1F5F9;
-  --accent-blue: #3B82F6;
-  --accent-red: #EF4444;
+  --primary-black: #F7F3EA;
+  --secondary-black: #EFE7D8;
+  --card-black: #FFFCF5;
+  --accent-green: #0F766E;
+  --dark-green: #0B5F5A;
+  --accent-yellow: #F2B84B;
+  --dark-yellow: #C98612;
+  --pure-white: #17211F;
+  --border-gray: #DED2BC;
+  --text-gray: #6E7B73;
+  --hover-gray: #EFE7D8;
+  --accent-blue: #2F6F8F;
+  --accent-red: #C2410C;
+  --accent-gold: #F2B84B;
+  --ink-green: #071311;
+  --paper-warm: #F7F3EA;
 
   /* shadcn/ui design tokens */
-  --background: #F7F8FA;
-  --foreground: #111827;
-  --card: #FFFFFF;
-  --card-foreground: #111827;
-  --popover: #FFFFFF;
-  --popover-foreground: #111827;
-  --primary: #10B981;
+  --background: #F7F3EA;
+  --foreground: #17211F;
+  --card: #FFFCF5;
+  --card-foreground: #17211F;
+  --popover: #FFFCF5;
+  --popover-foreground: #17211F;
+  --primary: #0F766E;
   --primary-foreground: #FFFFFF;
-  --secondary: #F1F5F9;
-  --secondary-foreground: #334155;
-  --muted: #F1F5F9;
-  --muted-foreground: #64748B;
-  --accent: #10B981;
-  --accent-foreground: #FFFFFF;
-  --destructive: #EF4444;
+  --secondary: #EFE7D8;
+  --secondary-foreground: #23342F;
+  --muted: #EFE7D8;
+  --muted-foreground: #6E7B73;
+  --accent: #F2B84B;
+  --accent-foreground: #17211F;
+  --destructive: #C2410C;
   --destructive-foreground: #FFFFFF;
-  --border: #E2E8F0;
-  --input: #F1F5F9;
-  --ring: #10B981;
-  --chart-1: #10B981;
-  --chart-2: #059669;
-  --chart-3: #047857;
-  --chart-4: #34D399;
-  --chart-5: #6EE7B7;
-  --radius: 0.75rem;
+  --border: #DED2BC;
+  --input: #F4EDDF;
+  --ring: #0F766E;
+  --chart-1: #0F766E;
+  --chart-2: #F2B84B;
+  --chart-3: #2F6F8F;
+  --chart-4: #C98612;
+  --chart-5: #14B8A6;
+  --radius: 1rem;
 
   /* Sidebar */
-  --sidebar: #FFFFFF;
-  --sidebar-foreground: #111827;
-  --sidebar-primary: #10B981;
+  --sidebar: #FFFCF5;
+  --sidebar-foreground: #17211F;
+  --sidebar-primary: #0F766E;
   --sidebar-primary-foreground: #FFFFFF;
-  --sidebar-accent: #F1F5F9;
-  --sidebar-accent-foreground: #111827;
-  --sidebar-border: #E2E8F0;
-  --sidebar-ring: #10B981;
+  --sidebar-accent: #EFE7D8;
+  --sidebar-accent-foreground: #17211F;
+  --sidebar-border: #DED2BC;
+  --sidebar-ring: #0F766E;
 
   /* Theme-specific effects */
-  --card-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
-  --card-shadow-hover: 0 8px 25px rgba(0, 0, 0, 0.08), 0 0 10px rgba(16, 185, 129, 0.04);
-  --glow-opacity: 0;
-  --card-line-opacity: 0;
+  --card-shadow: 0 16px 45px rgba(23, 33, 31, 0.08), 0 1px 0 rgba(255, 255, 255, 0.72) inset;
+  --card-shadow-hover: 0 20px 55px rgba(11, 95, 90, 0.16), 0 0 18px rgba(242, 184, 75, 0.08);
+  --glow-opacity: 0.65;
+  --card-line-opacity: 0.65;
 }
 
 .dark {
-  --primary-black: #0A0A0A;
-  --secondary-black: #161616;
-  --card-black: #111111;
-  --accent-green: #10B981;
-  --dark-green: #059669;
-  --accent-yellow: #10B981;
-  --dark-yellow: #059669;
-  --pure-white: #F1F5F9;
-  --border-gray: #1E1E1E;
-  --text-gray: #94A3B8;
-  --hover-gray: #1A1A1A;
-  --accent-blue: #3B82F6;
-  --accent-red: #EF4444;
+  --primary-black: #071311;
+  --secondary-black: #0D1F1B;
+  --card-black: #10231F;
+  --accent-green: #14B8A6;
+  --dark-green: #0F766E;
+  --accent-yellow: #F2B84B;
+  --dark-yellow: #C98612;
+  --pure-white: #EAF3ED;
+  --border-gray: #1C3A33;
+  --text-gray: #9BAFA6;
+  --hover-gray: #132B25;
+  --accent-blue: #3B82A0;
+  --accent-red: #F97316;
+  --accent-gold: #F2B84B;
+  --ink-green: #071311;
+  --paper-warm: #F7F3EA;
 
-  --background: #0A0A0A;
-  --foreground: #F1F5F9;
-  --card: #111111;
-  --card-foreground: #F1F5F9;
-  --popover: #111111;
-  --popover-foreground: #F1F5F9;
-  --primary: #10B981;
-  --primary-foreground: #000000;
-  --secondary: #161616;
-  --secondary-foreground: #F1F5F9;
-  --muted: #161616;
-  --muted-foreground: #94A3B8;
-  --accent: #10B981;
-  --accent-foreground: #000000;
-  --destructive: #EF4444;
+  --background: #071311;
+  --foreground: #EAF3ED;
+  --card: #10231F;
+  --card-foreground: #EAF3ED;
+  --popover: #10231F;
+  --popover-foreground: #EAF3ED;
+  --primary: #14B8A6;
+  --primary-foreground: #06201D;
+  --secondary: #0D1F1B;
+  --secondary-foreground: #EAF3ED;
+  --muted: #0D1F1B;
+  --muted-foreground: #9BAFA6;
+  --accent: #F2B84B;
+  --accent-foreground: #17211F;
+  --destructive: #F97316;
   --destructive-foreground: #FFFFFF;
-  --border: #1E1E1E;
-  --input: #161616;
-  --ring: #10B981;
-  --chart-1: #10B981;
-  --chart-2: #059669;
-  --chart-3: #047857;
-  --chart-4: #34D399;
-  --chart-5: #6EE7B7;
+  --border: #1C3A33;
+  --input: #0D1F1B;
+  --ring: #14B8A6;
+  --chart-1: #14B8A6;
+  --chart-2: #F2B84B;
+  --chart-3: #3B82A0;
+  --chart-4: #C98612;
+  --chart-5: #0F766E;
 
-  --sidebar: #0E0E0E;
-  --sidebar-foreground: #F1F5F9;
-  --sidebar-primary: #10B981;
-  --sidebar-primary-foreground: #000000;
-  --sidebar-accent: #161616;
-  --sidebar-accent-foreground: #F1F5F9;
-  --sidebar-border: #1E1E1E;
-  --sidebar-ring: #10B981;
+  --sidebar: #0A1714;
+  --sidebar-foreground: #EAF3ED;
+  --sidebar-primary: #14B8A6;
+  --sidebar-primary-foreground: #06201D;
+  --sidebar-accent: #10231F;
+  --sidebar-accent-foreground: #EAF3ED;
+  --sidebar-border: #1C3A33;
+  --sidebar-ring: #14B8A6;
 
-  --card-shadow: 0 20px 40px rgba(0, 0, 0, 0.4), 0 0 15px rgba(16, 185, 129, 0.03);
-  --card-shadow-hover: 0 25px 50px rgba(0, 0, 0, 0.5), 0 0 25px rgba(16, 185, 129, 0.08);
+  --card-shadow: 0 20px 50px rgba(0, 0, 0, 0.42), 0 0 24px rgba(20, 184, 166, 0.06);
+  --card-shadow-hover: 0 25px 60px rgba(0, 0, 0, 0.55), 0 0 30px rgba(242, 184, 75, 0.1);
   --glow-opacity: 1;
   --card-line-opacity: 1;
 }
@@ -163,11 +167,14 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
-  /* Custom project tokens — enables bg-*, text-*, border-* utilities */
+  /* Custom project tokens - enables bg-*, text-*, border-* utilities */
   --color-accent-green: var(--accent-green);
   --color-dark-green: var(--dark-green);
   --color-accent-yellow: var(--accent-yellow);
   --color-dark-yellow: var(--dark-yellow);
+  --color-accent-gold: var(--accent-gold);
+  --color-ink-green: var(--ink-green);
+  --color-paper-warm: var(--paper-warm);
   --color-accent-blue: var(--accent-blue);
   --color-accent-red: var(--accent-red);
   --color-pure-white: var(--pure-white);
@@ -204,7 +211,10 @@
 
   .dark body,
   :is(.dark) body {
-    background: linear-gradient(135deg, #0A0A0A 0%, #111111 100%);
+    background:
+      radial-gradient(circle at 16% 0%, rgba(242, 184, 75, 0.08), transparent 30%),
+      radial-gradient(circle at 88% 12%, rgba(20, 184, 166, 0.14), transparent 34%),
+      linear-gradient(135deg, #071311 0%, #0D1F1B 56%, #071311 100%);
   }
 
   h1,
@@ -215,7 +225,7 @@
     letter-spacing: -0.02em;
   }
 
-  /* Ambient glow — dark mode only */
+  /* Ambient glow - dark mode only */
   body::before {
     content: "";
     position: fixed;
@@ -223,8 +233,9 @@
     left: 0;
     width: 100%;
     height: 100%;
-    background: radial-gradient(circle at 20% 80%, rgba(16, 185, 129, 0.08) 0%, transparent 50%),
-      radial-gradient(circle at 80% 20%, rgba(16, 185, 129, 0.04) 0%, transparent 50%);
+    background:
+      radial-gradient(circle at 18% 82%, rgba(15, 118, 110, 0.16) 0%, transparent 48%),
+      radial-gradient(circle at 84% 16%, rgba(242, 184, 75, 0.11) 0%, transparent 42%);
     pointer-events: none;
     z-index: -1;
     opacity: var(--glow-opacity);
@@ -234,6 +245,35 @@
 
 /* ===== COMPONENT CLASSES ===== */
 @layer components {
+  .education-app-shell {
+    background:
+      radial-gradient(circle at 10% -10%, color-mix(in srgb, var(--accent-yellow) 14%, transparent), transparent 34%),
+      radial-gradient(circle at 96% 4%, color-mix(in srgb, var(--accent-green) 18%, transparent), transparent 34%),
+      linear-gradient(135deg, color-mix(in srgb, var(--background) 94%, white), var(--background));
+  }
+
+  .education-topbar {
+    background:
+      linear-gradient(90deg, color-mix(in srgb, var(--card) 94%, transparent), color-mix(in srgb, var(--card) 82%, transparent)),
+      linear-gradient(90deg, color-mix(in srgb, var(--accent-green) 9%, transparent), transparent 42%);
+    border-bottom: 1px solid color-mix(in srgb, var(--accent-green) 20%, var(--border));
+    box-shadow: 0 12px 35px rgba(7, 19, 17, 0.06);
+  }
+
+  .brand-mark {
+    background:
+      radial-gradient(circle at 72% 18%, rgba(242, 184, 75, 0.95), transparent 24%),
+      linear-gradient(135deg, var(--accent-green), var(--dark-green));
+    color: #ffffff;
+    box-shadow: 0 14px 30px color-mix(in srgb, var(--accent-green) 28%, transparent);
+  }
+
+  .education-badge {
+    border: 1px solid color-mix(in srgb, var(--accent-yellow) 42%, var(--border));
+    background: color-mix(in srgb, var(--accent-yellow) 14%, transparent);
+    color: color-mix(in srgb, var(--accent-yellow) 70%, var(--foreground));
+  }
+
   .genial-card {
     background: var(--card);
     border: 1px solid var(--border);
@@ -247,15 +287,15 @@
 
   .genial-surface {
     background:
-      linear-gradient(135deg, rgba(16, 185, 129, 0.05), transparent 42%),
-      linear-gradient(220deg, rgba(5, 150, 105, 0.05), transparent 50%),
+      linear-gradient(135deg, rgba(15, 118, 110, 0.10), transparent 42%),
+      linear-gradient(220deg, rgba(242, 184, 75, 0.12), transparent 52%),
       var(--card);
     border: 1px solid color-mix(in srgb, var(--accent-green) 12%, var(--border));
     border-radius: 16px;
     box-shadow: var(--card-shadow);
   }
 
-  /* Green accent line at top of cards — dark mode only */
+  /* Green accent line at top of cards - dark mode only */
   .genial-card::before {
     content: "";
     position: absolute;
@@ -269,7 +309,7 @@
   }
 
   .genial-button {
-    background: linear-gradient(135deg, #10B981, #059669);
+    background: linear-gradient(135deg, var(--accent-green), var(--dark-green));
     border: none;
     color: #FFFFFF;
     font-weight: 600;
@@ -277,13 +317,13 @@
     border-radius: 10px;
     font-size: 1rem;
     transition: all 0.3s ease;
-    box-shadow: 0 4px 14px rgba(16, 185, 129, 0.25);
+    box-shadow: 0 4px 14px rgba(15, 118, 110, 0.25);
   }
 
   .genial-button:hover {
     transform: translateY(-1px);
-    box-shadow: 0 8px 25px rgba(16, 185, 129, 0.35);
-    background: linear-gradient(135deg, #059669, #10B981);
+    box-shadow: 0 8px 25px rgba(15, 118, 110, 0.35);
+    background: linear-gradient(135deg, var(--dark-green), var(--accent-green));
   }
 
   .genial-input {
@@ -299,7 +339,7 @@
   .genial-input:focus {
     background: var(--input);
     border-color: var(--accent-green);
-    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12);
+    box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.14);
     color: var(--foreground);
   }
 
@@ -398,8 +438,8 @@
     position: absolute;
     inset: 0;
     background-image:
-      linear-gradient(rgba(16, 185, 129, 0.04) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(16, 185, 129, 0.04) 1px, transparent 1px);
+      linear-gradient(rgba(15, 118, 110, 0.08) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(242, 184, 75, 0.06) 1px, transparent 1px);
     background-size: 36px 36px;
     mask-image: radial-gradient(circle at 15% 10%, black 22%, transparent 78%);
     pointer-events: none;
@@ -411,10 +451,10 @@
 @keyframes genial-glow {
   0%,
   100% {
-    box-shadow: 0 0 15px rgba(16, 185, 129, 0.2);
+    box-shadow: 0 0 15px rgba(15, 118, 110, 0.24);
   }
   50% {
-    box-shadow: 0 0 25px rgba(16, 185, 129, 0.4);
+    box-shadow: 0 0 25px rgba(242, 184, 75, 0.24);
   }
 }
 
@@ -428,7 +468,7 @@
 
 .genial-hover:hover {
   transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(16, 185, 129, 0.15);
+  box-shadow: 0 6px 20px rgba(15, 118, 110, 0.16);
 }
 
 /* ===== PERFORMANCE ===== */
@@ -490,7 +530,7 @@
 /* WhatsApp-like responsive split for the conversations screen */
 @media (min-width: 1024px) {
   .conversations-whatsapp-shell .conversation-list-panel {
-    width: clamp(340px, 31vw, 400px);
+    width: clamp(360px, 33vw, 460px);
   }
 
   .conversations-whatsapp-shell .conversation-chat-panel {
@@ -523,7 +563,7 @@
 
 @media (min-width: 1280px) {
   .conversations-whatsapp-shell .conversation-list-panel {
-    width: clamp(380px, 30vw, 430px);
+    width: clamp(400px, 31vw, 500px);
   }
 
   .conversations-whatsapp-shell .conversation-chat-header {
@@ -533,13 +573,13 @@
 
 @media (min-width: 1440px) {
   .conversations-whatsapp-shell .conversation-list-panel {
-    width: clamp(410px, 29vw, 470px);
+    width: clamp(430px, 30vw, 540px);
   }
 }
 
 @media (min-width: 1536px) {
   .conversations-whatsapp-shell .conversation-list-panel {
-    width: clamp(440px, 28vw, 520px);
+    width: clamp(460px, 29vw, 580px);
   }
 }
 

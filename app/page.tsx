@@ -151,7 +151,7 @@ export default function HomePage() {
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500 font-semibold text-white text-sm">
               G
             </div>
-            <span className="text-[15px] font-semibold tracking-tight text-white/90">GerencIA</span>
+            <span className="text-[15px] font-semibold tracking-tight text-white/90">GerencIA Educação</span>
           </Link>
 
           <nav className="flex items-center gap-2">
@@ -177,15 +177,15 @@ export default function HomePage() {
           <div className="max-w-[680px] space-y-7 animate-[fadeUp_0.9s_ease_both]">
             <div className="flex items-center gap-2 text-[12px] font-medium text-white/35 uppercase tracking-[0.2em]">
               <span className="h-1 w-1 rounded-full bg-emerald-500" />
-              Infraestrutura comercial com IA
+              Infraestrutura educacional com IA
             </div>
 
             <h1 className="text-[2.25rem] sm:text-[3rem] md:text-[3.5rem] font-semibold leading-[1.06] tracking-[-0.025em] text-white">
-              Operação comercial que escala sem escalar equipe.
+              Captação e matrículas que escalam sem perder contexto.
             </h1>
 
             <p className="max-w-[520px] text-[16px] sm:text-[17px] leading-[1.7] text-white/40 font-normal">
-              GerencIA unifica WhatsApp, Instagram, CRM e agenda em uma plataforma que atende, qualifica e agenda de forma autônoma — para que o time foque em fechar.
+              GerencIA Educação unifica WhatsApp, Instagram, pipeline e agenda para atender, qualificar e conduzir interessados até o diagnóstico e a matrícula.
             </p>
 
             <div className="flex flex-wrap items-center gap-3 pt-1">
@@ -224,7 +224,7 @@ export default function HomePage() {
               Plataforma
             </h2>
             <p className="text-[1.5rem] sm:text-[1.875rem] font-semibold leading-[1.2] tracking-tight text-white">
-              Cada componente resolve um gargalo real da operação comercial.
+              Cada componente resolve um gargalo real da operação educacional.
             </p>
           </div>
 
@@ -248,13 +248,13 @@ export default function HomePage() {
           <div className="grid gap-12 lg:grid-cols-[1fr_1fr] lg:gap-20">
             <div className="max-w-[440px]">
               <h2 className="text-[13px] font-medium text-emerald-400/80 uppercase tracking-[0.15em] mb-4">
-                Por que GerencIA
+                Por que GerencIA Educação
               </h2>
               <p className="text-[1.5rem] sm:text-[1.875rem] font-semibold leading-[1.2] tracking-tight text-white mb-5">
                 Argumentos de negócio para quem precisa converter com consistência.
               </p>
               <p className="text-[14px] leading-[1.7] text-white/35">
-                A plataforma organiza execução comercial para acelerar resposta, elevar qualidade de lead e aumentar taxa de fechamento — sem inflar operação.
+                A plataforma organiza captação, atendimento e agenda para elevar conversão em diagnósticos e matrículas sem inflar a operação.
               </p>
             </div>
 
@@ -281,7 +281,7 @@ export default function HomePage() {
               Fluxo
             </h2>
             <p className="text-[1.5rem] sm:text-[1.875rem] font-semibold leading-[1.2] tracking-tight text-white">
-              Da entrada do lead ao agendamento — três etapas, zero ruído.
+              Da entrada do interessado ao diagnóstico — três etapas, zero ruído.
             </p>
           </div>
 
@@ -343,7 +343,7 @@ export default function HomePage() {
                 <div className="flex h-6 w-6 items-center justify-center rounded-md bg-emerald-500 font-semibold text-white text-[10px]">
                   G
                 </div>
-                <span className="text-[13px] text-white/25">GerencIA by Genial Labs AI</span>
+                <span className="text-[13px] text-white/25">GerencIA Educação by Genial Labs AI</span>
               </div>
               <span className="text-[12px] text-white/15">
                 © {new Date().getFullYear()} Genial Labs AI. Todos os direitos reservados.
