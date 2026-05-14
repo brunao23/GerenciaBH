@@ -66,7 +66,7 @@ export default function CRMPage() {
                     <Link href="/crm/quality">
                         <Button
                             variant="outline"
-                            className="border-green-500/30 text-green-400 hover:bg-green-500/10"
+                            className="border-accent-green/30 text-accent-green hover:bg-accent-green/10"
                         >
                             <TrendingDown className="w-4 h-4 mr-2" />
                             Analise de Qualidade
@@ -96,4 +96,3 @@ export default function CRMPage() {
         </div>
     )
 }
-

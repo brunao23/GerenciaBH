@@ -503,9 +503,9 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
     }
 
     const getSentimentColor = (sentiment: string) => {
-        if (sentiment === 'positive') return 'text-emerald-400'
+        if (sentiment === 'positive') return 'text-accent-green'
         if (sentiment === 'negative') return 'text-red-400'
-        return 'text-gray-400'
+        return 'text-text-gray'
     }
 
     return (
@@ -521,7 +521,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                             Personalizar Funil
                         </Button>
                     </DialogTrigger>
-                    <DialogContent className="bg-secondary-black border-border-gray max-w-2xl max-h-[80vh] overflow-y-auto">
+                    <DialogContent className="bg-popover text-popover-foreground border-border max-w-2xl max-h-[80vh] overflow-y-auto">
                         <DialogHeader>
                             <DialogTitle className="text-pure-white">Personalizar Funil de Vendas</DialogTitle>
                         </DialogHeader>
@@ -530,7 +530,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                 <label className="text-sm text-pure-white">Colunas do Funil</label>
                                 <div className="space-y-2 max-h-60 overflow-y-auto">
                                     {customColumns.map((col, index) => (
-                                        <div key={col.id} className="flex items-center gap-2 p-2 bg-primary-black rounded">
+                                        <div key={col.id} className="flex items-center gap-2 p-2 bg-muted rounded border border-border">
                                             <div className="flex-1">
                                                 <Input
                                                     value={col.title}
@@ -539,7 +539,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                                         updated[index].title = e.target.value
                                                         setCustomColumns(updated)
                                                     }}
-                                                    className="bg-secondary-black border-border-gray text-pure-white"
+                                                    className="bg-background border-border text-foreground"
                                                 />
                                             </div>
                                             <input
@@ -572,7 +572,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                     placeholder="Nome da nova coluna"
                                     value={newColumnTitle}
                                     onChange={(e) => setNewColumnTitle(e.target.value)}
-                                    className="bg-secondary-black border-border-gray text-pure-white"
+                                    className="bg-background border-border text-foreground"
                                 />
                                 <input
                                     type="color"
@@ -580,23 +580,23 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                     onChange={(e) => setNewColumnColor(e.target.value)}
                                     className="w-16 h-10 rounded cursor-pointer"
                                 />
-                                <Button onClick={handleAddColumn} className="bg-accent-green hover:bg-accent-green/80">
+                                <Button onClick={handleAddColumn} className="bg-accent-green text-primary-foreground hover:bg-dark-green">
                                     <Plus className="w-4 h-4 mr-2" />
                                     Adicionar
                                 </Button>
                             </div>
 
-                            <div className="flex justify-end gap-2 pt-4 border-t border-border-gray">
+                            <div className="flex justify-end gap-2 pt-4 border-t border-border">
                                 <Button
                                     variant="outline"
                                     onClick={() => setIsFunnelModalOpen(false)}
-                                    className="border-border-gray"
+                                    className="border-border text-foreground hover:bg-muted"
                                 >
                                     Cancelar
                                 </Button>
                                 <Button
                                     onClick={handleSaveFunnel}
-                                    className="bg-accent-green hover:bg-accent-green/80"
+                                    className="bg-accent-green text-primary-foreground hover:bg-dark-green"
                                 >
                                     Salvar Funil
                                 </Button>
@@ -627,14 +627,14 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                             }}
                                         >
                                             <div
-                                                className={`flex items-center justify-between p-3 mb-3 bg-secondary-black rounded-lg border-t-4 flex-shrink-0 transition-shadow ${snapshot.isDragging ? 'shadow-lg ring-2 ring-accent-green/30' : ''}`}
+                                                className={`flex items-center justify-between p-3 mb-3 bg-card rounded-xl border border-border border-t-4 shadow-sm flex-shrink-0 transition-shadow ${snapshot.isDragging ? 'shadow-lg ring-2 ring-accent-green/30' : ''}`}
                                                 style={getColumnColorStyle(column.id)}
                                             >
                                                 <div {...provided.dragHandleProps} className="flex items-center gap-2 flex-1 cursor-grab active:cursor-grabbing">
                                                     <GripVertical className="w-4 h-4 text-text-gray hover:text-accent-green transition-colors" />
                                                     <h3 className="font-semibold text-pure-white text-sm">{column.title}</h3>
                                                 </div>
-                                                <Badge variant="secondary" className="bg-primary-black text-xs">
+                                                <Badge variant="secondary" className="bg-muted text-foreground text-xs">
                                                     {column.cards.length}
                                                 </Badge>
                                             </div>
@@ -644,7 +644,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                                     <div
                                                         {...provided.droppableProps}
                                                         ref={provided.innerRef}
-                                                        className={`flex-1 bg-secondary-black/30 rounded-lg p-2 transition-colors min-h-0 ${snapshot.isDraggingOver ? 'bg-secondary-black/50' : ''
+                                                        className={`flex-1 bg-muted/70 border border-border rounded-xl p-2 transition-colors min-h-0 ${snapshot.isDraggingOver ? 'bg-accent-green/10 border-accent-green/30' : ''
                                                             }`}
                                                     >
                                                         <div className="h-full overflow-y-auto overflow-x-hidden">
@@ -657,7 +657,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                                                                 {...provided.draggableProps}
                                                                                 {...provided.dragHandleProps}
                                                                                 style={{ ...provided.draggableProps.style }}
-                                                                                className={`bg-secondary border border-border-gray rounded-lg p-3 shadow-sm hover:border-accent-green/50 transition-all group cursor-pointer ${snapshot.isDragging ? 'shadow-lg ring-2 ring-accent-green/20 rotate-2' : ''
+                                                                                className={`bg-card border border-border rounded-xl p-3 shadow-sm hover:border-accent-green/60 hover:shadow-md transition-all group cursor-pointer ${snapshot.isDragging ? 'shadow-lg ring-2 ring-accent-green/20 rotate-2' : ''
                                                                                     }`}
                                                                                 onClick={() => handleCardClick(card)}
                                                                             >
@@ -668,7 +668,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                                                                                 {card.name}
                                                                                             </p>
                                                                                             {card.isPaused && (
-                                                                                                <Badge variant="outline" className="text-[10px] h-5 px-1.5 border-green-500/50 text-green-400 bg-green-500/10">
+                                                                                                <Badge variant="outline" className="text-[10px] h-5 px-1.5 border-accent-green/50 text-accent-green bg-accent-green/10">
                                                                                                     <PauseCircle className="w-3 h-3 mr-0.5" />
                                                                                                     Pausado
                                                                                                 </Badge>
@@ -682,7 +682,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                                                                     <div className={`w-2 h-2 rounded-full ${getSentimentColor(card.sentiment)} bg-current`} />
                                                                                 </div>
 
-                                                                                <p className="text-xs text-text-gray line-clamp-2 mb-3 bg-primary-black/50 p-1.5 rounded">
+                                                                                <p className="text-xs text-text-gray line-clamp-2 mb-3 bg-muted/70 p-1.5 rounded border border-border/60">
                                                                                     "{card.lastMessage}"
                                                                                 </p>
 
@@ -726,8 +726,8 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                                                                                 card.channel === 'instagram'
                                                                                                     ? 'border-pink-500/40 text-pink-400 bg-pink-500/10'
                                                                                                     : card.channel === 'whatsapp_group'
-                                                                                                    ? 'border-emerald-500/40 text-emerald-400 bg-emerald-500/10'
-                                                                                                    : 'border-green-500/40 text-green-400 bg-green-500/10'
+                                                                                                    ? 'border-accent-green/40 text-accent-green bg-accent-green/10'
+                                                                                                    : 'border-accent-green/40 text-accent-green bg-accent-green/10'
                                                                                             }`}>
                                                                                                 {card.channel === 'instagram' ? (
                                                                                                     <Instagram className="w-2.5 h-2.5 mr-0.5" />
@@ -749,8 +749,8 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                                                                                 variant="outline"
                                                                                                 className={`text-[10px] h-5 px-1 ${
                                                                                                     card.isStudent
-                                                                                                        ? 'border-emerald-500/40 text-emerald-400 bg-emerald-500/10'
-                                                                                                        : 'border-amber-500/40 text-amber-300 bg-amber-500/10'
+                                                                                                        ? 'border-accent-green/40 text-accent-green bg-accent-green/10'
+                                                                                                        : 'border-accent-gold/40 text-accent-gold bg-accent-gold/10'
                                                                                                 }`}
                                                                                             >
                                                                                                 <GraduationCap className="w-2.5 h-2.5 mr-0.5" />
@@ -764,7 +764,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                                                                     <Button
                                                                                         size="sm"
                                                                                         variant="ghost"
-                                                                                        className="flex-1 h-6 text-[10px] px-1 text-emerald-400 hover:bg-emerald-400/10 hover:text-emerald-300"
+                                                                                        className="flex-1 h-6 text-[10px] px-1 text-accent-green hover:bg-accent-green/10"
                                                                                         disabled={busyEvents.has(`${card.id}:attendance`)}
                                                                                         onClick={() => submitQuickEvent(card, "attendance")}
                                                                                         title="Registrar comparecimento"
@@ -774,7 +774,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                                                                     <Button
                                                                                         size="sm"
                                                                                         variant="ghost"
-                                                                                        className="flex-1 h-6 text-[10px] px-1 text-yellow-400 hover:bg-yellow-400/10 hover:text-yellow-300"
+                                                                                        className="flex-1 h-6 text-[10px] px-1 text-accent-gold hover:bg-accent-gold/10"
                                                                                         disabled={busyEvents.has(`${card.id}:no_show`)}
                                                                                         onClick={() => submitQuickEvent(card, "no_show")}
                                                                                         title="Registrar bolo"
@@ -784,7 +784,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                                                                     <Button
                                                                                         size="sm"
                                                                                         variant="ghost"
-                                                                                        className="flex-1 h-6 text-[10px] px-1 text-blue-400 hover:bg-blue-400/10 hover:text-blue-300"
+                                                                                        className="flex-1 h-6 text-[10px] px-1 text-accent-blue hover:bg-accent-blue/10"
                                                                                         onClick={() => submitQuickEvent(card, "sale")}
                                                                                         title="Registrar venda"
                                                                                     >
@@ -795,7 +795,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                                                                     <Button
                                                                                         size="sm"
                                                                                         variant="ghost"
-                                                                                        className="flex-1 h-6 text-[10px] px-1 text-emerald-300 hover:bg-emerald-500/10 hover:text-emerald-200"
+                                                                                        className="flex-1 h-6 text-[10px] px-1 text-accent-green hover:bg-accent-green/10"
                                                                                         disabled={busyEvents.has(`${card.id}:student:yes`)}
                                                                                         onClick={() => submitStudentFlag(card, true)}
                                                                                         title="Marcar como aluno"
@@ -805,7 +805,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                                                                     <Button
                                                                                         size="sm"
                                                                                         variant="ghost"
-                                                                                        className="flex-1 h-6 text-[10px] px-1 text-amber-300 hover:bg-amber-500/10 hover:text-amber-200"
+                                                                                        className="flex-1 h-6 text-[10px] px-1 text-accent-gold hover:bg-accent-gold/10"
                                                                                         disabled={busyEvents.has(`${card.id}:student:no`)}
                                                                                         onClick={() => submitStudentFlag(card, false)}
                                                                                         title="Marcar como não aluno"
@@ -866,7 +866,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
             />
 
             <Dialog open={!!addContactCard} onOpenChange={(open) => { if (!open) setAddContactCard(null) }}>
-                <DialogContent className="bg-secondary-black border-border-gray sm:max-w-lg">
+                <DialogContent className="bg-popover text-popover-foreground border-border sm:max-w-lg">
                     <DialogHeader>
                         <DialogTitle className="text-pure-white flex items-center gap-2">
                             <UserPlus className="w-5 h-5 text-sky-400" /> Adicionar aos Contatos
@@ -882,7 +882,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                 placeholder="Nome completo"
                                 value={contactForm.nome}
                                 onChange={(e) => setContactForm((f) => ({ ...f, nome: e.target.value }))}
-                                className="bg-primary-black border-border-gray text-pure-white"
+                                className="bg-background border-border text-foreground"
                             />
                         </div>
                         <div className="space-y-1">
@@ -891,7 +891,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                 placeholder="(11) 99999-9999"
                                 value={contactForm.telefone}
                                 onChange={(e) => setContactForm((f) => ({ ...f, telefone: e.target.value }))}
-                                className="bg-primary-black border-border-gray text-pure-white"
+                                className="bg-background border-border text-foreground"
                             />
                         </div>
                         <div className="space-y-1">
@@ -900,7 +900,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                 placeholder="email@exemplo.com"
                                 value={contactForm.email}
                                 onChange={(e) => setContactForm((f) => ({ ...f, email: e.target.value }))}
-                                className="bg-primary-black border-border-gray text-pure-white"
+                                className="bg-background border-border text-foreground"
                             />
                         </div>
                         <div className="space-y-1">
@@ -909,7 +909,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                 placeholder="Nome da empresa"
                                 value={contactForm.empresa}
                                 onChange={(e) => setContactForm((f) => ({ ...f, empresa: e.target.value }))}
-                                className="bg-primary-black border-border-gray text-pure-white"
+                                className="bg-background border-border text-foreground"
                             />
                         </div>
                         <div className="space-y-1">
@@ -918,7 +918,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                 placeholder="Canal de origem"
                                 value={contactForm.origem}
                                 onChange={(e) => setContactForm((f) => ({ ...f, origem: e.target.value }))}
-                                className="bg-primary-black border-border-gray text-pure-white"
+                                className="bg-background border-border text-foreground"
                             />
                         </div>
                         <div className="col-span-2 space-y-1">
@@ -927,15 +927,15 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                 placeholder="Observações adicionais"
                                 value={contactForm.observacao}
                                 onChange={(e) => setContactForm((f) => ({ ...f, observacao: e.target.value }))}
-                                className="bg-primary-black border-border-gray text-pure-white"
+                                className="bg-background border-border text-foreground"
                             />
                         </div>
                     </div>
                     <DialogFooter>
-                        <Button variant="outline" className="border-border-gray text-text-gray" onClick={() => setAddContactCard(null)}>
+                        <Button variant="outline" className="border-border text-text-gray hover:bg-muted" onClick={() => setAddContactCard(null)}>
                             Cancelar
                         </Button>
-                        <Button onClick={handleSaveContact} disabled={submittingContact} className="bg-sky-600 hover:bg-sky-500 text-white">
+                        <Button onClick={handleSaveContact} disabled={submittingContact} className="bg-accent-blue text-white hover:bg-accent-blue/85">
                             {submittingContact ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <UserPlus className="w-4 h-4 mr-2" />}
                             Salvar Contato
                         </Button>
@@ -944,7 +944,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
             </Dialog>
 
             <Dialog open={saleModal.open} onOpenChange={(open) => { if (!open) { setSaleModal({ open: false, card: null }); setSaleForm({ amount: "", day: "", month: "", year: "" }) } }}>
-                <DialogContent className="bg-secondary-black border-border-gray sm:max-w-md">
+                <DialogContent className="bg-popover text-popover-foreground border-border sm:max-w-md">
                     <DialogHeader>
                         <DialogTitle className="text-pure-white flex items-center gap-2">
                             <DollarSign className="w-5 h-5 text-accent-green" /> Registrar Venda
@@ -956,20 +956,20 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                     <div className="space-y-4 py-2">
                         <div className="space-y-1.5">
                             <Label className="text-text-gray text-sm">Valor da Venda (R$)</Label>
-                            <Input type="number" placeholder="0.00" min="0" step="0.01" value={saleForm.amount} onChange={(e) => setSaleForm((f) => ({ ...f, amount: e.target.value }))} className="bg-primary-black border-border-gray text-pure-white" />
+                            <Input type="number" placeholder="0.00" min="0" step="0.01" value={saleForm.amount} onChange={(e) => setSaleForm((f) => ({ ...f, amount: e.target.value }))} className="bg-background border-border text-foreground" />
                         </div>
                         <div className="space-y-1.5">
                             <Label className="text-text-gray text-sm">Data da Venda</Label>
                             <div className="grid grid-cols-3 gap-2">
-                                <Input type="number" placeholder="Dia" min={1} max={31} value={saleForm.day} onChange={(e) => setSaleForm((f) => ({ ...f, day: e.target.value }))} className="bg-primary-black border-border-gray text-pure-white" />
-                                <Input type="number" placeholder="Mês" min={1} max={12} value={saleForm.month} onChange={(e) => setSaleForm((f) => ({ ...f, month: e.target.value }))} className="bg-primary-black border-border-gray text-pure-white" />
-                                <Input type="number" placeholder="Ano" min={2020} max={2035} value={saleForm.year} onChange={(e) => setSaleForm((f) => ({ ...f, year: e.target.value }))} className="bg-primary-black border-border-gray text-pure-white" />
+                                <Input type="number" placeholder="Dia" min={1} max={31} value={saleForm.day} onChange={(e) => setSaleForm((f) => ({ ...f, day: e.target.value }))} className="bg-background border-border text-foreground" />
+                                <Input type="number" placeholder="Mês" min={1} max={12} value={saleForm.month} onChange={(e) => setSaleForm((f) => ({ ...f, month: e.target.value }))} className="bg-background border-border text-foreground" />
+                                <Input type="number" placeholder="Ano" min={2020} max={2035} value={saleForm.year} onChange={(e) => setSaleForm((f) => ({ ...f, year: e.target.value }))} className="bg-background border-border text-foreground" />
                             </div>
                         </div>
                     </div>
                     <DialogFooter>
-                        <Button variant="outline" className="border-border-gray text-text-gray hover:bg-secondary-black" onClick={() => { setSaleModal({ open: false, card: null }); setSaleForm({ amount: "", day: "", month: "", year: "" }) }}>Cancelar</Button>
-                        <Button onClick={handleSaleSubmit} disabled={submittingSale} className="bg-accent-green text-black hover:bg-accent-green/90">
+                        <Button variant="outline" className="border-border text-text-gray hover:bg-muted" onClick={() => { setSaleModal({ open: false, card: null }); setSaleForm({ amount: "", day: "", month: "", year: "" }) }}>Cancelar</Button>
+                        <Button onClick={handleSaleSubmit} disabled={submittingSale} className="bg-accent-green text-primary-foreground hover:bg-dark-green">
                             {submittingSale ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <DollarSign className="w-4 h-4 mr-2" />}
                             Confirmar Venda
                         </Button>
@@ -979,7 +979,6 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
         </>
     )
 }
-
 
 
 

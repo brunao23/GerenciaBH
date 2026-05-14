@@ -5,126 +5,126 @@
 
 /* ============================================
    CORPORATE THEME - GerencIA Educacao
-   Core: graphite + muted sage surfaces
+   Core: high-contrast graphite + corporate teal surfaces
    ============================================ */
 
 :root {
   /* Semantic tokens (used by components via var()) */
-  --primary-black: #F7F8F6;
-  --secondary-black: #ECEFED;
+  --primary-black: #F3F7FB;
+  --secondary-black: #EAF1F7;
   --card-black: #FFFFFF;
-  --accent-green: #4F675F;
-  --dark-green: #31453F;
-  --accent-yellow: #A36A35;
-  --dark-yellow: #7C4D25;
-  --pure-white: #171C1A;
-  --border-gray: #DCE3DE;
-  --text-gray: #68746F;
-  --hover-gray: #EFF2EF;
-  --accent-blue: #5B6672;
-  --accent-red: #B42318;
-  --accent-gold: #A36A35;
-  --ink-green: #171C1A;
-  --paper-warm: #F7F8F6;
+  --accent-green: #007EA8;
+  --dark-green: #005F86;
+  --accent-yellow: #FF6B2C;
+  --dark-yellow: #D9511D;
+  --pure-white: #0B1724;
+  --border-gray: #CCD8E3;
+  --text-gray: #516173;
+  --hover-gray: #E1EAF2;
+  --accent-blue: #0B74C8;
+  --accent-red: #E5484D;
+  --accent-gold: #FF6B2C;
+  --ink-green: #0B1724;
+  --paper-warm: #F3F7FB;
 
   /* shadcn/ui design tokens */
-  --background: #F7F8F6;
-  --foreground: #171C1A;
+  --background: #F3F7FB;
+  --foreground: #0B1724;
   --card: #FFFFFF;
-  --card-foreground: #171C1A;
+  --card-foreground: #0B1724;
   --popover: #FFFFFF;
-  --popover-foreground: #171C1A;
-  --primary: #4F675F;
+  --popover-foreground: #0B1724;
+  --primary: #007EA8;
   --primary-foreground: #FFFFFF;
-  --secondary: #ECEFED;
-  --secondary-foreground: #2F3834;
-  --muted: #ECEFED;
-  --muted-foreground: #68746F;
-  --accent: #EEF3F0;
-  --accent-foreground: #31453F;
-  --destructive: #B42318;
+  --secondary: #EAF1F7;
+  --secondary-foreground: #172033;
+  --muted: #EEF4F8;
+  --muted-foreground: #516173;
+  --accent: #DDF7FF;
+  --accent-foreground: #005B7A;
+  --destructive: #E5484D;
   --destructive-foreground: #FFFFFF;
-  --border: #DCE3DE;
+  --border: #CCD8E3;
   --input: #FFFFFF;
-  --ring: #4F675F;
-  --chart-1: #4F675F;
-  --chart-2: #5B6672;
-  --chart-3: #A36A35;
-  --chart-4: #7B8781;
-  --chart-5: #8C7A63;
+  --ring: #007EA8;
+  --chart-1: #007EA8;
+  --chart-2: #0B74C8;
+  --chart-3: #FF6B2C;
+  --chart-4: #65758A;
+  --chart-5: #7C3AED;
   --radius: 0.75rem;
 
   /* Sidebar */
   --sidebar: #FFFFFF;
-  --sidebar-foreground: #171C1A;
-  --sidebar-primary: #4F675F;
+  --sidebar-foreground: #0B1724;
+  --sidebar-primary: #007EA8;
   --sidebar-primary-foreground: #FFFFFF;
-  --sidebar-accent: #ECEFED;
-  --sidebar-accent-foreground: #171C1A;
-  --sidebar-border: #DCE3DE;
-  --sidebar-ring: #4F675F;
+  --sidebar-accent: #EAF1F7;
+  --sidebar-accent-foreground: #0B1724;
+  --sidebar-border: #CCD8E3;
+  --sidebar-ring: #007EA8;
 
   /* Theme-specific effects */
-  --card-shadow: 0 1px 2px rgba(23, 28, 26, 0.04), 0 12px 28px rgba(23, 28, 26, 0.05);
-  --card-shadow-hover: 0 14px 32px rgba(23, 28, 26, 0.08);
+  --card-shadow: 0 1px 2px rgba(15, 23, 42, 0.08), 0 10px 24px rgba(15, 23, 42, 0.06);
+  --card-shadow-hover: 0 16px 36px rgba(15, 23, 42, 0.12);
   --glow-opacity: 0;
   --card-line-opacity: 0;
 }
 
 .dark {
-  --primary-black: #101312;
-  --secondary-black: #151917;
-  --card-black: #181D1B;
-  --accent-green: #A9B9AE;
-  --dark-green: #879B90;
-  --accent-yellow: #C19362;
-  --dark-yellow: #A47747;
-  --pure-white: #F4F6F4;
-  --border-gray: #2B332F;
-  --text-gray: #9AA6A0;
-  --hover-gray: #202622;
-  --accent-blue: #A8B0B8;
-  --accent-red: #F07167;
-  --accent-gold: #C19362;
-  --ink-green: #F4F6F4;
-  --paper-warm: #101312;
+  --primary-black: #06111C;
+  --secondary-black: #122335;
+  --card-black: #0E1A27;
+  --accent-green: #27D3F5;
+  --dark-green: #00A6D6;
+  --accent-yellow: #FF7A33;
+  --dark-yellow: #E85F20;
+  --pure-white: #F8FAFC;
+  --border-gray: #2A3B4F;
+  --text-gray: #B6C6D8;
+  --hover-gray: #1A2A3D;
+  --accent-blue: #4BA3FF;
+  --accent-red: #F87171;
+  --accent-gold: #FF7A33;
+  --ink-green: #F8FAFC;
+  --paper-warm: #06111C;
 
-  --background: #101312;
-  --foreground: #F4F6F4;
-  --card: #181D1B;
-  --card-foreground: #F4F6F4;
-  --popover: #181D1B;
-  --popover-foreground: #F4F6F4;
-  --primary: #A9B9AE;
-  --primary-foreground: #101312;
-  --secondary: #151917;
-  --secondary-foreground: #E4E9E5;
-  --muted: #151917;
-  --muted-foreground: #9AA6A0;
-  --accent: #202622;
-  --accent-foreground: #F4F6F4;
-  --destructive: #F07167;
+  --background: #06111C;
+  --foreground: #F8FAFC;
+  --card: #0E1A27;
+  --card-foreground: #F8FAFC;
+  --popover: #0E1A27;
+  --popover-foreground: #F8FAFC;
+  --primary: #27D3F5;
+  --primary-foreground: #03111A;
+  --secondary: #122335;
+  --secondary-foreground: #E2E8F0;
+  --muted: #18293B;
+  --muted-foreground: #B6C6D8;
+  --accent: #0C3D52;
+  --accent-foreground: #DDF7FF;
+  --destructive: #F87171;
   --destructive-foreground: #FFFFFF;
-  --border: #2B332F;
-  --input: #151917;
-  --ring: #A9B9AE;
-  --chart-1: #A9B9AE;
-  --chart-2: #A8B0B8;
-  --chart-3: #C19362;
-  --chart-4: #7A8580;
-  --chart-5: #B6A98F;
+  --border: #2A3B4F;
+  --input: #0A1724;
+  --ring: #27D3F5;
+  --chart-1: #27D3F5;
+  --chart-2: #4BA3FF;
+  --chart-3: #FF7A33;
+  --chart-4: #94A3B8;
+  --chart-5: #A78BFA;
 
-  --sidebar: #111513;
-  --sidebar-foreground: #F4F6F4;
-  --sidebar-primary: #A9B9AE;
-  --sidebar-primary-foreground: #101312;
-  --sidebar-accent: #1A201D;
-  --sidebar-accent-foreground: #F4F6F4;
-  --sidebar-border: #2B332F;
-  --sidebar-ring: #A9B9AE;
+  --sidebar: #081523;
+  --sidebar-foreground: #F8FAFC;
+  --sidebar-primary: #27D3F5;
+  --sidebar-primary-foreground: #03111A;
+  --sidebar-accent: #102236;
+  --sidebar-accent-foreground: #F8FAFC;
+  --sidebar-border: #2A3B4F;
+  --sidebar-ring: #27D3F5;
 
-  --card-shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 12px 28px rgba(0, 0, 0, 0.18);
-  --card-shadow-hover: 0 16px 36px rgba(0, 0, 0, 0.26);
+  --card-shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 18px 44px rgba(0, 0, 0, 0.28);
+  --card-shadow-hover: 0 20px 48px rgba(0, 0, 0, 0.36);
   --glow-opacity: 0;
   --card-line-opacity: 0;
 }
@@ -265,13 +265,15 @@
 /* ===== COMPONENT CLASSES ===== */
 @layer components {
   .education-app-shell {
-    background: var(--background);
+    background:
+      radial-gradient(circle at top left, color-mix(in srgb, var(--accent-green) 10%, transparent), transparent 32rem),
+      var(--background);
   }
 
   .education-topbar {
-    background: var(--card);
+    background: color-mix(in srgb, var(--card) 94%, var(--background));
     border-bottom: 1px solid var(--border);
-    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
   }
 
   .brand-mark {
@@ -282,7 +284,7 @@
 
   .dark .brand-mark {
     background: var(--primary);
-    color: #101312;
+    color: #03111A;
     box-shadow: none;
   }
 
@@ -308,6 +310,71 @@
     border: 1px solid var(--border);
     border-radius: 14px;
     box-shadow: var(--card-shadow);
+  }
+
+  .dark .genial-card,
+  .dark .genial-surface {
+    background: linear-gradient(180deg, color-mix(in srgb, var(--card) 96%, #ffffff 4%), var(--card));
+    border-color: color-mix(in srgb, var(--border) 86%, #ffffff 14%);
+  }
+
+  .dashboard-command-panel {
+    position: relative;
+    overflow: hidden;
+    border: 1px solid color-mix(in srgb, var(--border) 70%, var(--accent-green) 30%);
+    background:
+      linear-gradient(135deg, color-mix(in srgb, var(--card) 92%, var(--accent-green) 8%), var(--card) 62%),
+      var(--card);
+    box-shadow: var(--card-shadow-hover);
+  }
+
+  .dark .dashboard-command-panel {
+    border-color: color-mix(in srgb, var(--border) 64%, var(--accent-green) 36%);
+    background:
+      linear-gradient(135deg, color-mix(in srgb, var(--card) 82%, var(--accent-green) 18%), var(--card) 58%),
+      var(--card);
+  }
+
+  .dashboard-command-panel::before,
+  .dashboard-command-panel::after {
+    content: "";
+    position: absolute;
+    pointer-events: none;
+    border-radius: 34px;
+    opacity: 0.18;
+  }
+
+  .dashboard-command-panel::before {
+    width: 16rem;
+    height: 16rem;
+    right: -5rem;
+    top: -7rem;
+    background: var(--accent-green);
+    transform: rotate(28deg);
+  }
+
+  .dashboard-command-panel::after {
+    width: 13rem;
+    height: 13rem;
+    left: -5rem;
+    bottom: -6rem;
+    background: var(--accent-gold);
+    transform: rotate(-22deg);
+  }
+
+  .funnel-slice {
+    clip-path: polygon(0 0, 100% 0, 82% 100%, 18% 100%);
+  }
+
+  .score-gauge {
+    background:
+      radial-gradient(circle at center, var(--card) 0 58%, transparent 59%),
+      conic-gradient(var(--accent-gold) 0 35%, var(--accent-green) 35% 72%, color-mix(in srgb, var(--border) 75%, transparent) 72% 100%);
+  }
+
+  .dashboard-metric-cell {
+    background: color-mix(in srgb, var(--background) 70%, var(--card) 30%);
+    border: 1px solid color-mix(in srgb, var(--border) 86%, transparent);
   }
 
   /* Keep cards calm and flat for a corporate product surface. */

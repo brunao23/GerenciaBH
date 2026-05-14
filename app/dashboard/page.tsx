@@ -718,7 +718,7 @@ export default function DashboardPage() {
     { title: "Atendimentos", value: data?.conversas ?? 0, subtitle: `${data?.totalMessages ?? 0} mensagens no periodo`, icon: MessageSquare, color: "text-accent-blue", bg: "bg-accent-blue/10", border: "border-accent-blue/20" },
     { title: "Leads qualificados", value: data?.totalLeads ?? 0, subtitle: "alunos em potencial", icon: Users, color: "text-accent-green", bg: "bg-accent-green/10", border: "border-accent-green/20" },
     { title: "Diagnósticos", value: data?.agendamentos ?? 0, subtitle: `${data?.conversionRate?.toFixed?.(1) ?? "0.0"}% de conversao`, icon: CalendarClock, color: "text-accent-gold", bg: "bg-accent-gold/10", border: "border-accent-gold/20" },
-    { title: "Retomadas", value: data?.followups ?? 0, subtitle: "follow-ups enviados", icon: Workflow, color: "text-orange-400", bg: "bg-orange-400/10", border: "border-orange-400/20" },
+    { title: "Retomadas", value: data?.followups ?? 0, subtitle: "follow-ups enviados", icon: Workflow, color: "text-accent-gold", bg: "bg-accent-gold/10", border: "border-accent-gold/20" },
   ]
 
   const performanceMetrics = [
@@ -733,6 +733,31 @@ export default function DashboardPage() {
     data.totalLeads &&
     data.totalLeads > 0 &&
     !conversionAlertDismissed
+
+  const conversionPercent = Math.max(0, Math.min(100, Number(data?.conversionRate ?? 0)))
+  const qualityPercent = Math.max(0, Math.min(100, Number(data?.successPercent ?? 0)))
+  const attendanceBase = businessMetrics.attendanceCount + businessMetrics.noShowCount
+  const attendancePercent = attendanceBase > 0 ? Math.round((businessMetrics.attendanceCount / attendanceBase) * 100) : 0
+  const pipelineHealthInputs = [
+    conversionPercent,
+    ...(data?.successPercent !== undefined ? [qualityPercent] : []),
+    ...(attendanceBase > 0 ? [attendancePercent] : []),
+  ]
+  const pipelineHealthPercent = Math.round(pipelineHealthInputs.reduce((sum, value) => sum + value, 0) / Math.max(1, pipelineHealthInputs.length))
+  const salesRevenue = businessMetrics.totalSalesAmount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+
+  const commercialPanelRows = [
+    { label: "Entrada", value: data?.totalLeads ?? 0, caption: "Leads no funil", tone: "bg-accent-blue", soft: "bg-accent-blue/15", text: "text-accent-blue" },
+    { label: "Atendimento", value: data?.conversas ?? 0, caption: "Conversas ativas", tone: "bg-accent-green", soft: "bg-accent-green/15", text: "text-accent-green" },
+    { label: "Diagnóstico", value: data?.agendamentos ?? 0, caption: "Agenda marcada", tone: "bg-accent-gold", soft: "bg-accent-gold/15", text: "text-accent-gold" },
+    { label: "Matrícula", value: businessMetrics.salesCount, caption: "Vendas registradas", tone: "bg-accent-green", soft: "bg-accent-green/15", text: "text-accent-green" },
+  ]
+
+  const panelSummaryRows = [
+    { label: "Conversão", value: `${conversionPercent.toFixed(1)}%`, hint: "Lead para diagnóstico" },
+    { label: "Comparecimento", value: `${attendancePercent}%`, hint: "Presenças confirmadas" },
+    { label: "Receita", value: salesRevenue, hint: "Matrículas registradas" },
+  ]
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
@@ -794,6 +819,97 @@ export default function DashboardPage() {
               loading={loading}
             />
           </div>
+
+          <Card className="dashboard-command-panel rounded-2xl">
+            <CardContent className="relative z-[1] p-4 sm:p-6">
+              <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr_0.9fr]">
+                <div className="space-y-5">
+                  <div>
+                    <div className="inline-flex items-center gap-2 rounded-full border border-accent-green/30 bg-accent-green/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-accent-green">
+                      <Target className="h-3.5 w-3.5" />
+                      Painel comercial
+                    </div>
+                    <h2 className="mt-3 text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+                      Visão executiva de captação e matrículas
+                    </h2>
+                    <p className="mt-2 max-w-2xl text-sm leading-6 text-text-gray">
+                      Indicadores centrais em um bloco único para acompanhar entrada, atendimento, diagnóstico e fechamento sem poluir a tela.
+                    </p>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {commercialPanelRows.map((row) => (
+                      <div key={row.label} className="dashboard-metric-cell rounded-xl p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-text-gray">{row.label}</p>
+                            <p className={`mt-1 text-3xl font-bold ${row.text}`}>{row.value}</p>
+                          </div>
+                          <div className={`h-10 w-10 rounded-xl ${row.soft} flex items-center justify-center`}>
+                            <div className={`h-3 w-3 rounded-full ${row.tone}`} />
+                          </div>
+                        </div>
+                        <p className="mt-2 text-xs text-text-gray">{row.caption}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-border bg-background/70 p-4">
+                  <div className="mb-4 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-[0.16em] text-text-gray">Termômetro</p>
+                      <h3 className="text-lg font-bold text-foreground">Funil de oportunidades</h3>
+                    </div>
+                    <Badge variant="outline" className="border-accent-gold/30 text-accent-gold">
+                      {periodLabel}
+                    </Badge>
+                  </div>
+                  <div className="space-y-2">
+                    {commercialPanelRows.map((row, index) => (
+                      <div key={`funnel-${row.label}`} className="flex justify-center">
+                        <div
+                          className={`funnel-slice flex min-h-10 items-center justify-between gap-3 px-5 text-sm font-semibold text-white shadow-sm ${row.tone}`}
+                          style={{ width: `${Math.max(66, 100 - index * 10)}%` }}
+                        >
+                          <span>{row.label}</span>
+                          <span>{row.value}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-border bg-background/70 p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-[0.16em] text-text-gray">Saúde da operação</p>
+                      <h3 className="text-lg font-bold text-foreground">Performance do período</h3>
+                    </div>
+                    <div
+                      className="score-gauge flex h-20 w-20 shrink-0 items-center justify-center rounded-full"
+                      style={{
+                        background: `radial-gradient(circle at center, var(--card) 0 58%, transparent 59%), conic-gradient(var(--accent-green) 0 ${Math.max(pipelineHealthPercent, 4)}%, color-mix(in srgb, var(--border) 78%, transparent) ${Math.max(pipelineHealthPercent, 4)}% 100%)`,
+                      }}
+                    >
+                      <span className="text-lg font-bold text-foreground">{pipelineHealthPercent}%</span>
+                    </div>
+                  </div>
+                  <div className="mt-5 space-y-3">
+                    {panelSummaryRows.map((row) => (
+                      <div key={row.label} className="flex items-center justify-between gap-4 rounded-xl border border-border bg-card/70 px-3 py-2">
+                        <div>
+                          <p className="text-sm font-semibold text-foreground">{row.label}</p>
+                          <p className="text-xs text-text-gray">{row.hint}</p>
+                        </div>
+                        <p className="text-sm font-bold text-accent-green">{row.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
 
           {/* Conversion alert */}
           {conversionRateLow && (
