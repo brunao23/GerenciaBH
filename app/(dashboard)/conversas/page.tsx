@@ -2487,9 +2487,9 @@ export default function ConversasPage() {
       >
         {current ? (
           <>
-            <CardHeader className="conversation-chat-header border-b border-white/10 bg-gradient-to-r from-white/[0.04] via-transparent to-accent-green/[0.03] shrink-0 px-3 py-2 sm:px-5 sm:py-4">
-              <div className="flex min-w-0 flex-col xl:flex-row items-start xl:items-center justify-between gap-2 sm:gap-3">
-                <div className="flex items-center gap-2 sm:gap-3 min-w-0 w-full xl:w-auto">
+            <CardHeader className="conversation-chat-header border-b border-white/10 bg-gradient-to-r from-white/[0.04] via-transparent to-accent-green/[0.03] shrink-0 px-3 py-2 sm:px-5 sm:py-4 lg:px-4 lg:py-3 2xl:px-5 2xl:py-4">
+              <div className="flex min-w-0 flex-col items-start justify-between gap-2 sm:gap-3 min-[1800px]:flex-row min-[1800px]:items-center">
+                <div className="conversation-contact-summary flex items-center gap-2 sm:gap-3 min-w-0 w-full min-[1800px]:w-auto">
                   <Button
                     size="icon"
                     variant="ghost"
@@ -2511,7 +2511,7 @@ export default function ConversasPage() {
                       {current.contact_name?.charAt(0).toUpperCase() || "L"}
                     </AvatarFallback>
                   </Avatar>
-                  <div className="min-w-0 flex-1 xl:flex-none">
+                  <div className="min-w-0 flex-1 min-[1800px]:flex-none">
                     <h3 className="flex min-w-0 items-center gap-1.5 text-base sm:text-lg font-bold text-pure-white">
                        <span className="min-w-0 truncate">{current.contact_name || "Lead"}</span>
                        <Badge
@@ -2569,7 +2569,7 @@ export default function ConversasPage() {
                 </div>
 
                 {/* Controles de Pausa e Follow-up AI */}
-                <div className="conversation-actions-strip grid w-full min-w-0 grid-cols-3 gap-1.5 xl:w-auto xl:flex xl:flex-wrap xl:gap-2">
+                <div className="conversation-actions-strip grid w-full min-w-0 grid-cols-3 gap-1.5 sm:grid-cols-6 lg:gap-2 min-[1800px]:w-auto min-[1800px]:flex min-[1800px]:flex-wrap">
                   {pauseStatus && (
                     <>
                       <Button
@@ -2631,8 +2631,8 @@ export default function ConversasPage() {
                       ) : (
                         <Zap className="w-3 h-3 mr-1" />
                       )}
-                      <span className="sm:hidden">Follow-up</span>
-                      <span className="hidden sm:inline">
+                      <span className="min-[1800px]:hidden">Follow-up</span>
+                      <span className="hidden min-[1800px]:inline">
                         {followupAILoading ? "Processando..." : followupAIEnabled ? "Follow-up AI Ativo" : "Follow-up AI Inativo"}
                       </span>
                     </Button>
@@ -2663,8 +2663,8 @@ export default function ConversasPage() {
                       ) : (
                         <Trash2 className="w-3 h-3 mr-1" />
                       )}
-                      <span className="sm:hidden">{clearingMemory ? "..." : "Memoria"}</span>
-                      <span className="hidden sm:inline">{clearingMemory ? "Apagando..." : "Apagar Memoria"}</span>
+                      <span className="min-[1800px]:hidden">{clearingMemory ? "..." : "Memoria"}</span>
+                      <span className="hidden min-[1800px]:inline">{clearingMemory ? "Apagando..." : "Apagar Memoria"}</span>
                     </Button>
                   )}
                 </div>
