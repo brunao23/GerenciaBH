@@ -869,11 +869,14 @@ export default function DashboardPage() {
                     {commercialPanelRows.map((row, index) => (
                       <div key={`funnel-${row.label}`} className="flex justify-center">
                         <div
-                          className={`funnel-slice flex min-h-10 items-center justify-between gap-3 px-5 text-sm font-semibold text-white shadow-sm ${row.tone}`}
+                          className="relative min-h-10 text-white"
                           style={{ width: `${Math.max(66, 100 - index * 10)}%` }}
                         >
-                          <span>{row.label}</span>
-                          <span>{row.value}</span>
+                          <div className={`funnel-slice absolute inset-0 shadow-sm ${row.tone}`} aria-hidden="true" />
+                          <div className="relative z-[1] flex min-h-10 items-center justify-between gap-3 px-8 text-sm font-semibold sm:px-10">
+                            <span className="min-w-0 truncate">{row.label}</span>
+                            <span className="shrink-0 tabular-nums">{row.value}</span>
+                          </div>
                         </div>
                       </div>
                     ))}
