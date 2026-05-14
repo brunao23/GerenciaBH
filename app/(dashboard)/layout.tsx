@@ -48,7 +48,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     <SidebarProvider>
       <AppSidebar />
       <SidebarInset className="education-app-shell h-dvh min-h-dvh max-h-dvh overflow-hidden">
-          <header className={`education-topbar sticky top-0 z-20 items-center backdrop-blur-xl safe-area-top ${isConversationsPage ? "hidden h-16 gap-3 overflow-hidden px-4 lg:flex" : "flex h-14 gap-2 px-3 sm:h-16 sm:gap-3 sm:px-4"}`}>
+          <header className={`education-topbar sticky top-0 z-20 items-center safe-area-top ${isConversationsPage ? "hidden h-16 gap-3 overflow-hidden px-4 lg:flex" : "flex h-14 gap-2 px-3 sm:h-16 sm:gap-3 sm:px-4"}`}>
             <SidebarTrigger className="genial-hover border border-transparent hover:border-primary/30 hover:bg-primary/8 rounded-lg" />
             <div className={`min-w-0 items-center gap-2 ${isConversationsPage ? "hidden min-[380px]:flex" : "flex"}`}>
               <span className="brand-mark flex h-8 w-8 shrink-0 items-center justify-center rounded-xl">

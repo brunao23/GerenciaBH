@@ -102,10 +102,10 @@ export function AppSidebar() {
   }
 
   return (
-    <Sidebar className="border-sidebar-border bg-sidebar/95 backdrop-blur-xl">
+    <Sidebar className="border-sidebar-border bg-sidebar">
       <SidebarHeader className="border-b border-sidebar-border px-4 py-5">
         <div className="flex items-center gap-3 px-2">
-          <div className="brand-mark flex h-11 w-11 items-center justify-center rounded-2xl">
+          <div className="brand-mark flex h-10 w-10 items-center justify-center rounded-xl">
             <GraduationCap className="h-5 w-5" />
           </div>
           <div className="min-w-0 flex-1">
@@ -119,11 +119,11 @@ export function AppSidebar() {
         {/* Nome da Unidade */}
         {!loading && sessionData?.session?.unitName && (
           <div className="mt-3 px-2">
-            <div className="flex items-center gap-2 rounded-2xl border border-[var(--accent-green)]/20 bg-[var(--accent-green)]/8 p-2.5 shadow-sm">
+            <div className="flex items-center gap-2 rounded-xl border border-sidebar-border bg-sidebar-accent p-2.5">
               <Building2 className="w-4 h-4 text-[var(--accent-green)]" />
               <div className="flex-1">
                 <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Unidade</div>
-                <div className="font-semibold text-[var(--accent-green)] text-sm">{sessionData.session.unitName}</div>
+                <div className="font-semibold text-foreground text-sm">{sessionData.session.unitName}</div>
               </div>
             </div>
           </div>
@@ -134,9 +134,9 @@ export function AppSidebar() {
           <div className="mt-2 px-2">
             <button
               onClick={() => router.push('/admin/units')}
-              className="flex items-center gap-2 w-full p-2.5 rounded-lg bg-blue-500/8 border border-blue-500/15 hover:border-blue-500/30 transition-all duration-200 group"
+              className="flex items-center gap-2 w-full p-2.5 rounded-lg bg-sidebar-accent border border-sidebar-border hover:border-[var(--accent-green)]/30 transition-all duration-200 group"
             >
-              <Users className="w-4 h-4 text-blue-400 group-hover:scale-105 transition-transform duration-200" />
+              <Users className="w-4 h-4 text-[var(--accent-green)] group-hover:scale-105 transition-transform duration-200" />
               <div className="flex-1 text-left">
                 <span className="font-medium text-foreground text-xs">Trocar de Cliente</span>
                 <div className="text-[10px] text-muted-foreground">Modo Admin</div>
@@ -205,7 +205,7 @@ export function AppSidebar() {
             <div className="flex items-center gap-2">
               <Bot className="h-3.5 w-3.5" />
               <span className="text-[10px] uppercase tracking-[0.15em] font-semibold">
-                Agentes de IA
+                Agentes
               </span>
             </div>
             {agentesOpen
@@ -277,8 +277,7 @@ export function AppSidebar() {
           <div className="text-muted-foreground px-1">
             <div className="flex items-center gap-2.5 p-2.5 rounded-lg bg-secondary border border-border">
               <div className="relative">
-                <div className="w-2 h-2 bg-[var(--accent-green)] rounded-full shadow-sm shadow-[var(--accent-green)]/40"></div>
-                <div className="absolute inset-0 w-2 h-2 bg-[var(--accent-green)] rounded-full animate-ping opacity-20"></div>
+                <div className="w-2 h-2 bg-[var(--accent-green)] rounded-full"></div>
               </div>
               <span className="font-medium text-xs">Operacional</span>
             </div>

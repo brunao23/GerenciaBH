@@ -4,129 +4,129 @@
 @custom-variant dark (&:is(.dark *));
 
 /* ============================================
-   PREMIUM THEME - GerencIA Educacao
-   Core: verde petroleo + dourado academico
+   CORPORATE THEME - GerencIA Educacao
+   Core: azul institucional + superficies neutras
    ============================================ */
 
 :root {
   /* Semantic tokens (used by components via var()) */
-  --primary-black: #F7F3EA;
-  --secondary-black: #EFE7D8;
-  --card-black: #FFFCF5;
-  --accent-green: #0F766E;
-  --dark-green: #0B5F5A;
-  --accent-yellow: #F2B84B;
-  --dark-yellow: #C98612;
-  --pure-white: #17211F;
-  --border-gray: #DED2BC;
-  --text-gray: #6E7B73;
-  --hover-gray: #EFE7D8;
-  --accent-blue: #2F6F8F;
-  --accent-red: #C2410C;
-  --accent-gold: #F2B84B;
-  --ink-green: #071311;
-  --paper-warm: #F7F3EA;
+  --primary-black: #F6F8FB;
+  --secondary-black: #EEF2F7;
+  --card-black: #FFFFFF;
+  --accent-green: #1D4ED8;
+  --dark-green: #1E3A8A;
+  --accent-yellow: #D97706;
+  --dark-yellow: #B45309;
+  --pure-white: #0F172A;
+  --border-gray: #D9E2EC;
+  --text-gray: #64748B;
+  --hover-gray: #E9EEF5;
+  --accent-blue: #2563EB;
+  --accent-red: #DC2626;
+  --accent-gold: #D97706;
+  --ink-green: #0F172A;
+  --paper-warm: #F6F8FB;
 
   /* shadcn/ui design tokens */
-  --background: #F7F3EA;
-  --foreground: #17211F;
-  --card: #FFFCF5;
-  --card-foreground: #17211F;
-  --popover: #FFFCF5;
-  --popover-foreground: #17211F;
-  --primary: #0F766E;
+  --background: #F6F8FB;
+  --foreground: #0F172A;
+  --card: #FFFFFF;
+  --card-foreground: #0F172A;
+  --popover: #FFFFFF;
+  --popover-foreground: #0F172A;
+  --primary: #1D4ED8;
   --primary-foreground: #FFFFFF;
-  --secondary: #EFE7D8;
-  --secondary-foreground: #23342F;
-  --muted: #EFE7D8;
-  --muted-foreground: #6E7B73;
-  --accent: #F2B84B;
-  --accent-foreground: #17211F;
-  --destructive: #C2410C;
+  --secondary: #EEF2F7;
+  --secondary-foreground: #1E293B;
+  --muted: #EEF2F7;
+  --muted-foreground: #64748B;
+  --accent: #EAF1FF;
+  --accent-foreground: #1E3A8A;
+  --destructive: #DC2626;
   --destructive-foreground: #FFFFFF;
-  --border: #DED2BC;
-  --input: #F4EDDF;
-  --ring: #0F766E;
-  --chart-1: #0F766E;
-  --chart-2: #F2B84B;
-  --chart-3: #2F6F8F;
-  --chart-4: #C98612;
-  --chart-5: #14B8A6;
-  --radius: 1rem;
+  --border: #D9E2EC;
+  --input: #FFFFFF;
+  --ring: #2563EB;
+  --chart-1: #1D4ED8;
+  --chart-2: #0F766E;
+  --chart-3: #D97706;
+  --chart-4: #475569;
+  --chart-5: #7C3AED;
+  --radius: 0.75rem;
 
   /* Sidebar */
-  --sidebar: #FFFCF5;
-  --sidebar-foreground: #17211F;
-  --sidebar-primary: #0F766E;
+  --sidebar: #FFFFFF;
+  --sidebar-foreground: #0F172A;
+  --sidebar-primary: #1D4ED8;
   --sidebar-primary-foreground: #FFFFFF;
-  --sidebar-accent: #EFE7D8;
-  --sidebar-accent-foreground: #17211F;
-  --sidebar-border: #DED2BC;
-  --sidebar-ring: #0F766E;
+  --sidebar-accent: #EEF2F7;
+  --sidebar-accent-foreground: #0F172A;
+  --sidebar-border: #D9E2EC;
+  --sidebar-ring: #2563EB;
 
   /* Theme-specific effects */
-  --card-shadow: 0 16px 45px rgba(23, 33, 31, 0.08), 0 1px 0 rgba(255, 255, 255, 0.72) inset;
-  --card-shadow-hover: 0 20px 55px rgba(11, 95, 90, 0.16), 0 0 18px rgba(242, 184, 75, 0.08);
-  --glow-opacity: 0.65;
-  --card-line-opacity: 0.65;
+  --card-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 8px 24px rgba(15, 23, 42, 0.04);
+  --card-shadow-hover: 0 10px 28px rgba(15, 23, 42, 0.08);
+  --glow-opacity: 0;
+  --card-line-opacity: 0;
 }
 
 .dark {
-  --primary-black: #071311;
-  --secondary-black: #0D1F1B;
-  --card-black: #10231F;
-  --accent-green: #14B8A6;
-  --dark-green: #0F766E;
-  --accent-yellow: #F2B84B;
-  --dark-yellow: #C98612;
-  --pure-white: #EAF3ED;
-  --border-gray: #1C3A33;
-  --text-gray: #9BAFA6;
-  --hover-gray: #132B25;
-  --accent-blue: #3B82A0;
-  --accent-red: #F97316;
-  --accent-gold: #F2B84B;
-  --ink-green: #071311;
-  --paper-warm: #F7F3EA;
+  --primary-black: #0F172A;
+  --secondary-black: #111827;
+  --card-black: #162033;
+  --accent-green: #60A5FA;
+  --dark-green: #3B82F6;
+  --accent-yellow: #F59E0B;
+  --dark-yellow: #D97706;
+  --pure-white: #F8FAFC;
+  --border-gray: #2B3A4F;
+  --text-gray: #A7B3C5;
+  --hover-gray: #1E293B;
+  --accent-blue: #60A5FA;
+  --accent-red: #F87171;
+  --accent-gold: #F59E0B;
+  --ink-green: #F8FAFC;
+  --paper-warm: #0F172A;
 
-  --background: #071311;
-  --foreground: #EAF3ED;
-  --card: #10231F;
-  --card-foreground: #EAF3ED;
-  --popover: #10231F;
-  --popover-foreground: #EAF3ED;
-  --primary: #14B8A6;
-  --primary-foreground: #06201D;
-  --secondary: #0D1F1B;
-  --secondary-foreground: #EAF3ED;
-  --muted: #0D1F1B;
-  --muted-foreground: #9BAFA6;
-  --accent: #F2B84B;
-  --accent-foreground: #17211F;
-  --destructive: #F97316;
+  --background: #0F172A;
+  --foreground: #F8FAFC;
+  --card: #162033;
+  --card-foreground: #F8FAFC;
+  --popover: #162033;
+  --popover-foreground: #F8FAFC;
+  --primary: #60A5FA;
+  --primary-foreground: #0B1220;
+  --secondary: #111827;
+  --secondary-foreground: #E2E8F0;
+  --muted: #111827;
+  --muted-foreground: #A7B3C5;
+  --accent: #1E293B;
+  --accent-foreground: #F8FAFC;
+  --destructive: #F87171;
   --destructive-foreground: #FFFFFF;
-  --border: #1C3A33;
-  --input: #0D1F1B;
-  --ring: #14B8A6;
-  --chart-1: #14B8A6;
-  --chart-2: #F2B84B;
-  --chart-3: #3B82A0;
-  --chart-4: #C98612;
-  --chart-5: #0F766E;
+  --border: #2B3A4F;
+  --input: #111827;
+  --ring: #60A5FA;
+  --chart-1: #60A5FA;
+  --chart-2: #34D399;
+  --chart-3: #F59E0B;
+  --chart-4: #94A3B8;
+  --chart-5: #A78BFA;
 
-  --sidebar: #0A1714;
-  --sidebar-foreground: #EAF3ED;
-  --sidebar-primary: #14B8A6;
-  --sidebar-primary-foreground: #06201D;
-  --sidebar-accent: #10231F;
-  --sidebar-accent-foreground: #EAF3ED;
-  --sidebar-border: #1C3A33;
-  --sidebar-ring: #14B8A6;
+  --sidebar: #111827;
+  --sidebar-foreground: #F8FAFC;
+  --sidebar-primary: #60A5FA;
+  --sidebar-primary-foreground: #0B1220;
+  --sidebar-accent: #1E293B;
+  --sidebar-accent-foreground: #F8FAFC;
+  --sidebar-border: #2B3A4F;
+  --sidebar-ring: #60A5FA;
 
-  --card-shadow: 0 20px 50px rgba(0, 0, 0, 0.42), 0 0 24px rgba(20, 184, 166, 0.06);
-  --card-shadow-hover: 0 25px 60px rgba(0, 0, 0, 0.55), 0 0 30px rgba(242, 184, 75, 0.1);
-  --glow-opacity: 1;
-  --card-line-opacity: 1;
+  --card-shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 12px 28px rgba(0, 0, 0, 0.18);
+  --card-shadow-hover: 0 16px 36px rgba(0, 0, 0, 0.26);
+  --glow-opacity: 0;
+  --card-line-opacity: 0;
 }
 
 @theme inline {
@@ -211,10 +211,7 @@
 
   .dark body,
   :is(.dark) body {
-    background:
-      radial-gradient(circle at 16% 0%, rgba(242, 184, 75, 0.08), transparent 30%),
-      radial-gradient(circle at 88% 12%, rgba(20, 184, 166, 0.14), transparent 34%),
-      linear-gradient(135deg, #071311 0%, #0D1F1B 56%, #071311 100%);
+    background: var(--background);
   }
 
   h1,
@@ -225,7 +222,7 @@
     letter-spacing: -0.02em;
   }
 
-  /* Ambient glow - dark mode only */
+  /* No decorative ambient glow in the corporate theme. */
   body::before {
     content: "";
     position: fixed;
@@ -233,9 +230,7 @@
     left: 0;
     width: 100%;
     height: 100%;
-    background:
-      radial-gradient(circle at 18% 82%, rgba(15, 118, 110, 0.16) 0%, transparent 48%),
-      radial-gradient(circle at 84% 16%, rgba(242, 184, 75, 0.11) 0%, transparent 42%);
+    background: none;
     pointer-events: none;
     z-index: -1;
     opacity: var(--glow-opacity);
@@ -246,39 +241,32 @@
 /* ===== COMPONENT CLASSES ===== */
 @layer components {
   .education-app-shell {
-    background:
-      radial-gradient(circle at 10% -10%, color-mix(in srgb, var(--accent-yellow) 14%, transparent), transparent 34%),
-      radial-gradient(circle at 96% 4%, color-mix(in srgb, var(--accent-green) 18%, transparent), transparent 34%),
-      linear-gradient(135deg, color-mix(in srgb, var(--background) 94%, white), var(--background));
+    background: var(--background);
   }
 
   .education-topbar {
-    background:
-      linear-gradient(90deg, color-mix(in srgb, var(--card) 94%, transparent), color-mix(in srgb, var(--card) 82%, transparent)),
-      linear-gradient(90deg, color-mix(in srgb, var(--accent-green) 9%, transparent), transparent 42%);
-    border-bottom: 1px solid color-mix(in srgb, var(--accent-green) 20%, var(--border));
-    box-shadow: 0 12px 35px rgba(7, 19, 17, 0.06);
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
   }
 
   .brand-mark {
-    background:
-      radial-gradient(circle at 72% 18%, rgba(242, 184, 75, 0.95), transparent 24%),
-      linear-gradient(135deg, var(--accent-green), var(--dark-green));
+    background: var(--primary);
     color: #ffffff;
-    box-shadow: 0 14px 30px color-mix(in srgb, var(--accent-green) 28%, transparent);
+    box-shadow: none;
   }
 
   .education-badge {
-    border: 1px solid color-mix(in srgb, var(--accent-yellow) 42%, var(--border));
-    background: color-mix(in srgb, var(--accent-yellow) 14%, transparent);
-    color: color-mix(in srgb, var(--accent-yellow) 70%, var(--foreground));
+    border: 1px solid var(--border);
+    background: var(--secondary);
+    color: var(--foreground);
   }
 
   .genial-card {
     background: var(--card);
     border: 1px solid var(--border);
-    border-radius: 16px;
-    backdrop-filter: blur(10px);
+    border-radius: 14px;
+    backdrop-filter: none;
     box-shadow: var(--card-shadow);
     position: relative;
     overflow: hidden;
@@ -286,16 +274,13 @@
   }
 
   .genial-surface {
-    background:
-      linear-gradient(135deg, rgba(15, 118, 110, 0.10), transparent 42%),
-      linear-gradient(220deg, rgba(242, 184, 75, 0.12), transparent 52%),
-      var(--card);
-    border: 1px solid color-mix(in srgb, var(--accent-green) 12%, var(--border));
-    border-radius: 16px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
     box-shadow: var(--card-shadow);
   }
 
-  /* Green accent line at top of cards - dark mode only */
+  /* Keep cards calm and flat for a corporate product surface. */
   .genial-card::before {
     content: "";
     position: absolute;
@@ -303,34 +288,34 @@
     left: 0;
     right: 0;
     height: 1px;
-    background: linear-gradient(90deg, transparent, var(--accent-green), transparent);
+    background: transparent;
     opacity: var(--card-line-opacity);
     transition: opacity 0.3s ease;
   }
 
   .genial-button {
-    background: linear-gradient(135deg, var(--accent-green), var(--dark-green));
+    background: var(--primary);
     border: none;
     color: #FFFFFF;
     font-weight: 600;
     padding: 0.875rem 1.75rem;
-    border-radius: 10px;
+    border-radius: 8px;
     font-size: 1rem;
     transition: all 0.3s ease;
-    box-shadow: 0 4px 14px rgba(15, 118, 110, 0.25);
+    box-shadow: none;
   }
 
   .genial-button:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 8px 25px rgba(15, 118, 110, 0.35);
-    background: linear-gradient(135deg, var(--dark-green), var(--accent-green));
+    transform: none;
+    box-shadow: none;
+    background: var(--dark-green);
   }
 
   .genial-input {
     background: var(--input);
     border: 1px solid var(--border);
     color: var(--foreground);
-    border-radius: 10px;
+    border-radius: 8px;
     padding: 0.875rem 1rem;
     font-size: 0.9rem;
     transition: all 0.3s ease;
@@ -339,7 +324,7 @@
   .genial-input:focus {
     background: var(--input);
     border-color: var(--accent-green);
-    box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.14);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 18%, transparent);
     color: var(--foreground);
   }
 
@@ -422,8 +407,8 @@
   }
 
   .genial-elevate:hover {
-    transform: translateY(-2px);
-    border-color: color-mix(in srgb, var(--accent-green) 30%, var(--border));
+    transform: none;
+    border-color: color-mix(in srgb, var(--accent-green) 22%, var(--border));
     box-shadow: var(--card-shadow-hover);
   }
 
@@ -437,13 +422,11 @@
     content: "";
     position: absolute;
     inset: 0;
-    background-image:
-      linear-gradient(rgba(15, 118, 110, 0.08) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(242, 184, 75, 0.06) 1px, transparent 1px);
+    background-image: none;
     background-size: 36px 36px;
     mask-image: radial-gradient(circle at 15% 10%, black 22%, transparent 78%);
     pointer-events: none;
-    opacity: var(--glow-opacity);
+    opacity: 0;
   }
 }
 
@@ -467,8 +450,8 @@
 }
 
 .genial-hover:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(15, 118, 110, 0.16);
+  transform: none;
+  box-shadow: var(--card-shadow-hover);
 }
 
 /* ===== PERFORMANCE ===== */

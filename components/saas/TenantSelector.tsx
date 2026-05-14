@@ -56,9 +56,9 @@ export function TenantSelector() {
 
     return (
         <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
-            <div className="flex min-w-0 items-center gap-1.5 rounded-2xl border border-accent-green/25 bg-accent-green/10 px-2 py-1.5 shadow-sm sm:gap-2 sm:px-3">
+            <div className="flex min-w-0 items-center gap-1.5 rounded-xl border border-border bg-secondary px-2 py-1.5 sm:gap-2 sm:px-3">
                 <Building2 className="h-4 w-4 shrink-0 text-accent-green" />
-                <span className="max-w-[7.5rem] truncate whitespace-nowrap text-xs font-medium text-accent-green sm:max-w-[12rem] sm:text-sm">
+                <span className="max-w-[7.5rem] truncate whitespace-nowrap text-xs font-medium text-foreground sm:max-w-[12rem] sm:text-sm">
                     {tenant.name}
                 </span>
             </div>
@@ -67,7 +67,7 @@ export function TenantSelector() {
                     variant="ghost"
                     size="sm"
                     onClick={handleBackToAdmin}
-                    className="h-8 px-2 text-accent-green hover:text-accent-green hover:bg-accent-green/10"
+                    className="h-8 px-2 text-muted-foreground hover:text-foreground hover:bg-secondary"
                     title="Voltar ao Painel Admin"
                 >
                     <Shield className="w-4 h-4" />
@@ -77,7 +77,7 @@ export function TenantSelector() {
                 variant="ghost"
                 size="sm"
                 onClick={handleLogout}
-                className="h-8 px-2 text-text-gray hover:text-pure-white hover:bg-white/5"
+                className="h-8 px-2 text-muted-foreground hover:text-foreground hover:bg-secondary"
                 title="Sair"
             >
                 <LogOut className="w-4 h-4" />

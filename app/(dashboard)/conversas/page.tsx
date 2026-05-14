@@ -2125,10 +2125,10 @@ export default function ConversasPage() {
     >
       {/* Sidebar - Lista de Sessões */}
       <Card
-        className={`genial-card conversation-list-panel w-full max-w-full min-h-0 flex flex-shrink-0 flex-col overflow-hidden rounded-none border border-border/70 bg-card/95 shadow-2xl shadow-black/10 lg:rounded-l-[1.75rem] lg:rounded-r-none ${showListOnMobile ? "flex" : "hidden lg:flex"}`}
+        className={`genial-card conversation-list-panel w-full max-w-full min-h-0 flex flex-shrink-0 flex-col overflow-hidden rounded-none border border-border bg-card shadow-sm lg:rounded-l-2xl lg:rounded-r-none ${showListOnMobile ? "flex" : "hidden lg:flex"}`}
         style={conversationMobileSafePanelStyle}
       >
-        <CardHeader className="shrink-0 border-b border-border/70 bg-gradient-to-b from-accent-green/8 via-card/80 to-transparent px-4 pb-3 pt-3 sm:px-5 sm:pb-4 sm:pt-4">
+        <CardHeader className="shrink-0 border-b border-border bg-card px-4 pb-3 pt-3 sm:px-5 sm:pb-4 sm:pt-4">
           <div className="flex items-center justify-between">
             {isSelectionMode ? (
               <div className="flex items-center gap-2 w-full">
@@ -2160,7 +2160,7 @@ export default function ConversasPage() {
               <>
                 <CardTitle className="text-pure-white flex items-center gap-2 text-lg leading-tight">
                   <span className="brand-mark flex h-9 w-9 items-center justify-center rounded-2xl">
-                    <MessageSquare className="w-4 h-4 text-accent-green" />
+                    <MessageSquare className="w-4 h-4 text-white" />
                   </span>
                   <span>
                     Conversas
@@ -2196,7 +2196,7 @@ export default function ConversasPage() {
                 type="button"
                 size="sm"
                 variant={activeChannelFilter === "all" ? "default" : "outline"}
-                className={`h-8 rounded-xl text-xs ${activeChannelFilter === "all" ? "bg-accent-green text-white hover:bg-accent-green/90" : "border-border/60 bg-card/70 text-text-gray hover:bg-accent-green/8 hover:text-pure-white"}`}
+                className={`h-8 rounded-xl text-xs ${activeChannelFilter === "all" ? "bg-accent-green text-white hover:bg-accent-green/90" : "border-border bg-card text-muted-foreground hover:bg-secondary hover:text-foreground"}`}
                 onClick={() => setActiveChannelFilter("all")}
               >
                 Todos
@@ -2205,7 +2205,7 @@ export default function ConversasPage() {
                 type="button"
                 size="sm"
                 variant={activeChannelFilter === "whatsapp" ? "default" : "outline"}
-                className={`h-8 rounded-xl text-xs ${activeChannelFilter === "whatsapp" ? "bg-accent-green text-white hover:bg-accent-green/90" : "border-border/60 bg-card/70 text-text-gray hover:bg-accent-green/8 hover:text-pure-white"}`}
+                className={`h-8 rounded-xl text-xs ${activeChannelFilter === "whatsapp" ? "bg-accent-green text-white hover:bg-accent-green/90" : "border-border bg-card text-muted-foreground hover:bg-secondary hover:text-foreground"}`}
                 onClick={() => setActiveChannelFilter("whatsapp")}
               >
                 WhatsApp
@@ -2214,7 +2214,7 @@ export default function ConversasPage() {
                 type="button"
                 size="sm"
                 variant={activeChannelFilter === "instagram" ? "default" : "outline"}
-                className={`h-8 rounded-xl text-xs ${activeChannelFilter === "instagram" ? "bg-accent-gold text-black hover:bg-accent-gold/90" : "border-border/60 bg-card/70 text-text-gray hover:bg-accent-gold/10 hover:text-pure-white"}`}
+                className={`h-8 rounded-xl text-xs ${activeChannelFilter === "instagram" ? "bg-accent-green text-white hover:bg-accent-green/90" : "border-border bg-card text-muted-foreground hover:bg-secondary hover:text-foreground"}`}
                 onClick={() => setActiveChannelFilter("instagram")}
               >
                 Instagram
@@ -2294,7 +2294,7 @@ export default function ConversasPage() {
           )}
 
           {activeTab !== "contatos" && (
-            <div className="h-full min-h-0 overflow-y-auto overscroll-contain touch-pan-y genial-scrollbar bg-gradient-to-b from-transparent via-white/[0.015] to-transparent">
+            <div className="h-full min-h-0 overflow-y-auto overscroll-contain touch-pan-y genial-scrollbar bg-background/40">
               {loading ? (
                 <div className="flex items-center justify-center h-32">
                   <Loader2 className="w-6 h-6 animate-spin text-accent-green" />
@@ -2316,7 +2316,7 @@ export default function ConversasPage() {
                   <button
                     key={session.session_id}
                     onClick={() => setActive(session.session_id)}
-                    className={`group relative w-full rounded-2xl p-3 text-left transition-all hover:bg-white/[0.05] hover:shadow-lg hover:shadow-black/20 sm:p-3.5 ${active === session.session_id
+                    className={`group relative w-full rounded-2xl p-3 text-left transition-all hover:bg-secondary/70 sm:p-3.5 ${active === session.session_id
                       ? session.channel === "instagram"
                         ? "bg-pink-500/10 ring-1 ring-pink-400/30"
                         : "bg-accent-green/10 ring-1 ring-accent-green/30"
@@ -2334,7 +2334,7 @@ export default function ConversasPage() {
                           />
                         </div>
                       )}
-                      <Avatar className="w-10 h-10 border border-white/10 shadow-sm shadow-black/20 shrink-0 2xl:w-11 2xl:h-11">
+                      <Avatar className="w-10 h-10 border border-border shadow-sm shrink-0 2xl:w-11 2xl:h-11">
                         {resolveAvatarImageSrc(session.profile_pic) ? (
                           <AvatarImage
                             src={resolveAvatarImageSrc(session.profile_pic)}
@@ -2482,12 +2482,12 @@ export default function ConversasPage() {
 
       {/* Main Chat Area */}
       <Card
-        className={`genial-card conversation-chat-panel flex-1 min-w-0 max-w-full min-h-0 flex flex-col overflow-hidden rounded-none border border-border/70 bg-card/95 shadow-2xl shadow-black/10 lg:rounded-l-none lg:rounded-r-[1.75rem] lg:border-l-0 ${showConversationOnMobile ? "flex" : "hidden lg:flex"}`}
+        className={`genial-card conversation-chat-panel flex-1 min-w-0 max-w-full min-h-0 flex flex-col overflow-hidden rounded-none border border-border bg-card shadow-sm lg:rounded-l-none lg:rounded-r-2xl lg:border-l-0 ${showConversationOnMobile ? "flex" : "hidden lg:flex"}`}
         style={conversationMobileSafePanelStyle}
       >
         {current ? (
           <>
-            <CardHeader className="conversation-chat-header shrink-0 border-b border-border/70 bg-gradient-to-r from-accent-green/10 via-card/80 to-accent-gold/10 px-3 py-2 sm:px-5 sm:py-4 lg:px-4 lg:py-3 2xl:px-5 2xl:py-4">
+            <CardHeader className="conversation-chat-header shrink-0 border-b border-border bg-card px-3 py-2 sm:px-5 sm:py-4 lg:px-4 lg:py-3 2xl:px-5 2xl:py-4">
               <div className="flex min-w-0 flex-col items-start justify-between gap-2 sm:gap-3 min-[1800px]:flex-row min-[1800px]:items-center">
                 <div className="conversation-contact-summary flex items-center gap-2 sm:gap-3 min-w-0 w-full min-[1800px]:w-auto">
                   <Button
@@ -2620,7 +2620,7 @@ export default function ConversasPage() {
                       onClick={toggleFollowupAI}
                       disabled={followupAILoading}
                       className={`shrink-0 text-xs ${followupAIEnabled
-                        ? "bg-gradient-to-r from-accent-green/15 to-accent-gold/15 text-accent-green border-accent-green/30"
+                        ? "bg-accent-green/10 text-accent-green border-accent-green/30"
                         : "bg-gray-500/20 text-gray-400 border-gray-500/30"
                         }`}
                     >
@@ -2671,12 +2671,12 @@ export default function ConversasPage() {
               </div>
             </CardHeader>
 
-            <CardContent className="flex-1 min-h-0 overflow-hidden bg-[radial-gradient(circle_at_top_left,rgba(15,118,110,0.12),transparent_30%),radial-gradient(circle_at_bottom_right,rgba(242,184,75,0.10),transparent_28%)] p-0">
+            <CardContent className="flex-1 min-h-0 overflow-hidden bg-background/50 p-0">
               <div ref={scrollAreaRef} className="h-full min-h-0 overflow-y-auto overscroll-contain touch-pan-y genial-scrollbar">
                 <div className="p-2.5 sm:p-5 space-y-2.5 sm:space-y-4">
                   {/* Dados do Formulário */}
                   {current.formData && (
-                    <div className="bg-secondary-black/75 rounded-2xl p-4 mb-4 border border-white/10 shadow-lg shadow-black/20">
+                    <div className="bg-card rounded-2xl p-4 mb-4 border border-border shadow-sm">
                       <h4 className="text-sm font-semibold text-pure-white mb-3 flex items-center gap-2">
                         <User className="w-4 h-4 text-accent-green" />
                         Dados do Formulário
@@ -2755,15 +2755,15 @@ export default function ConversasPage() {
                         className={`flex w-full ${isLead ? "justify-end" : "justify-start"}`}
                       >
                         <div
-                          className={`relative max-w-[94%] sm:max-w-[88%] lg:max-w-[80%] xl:max-w-[76%] 2xl:max-w-[72%] rounded-[1.1rem] px-3.5 py-3 shadow-lg transition-all hover:shadow-xl sm:rounded-[1.35rem] sm:px-5 sm:py-4 ${isLead
-                            ? "border border-accent-green/30 bg-gradient-to-br from-accent-green to-dark-green text-white"
+                          className={`relative max-w-[94%] sm:max-w-[88%] lg:max-w-[80%] xl:max-w-[76%] 2xl:max-w-[72%] rounded-[1.1rem] px-3.5 py-3 shadow-sm transition-all sm:rounded-[1.2rem] sm:px-5 sm:py-4 ${isLead
+                            ? "border border-blue-200 bg-blue-50 text-slate-900 dark:border-blue-500/30 dark:bg-blue-500/15 dark:text-slate-50"
                             : isHuman
-                              ? "border border-accent-gold/45 bg-gradient-to-br from-amber-900/60 to-amber-800/45 text-amber-50"
+                              ? "border border-amber-200 bg-amber-50 text-slate-900 dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-50"
                               : msg.isError
-                                ? "bg-gradient-to-br from-red-900/50 to-red-800/40 text-red-50 border-2 border-red-500/50"
+                                ? "border border-red-300 bg-red-50 text-red-900 dark:border-red-500/40 dark:bg-red-500/15 dark:text-red-50"
                                 : msg.isSuccess
-                                  ? "border-2 border-accent-green/50 bg-gradient-to-br from-accent-green/35 to-dark-green/25 text-pure-white"
-                                  : "border border-border/70 bg-gradient-to-br from-card/95 to-secondary/80 text-pure-white"
+                                  ? "border border-emerald-300 bg-emerald-50 text-emerald-950 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-50"
+                                  : "border border-border bg-card text-foreground"
                             }`}
                         >
                           <button
@@ -2815,18 +2815,18 @@ export default function ConversasPage() {
             </CardContent>
 
             {/* Footer de Envio de Mensagem */}
-            <div className="conversation-composer safe-area-bottom border-t border-border/70 bg-card/95 p-2.5 backdrop-blur-xl sm:p-4">
-              <div className="conversation-pausebar mb-2 flex items-center justify-between gap-2 rounded-2xl border border-border/70 bg-secondary/70 p-2 sm:mb-3 sm:gap-3">
+            <div className="conversation-composer safe-area-bottom border-t border-border bg-card p-2.5 sm:p-4">
+              <div className="conversation-pausebar mb-2 flex items-center justify-between gap-2 rounded-xl border border-border bg-secondary p-2 sm:mb-3 sm:gap-3">
                 <span className="min-w-0 shrink text-[11px] text-text-gray font-medium flex items-center gap-1 sm:text-xs">
                   <PauseCircle className="w-3 h-3 text-green-500" />
                   <span className="hidden min-[380px]:inline">Ao assumir, </span>pausar IA:
                 </span>
                 <div className="flex min-w-0 shrink-0 items-center gap-2">
                   <Select value={pauseDuration} onValueChange={setPauseDuration}>
-                    <SelectTrigger className="h-9 w-[122px] min-w-0 border-border/70 bg-card/80 text-xs text-pure-white focus:ring-accent-green sm:h-8 sm:w-[140px]">
+                    <SelectTrigger className="h-9 w-[122px] min-w-0 border-border bg-card text-xs text-foreground focus:ring-accent-green sm:h-8 sm:w-[140px]">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent className="bg-secondary border-border text-pure-white">
+                    <SelectContent className="bg-popover border-border text-popover-foreground">
                       <SelectItem value="10">10 minutos</SelectItem>
                       <SelectItem value="20">20 minutos</SelectItem>
                       <SelectItem value="30">30 minutos</SelectItem>
@@ -2849,7 +2849,7 @@ export default function ConversasPage() {
                   value={messageInput}
                   onChange={e => setMessageInput(e.target.value)}
                   placeholder="Digite sua resposta aqui... (Enter envia)"
-                  className="min-h-[58px] max-h-[104px] rounded-2xl bg-foreground/8 border-white/10 resize-none text-pure-white placeholder:text-gray-600 focus:border-accent-green genial-scrollbar sm:min-h-[52px] sm:max-h-[120px]"
+                  className="min-h-[58px] max-h-[104px] rounded-xl bg-card border-border resize-none text-foreground placeholder:text-muted-foreground focus:border-accent-green genial-scrollbar sm:min-h-[52px] sm:max-h-[120px]"
                   onKeyDown={e => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault()
@@ -2862,7 +2862,7 @@ export default function ConversasPage() {
                     onClick={() => handleGenerateAiSuggestion(false)}
                     disabled={isGeneratingSuggestion || !current}
                     variant="outline"
-                    className="h-10 w-full rounded-2xl border-white/10 text-pure-white hover:bg-white/10 sm:h-[52px]"
+                    className="h-10 w-full rounded-xl border-border text-foreground hover:bg-secondary sm:h-[52px]"
                     title="Gerar resposta contextual com IA"
                   >
                     {isGeneratingSuggestion ? (
@@ -2875,7 +2875,7 @@ export default function ConversasPage() {
                     onClick={() => handleGenerateAiSuggestion(true)}
                     disabled={isGeneratingSuggestion || !current || (!messageInput.trim() && !lastSuggestedText)}
                     variant="outline"
-                    className="h-10 w-full rounded-2xl border-white/10 text-pure-white hover:bg-white/10 sm:h-[52px]"
+                    className="h-10 w-full rounded-xl border-border text-foreground hover:bg-secondary sm:h-[52px]"
                     title="Gerar outra versao da sugestao"
                   >
                     <RefreshCcw className="w-4 h-4" />
@@ -2884,7 +2884,7 @@ export default function ConversasPage() {
                     onClick={handleCopySuggestion}
                     disabled={!messageInput.trim()}
                     variant="outline"
-                    className="h-10 w-full rounded-2xl border-white/10 text-pure-white hover:bg-white/10 sm:h-[52px]"
+                    className="h-10 w-full rounded-xl border-border text-foreground hover:bg-secondary sm:h-[52px]"
                     title="Copiar sugestao"
                   >
                     <Copy className="w-4 h-4" />
@@ -2892,7 +2892,7 @@ export default function ConversasPage() {
                   <Button
                     onClick={handleSendMessage}
                     disabled={!messageInput.trim() || isSending}
-                    className="h-10 w-full rounded-2xl bg-accent-green hover:bg-green-600 shadow-lg shadow-green-900/20 sm:h-[52px]"
+                    className="h-10 w-full rounded-xl bg-accent-green hover:bg-dark-green sm:h-[52px]"
                   >
                     {isSending ? (
                       <Loader2 className="w-5 h-5 animate-spin text-white" />
@@ -2980,7 +2980,7 @@ export default function ConversasPage() {
                       <SelectTrigger className="bg-foreground/8 border-border-gray text-pure-white">
                         <SelectValue placeholder="Selecione..." />
                       </SelectTrigger>
-                      <SelectContent className="bg-secondary border-border text-pure-white">
+                      <SelectContent className="bg-popover border-border text-popover-foreground">
                         {bulkMetaTemplatesCatalog.map((tpl) => (
                           <SelectItem key={tpl.name} value={tpl.name}>
                             {tpl.name}{tpl.status ? ` (${tpl.status})` : ""}

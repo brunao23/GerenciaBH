@@ -739,23 +739,23 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6 pb-10">
       {/* Header */}
-      <div className="genial-surface genial-hero-grid overflow-hidden rounded-[1.75rem] px-4 py-5 shadow-2xl shadow-black/10 sm:px-7 sm:py-7">
+      <div className="genial-surface overflow-hidden rounded-2xl px-4 py-5 sm:px-6 sm:py-6">
         <div className="relative z-[1] flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <div className="education-badge mb-3 inline-flex rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em]">
               GerencIA Educação
             </div>
-            <h1 className="font-display text-2xl font-bold text-pure-white sm:text-4xl">Painel de matrículas</h1>
+            <h1 className="font-display text-2xl font-semibold text-foreground sm:text-3xl">Painel de matrículas</h1>
             <p className="mt-2 max-w-3xl text-sm text-text-gray sm:text-base">
               Visão clara da captação, atendimentos, diagnósticos marcados e retomadas que movem a operação educacional.
             </p>
           </div>
           <div className="grid grid-cols-2 gap-2 sm:flex">
-            <div className="rounded-2xl border border-accent-green/20 bg-accent-green/10 px-4 py-3">
+            <div className="rounded-xl border border-border bg-secondary px-4 py-3">
               <div className="text-[10px] font-semibold uppercase tracking-wider text-text-gray">Funil ativo</div>
               <div className="text-lg font-bold text-accent-green">{data?.totalLeads ?? 0}</div>
             </div>
-            <div className="rounded-2xl border border-accent-gold/25 bg-accent-gold/10 px-4 py-3">
+            <div className="rounded-xl border border-border bg-secondary px-4 py-3">
               <div className="text-[10px] font-semibold uppercase tracking-wider text-text-gray">Agenda</div>
               <div className="text-lg font-bold text-accent-gold">{data?.agendamentos ?? 0}</div>
             </div>
@@ -765,7 +765,7 @@ export default function DashboardPage() {
 
       <Tabs defaultValue="visao-geral" className="w-full px-0">
         <div className="overflow-x-auto px-1 pb-1">
-          <TabsList className="mb-2 min-w-max rounded-2xl border border-border/70 bg-card/80 p-1 shadow-sm sm:w-auto">
+          <TabsList className="mb-2 min-w-max rounded-xl border border-border bg-card p-1 shadow-sm sm:w-auto">
             <TabsTrigger value="visao-geral" className="flex items-center gap-1.5">
               <BarChart3 className="h-4 w-4" /> Visão Geral
             </TabsTrigger>
