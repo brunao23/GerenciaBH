@@ -2217,6 +2217,91 @@ function getWeekdayInfoForDateIso(dateIso?: string | null): { weekday: number; w
   }
 }
 
+function resolveExplicitBrDateIso(
+  dayRaw: string,
+  monthRaw: string,
+  yearRaw: string | undefined,
+  timezone: string,
+): string | null {
+  const day = Number(dayRaw)
+  const month = Number(monthRaw)
+  if (!Number.isInteger(day) || !Number.isInteger(month) || day < 1 || day > 31 || month < 1 || month > 12) {
+    return null
+  }
+
+  let year: number
+  if (yearRaw) {
+    const numericYear = Number(yearRaw)
+    if (!Number.isInteger(numericYear) || numericYear <= 0) return null
+    year = numericYear < 100 ? 2000 + numericYear : numericYear
+  } else {
+    year = getNowPartsForTimezone(timezone || "America/Sao_Paulo").year
+  }
+
+  const candidate = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`
+  const parsed = parseDateTimeParts(candidate, "12:00")
+  if (!parsed) return null
+
+  if (!yearRaw) {
+    const nowParts = getNowPartsForTimezone(timezone || "America/Sao_Paulo")
+    const todayMs = toComparableMs({ ...nowParts, hour: 0, minute: 0, second: 0 })
+    const targetMs = toComparableMs({ ...parsed, hour: 0, minute: 0, second: 0 })
+    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000
+
+    // Datas sem ano em mensagens de agenda devem apontar para o futuro proximo.
+    if (targetMs < todayMs - sevenDaysMs) {
+      const nextYearCandidate = `${String(year + 1).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`
+      const nextYearParsed = parseDateTimeParts(nextYearCandidate, "12:00")
+      if (nextYearParsed) return formatDateFromParts(nextYearParsed)
+    }
+  }
+
+  return formatDateFromParts(parsed)
+}
+
+function enforceExplicitDateCalendarConsistency(responseText: string, timezone: string): string {
+  const input = String(responseText || "")
+  if (!input || !/\d{1,2}\/\d{1,2}/.test(input)) return input
+
+  const correctWeekdayForDate = (
+    match: string,
+    weekdayRaw: string | undefined,
+    dayRaw: string,
+    monthRaw: string,
+    yearRaw: string | undefined,
+  ): string => {
+    if (!weekdayRaw) return match
+
+    const iso = resolveExplicitBrDateIso(dayRaw, monthRaw, yearRaw, timezone || "America/Sao_Paulo")
+    const info = getWeekdayInfoForDateIso(iso)
+    if (!info?.weekday_name_pt) return match
+
+    let corrected = match
+    for (const item of WEEKDAY_OUTPUT_REPLACEMENTS) {
+      if (item.weekday === info.weekday) continue
+      corrected = corrected.replace(item.pattern, info.weekday_name_pt)
+    }
+    return corrected
+  }
+
+  const datedPhrasePattern =
+    /\b(?:(hoje|amanh[aã]|depois\s+de\s+amanh[aã])\b[\s,]*)?(?:(domingo|segunda(?:\s*-\s*feira|\s+feira)?|ter[cç]a(?:\s*-\s*feira|\s+feira)?|quarta(?:\s*-\s*feira|\s+feira)?|quinta(?:\s*-\s*feira|\s+feira)?|sexta(?:\s*-\s*feira|\s+feira)?|s[aá]bado(?:\s*-\s*feira|\s+feira)?)\b[\s,]*)?(?:dia\s*)?(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/gi
+  const dateThenWeekdayPattern =
+    /\b(?:dia\s*)?(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?[\s,]*(domingo|segunda(?:\s*-\s*feira|\s+feira)?|ter[cç]a(?:\s*-\s*feira|\s+feira)?|quarta(?:\s*-\s*feira|\s+feira)?|quinta(?:\s*-\s*feira|\s+feira)?|sexta(?:\s*-\s*feira|\s+feira)?|s[aá]bado(?:\s*-\s*feira|\s+feira)?)\b/gi
+
+  const correctedBeforeDate = input.replace(
+    datedPhrasePattern,
+    (match: string, _relative: string | undefined, weekdayRaw: string | undefined, dayRaw: string, monthRaw: string, yearRaw: string | undefined) =>
+      correctWeekdayForDate(match, weekdayRaw, dayRaw, monthRaw, yearRaw),
+  )
+
+  return correctedBeforeDate.replace(
+    dateThenWeekdayPattern,
+    (match: string, dayRaw: string, monthRaw: string, yearRaw: string | undefined, weekdayRaw: string | undefined) =>
+      correctWeekdayForDate(match, weekdayRaw, dayRaw, monthRaw, yearRaw),
+  )
+}
+
 function extractReferencedWeekdayFromText(value: any): number | null {
   const normalized = normalizeComparableMessage(String(value || ""))
   if (!normalized) return null
@@ -4132,6 +4217,10 @@ export class NativeAgentOrchestratorService {
       decision.executions,
       config.timezone || "America/Sao_Paulo",
     )
+    responseText = enforceExplicitDateCalendarConsistency(
+      responseText,
+      config.timezone || "America/Sao_Paulo",
+    )
     responseText = enforceExplicitLeadQuestionCoverage(
       responseText,
       effectiveLeadMessage || content,
@@ -4156,6 +4245,10 @@ export class NativeAgentOrchestratorService {
       responseText = applyTemporalPeriodGuard(
         fixGreetingTemporalAndVocative(sanitizedFallback, config, resolvedContactName),
         config,
+      )
+      responseText = enforceExplicitDateCalendarConsistency(
+        responseText,
+        config.timezone || "America/Sao_Paulo",
       )
 
       if (responseText) {
@@ -5692,6 +5785,7 @@ export class NativeAgentOrchestratorService {
       "- NUNCA confunda hoje com amanha ou ontem. Os valores acima sao calculados em tempo real pelo servidor.",
       `- ANO CORRENTE OBRIGATORIO: o ano atual da unidade e ${nowForPrompt.year}. NUNCA use ano menor que ${nowForPrompt.year} em qualquer data.`,
       `- Se alguma data vier com ano anterior a ${nowForPrompt.year}, corrija para o ano atual antes de chamar ferramentas.`,
+      "- VALIDACAO DE CALENDARIO: se escrever uma data no formato dd/MM junto com dia da semana, o dia da semana DEVE bater com a data real acima e com weekday_name_pt/date_br da ferramenta. Exemplo: se AMANHA for sexta-feira, 15/05, e proibido escrever 'amanha, terca-feira, dia 15/05'.",
       "- NUNCA diga que a unidade esta fechada sem confirmar pelo campo 'business_days_configured' retornado por get_available_slots.",
       "- NUNCA mencione datas, dias ou horarios sem chamar get_available_slots para confirmar disponibilidade real.",
       "- PROIBIDO inventar ou deduzir datas com base no seu conhecimento de treinamento. Use exclusivamente os valores acima.",
