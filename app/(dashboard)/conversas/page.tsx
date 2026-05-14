@@ -1463,7 +1463,7 @@ export default function ConversasPage() {
         )
       } else if (currentLevel === 1) {
         nodes.push(
-          <mark key={`hl-green-${segmentStart}-${i}`} className="bg-green-400/65 text-black px-0.5 rounded">
+          <mark key={`hl-green-${segmentStart}-${i}`} className="bg-green-400/65 text-white px-0.5 rounded">
             {fragment}
           </mark>,
         )
@@ -2285,7 +2285,7 @@ export default function ConversasPage() {
                            toast.error("Erro interno ao cadastrar")
                          }
                       }}
-                      className="bg-accent-green hover:bg-emerald-500 text-black w-full"
+                      className="bg-accent-green hover:bg-emerald-500 text-white w-full"
                    >
                      Cadastrar e Salvar
                    </Button>
@@ -2322,7 +2322,7 @@ export default function ConversasPage() {
                         : "bg-accent-green/10 ring-1 ring-accent-green/30"
                       : session.channel === "instagram"
                         ? "bg-pink-500/[0.04] ring-1 ring-pink-500/10"
-                        : "ring-1 ring-white/[0.04]"
+                        : "ring-1 ring-border"
                       }`}
                   >
                     <div className="flex items-start gap-3">
@@ -2493,7 +2493,7 @@ export default function ConversasPage() {
                   <Button
                     size="icon"
                     variant="ghost"
-                    className="h-9 w-9 lg:hidden hover:bg-white/10 shrink-0"
+                    className="h-9 w-9 lg:hidden hover:bg-secondary shrink-0"
                     onClick={() => setActive(null)}
                     title="Voltar para lista"
                   >
@@ -2533,7 +2533,7 @@ export default function ConversasPage() {
                            {current.isStudent ? "Aluno" : "Não aluno"}
                          </Badge>
                        )}
-                        <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0 hover:bg-white/10" onClick={() => {
+                        <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0 hover:bg-secondary" onClick={() => {
                           setEditContactName(current.contact_name || "")
                           setEditContactModalOpen(true)
                        }}>
@@ -2962,7 +2962,7 @@ export default function ConversasPage() {
                     </div>
                     <Button
                       variant="outline"
-                      className="border-border-gray text-text-gray hover:bg-white/5"
+                      className="border-border-gray text-text-gray hover:bg-secondary"
                       onClick={loadBulkMetaTemplates}
                       disabled={bulkMetaTemplatesLoading}
                     >
@@ -3223,8 +3223,8 @@ export default function ConversasPage() {
              />
           </div>
           <DialogFooter>
-             <Button variant="ghost" className="text-white hover:text-black" onClick={() => setEditContactModalOpen(false)}>Cancelar</Button>
-             <Button className="bg-accent-green text-black hover:bg-emerald-500" onClick={async () => {
+             <Button variant="ghost" className="text-foreground hover:text-foreground" onClick={() => setEditContactModalOpen(false)}>Cancelar</Button>
+             <Button className="bg-accent-green text-white hover:bg-emerald-500" onClick={async () => {
                 if (!current) return
                 try {
                   const res = await fetch("/api/conversas/contacts", {
@@ -3332,7 +3332,7 @@ export default function ConversasPage() {
             <Button
               onClick={handleSaleSubmit}
               disabled={submittingSale}
-              className="bg-accent-green text-black hover:bg-accent-green/90"
+              className="bg-accent-green text-white hover:bg-accent-green/90"
             >
               {submittingSale ? (
                 <Loader2 className="w-4 h-4 animate-spin mr-2" />

@@ -424,7 +424,7 @@
     inset: 0;
     background-image: none;
     background-size: 36px 36px;
-    mask-image: radial-gradient(circle at 15% 10%, black 22%, transparent 78%);
+    mask-image: none;
     pointer-events: none;
     opacity: 0;
   }

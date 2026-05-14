@@ -855,7 +855,7 @@ export default function DashboardPage() {
               <Card className="genial-card genial-elevate">
                 <CardHeader className="flex flex-row items-center justify-between">
                   <CardTitle className="text-pure-white">Resumo de matrículas</CardTitle>
-                  <Button variant="ghost" size="sm" onClick={refreshBusinessPanel} className="text-text-gray hover:text-pure-white h-8 px-2">
+                  <Button variant="ghost" size="sm" onClick={refreshBusinessPanel} className="text-text-gray hover:text-foreground h-8 px-2">
                     <RefreshCw className="h-3.5 w-3.5" />
                   </Button>
                 </CardHeader>
@@ -925,7 +925,7 @@ export default function DashboardPage() {
                           <Link
                             href={`/conversas?session=${activity.id}`}
                             key={i}
-                            className="flex items-start gap-3 border-b border-border/30 pb-3 last:border-0 hover:bg-white/5 transition-colors rounded-lg p-2 -mx-2 cursor-pointer block"
+                            className="flex items-start gap-3 border-b border-border/30 pb-3 last:border-0 hover:bg-secondary transition-colors rounded-lg p-2 -mx-2 cursor-pointer block"
                           >
                             <div className={`mt-1 h-2 w-2 rounded-full shrink-0 ${activity.status === "success" ? "bg-accent-green" : activity.status === "error" ? "bg-red-500" : "bg-blue-400"}`} />
                             <div className="flex-1 space-y-1 min-w-0">
@@ -1106,7 +1106,7 @@ export default function DashboardPage() {
                       variant={captAutoWelcomeEnabled ? "default" : "outline"}
                       onClick={handleToggleCaptacaoAutoWelcome}
                       disabled={captSettingsSaving || captSettingsLoading}
-                      className={captAutoWelcomeEnabled ? "bg-emerald-500 text-black hover:bg-emerald-500/90" : ""}
+                      className={captAutoWelcomeEnabled ? "bg-emerald-500 text-white hover:bg-emerald-500/90" : ""}
                     >
                       {captAutoWelcomeEnabled ? "Disparo ligado" : "Disparo desligado"}
                     </Button>
@@ -1117,7 +1117,7 @@ export default function DashboardPage() {
                     size="sm"
                     onClick={handleSaveCaptacaoDelay}
                     disabled={captSettingsSaving || captSettingsLoading}
-                    className="bg-emerald-500 text-black hover:bg-emerald-500/90"
+                    className="bg-emerald-500 text-white hover:bg-emerald-500/90"
                   >
                     {captSettingsSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar configuracao"}
                   </Button>
@@ -1313,7 +1313,7 @@ export default function DashboardPage() {
                     size="sm"
                     onClick={() => setRelPeriodo(p)}
                     disabled={relLoading}
-                    className={relPeriodo === p ? "bg-accent-green text-black hover:bg-accent-green/90" : "border-border-gray hover:border-accent-green text-text-gray hover:text-pure-white"}
+                    className={relPeriodo === p ? "bg-accent-green text-white hover:bg-accent-green/90" : "border-border-gray hover:border-accent-green text-text-gray hover:text-foreground"}
                   >
                     {REL_PERIODO_LABELS[p]}
                   </Button>
@@ -1324,11 +1324,11 @@ export default function DashboardPage() {
                   {relLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
                   Atualizar
                 </Button>
-                <Button variant="outline" size="sm" onClick={handleExportCsv} disabled={!relatorio || exportingCsv} className="border-border-gray text-text-gray hover:text-pure-white">
+                <Button variant="outline" size="sm" onClick={handleExportCsv} disabled={!relatorio || exportingCsv} className="border-border-gray text-text-gray hover:text-foreground">
                   {exportingCsv ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
                   CSV
                 </Button>
-                <Button size="sm" onClick={handleExportPdf} disabled={!relatorio || exportingPdf} className="bg-accent-green text-black hover:bg-accent-green/90">
+                <Button size="sm" onClick={handleExportPdf} disabled={!relatorio || exportingPdf} className="bg-accent-green text-white hover:bg-accent-green/90">
                   {exportingPdf ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
                   PDF
                 </Button>
@@ -1337,7 +1337,7 @@ export default function DashboardPage() {
                 <select
                   value={leadExportCategory}
                   onChange={(event) => setLeadExportCategory(event.target.value as LeadExportCategory)}
-                  className="h-9 rounded-md border border-border-gray bg-black/40 px-2 text-xs text-pure-white"
+                  className="h-9 rounded-md border border-border-gray bg-card px-2 text-xs text-pure-white"
                 >
                   <option value="ai_no_reply">IA interagiu e lead nao respondeu</option>
                   <option value="scheduled">Leads agendados</option>
@@ -1346,7 +1346,7 @@ export default function DashboardPage() {
                 <select
                   value={leadExportFormat}
                   onChange={(event) => setLeadExportFormat(event.target.value as LeadExportFormat)}
-                  className="h-9 rounded-md border border-border-gray bg-black/40 px-2 text-xs text-pure-white"
+                  className="h-9 rounded-md border border-border-gray bg-card px-2 text-xs text-pure-white"
                 >
                   <option value="csv">CSV</option>
                   <option value="xlsx">XLSX</option>
@@ -1356,7 +1356,7 @@ export default function DashboardPage() {
                   size="sm"
                   onClick={handleExportLeadsList}
                   disabled={exportingLeadList}
-                  className="border-border-gray text-text-gray hover:text-pure-white"
+                  className="border-border-gray text-text-gray hover:text-foreground"
                 >
                   {exportingLeadList ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
                   Baixar lista de leads
@@ -1391,7 +1391,7 @@ export default function DashboardPage() {
                 <BarChart3 className="w-20 h-20 text-text-gray mx-auto mb-6 opacity-50" />
                 <h3 className="text-xl text-pure-white mb-2">Nenhum relatório carregado</h3>
                 <p className="text-text-gray mb-6">Selecione uma unidade e um período.</p>
-                <Button onClick={() => fetchRelatorio()} disabled={!tenant} className="bg-accent-green text-black hover:bg-accent-green/90">
+                <Button onClick={() => fetchRelatorio()} disabled={!tenant} className="bg-accent-green text-white hover:bg-accent-green/90">
                   <RefreshCw className="w-4 h-4 mr-2" /> Carregar relatório
                 </Button>
               </CardContent>
