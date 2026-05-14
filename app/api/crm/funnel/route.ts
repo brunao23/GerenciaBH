@@ -46,16 +46,16 @@ export async function GET(req: Request) {
     // Se não tem configuração, retorna padrão
     if (!config) {
       const defaultColumns: FunnelColumn[] = [
-        { id: 'entrada', title: 'Entrada', order: 0, color: '#3b82f6' },
-        { id: 'atendimento', title: 'Em Atendimento', order: 1, color: '#eab308' },
-        { id: 'qualificacao', title: 'Qualificacao', order: 2, color: '#a855f7' },
-        { id: 'sem_resposta', title: 'Sem Resposta (+24h)', order: 3, color: '#6b7280' },
-        { id: 'agendado', title: 'Agendado', order: 4, color: '#14b8a6' },
-        { id: 'follow_up', title: 'Follow-up Necessario', order: 5, color: '#f97316' },
-        { id: 'em_follow_up', title: 'Em Follow-Up (Automatico)', order: 6, color: '#8b5cf6' },
-        { id: 'em_negociacao', title: 'Em Negociacao', order: 7, color: '#f59e0b' },
-        { id: 'ganhos', title: 'Ganhos / Convertidos', order: 8, color: '#10b981' },
-        { id: 'perdido', title: 'Perdidos / Desqualificados', order: 9, color: '#ef4444' }
+        { id: 'entrada', title: 'Novos interessados', order: 0, color: '#0B74C8' },
+        { id: 'atendimento', title: 'Em atendimento', order: 1, color: '#0088A8' },
+        { id: 'qualificacao', title: 'Diagnóstico', order: 2, color: '#FF6B35' },
+        { id: 'sem_resposta', title: 'Sem resposta +24h', order: 3, color: '#64748B' },
+        { id: 'agendado', title: 'Diagnóstico agendado', order: 4, color: '#00A37A' },
+        { id: 'follow_up', title: 'Retomar interesse', order: 5, color: '#F59E0B' },
+        { id: 'em_follow_up', title: 'Follow-up automatico', order: 6, color: '#7C3AED' },
+        { id: 'em_negociacao', title: 'Proposta / matrícula', order: 7, color: '#D97706' },
+        { id: 'ganhos', title: 'Matriculado', order: 8, color: '#059669' },
+        { id: 'perdido', title: 'Não matriculou', order: 9, color: '#DC2626' }
       ]
 
       return NextResponse.json({

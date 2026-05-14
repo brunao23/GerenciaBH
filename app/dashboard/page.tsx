@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 export const dynamic = "force-dynamic"
 
@@ -21,7 +21,7 @@ import {
   MousePointerClick, ShieldCheck, XCircle,
 } from "lucide-react"
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 type Overview = {
   conversas: number
@@ -134,8 +134,10 @@ interface MetaReport {
 type RelPeriodo = "dia" | "semana" | "mes" | "ano"
 type LeadExportCategory = "ai_no_reply" | "scheduled" | "all_leads"
 type LeadExportFormat = "csv" | "xlsx"
+type DashboardPeriod = "7d" | "15d" | "30d" | "90d" | "custom"
+type TrendTone = "positive" | "negative" | "neutral"
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const defaultBusinessMetrics: BusinessMetrics = { totalEvents: 0, attendanceCount: 0, noShowCount: 0, salesCount: 0, totalSalesAmount: 0 }
 
@@ -156,7 +158,7 @@ const SOURCE_COLORS: Record<string, string> = {
 
 const REL_PERIODO_LABELS: Record<RelPeriodo, string> = { dia: "Hoje", semana: "Última semana", mes: "Último mês", ano: "Último ano" }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function toInputDate(date: Date): string {
   const y = date.getFullYear()
@@ -173,7 +175,82 @@ function formatDateShort(dateISO: string): string {
   try { return new Date(dateISO).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) } catch { return dateISO }
 }
 
-// ─── LeadRow ──────────────────────────────────────────────────────────────────
+function parseInputDateOnly(value: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return null
+  const [year, month, day] = value.split("-").map(Number)
+  const parsed = new Date(year, month - 1, day)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+function addDays(date: Date, days: number): Date {
+  const copy = new Date(date)
+  copy.setDate(copy.getDate() + days)
+  return copy
+}
+
+function buildPreviousPeriodParams(period: DashboardPeriod, customStartDate: string, customEndDate: string) {
+  const params = new URLSearchParams()
+  params.set("period", "custom")
+
+  let startDate: Date
+  let endDate: Date
+  let label = "período anterior"
+
+  if (period === "custom") {
+    const currentStart = parseInputDateOnly(customStartDate)
+    const currentEnd = parseInputDateOnly(customEndDate)
+    if (currentStart && currentEnd && currentStart <= currentEnd) {
+      const days = Math.max(1, Math.round((currentEnd.getTime() - currentStart.getTime()) / 86400000) + 1)
+      endDate = addDays(currentStart, -1)
+      startDate = addDays(endDate, -(days - 1))
+    } else {
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      endDate = addDays(today, -1)
+      startDate = addDays(endDate, -29)
+      label = "mês anterior"
+    }
+  } else {
+    const daysMap: Record<Exclude<DashboardPeriod, "custom">, number> = { "7d": 7, "15d": 15, "30d": 30, "90d": 90 }
+    const days = daysMap[period] || 30
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const currentStart = addDays(today, -(days - 1))
+    endDate = addDays(currentStart, -1)
+    startDate = addDays(endDate, -(days - 1))
+    label = period === "30d" ? "mês anterior" : "período anterior"
+  }
+
+  params.set("startDate", toInputDate(startDate))
+  params.set("endDate", toInputDate(endDate))
+  return { params, label }
+}
+
+function buildMetricTrend(current: number, previous: number, options?: { points?: boolean; lowerIsBetter?: boolean }): { label: string; tone: TrendTone } {
+  if (!Number.isFinite(previous) || previous <= 0) {
+    if (current > 0) return { label: "novo", tone: "positive" }
+    return { label: "sem base", tone: "neutral" }
+  }
+
+  const delta = current - previous
+  if (Math.abs(delta) < 0.01) return { label: "estável", tone: "neutral" }
+
+  const improved = options?.lowerIsBetter ? delta < 0 : delta > 0
+  if (options?.points) {
+    return { label: `${delta > 0 ? "+" : ""}${delta.toFixed(1)} p.p.`, tone: improved ? "positive" : "negative" }
+  }
+
+  const relative = (delta / previous) * 100
+  return { label: `${relative > 0 ? "+" : ""}${relative.toFixed(0)}%`, tone: improved ? "positive" : "negative" }
+}
+
+function trendToneClass(tone: TrendTone): string {
+  if (tone === "positive") return "border-accent-green/30 bg-accent-green/10 text-accent-green"
+  if (tone === "negative") return "border-accent-red/30 bg-accent-red/10 text-accent-red"
+  return "border-border bg-muted text-text-gray"
+}
+
+// â”€â”€â”€ LeadRow â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function LeadRow({
   lead,
@@ -200,13 +277,13 @@ function LeadRow({
             {lead.name || <span className="text-muted-foreground italic">Sem nome</span>}
           </span>
         </td>
-        <td className="py-3 px-3 text-sm text-muted-foreground">{lead.phone || "—"}</td>
+        <td className="py-3 px-3 text-sm text-muted-foreground">{lead.phone || "-"}</td>
         <td className="py-3 px-3">
           <Badge variant="outline" className={`text-xs ${SOURCE_COLORS[lead.source] || "text-muted-foreground"}`}>
             {SOURCE_LABELS[lead.source] || lead.source}
           </Badge>
         </td>
-        <td className="py-3 px-3 text-sm text-muted-foreground max-w-[180px] truncate">{lead.campaign_name || "—"}</td>
+        <td className="py-3 px-3 text-sm text-muted-foreground max-w-[180px] truncate">{lead.campaign_name || "-"}</td>
         <td className="py-3 px-3">
           {lead.whatsapp_sent ? (
             <CheckCircle className="h-4 w-4 text-accent-green" />
@@ -271,7 +348,7 @@ function LeadRow({
               {lead.form_fields.map((f) => (
                 <div key={f.name} className="flex flex-col gap-0.5">
                   <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">{f.name.replace(/_/g, " ")}</span>
-                  <span className="text-sm text-foreground">{f.values.join(", ") || "—"}</span>
+                  <span className="text-sm text-foreground">{f.values.join(", ") || "-"}</span>
                 </div>
               ))}
             </div>
@@ -282,26 +359,29 @@ function LeadRow({
   )
 }
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Main Page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export default function DashboardPage() {
   const { tenant } = useTenant()
 
-  // ── Visão Geral state ──
+  // â”€â”€ Visão Geral state â”€â”€
   const [data, setData] = useState<Overview | null>(null)
+  const [previousData, setPreviousData] = useState<Overview | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [conversionAlertDismissed, setConversionAlertDismissed] = useState(false)
-  const [period, setPeriod] = useState<"7d" | "15d" | "30d" | "90d" | "custom">("7d")
+  const [period, setPeriod] = useState<DashboardPeriod>("7d")
   const [customStartDate, setCustomStartDate] = useState(() => { const s = new Date(); s.setDate(s.getDate() - 6); return toInputDate(s) })
   const [customEndDate, setCustomEndDate] = useState(() => toInputDate(new Date()))
   const [customRangeVersion, setCustomRangeVersion] = useState(0)
   const [businessMetrics, setBusinessMetrics] = useState<BusinessMetrics>(defaultBusinessMetrics)
+  const [previousBusinessMetrics, setPreviousBusinessMetrics] = useState<BusinessMetrics>(defaultBusinessMetrics)
+  const [comparisonLabel, setComparisonLabel] = useState("período anterior")
   const [recentBusinessEvents, setRecentBusinessEvents] = useState<BusinessEvent[]>([])
   const [captacaoTotals, setCaptacaoTotals] = useState<CaptacaoTotals | null>(null)
   const [captacaoByChannel, setCaptacaoByChannel] = useState<Array<{ channel: string; total: number; sent: number }>>([])
 
-  // ── Captação state ──
+  // â”€â”€ Captação state â”€â”€
   const [captData, setCaptData] = useState<CaptacaoData | null>(null)
   const [captLoading, setCaptLoading] = useState(false)
   const [captError, setCaptError] = useState<string | null>(null)
@@ -317,7 +397,7 @@ export default function DashboardPage() {
   const [captSettingsLoading, setCaptSettingsLoading] = useState(false)
   const [captSettingsSaving, setCaptSettingsSaving] = useState(false)
 
-  // ── Relatórios state ──
+  // â”€â”€ Relatórios state â”€â”€
   const [relatorio, setRelatorio] = useState<RelatorioData | null>(null)
   const [relLoading, setRelLoading] = useState(false)
   const [relPeriodo, setRelPeriodo] = useState<RelPeriodo>("semana")
@@ -331,7 +411,7 @@ export default function DashboardPage() {
   const [metaError, setMetaError] = useState<string | null>(null)
   const [metaConfig, setMetaConfig] = useState<any>(null)
 
-  // ─── Overview fetch ───────────────────────────────────────────────────────
+  // â”€â”€â”€ Overview fetch â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   const buildPeriodParams = () => {
     const params = new URLSearchParams()
@@ -350,17 +430,26 @@ export default function DashboardPage() {
     setLoading(true)
     setError(null)
     const params = buildPeriodParams()
+    const previousRange = buildPreviousPeriodParams(period, customStartDate, customEndDate)
+    setComparisonLabel(previousRange.label)
     Promise.all([
       fetch(`/api/supabase/overview?${params.toString()}`),
       fetch(`/api/dashboard/business-events?${params.toString()}`),
       fetch(`/api/dashboard/captacao?${params.toString()}`),
+      fetch(`/api/supabase/overview?${previousRange.params.toString()}`),
+      fetch(`/api/dashboard/business-events?${previousRange.params.toString()}`),
     ])
-      .then(async ([overviewRes, businessRes, captacaoRes]) => {
+      .then(async ([overviewRes, businessRes, captacaoRes, previousOverviewRes, previousBusinessRes]) => {
         if (!overviewRes.ok) {
           const err = await overviewRes.json().catch(() => null)
           throw new Error(err?.error || `Erro ao carregar dados (${overviewRes.status})`)
         }
         setData(await overviewRes.json())
+        if (previousOverviewRes.ok) {
+          setPreviousData(await previousOverviewRes.json().catch(() => null))
+        } else {
+          setPreviousData(null)
+        }
         if (businessRes.ok) {
           const bd = await businessRes.json().catch(() => null)
           setBusinessMetrics(bd?.metrics || defaultBusinessMetrics)
@@ -368,6 +457,12 @@ export default function DashboardPage() {
         } else {
           setBusinessMetrics(defaultBusinessMetrics)
           setRecentBusinessEvents([])
+        }
+        if (previousBusinessRes.ok) {
+          const previousBd = await previousBusinessRes.json().catch(() => null)
+          setPreviousBusinessMetrics(previousBd?.metrics || defaultBusinessMetrics)
+        } else {
+          setPreviousBusinessMetrics(defaultBusinessMetrics)
         }
         if (captacaoRes.ok) {
           const cd = await captacaoRes.json().catch(() => null)
@@ -379,7 +474,12 @@ export default function DashboardPage() {
         }
         setLoading(false)
       })
-      .catch((err) => { setError(err?.message || "Erro ao carregar dados"); setLoading(false) })
+      .catch((err) => {
+        setError(err?.message || "Erro ao carregar dados")
+        setPreviousData(null)
+        setPreviousBusinessMetrics(defaultBusinessMetrics)
+        setLoading(false)
+      })
   }, [tenant, period, customRangeVersion])
 
   const handleApplyCustomRange = () => {
@@ -401,7 +501,7 @@ export default function DashboardPage() {
     } catch { /* no-op */ }
   }
 
-  // ─── Captação fetch ───────────────────────────────────────────────────────
+  // â”€â”€â”€ Captação fetch â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   const fetchCaptacao = async (p = captPeriod) => {
     if (!tenant) return
@@ -587,7 +687,7 @@ export default function DashboardPage() {
     return true
   }) ?? []
 
-  // ─── Relatórios fetch ─────────────────────────────────────────────────────
+  // â”€â”€â”€ Relatórios fetch â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   const fetchRelatorio = async (p: RelPeriodo = relPeriodo) => {
     if (!tenant) { toast.error("Selecione uma unidade primeiro"); return }
@@ -707,7 +807,7 @@ export default function DashboardPage() {
     }
   }
 
-  // ─── Computed ─────────────────────────────────────────────────────────────
+  // â”€â”€â”€ Computed â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   const periodLabel =
     period === "custom"
@@ -721,12 +821,6 @@ export default function DashboardPage() {
     { title: "Retomadas", value: data?.followups ?? 0, subtitle: "follow-ups enviados", icon: Workflow, color: "text-accent-gold", bg: "bg-accent-gold/10", border: "border-accent-gold/20" },
   ]
 
-  const performanceMetrics = [
-    { title: "Conversão para diagnóstico", value: `${data?.conversionRate?.toFixed?.(1) ?? "0.0"}%`, subtitle: "Diagnósticos / leads", icon: Target, color: "text-accent-green" },
-    { title: "Qualidade da IA", value: `${data?.successPercent?.toFixed?.(1) ?? "0.0"}%`, subtitle: `${data?.successCount ?? 0} respostas corretas`, icon: TrendingUp, color: "text-accent-gold" },
-    { title: "Tempo médio de resposta", value: `${data?.avgFirstResponseTime ?? 0}s`, subtitle: "Primeira resposta da IA", icon: Clock, color: "text-accent-blue" },
-  ]
-
   const conversionRateLow =
     data?.conversionRate !== undefined &&
     data.conversionRate < 5 &&
@@ -736,8 +830,14 @@ export default function DashboardPage() {
 
   const conversionPercent = Math.max(0, Math.min(100, Number(data?.conversionRate ?? 0)))
   const qualityPercent = Math.max(0, Math.min(100, Number(data?.successPercent ?? 0)))
+  const previousConversionPercent = Math.max(0, Math.min(100, Number(previousData?.conversionRate ?? 0)))
+  const previousQualityPercent = Math.max(0, Math.min(100, Number(previousData?.successPercent ?? 0)))
   const attendanceBase = businessMetrics.attendanceCount + businessMetrics.noShowCount
+  const previousAttendanceBase = previousBusinessMetrics.attendanceCount + previousBusinessMetrics.noShowCount
   const attendancePercent = attendanceBase > 0 ? Math.round((businessMetrics.attendanceCount / attendanceBase) * 100) : 0
+  const previousAttendancePercent = previousAttendanceBase > 0 ? Math.round((previousBusinessMetrics.attendanceCount / previousAttendanceBase) * 100) : 0
+  const avgFirstResponseTime = Number(data?.avgFirstResponseTime ?? 0)
+  const previousAvgFirstResponseTime = Number(previousData?.avgFirstResponseTime ?? 0)
   const pipelineHealthInputs = [
     conversionPercent,
     ...(data?.successPercent !== undefined ? [qualityPercent] : []),
@@ -752,14 +852,46 @@ export default function DashboardPage() {
     { label: "Diagnóstico", value: data?.agendamentos ?? 0, caption: "Agenda marcada", tone: "bg-accent-gold", soft: "bg-accent-gold/15", text: "text-accent-gold" },
     { label: "Matrícula", value: businessMetrics.salesCount, caption: "Vendas registradas", tone: "bg-accent-green", soft: "bg-accent-green/15", text: "text-accent-green" },
   ]
+  const maxCommercialPanelValue = Math.max(1, ...commercialPanelRows.map((row) => Number(row.value) || 0))
 
   const panelSummaryRows = [
-    { label: "Conversão", value: `${conversionPercent.toFixed(1)}%`, hint: "Lead para diagnóstico" },
-    { label: "Comparecimento", value: `${attendancePercent}%`, hint: "Presenças confirmadas" },
-    { label: "Receita", value: salesRevenue, hint: "Matrículas registradas" },
+    {
+      label: "Taxa de diagnóstico",
+      value: `${conversionPercent.toFixed(1)}%`,
+      hint: `${data?.agendamentos ?? 0} diagnósticos / ${data?.totalLeads ?? 0} leads`,
+      previous: `${previousConversionPercent.toFixed(1)}%`,
+      trend: buildMetricTrend(conversionPercent, previousConversionPercent, { points: true }),
+    },
+    {
+      label: "Qualidade da IA",
+      value: `${qualityPercent.toFixed(1)}%`,
+      hint: `${data?.successCount ?? 0} respostas corretas`,
+      previous: `${previousQualityPercent.toFixed(1)}%`,
+      trend: buildMetricTrend(qualityPercent, previousQualityPercent, { points: true }),
+    },
+    {
+      label: "Tempo médio",
+      value: `${avgFirstResponseTime}s`,
+      hint: "Primeira resposta da IA",
+      previous: `${previousAvgFirstResponseTime}s`,
+      trend: buildMetricTrend(avgFirstResponseTime, previousAvgFirstResponseTime, { lowerIsBetter: true }),
+    },
+    {
+      label: "Comparecimento",
+      value: `${attendancePercent}%`,
+      hint: "Presenças confirmadas",
+      previous: `${previousAttendancePercent}%`,
+      trend: buildMetricTrend(attendancePercent, previousAttendancePercent, { points: true }),
+    },
+    {
+      label: "Receita",
+      value: salesRevenue,
+      hint: "Matrículas registradas",
+      previous: previousBusinessMetrics.totalSalesAmount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }),
+      trend: buildMetricTrend(businessMetrics.totalSalesAmount, previousBusinessMetrics.totalSalesAmount),
+    },
   ]
-
-  // ─── Render ───────────────────────────────────────────────────────────────
+  // â”€â”€â”€ Render â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   return (
     <div className="space-y-6 pb-10">
@@ -803,7 +935,7 @@ export default function DashboardPage() {
           </TabsList>
         </div>
 
-        {/* ══════════ TAB: VISÃO GERAL ══════════ */}
+        {/* â•â•â•â•â•â•â•â•â•â• TAB: VISÃO GERAL â•â•â•â•â•â•â•â•â•â• */}
         <TabsContent value="visao-geral" className="space-y-6 mt-4">
           {/* Period Filter */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -865,29 +997,32 @@ export default function DashboardPage() {
                       {periodLabel}
                     </Badge>
                   </div>
-                  <div className="space-y-2">
-                    {commercialPanelRows.map((row, index) => (
-                      <div key={`funnel-${row.label}`} className="flex justify-center">
-                        <div
-                          className="relative min-h-10 text-white"
-                          style={{ width: `${Math.max(66, 100 - index * 10)}%` }}
-                        >
-                          <div className={`funnel-slice absolute inset-0 shadow-sm ${row.tone}`} aria-hidden="true" />
-                          <div className="relative z-[1] flex min-h-10 items-center justify-between gap-3 px-8 text-sm font-semibold sm:px-10">
-                            <span className="min-w-0 truncate">{row.label}</span>
-                            <span className="shrink-0 tabular-nums">{row.value}</span>
+                  <div className="space-y-3">
+                    {commercialPanelRows.map((row) => {
+                      const value = Number(row.value) || 0
+                      const pct = Math.max(8, Math.round((value / maxCommercialPanelValue) * 100))
+                      return (
+                        <div key={`funnel-${row.label}`} className="rounded-xl border border-border bg-card/75 p-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="min-w-0 truncate text-sm font-semibold text-foreground">{row.label}</span>
+                            <span className={`shrink-0 text-sm font-bold tabular-nums ${row.text}`}>{row.value}</span>
                           </div>
+                          <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-muted">
+                            <div className={`h-full rounded-full ${row.tone}`} style={{ width: `${pct}%` }} />
+                          </div>
+                          <p className="mt-1 text-[11px] text-text-gray">{row.caption}</p>
                         </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 </div>
 
                 <div className="rounded-2xl border border-border bg-background/70 p-4">
                   <div className="flex items-start justify-between gap-4">
                     <div>
-                      <p className="text-xs font-bold uppercase tracking-[0.16em] text-text-gray">Saúde da operação</p>
+                      <p className="text-xs font-bold uppercase tracking-[0.16em] text-text-gray">Comparativo automatico</p>
                       <h3 className="text-lg font-bold text-foreground">Performance do período</h3>
+                      <p className="mt-1 text-xs text-text-gray">Comparado com {comparisonLabel}</p>
                     </div>
                     <div
                       className="score-gauge flex h-20 w-20 shrink-0 items-center justify-center rounded-full"
@@ -898,14 +1033,24 @@ export default function DashboardPage() {
                       <span className="text-lg font-bold text-foreground">{pipelineHealthPercent}%</span>
                     </div>
                   </div>
-                  <div className="mt-5 space-y-3">
+                  <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
                     {panelSummaryRows.map((row) => (
-                      <div key={row.label} className="flex items-center justify-between gap-4 rounded-xl border border-border bg-card/70 px-3 py-2">
-                        <div>
-                          <p className="text-sm font-semibold text-foreground">{row.label}</p>
-                          <p className="text-xs text-text-gray">{row.hint}</p>
+                      <div key={row.label} className="rounded-xl border border-border bg-card/75 px-3 py-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-foreground">{row.label}</p>
+                            <p className="text-xs text-text-gray">{row.hint}</p>
+                          </div>
+                          <p className="shrink-0 text-lg font-bold text-accent-green">{row.value}</p>
                         </div>
-                        <p className="text-sm font-bold text-accent-green">{row.value}</p>
+                        <div className="mt-3 flex items-center justify-between gap-2 text-[11px]">
+                          <span className="min-w-0 truncate text-text-gray">
+                            Anterior: <strong className="font-semibold text-foreground">{row.previous}</strong>
+                          </span>
+                          <span className={`shrink-0 rounded-full border px-2 py-0.5 font-semibold ${trendToneClass(row.trend.tone)}`}>
+                            {row.trend.label}
+                          </span>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -1066,25 +1211,6 @@ export default function DashboardPage() {
                 </Card>
               </div>
 
-              {/* Performance metrics */}
-              <div className="grid gap-4 md:grid-cols-3">
-                {performanceMetrics.map((metric) => {
-                  const Icon = metric.icon
-                  return (
-                    <Card key={metric.title} className="genial-card genial-elevate bg-card/50">
-                      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-pure-white">{metric.title}</CardTitle>
-                        <Icon className={`h-5 w-5 ${metric.color}`} />
-                      </CardHeader>
-                      <CardContent>
-                        <div className={`text-3xl font-bold ${metric.color} mb-1`}>{metric.value}</div>
-                        <div className="text-xs text-text-gray">{metric.subtitle}</div>
-                      </CardContent>
-                    </Card>
-                  )
-                })}
-              </div>
-
               {/* Captação summary (no external link) */}
               <Card className="genial-card genial-elevate">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
@@ -1164,7 +1290,7 @@ export default function DashboardPage() {
           )}
         </TabsContent>
 
-        {/* ══════════ TAB: CAPTAÇÃO ══════════ */}
+        {/* â•â•â•â•â•â•â•â•â•â• TAB: CAPTAÇÃO â•â•â•â•â•â•â•â•â•â• */}
         <TabsContent value="captacao" className="space-y-6 mt-4">
           {/* Controls */}
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -1267,7 +1393,7 @@ export default function DashboardPage() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className={`text-3xl font-bold ${m.color}`}>{captLoading ? "—" : m.value}</div>
+                    <div className={`text-3xl font-bold ${m.color}`}>{captLoading ? "-" : m.value}</div>
                     <p className="text-xs text-muted-foreground mt-1">{m.hint}</p>
                   </CardContent>
                 </Card>
@@ -1412,7 +1538,7 @@ export default function DashboardPage() {
           )}
         </TabsContent>
 
-        {/* ══════════ TAB: RELATÓRIOS ══════════ */}
+        {/* â•â•â•â•â•â•â•â•â•â• TAB: RELATÓRIOS â•â•â•â•â•â•â•â•â•â• */}
         <TabsContent value="relatorios" className="space-y-6 mt-4">
           {/* Controls */}
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -1420,7 +1546,7 @@ export default function DashboardPage() {
               <h2 className="text-xl font-bold text-pure-white flex items-center gap-2">
                 <BarChart3 className="h-5 w-5 text-accent-green" /> Relatórios
               </h2>
-              <p className="text-text-gray text-sm mt-0.5">Métricas e performance — {tenant?.name || ""}</p>
+              <p className="text-text-gray text-sm mt-0.5">Métricas e performance - {tenant?.name || ""}</p>
               <Badge variant="secondary" className="px-3 py-1 text-xs text-text-gray mt-2">{relPeriodBadge}</Badge>
             </div>
             <div className="flex flex-col gap-3 items-start lg:items-end">
@@ -1620,7 +1746,7 @@ export default function DashboardPage() {
             </>
           )}
 
-          {/* ── Meta WhatsApp Reports ── */}
+          {/* â”€â”€ Meta WhatsApp Reports â”€â”€ */}
           <div className="space-y-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>

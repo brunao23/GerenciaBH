@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useState, useEffect } from "react"
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd"
@@ -66,17 +66,104 @@ interface KanbanBoardProps {
     funnelConfig?: FunnelColumn[]
 }
 
+const EDUCATION_STAGE_META: Record<string, { title: string; color: string; description: string }> = {
+    entrada: {
+        title: "Novos interessados",
+        color: "#0B74C8",
+        description: "Leads que chegaram por campanha, WhatsApp, Instagram ou indicacao.",
+    },
+    atendimento: {
+        title: "Em atendimento",
+        color: "#0088A8",
+        description: "Conversas ativas que precisam de acolhimento e qualificacao.",
+    },
+    qualificacao: {
+        title: "Diagnóstico",
+        color: "#FF6B35",
+        description: "Lead com dor entendida e pronto para oferta de diagnostico/aula.",
+    },
+    sem_resposta: {
+        title: "Sem resposta +24h",
+        color: "#64748B",
+        description: "Leads que precisam de retomada manual ou automatica.",
+    },
+    agendado: {
+        title: "Diagnóstico agendado",
+        color: "#00A37A",
+        description: "Horario confirmado ou em formalizacao.",
+    },
+    follow_up: {
+        title: "Retomar interesse",
+        color: "#F59E0B",
+        description: "Lead com objeção, indecisao ou aguardando retorno.",
+    },
+    em_follow_up: {
+        title: "Follow-up automatico",
+        color: "#7C3AED",
+        description: "Lead dentro da cadencia automatica de retomada.",
+    },
+    em_negociacao: {
+        title: "Proposta / matrícula",
+        color: "#D97706",
+        description: "Lead avaliando condicoes, valores ou proximo passo comercial.",
+    },
+    ganhos: {
+        title: "Matriculado",
+        color: "#059669",
+        description: "Aluno convertido.",
+    },
+    perdido: {
+        title: "Não matriculou",
+        color: "#DC2626",
+        description: "Lead desqualificado, sem interesse ou perdido.",
+    },
+}
+
+const EDUCATION_FUNNEL_TEMPLATE: FunnelColumn[] = Object.entries(EDUCATION_STAGE_META).map(([id, meta], order) => ({
+    id,
+    title: meta.title,
+    order,
+    color: meta.color,
+}))
+
+function normalizeEducationFunnelColumns(columns: FunnelColumn[]): FunnelColumn[] {
+    const source = columns.length > 0 ? columns : EDUCATION_FUNNEL_TEMPLATE
+    return source
+        .map((column, index) => {
+            const meta = EDUCATION_STAGE_META[column.id]
+            return {
+                ...column,
+                title: meta?.title || column.title,
+                color: column.color || meta?.color,
+                order: Number.isFinite(column.order) ? Number(column.order) : index,
+            }
+        })
+        .sort((a, b) => a.order - b.order)
+}
+
+function normalizeEducationColumns(columns: CRMColumn[]): CRMColumn[] {
+    return columns.map((column) => {
+        const meta = EDUCATION_STAGE_META[column.id]
+        return {
+            ...column,
+            title: meta?.title || column.title,
+            cards: column.cards || [],
+        }
+    })
+}
+
 function mapColumnsToFunnel(columns: CRMColumn[]): FunnelColumn[] {
-    return columns.map((column, index) => ({
+    return normalizeEducationFunnelColumns(columns.map((column, index) => ({
         id: column.id,
-        title: column.title,
+        title: EDUCATION_STAGE_META[column.id]?.title || column.title,
         order: index,
-    }))
+        color: EDUCATION_STAGE_META[column.id]?.color,
+    })))
 }
 
 export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps) {
     const { tenant } = useTenant()
-    const [columns, setColumns] = useState<CRMColumn[]>(initialData)
+    const [columns, setColumns] = useState<CRMColumn[]>(() => normalizeEducationColumns(initialData))
     const [selectedLead, setSelectedLead] = useState<CRMCard | null>(null)
     const [isModalOpen, setIsModalOpen] = useState(false)
     const [busyEvents, setBusyEvents] = useState<Set<string>>(new Set())
@@ -250,20 +337,19 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
 
     const [isFunnelModalOpen, setIsFunnelModalOpen] = useState(false)
     const [customColumns, setCustomColumns] = useState<FunnelColumn[]>(() => (
-        funnelConfig.length > 0 ? funnelConfig : mapColumnsToFunnel(initialData)
+        normalizeEducationFunnelColumns(funnelConfig.length > 0 ? funnelConfig : mapColumnsToFunnel(initialData))
     ))
     const [newColumnTitle, setNewColumnTitle] = useState("")
-    const [newColumnColor, setNewColumnColor] = useState("#3b82f6")
+    const [newColumnColor, setNewColumnColor] = useState("#0088A8")
     const [isSaving, setIsSaving] = useState(false)
 
     useEffect(() => {
-        setColumns(initialData)
+        setColumns(normalizeEducationColumns(initialData))
     }, [initialData])
 
     useEffect(() => {
         if (funnelConfig.length > 0) {
-            const ordered = [...funnelConfig].sort((a, b) => a.order - b.order)
-            setCustomColumns(ordered)
+            setCustomColumns(normalizeEducationFunnelColumns(funnelConfig))
             return
         }
 
@@ -305,7 +391,8 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                 if (customCol) {
                     return { ...customCol, order: index }
                 }
-                return { id: col.id, title: col.title, order: index, color: undefined }
+                const meta = EDUCATION_STAGE_META[col.id]
+                return { id: col.id, title: meta?.title || col.title, order: index, color: meta?.color }
             })
 
             setColumns(newColumns)
@@ -396,7 +483,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                 }
 
                 toast.success(`Lead movido para "${destCol.title}"`)
-                console.log(`[CRM] Movimento manual: ${removed.name} → ${destination.droppableId}`)
+                console.log(`[CRM] Movimento manual: ${removed.name} -> ${destination.droppableId}`)
             } catch (error) {
                 console.error('Erro ao salvar status:', error)
                 toast.error('Erro ao salvar mudança de status')
@@ -462,7 +549,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
 
         setCustomColumns([...customColumns, newColumn])
         setNewColumnTitle("")
-        setNewColumnColor("#3b82f6")
+        setNewColumnColor("#0088A8")
     }
 
     const handleRemoveColumn = (columnId: string) => {
@@ -475,31 +562,15 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
         setCustomColumns(customColumns.filter(c => c.id !== columnId))
     }
 
+    const handleRestoreEducationTemplate = () => {
+        setCustomColumns(EDUCATION_FUNNEL_TEMPLATE.map((column) => ({ ...column })))
+        toast.info("Modelo educacional aplicado. Clique em Salvar Funil para gravar.")
+    }
+
     const getColumnColorStyle = (id: string) => {
-        // Buscar cor customizada
         const customCol = customColumns.find(c => c.id === id)
-        if (customCol?.color) {
-            return { borderTopColor: customCol.color, borderTopWidth: '4px' }
-        }
-
-        // Cores padrão
-        const defaultColors: { [key: string]: string } = {
-            'entrada': '#3b82f6',
-            'atendimento': '#eab308',
-            'qualificacao': '#a855f7',
-            'em_negociacao': '#f59e0b',
-            'em_follow_up': '#8b5cf6', // Roxo para destacar follow-ups
-            'ganhos': '#10b981',
-            'perdido': '#ef4444',
-            'sem_resposta': '#6b7280',
-            'follow_up': '#f97316',
-            'agendado': '#14b8a6'
-        }
-
-        return {
-            borderTopColor: defaultColors[id] || '#6b7280',
-            borderTopWidth: '4px'
-        }
+        const color = customCol?.color || EDUCATION_STAGE_META[id]?.color || '#64748B'
+        return { borderTopColor: color, borderTopWidth: '4px' }
     }
 
     const getSentimentColor = (sentiment: string) => {
@@ -510,7 +581,14 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
 
     return (
         <>
-            <div className="flex justify-end mb-4">
+            <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                <div className="max-w-3xl">
+                    <p className="text-xs font-bold uppercase tracking-[0.16em] text-text-gray">Funil educacional</p>
+                    <h2 className="text-lg font-bold text-foreground sm:text-xl">Captação, diagnóstico e matrícula</h2>
+                    <p className="mt-1 text-sm text-text-gray">
+                        Arraste leads entre etapas, registre comparecimento, venda, aluno ou não aluno e ajuste o funil manualmente quando a operação precisar.
+                    </p>
+                </div>
                 <Dialog open={isFunnelModalOpen} onOpenChange={setIsFunnelModalOpen}>
                     <DialogTrigger asChild>
                         <Button
@@ -521,17 +599,31 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                             Personalizar Funil
                         </Button>
                     </DialogTrigger>
-                    <DialogContent className="bg-popover text-popover-foreground border-border max-w-2xl max-h-[80vh] overflow-y-auto">
+                    <DialogContent className="w-[calc(100vw-2rem)] bg-popover text-popover-foreground border-border !max-w-3xl max-h-[86vh] overflow-y-auto">
                         <DialogHeader>
-                            <DialogTitle className="text-pure-white">Personalizar Funil de Vendas</DialogTitle>
+                            <DialogTitle className="text-foreground">Personalizar Funil Educacional</DialogTitle>
+                            <DialogDescription className="text-text-gray">
+                                Ajuste nomes, cores e etapas. As colunas padrao cobrem a jornada completa de captacao ate matricula.
+                            </DialogDescription>
                         </DialogHeader>
                         <div className="space-y-4 mt-4">
                             <div className="space-y-2">
-                                <label className="text-sm text-pure-white">Colunas do Funil</label>
-                                <div className="space-y-2 max-h-60 overflow-y-auto">
+                                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                    <label className="text-sm font-semibold text-foreground">Etapas do funil</label>
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={handleRestoreEducationTemplate}
+                                        className="border-border text-foreground hover:bg-muted"
+                                    >
+                                        Restaurar modelo educacional
+                                    </Button>
+                                </div>
+                                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                                     {customColumns.map((col, index) => (
-                                        <div key={col.id} className="flex items-center gap-2 p-2 bg-muted rounded border border-border">
-                                            <div className="flex-1">
+                                        <div key={col.id} className="grid gap-2 rounded-xl border border-border bg-muted/70 p-2 sm:grid-cols-[1fr_auto_auto] sm:items-center">
+                                            <div className="min-w-0">
                                                 <Input
                                                     value={col.title}
                                                     onChange={(e) => {
@@ -544,7 +636,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                             </div>
                                             <input
                                                 type="color"
-                                                value={col.color || '#3b82f6'}
+                                                value={col.color || '#0088A8'}
                                                 onChange={(e) => {
                                                     const updated = [...customColumns]
                                                     updated[index].color = e.target.value
@@ -567,7 +659,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                 </div>
                             </div>
 
-                            <div className="flex gap-2">
+                            <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
                                 <Input
                                     placeholder="Nome da nova coluna"
                                     value={newColumnTitle}
@@ -586,7 +678,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                 </Button>
                             </div>
 
-                            <div className="flex justify-end gap-2 pt-4 border-t border-border">
+                            <div className="flex flex-col-reverse gap-2 border-t border-border pt-4 sm:flex-row sm:justify-end">
                                 <Button
                                     variant="outline"
                                     onClick={() => setIsFunnelModalOpen(false)}
@@ -612,7 +704,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                         <div
                             {...provided.droppableProps}
                             ref={provided.innerRef}
-                            className="flex gap-4 h-full overflow-x-auto overflow-y-auto pb-4"
+                            className="flex h-full gap-3 overflow-x-auto overflow-y-hidden pb-4 pr-2 md:gap-4"
                         >
                             {columns.map((column, columnIndex) => (
                                 <Draggable key={column.id} draggableId={column.id} index={columnIndex}>
@@ -620,7 +712,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                         <div
                                             ref={provided.innerRef}
                                             {...provided.draggableProps}
-                                            className="flex-shrink-0 w-80 flex flex-col h-full min-h-0"
+                                            className="flex h-full min-h-0 w-[300px] flex-shrink-0 flex-col sm:w-[320px]"
                                             style={{
                                                 ...provided.draggableProps.style,
                                                 opacity: snapshot.isDragging ? 0.8 : 1
@@ -632,7 +724,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                             >
                                                 <div {...provided.dragHandleProps} className="flex items-center gap-2 flex-1 cursor-grab active:cursor-grabbing">
                                                     <GripVertical className="w-4 h-4 text-text-gray hover:text-accent-green transition-colors" />
-                                                    <h3 className="font-semibold text-pure-white text-sm">{column.title}</h3>
+                                                    <h3 className="min-w-0 truncate text-sm font-semibold text-foreground">{column.title}</h3>
                                                 </div>
                                                 <Badge variant="secondary" className="bg-muted text-foreground text-xs">
                                                     {column.cards.length}
@@ -648,7 +740,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                                             }`}
                                                     >
                                                         <div className="h-full overflow-y-auto overflow-x-hidden">
-                                                            <div className="space-y-3 pr-3">
+                                                            <div className="space-y-3 pr-1">
                                                                 {column.cards.map((card, index) => (
                                                                     <Draggable key={card.id} draggableId={card.id} index={index}>
                                                                         {(provided, snapshot) => (
@@ -657,32 +749,32 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                                                                 {...provided.draggableProps}
                                                                                 {...provided.dragHandleProps}
                                                                                 style={{ ...provided.draggableProps.style }}
-                                                                                className={`bg-card border border-border rounded-xl p-3 shadow-sm hover:border-accent-green/60 hover:shadow-md transition-all group cursor-pointer ${snapshot.isDragging ? 'shadow-lg ring-2 ring-accent-green/20 rotate-2' : ''
+                                                                                className={`group cursor-pointer overflow-hidden rounded-xl border border-border bg-card p-3 shadow-sm transition-all hover:border-accent-green/60 hover:shadow-md ${snapshot.isDragging ? 'shadow-lg ring-2 ring-accent-green/20 rotate-2' : ''
                                                                                     }`}
                                                                                 onClick={() => handleCardClick(card)}
                                                                             >
-                                                                                <div className="flex justify-between items-start mb-2">
-                                                                                    <div className="flex-1">
-                                                                                        <div className="flex items-center gap-2">
-                                                                                            <p className="font-medium text-pure-white text-sm hover:text-accent-green">
+                                                                                <div className="mb-2 flex items-start justify-between gap-2">
+                                                                                    <div className="min-w-0 flex-1">
+                                                                                        <div className="flex min-w-0 items-center gap-2">
+                                                                                            <p className="min-w-0 truncate text-sm font-semibold text-foreground hover:text-accent-green">
                                                                                                 {card.name}
                                                                                             </p>
                                                                                             {card.isPaused && (
-                                                                                                <Badge variant="outline" className="text-[10px] h-5 px-1.5 border-accent-green/50 text-accent-green bg-accent-green/10">
+                                                                                                <Badge variant="outline" className="h-5 shrink-0 px-1.5 text-[10px] border-accent-green/50 text-accent-green bg-accent-green/10">
                                                                                                     <PauseCircle className="w-3 h-3 mr-0.5" />
                                                                                                     Pausado
                                                                                                 </Badge>
                                                                                             )}
                                                                                         </div>
-                                                                                        <div className="flex items-center gap-1 text-xs text-text-gray mt-0.5">
-                                                                                            <Phone className="w-3 h-3" />
-                                                                                            {card.numero}
+                                                                                        <div className="mt-0.5 flex min-w-0 items-center gap-1 text-xs text-text-gray">
+                                                                                            <Phone className="h-3 w-3 shrink-0" />
+                                                                                            <span className="truncate">{card.numero}</span>
                                                                                         </div>
                                                                                     </div>
                                                                                     <div className={`w-2 h-2 rounded-full ${getSentimentColor(card.sentiment)} bg-current`} />
                                                                                 </div>
 
-                                                                                <p className="text-xs text-text-gray line-clamp-2 mb-3 bg-muted/70 p-1.5 rounded border border-border/60">
+                                                                                <p className="mb-3 line-clamp-2 break-words rounded border border-border/60 bg-muted/70 p-1.5 text-xs text-text-gray">
                                                                                     "{card.lastMessage}"
                                                                                 </p>
 
@@ -715,12 +807,12 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                                                                     </div>
                                                                                 )}
 
-                                                                                <div className="flex items-center justify-between text-xs text-text-gray">
-                                                                                    <div className="flex items-center gap-1">
+                                                                                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-text-gray">
+                                                                                    <div className="flex min-w-0 items-center gap-1">
                                                                                         <Clock className="w-3 h-3" />
                                                                                         {new Date(card.lastInteraction).toLocaleDateString('pt-BR')}
                                                                                     </div>
-                                                                                    <div className="flex items-center gap-1">
+                                                                                    <div className="flex min-w-0 flex-wrap items-center justify-end gap-1">
                                                                                         {card.channel && (
                                                                                             <Badge variant="outline" className={`text-[10px] h-5 px-1.5 ${
                                                                                                 card.channel === 'instagram'
@@ -760,83 +852,88 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                                                                     </div>
                                                                                 </div>
 
-                                                                                <div className="flex gap-1 mt-2" onClick={(e) => e.stopPropagation()}>
+                                                                                <div className="mt-2 grid grid-cols-3 gap-1" onClick={(e) => e.stopPropagation()}>
                                                                                     <Button
                                                                                         size="sm"
                                                                                         variant="ghost"
-                                                                                        className="flex-1 h-6 text-[10px] px-1 text-accent-green hover:bg-accent-green/10"
+                                                                                        className="h-7 min-w-0 px-1 text-[10px] text-accent-green hover:bg-accent-green/10"
                                                                                         disabled={busyEvents.has(`${card.id}:attendance`)}
                                                                                         onClick={() => submitQuickEvent(card, "attendance")}
                                                                                         title="Registrar comparecimento"
                                                                                     >
-                                                                                        <CheckCircle2 className="w-3 h-3 mr-1" />Compareceu
+                                                                                        <CheckCircle2 className="mr-1 h-3 w-3 shrink-0" />
+                                                                                        <span className="truncate">Pres.</span>
                                                                                     </Button>
                                                                                     <Button
                                                                                         size="sm"
                                                                                         variant="ghost"
-                                                                                        className="flex-1 h-6 text-[10px] px-1 text-accent-gold hover:bg-accent-gold/10"
+                                                                                        className="h-7 min-w-0 px-1 text-[10px] text-accent-gold hover:bg-accent-gold/10"
                                                                                         disabled={busyEvents.has(`${card.id}:no_show`)}
                                                                                         onClick={() => submitQuickEvent(card, "no_show")}
                                                                                         title="Registrar bolo"
                                                                                     >
-                                                                                        <UserMinus className="w-3 h-3 mr-1" />Bolo
+                                                                                        <UserMinus className="mr-1 h-3 w-3 shrink-0" />
+                                                                                        <span className="truncate">Bolo</span>
                                                                                     </Button>
                                                                                     <Button
                                                                                         size="sm"
                                                                                         variant="ghost"
-                                                                                        className="flex-1 h-6 text-[10px] px-1 text-accent-blue hover:bg-accent-blue/10"
+                                                                                        className="h-7 min-w-0 px-1 text-[10px] text-accent-blue hover:bg-accent-blue/10"
                                                                                         onClick={() => submitQuickEvent(card, "sale")}
                                                                                         title="Registrar venda"
                                                                                     >
-                                                                                        <DollarSign className="w-3 h-3 mr-1" />Venda
+                                                                                        <DollarSign className="mr-1 h-3 w-3 shrink-0" />
+                                                                                        <span className="truncate">Venda</span>
                                                                                     </Button>
                                                                                 </div>
-                                                                                <div className="flex gap-1 mt-1" onClick={(e) => e.stopPropagation()}>
+                                                                                <div className="mt-1 grid grid-cols-2 gap-1" onClick={(e) => e.stopPropagation()}>
                                                                                     <Button
                                                                                         size="sm"
                                                                                         variant="ghost"
-                                                                                        className="flex-1 h-6 text-[10px] px-1 text-accent-green hover:bg-accent-green/10"
+                                                                                        className="h-7 min-w-0 px-1 text-[10px] text-accent-green hover:bg-accent-green/10"
                                                                                         disabled={busyEvents.has(`${card.id}:student:yes`)}
                                                                                         onClick={() => submitStudentFlag(card, true)}
                                                                                         title="Marcar como aluno"
                                                                                     >
-                                                                                        <GraduationCap className="w-3 h-3 mr-1" />Aluno
+                                                                                        <GraduationCap className="mr-1 h-3 w-3 shrink-0" />
+                                                                                        <span className="truncate">Aluno</span>
                                                                                     </Button>
                                                                                     <Button
                                                                                         size="sm"
                                                                                         variant="ghost"
-                                                                                        className="flex-1 h-6 text-[10px] px-1 text-accent-gold hover:bg-accent-gold/10"
+                                                                                        className="h-7 min-w-0 px-1 text-[10px] text-accent-gold hover:bg-accent-gold/10"
                                                                                         disabled={busyEvents.has(`${card.id}:student:no`)}
                                                                                         onClick={() => submitStudentFlag(card, false)}
                                                                                         title="Marcar como não aluno"
                                                                                     >
-                                                                                        <UserMinus className="w-3 h-3 mr-1" />Não aluno
+                                                                                        <UserMinus className="mr-1 h-3 w-3 shrink-0" />
+                                                                                        <span className="truncate">Não aluno</span>
                                                                                     </Button>
                                                                                 </div>
-                                                                                <div className="flex gap-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+                                                                                <div className="mt-1 grid grid-cols-2 gap-1" onClick={(e) => e.stopPropagation()}>
                                                                                     <Button
                                                                                         size="sm"
                                                                                         variant="ghost"
-                                                                                        className="flex-1 h-6 text-xs"
+                                                                                        className="h-7 min-w-0 px-1 text-xs"
                                                                                         onClick={(e) => {
                                                                                             e.stopPropagation()
                                                                                             handleCardClick(card)
                                                                                         }}
                                                                                     >
-                                                                                        <Eye className="w-3 h-3 mr-1" />
-                                                                                        Detalhes
+                                                                                        <Eye className="mr-1 h-3 w-3 shrink-0" />
+                                                                                        <span className="truncate">Detalhes</span>
                                                                                     </Button>
                                                                                     <Button
                                                                                         size="sm"
                                                                                         variant="ghost"
-                                                                                        className="flex-1 h-6 text-xs text-sky-400 hover:bg-sky-400/10 hover:text-sky-300"
+                                                                                        className="h-7 min-w-0 px-1 text-xs text-sky-400 hover:bg-sky-400/10 hover:text-sky-300"
                                                                                         onClick={(e) => {
                                                                                             e.stopPropagation()
                                                                                             handleOpenAddContact(card)
                                                                                         }}
                                                                                     >
-                                                                                        <UserPlus className="w-3 h-3 mr-1" />
-                                                                                        Contato
+                                                                                        <UserPlus className="mr-1 h-3 w-3 shrink-0" />
+                                                                                        <span className="truncate">Contato</span>
                                                                                     </Button>
                                                                                 </div>
                                                                             </div>
@@ -868,7 +965,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
             <Dialog open={!!addContactCard} onOpenChange={(open) => { if (!open) setAddContactCard(null) }}>
                 <DialogContent className="bg-popover text-popover-foreground border-border sm:max-w-lg">
                     <DialogHeader>
-                        <DialogTitle className="text-pure-white flex items-center gap-2">
+                        <DialogTitle className="text-foreground flex items-center gap-2">
                             <UserPlus className="w-5 h-5 text-sky-400" /> Adicionar aos Contatos
                         </DialogTitle>
                         <DialogDescription className="text-text-gray">
@@ -946,7 +1043,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
             <Dialog open={saleModal.open} onOpenChange={(open) => { if (!open) { setSaleModal({ open: false, card: null }); setSaleForm({ amount: "", day: "", month: "", year: "" }) } }}>
                 <DialogContent className="bg-popover text-popover-foreground border-border sm:max-w-md">
                     <DialogHeader>
-                        <DialogTitle className="text-pure-white flex items-center gap-2">
+                        <DialogTitle className="text-foreground flex items-center gap-2">
                             <DollarSign className="w-5 h-5 text-accent-green" /> Registrar Venda
                         </DialogTitle>
                         <DialogDescription className="text-text-gray">
@@ -979,11 +1076,3 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
         </>
     )
 }
-
-
-
-
-
-
-
-

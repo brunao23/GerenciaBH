@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useState } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
@@ -42,6 +42,19 @@ interface LeadDetailsProps {
             comparecimento?: string
         }
     } | null
+}
+
+const STATUS_LABELS: Record<string, string> = {
+    entrada: "Novo interessado",
+    atendimento: "Em atendimento",
+    qualificacao: "Diagnóstico",
+    sem_resposta: "Sem resposta +24h",
+    follow_up: "Retomar interesse",
+    agendado: "Diagnóstico agendado",
+    em_follow_up: "Follow-up automatico",
+    em_negociacao: "Proposta / matrícula",
+    ganhos: "Matriculado",
+    perdido: "Não matriculou",
 }
 
 export function LeadDetailsModal({ isOpen, onClose, lead }: LeadDetailsProps) {
@@ -126,12 +139,12 @@ export function LeadDetailsModal({ isOpen, onClose, lead }: LeadDetailsProps) {
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="max-w-2xl bg-background border-border-gray">
+            <DialogContent className="w-[calc(100vw-2rem)] !max-w-[980px] max-h-[90vh] overflow-y-auto bg-popover text-popover-foreground border-border">
                 <DialogHeader>
-                    <DialogTitle className="text-2xl text-pure-white flex items-center gap-3 flex-wrap">
-                        {lead.name}
+                    <DialogTitle className="flex min-w-0 flex-wrap items-center gap-3 text-2xl text-foreground">
+                        <span className="min-w-0 truncate">{lead.name}</span>
                         <Badge variant="outline" className={getStatusColor(lead.status)}>
-                            {lead.status.replace('_', ' ').toUpperCase()}
+                            {STATUS_LABELS[lead.status] || lead.status.replace('_', ' ')}
                         </Badge>
                         {lead.channel && (
                             <Badge variant="outline" className={`text-xs ${
@@ -146,26 +159,26 @@ export function LeadDetailsModal({ isOpen, onClose, lead }: LeadDetailsProps) {
                             </Badge>
                         )}
                     </DialogTitle>
-                    <DialogDescription className="text-text-gray flex items-center gap-2">
+                    <DialogDescription className="flex min-w-0 items-center gap-2 text-text-gray">
                         <Phone className="w-4 h-4" />
-                        {lead.numero}
+                        <span className="truncate">{lead.numero}</span>
                     </DialogDescription>
                 </DialogHeader>
 
                 <div className="space-y-6 mt-4">
                     {/* Informações Gerais */}
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="bg-secondary p-4 rounded-lg">
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                        <div className="min-w-0 rounded-xl border border-border bg-muted/70 p-4">
                             <div className="flex items-center gap-2 text-text-gray text-xs mb-1">
                                 <MessageSquare className="w-3 h-3" />
                                 Total de Mensagens
                             </div>
-                            <div className="text-2xl font-bold text-pure-white">
+                            <div className="text-2xl font-bold text-foreground">
                                 {lead.totalMessages || 0}
                             </div>
                         </div>
 
-                        <div className="bg-secondary p-4 rounded-lg">
+                        <div className="min-w-0 rounded-xl border border-border bg-muted/70 p-4">
                             <div className="flex items-center gap-2 text-text-gray text-xs mb-1">
                                 <TrendingUp className="w-3 h-3" />
                                 Sentimento
@@ -175,17 +188,17 @@ export function LeadDetailsModal({ isOpen, onClose, lead }: LeadDetailsProps) {
                             </Badge>
                         </div>
 
-                        <div className="bg-secondary p-4 rounded-lg">
+                        <div className="min-w-0 rounded-xl border border-border bg-muted/70 p-4">
                             <div className="flex items-center gap-2 text-text-gray text-xs mb-1">
                                 <Clock className="w-3 h-3" />
                                 Última Interação
                             </div>
-                            <div className="text-sm text-pure-white">
+                            <div className="text-sm text-foreground">
                                 {new Date(lead.lastInteraction).toLocaleString('pt-BR')}
                             </div>
                         </div>
 
-                        <div className="bg-secondary p-4 rounded-lg">
+                        <div className="min-w-0 rounded-xl border border-border bg-muted/70 p-4">
                             <div className="flex items-center gap-2 text-text-gray text-xs mb-1">
                                 <Calendar className="w-3 h-3" />
                                 Tags
@@ -204,28 +217,28 @@ export function LeadDetailsModal({ isOpen, onClose, lead }: LeadDetailsProps) {
                         </div>
                     </div>
 
-                    <Separator className="bg-border-gray" />
+                    <Separator className="bg-border" />
 
                     {/* Dados do Formulário */}
                     {lead.formData && (
                         <>
                             <div>
-                                <h3 className="text-sm font-semibold text-pure-white mb-3 flex items-center gap-2">
+                                <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
                                     <User className="w-4 h-4 text-accent-green" />
                                     Dados do Formulário
                                 </h3>
-                                <div className="bg-secondary rounded-lg p-4 space-y-3">
-                                    <div className="grid grid-cols-2 gap-3">
+                                <div className="space-y-3 rounded-xl border border-border bg-muted/70 p-4">
+                                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                                         {lead.formData.nome && (
                                             <div>
                                                 <div className="text-xs text-text-gray mb-1">Nome Completo</div>
-                                                <div className="text-sm text-pure-white">{lead.formData.nome}</div>
+                                                <div className="text-sm text-foreground">{lead.formData.nome}</div>
                                             </div>
                                         )}
                                         {lead.formData.primeiroNome && (
                                             <div>
                                                 <div className="text-xs text-text-gray mb-1">Primeiro Nome</div>
-                                                <div className="text-sm text-pure-white">{lead.formData.primeiroNome}</div>
+                                                <div className="text-sm text-foreground">{lead.formData.primeiroNome}</div>
                                             </div>
                                         )}
                                         {lead.formData.profissao && (
@@ -234,7 +247,7 @@ export function LeadDetailsModal({ isOpen, onClose, lead }: LeadDetailsProps) {
                                                     <Briefcase className="w-3 h-3" />
                                                     Profissão
                                                 </div>
-                                                <div className="text-sm text-pure-white">{lead.formData.profissao.replace(/_/g, ' ')}</div>
+                                                <div className="text-sm text-foreground">{lead.formData.profissao.replace(/_/g, ' ')}</div>
                                             </div>
                                         )}
                                         {lead.formData.dificuldade && (
@@ -243,13 +256,13 @@ export function LeadDetailsModal({ isOpen, onClose, lead }: LeadDetailsProps) {
                                                     <Target className="w-3 h-3" />
                                                     Dificuldade
                                                 </div>
-                                                <div className="text-sm text-pure-white">{lead.formData.dificuldade.replace(/_/g, ' ')}</div>
+                                                <div className="text-sm text-foreground">{lead.formData.dificuldade.replace(/_/g, ' ')}</div>
                                             </div>
                                         )}
                                         {lead.formData.motivo && (
                                             <div>
                                                 <div className="text-xs text-text-gray mb-1">Motivo</div>
-                                                <div className="text-sm text-pure-white">{lead.formData.motivo.replace(/_/g, ' ')}</div>
+                                                <div className="text-sm text-foreground">{lead.formData.motivo.replace(/_/g, ' ')}</div>
                                             </div>
                                         )}
                                         {lead.formData.tempoDecisao && (
@@ -258,7 +271,7 @@ export function LeadDetailsModal({ isOpen, onClose, lead }: LeadDetailsProps) {
                                                     <Clock3 className="w-3 h-3" />
                                                     Tempo de Decisão
                                                 </div>
-                                                <div className="text-sm text-pure-white">{lead.formData.tempoDecisao.replace(/_/g, ' ')}</div>
+                                                <div className="text-sm text-foreground">{lead.formData.tempoDecisao.replace(/_/g, ' ')}</div>
                                             </div>
                                         )}
                                         {lead.formData.comparecimento && (
@@ -272,30 +285,30 @@ export function LeadDetailsModal({ isOpen, onClose, lead }: LeadDetailsProps) {
                                     </div>
                                 </div>
                             </div>
-                            <Separator className="bg-border-gray" />
+                            <Separator className="bg-border" />
                         </>
                     )}
 
                     {/* Histórico de Mensagens */}
                     <div>
-                        <h3 className="text-sm font-semibold text-pure-white mb-3 flex items-center gap-2">
+                        <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
                             <MessageSquare className="w-4 h-4 text-accent-green" />
                             Últimas Mensagens
                         </h3>
-                        <ScrollArea className="h-64 bg-secondary rounded-lg p-4">
+                        <ScrollArea className="h-72 rounded-xl border border-border bg-muted/70 p-4">
                             <div className="space-y-3">
                                 {lead.messageHistory && lead.messageHistory.length > 0 ? (
                                     lead.messageHistory.map((msg, i) => (
-                                        <div key={i} className={`p-3 rounded-lg ${msg.type === 'human' ? 'bg-accent-green/10 border-l-2 border-accent-green' : 'bg-background border-l-2 border-blue-500'}`}>
-                                            <div className="flex justify-between items-start mb-1">
-                                                <span className="text-xs font-medium text-pure-white flex items-center gap-1">
+                                        <div key={i} className={`min-w-0 rounded-lg p-3 ${msg.type === 'human' ? 'bg-accent-green/10 border-l-2 border-accent-green' : 'bg-background border-l-2 border-blue-500'}`}>
+                                            <div className="mb-1 flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                                                <span className="text-xs font-medium text-foreground flex items-center gap-1">
                                                     {msg.type === 'human' ? <><User className="w-3 h-3" /> Lead</> : <><Bot className="w-3 h-3 text-blue-400" /> IA</>}
                                                 </span>
-                                                <span className="text-xs text-text-gray">
+                                                <span className="text-xs text-text-gray sm:whitespace-nowrap">
                                                     {new Date(msg.timestamp).toLocaleString('pt-BR')}
                                                 </span>
                                             </div>
-                                            <p className="text-sm text-pure-white/90">{msg.content}</p>
+                                            <p className="whitespace-pre-wrap break-words text-sm text-foreground/90">{msg.content}</p>
                                         </div>
                                     ))
                                 ) : (
@@ -305,10 +318,10 @@ export function LeadDetailsModal({ isOpen, onClose, lead }: LeadDetailsProps) {
                         </ScrollArea>
                     </div>
 
-                    <Separator className="bg-border-gray" />
+                    <Separator className="bg-border" />
 
                     {/* Ações */}
-                    <div className="flex gap-3 flex-wrap">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto_auto]">
                         <Button asChild className="flex-1 bg-accent-green hover:bg-accent-green/80 min-w-[180px]">
                             <Link href={`/conversas?session=${lead.id}`} target="_blank">
                                 <ExternalLink className="w-4 h-4 mr-2" />
@@ -319,7 +332,7 @@ export function LeadDetailsModal({ isOpen, onClose, lead }: LeadDetailsProps) {
                             <UserPlus className="w-4 h-4 mr-2" />
                             Salvar como Contato
                         </Button>
-                        <Button onClick={onClose} variant="outline" className="border-border-gray">
+                        <Button onClick={onClose} variant="outline" className="border-border">
                             Fechar
                         </Button>
                     </div>
@@ -327,43 +340,43 @@ export function LeadDetailsModal({ isOpen, onClose, lead }: LeadDetailsProps) {
             </DialogContent>
 
             <Dialog open={contactDialogOpen} onOpenChange={(open) => { if (!open) setContactDialogOpen(false) }}>
-                <DialogContent className="bg-secondary-black border-border-gray sm:max-w-lg">
+                <DialogContent className="w-[calc(100vw-2rem)] bg-popover text-popover-foreground border-border sm:max-w-lg max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
-                        <DialogTitle className="text-pure-white flex items-center gap-2">
+                        <DialogTitle className="flex items-center gap-2 text-foreground">
                             <UserPlus className="w-5 h-5 text-sky-400" /> Salvar como Contato
                         </DialogTitle>
                         <DialogDescription className="text-text-gray">
                             Preencha os dados para salvar este lead na sua base de contatos.
                         </DialogDescription>
                     </DialogHeader>
-                    <div className="grid grid-cols-2 gap-3 py-2">
-                        <div className="col-span-2 space-y-1">
+                    <div className="grid grid-cols-1 gap-3 py-2 sm:grid-cols-2">
+                        <div className="space-y-1 sm:col-span-2">
                             <Label className="text-text-gray text-xs">Nome *</Label>
-                            <Input placeholder="Nome completo" value={contactForm.nome} onChange={(e) => setContactForm((f) => ({ ...f, nome: e.target.value }))} className="bg-primary-black border-border-gray text-pure-white" />
+                            <Input placeholder="Nome completo" value={contactForm.nome} onChange={(e) => setContactForm((f) => ({ ...f, nome: e.target.value }))} className="bg-background border-border text-foreground" />
                         </div>
                         <div className="space-y-1">
                             <Label className="text-text-gray text-xs">Telefone *</Label>
-                            <Input placeholder="(11) 99999-9999" value={contactForm.telefone} onChange={(e) => setContactForm((f) => ({ ...f, telefone: e.target.value }))} className="bg-primary-black border-border-gray text-pure-white" />
+                            <Input placeholder="(11) 99999-9999" value={contactForm.telefone} onChange={(e) => setContactForm((f) => ({ ...f, telefone: e.target.value }))} className="bg-background border-border text-foreground" />
                         </div>
                         <div className="space-y-1">
                             <Label className="text-text-gray text-xs">E-mail</Label>
-                            <Input placeholder="email@exemplo.com" value={contactForm.email} onChange={(e) => setContactForm((f) => ({ ...f, email: e.target.value }))} className="bg-primary-black border-border-gray text-pure-white" />
+                            <Input placeholder="email@exemplo.com" value={contactForm.email} onChange={(e) => setContactForm((f) => ({ ...f, email: e.target.value }))} className="bg-background border-border text-foreground" />
                         </div>
                         <div className="space-y-1">
                             <Label className="text-text-gray text-xs">Empresa</Label>
-                            <Input placeholder="Nome da empresa" value={contactForm.empresa} onChange={(e) => setContactForm((f) => ({ ...f, empresa: e.target.value }))} className="bg-primary-black border-border-gray text-pure-white" />
+                            <Input placeholder="Nome da empresa" value={contactForm.empresa} onChange={(e) => setContactForm((f) => ({ ...f, empresa: e.target.value }))} className="bg-background border-border text-foreground" />
                         </div>
                         <div className="space-y-1">
                             <Label className="text-text-gray text-xs">Origem</Label>
-                            <Input placeholder="Canal de origem" value={contactForm.origem} onChange={(e) => setContactForm((f) => ({ ...f, origem: e.target.value }))} className="bg-primary-black border-border-gray text-pure-white" />
+                            <Input placeholder="Canal de origem" value={contactForm.origem} onChange={(e) => setContactForm((f) => ({ ...f, origem: e.target.value }))} className="bg-background border-border text-foreground" />
                         </div>
-                        <div className="col-span-2 space-y-1">
-                            <Label className="text-text-gray text-xs">Observação</Label>
-                            <Input placeholder="Observações adicionais" value={contactForm.observacao} onChange={(e) => setContactForm((f) => ({ ...f, observacao: e.target.value }))} className="bg-primary-black border-border-gray text-pure-white" />
+                        <div className="space-y-1 sm:col-span-2">
+                            <Label className="text-text-gray text-xs">Observacao</Label>
+                            <Input placeholder="Observacoes adicionais" value={contactForm.observacao} onChange={(e) => setContactForm((f) => ({ ...f, observacao: e.target.value }))} className="bg-background border-border text-foreground" />
                         </div>
                     </div>
                     <DialogFooter>
-                        <Button variant="outline" className="border-border-gray text-text-gray" onClick={() => setContactDialogOpen(false)}>Cancelar</Button>
+                        <Button variant="outline" className="border-border text-text-gray" onClick={() => setContactDialogOpen(false)}>Cancelar</Button>
                         <Button onClick={handleSaveContact} disabled={submittingContact} className="bg-sky-600 hover:bg-sky-500 text-white">
                             {submittingContact ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <UserPlus className="w-4 h-4 mr-2" />}
                             Salvar Contato
