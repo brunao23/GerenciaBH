@@ -1463,7 +1463,7 @@ export default function ConversasPage() {
         )
       } else if (currentLevel === 1) {
         nodes.push(
-          <mark key={`hl-green-${segmentStart}-${i}`} className="bg-green-400/65 text-white px-0.5 rounded">
+          <mark key={`hl-green-${segmentStart}-${i}`} className="bg-accent-green/20 text-foreground px-0.5 rounded">
             {fragment}
           </mark>,
         )
@@ -2160,7 +2160,7 @@ export default function ConversasPage() {
               <>
                 <CardTitle className="text-pure-white flex items-center gap-2 text-lg leading-tight">
                   <span className="brand-mark flex h-9 w-9 items-center justify-center rounded-2xl">
-                    <MessageSquare className="w-4 h-4 text-white" />
+                    <MessageSquare className="w-4 h-4" />
                   </span>
                   <span>
                     Conversas
@@ -2172,7 +2172,7 @@ export default function ConversasPage() {
                   size="icon"
                   onClick={() => setIsSelectionMode(true)}
                   title="Selecionar Múltiplos"
-                  className="text-text-gray hover:text-white"
+                  className="text-text-gray hover:text-foreground"
                 >
                   <ListChecks className="w-5 h-5" />
                 </Button>
@@ -2196,7 +2196,7 @@ export default function ConversasPage() {
                 type="button"
                 size="sm"
                 variant={activeChannelFilter === "all" ? "default" : "outline"}
-                className={`h-8 rounded-xl text-xs ${activeChannelFilter === "all" ? "bg-accent-green text-white hover:bg-accent-green/90" : "border-border bg-card text-muted-foreground hover:bg-secondary hover:text-foreground"}`}
+                className={`h-8 rounded-xl text-xs ${activeChannelFilter === "all" ? "bg-accent-green text-primary-foreground hover:bg-dark-green" : "border-border bg-card text-muted-foreground hover:bg-secondary hover:text-foreground"}`}
                 onClick={() => setActiveChannelFilter("all")}
               >
                 Todos
@@ -2205,7 +2205,7 @@ export default function ConversasPage() {
                 type="button"
                 size="sm"
                 variant={activeChannelFilter === "whatsapp" ? "default" : "outline"}
-                className={`h-8 rounded-xl text-xs ${activeChannelFilter === "whatsapp" ? "bg-accent-green text-white hover:bg-accent-green/90" : "border-border bg-card text-muted-foreground hover:bg-secondary hover:text-foreground"}`}
+                className={`h-8 rounded-xl text-xs ${activeChannelFilter === "whatsapp" ? "bg-accent-green text-primary-foreground hover:bg-dark-green" : "border-border bg-card text-muted-foreground hover:bg-secondary hover:text-foreground"}`}
                 onClick={() => setActiveChannelFilter("whatsapp")}
               >
                 WhatsApp
@@ -2214,7 +2214,7 @@ export default function ConversasPage() {
                 type="button"
                 size="sm"
                 variant={activeChannelFilter === "instagram" ? "default" : "outline"}
-                className={`h-8 rounded-xl text-xs ${activeChannelFilter === "instagram" ? "bg-accent-green text-white hover:bg-accent-green/90" : "border-border bg-card text-muted-foreground hover:bg-secondary hover:text-foreground"}`}
+                className={`h-8 rounded-xl text-xs ${activeChannelFilter === "instagram" ? "bg-accent-green text-primary-foreground hover:bg-dark-green" : "border-border bg-card text-muted-foreground hover:bg-secondary hover:text-foreground"}`}
                 onClick={() => setActiveChannelFilter("instagram")}
               >
                 Instagram
@@ -2247,11 +2247,11 @@ export default function ConversasPage() {
                    <h3 className="text-lg font-medium text-pure-white">Novo Contato</h3>
                    <div className="space-y-2">
                      <Label className="text-pure-white">Número do Contato (com DDI +55)</Label>
-                     <Input id="newContactPhone" placeholder="Ex: 5531999999999" className="bg-secondary-black border-border-gray text-white" />
+                     <Input id="newContactPhone" placeholder="Ex: 5531999999999" className="bg-secondary-black border-border-gray text-foreground" />
                    </div>
                    <div className="space-y-2">
                      <Label className="text-pure-white">Nome do Contato</Label>
-                     <Input id="newContactName" placeholder="Ex: Nome Completo" className="bg-secondary-black border-border-gray text-white" />
+                     <Input id="newContactName" placeholder="Ex: Nome Completo" className="bg-secondary-black border-border-gray text-foreground" />
                    </div>
                    <Button
                       onClick={async () => {
@@ -2285,7 +2285,7 @@ export default function ConversasPage() {
                            toast.error("Erro interno ao cadastrar")
                          }
                       }}
-                      className="bg-accent-green hover:bg-emerald-500 text-white w-full"
+                      className="bg-accent-green hover:bg-dark-green text-primary-foreground w-full"
                    >
                      Cadastrar e Salvar
                    </Button>
@@ -2353,12 +2353,12 @@ export default function ConversasPage() {
                           </h4>
                           <Badge
                             variant="outline"
-                            className={`shrink-0 justify-center text-[10px] min-w-8 px-1.5 py-0 border ${session.channel === "instagram" ? "border-pink-400/60 text-pink-300" : "border-emerald-400/60 text-emerald-300"}`}
+                            className={`shrink-0 justify-center text-[10px] min-w-8 px-1.5 py-0 border ${session.channel === "instagram" ? "border-accent-gold/45 text-accent-gold" : "border-accent-green/45 text-accent-green"}`}
                           >
                             {session.channel === "instagram" ? "IG" : "WA"}
                           </Badge>
                           {session.error && <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />}
-                          {session.success && <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />}
+                          {session.success && <CheckCircle2 className="w-4 h-4 text-accent-green shrink-0" />}
                         </div>
                         {session.channel !== "instagram" && (
                           <p className="text-xs text-text-gray truncate mb-1">
@@ -2406,8 +2406,8 @@ export default function ConversasPage() {
                               variant="outline"
                               className={`text-[10px] px-1.5 py-0 ${
                                 session.isStudent
-                                  ? "border-emerald-500/40 text-emerald-300 bg-emerald-500/10"
-                                  : "border-amber-500/40 text-amber-300 bg-amber-500/10"
+                                  ? "border-accent-green/40 text-accent-green bg-accent-green/10"
+                                  : "border-accent-gold/40 text-accent-gold bg-accent-gold/10"
                               }`}
                             >
                               <GraduationCap className="w-2.5 h-2.5 mr-0.5" />
@@ -2416,13 +2416,13 @@ export default function ConversasPage() {
                           )}
                         </div>
                         <div
-                          className={`${active === session.session_id ? "flex" : "hidden group-hover:flex group-focus-within:flex"} mt-2 gap-1.5 overflow-x-auto pb-1 genial-scrollbar`}
+                          className={`${active === session.session_id ? "flex" : "hidden group-hover:flex group-focus-within:flex"} mt-2 flex-wrap gap-1.5 overflow-visible pb-0`}
                           onClick={(e) => e.stopPropagation()}
                         >
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="h-8 w-8 shrink-0 rounded-full px-0 text-[10px] text-emerald-400 hover:bg-emerald-400/10 hover:text-emerald-300 2xl:w-auto 2xl:px-2"
+                            className="h-8 w-8 shrink-0 rounded-full px-0 text-[10px] text-accent-green hover:bg-accent-green/10 2xl:w-auto 2xl:px-2"
                             disabled={busyEvents.has(`${session.session_id}:attendance`)}
                             onClick={() => submitQuickEvent(session, "attendance")}
                             title="Registrar comparecimento"
@@ -2432,7 +2432,7 @@ export default function ConversasPage() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="h-8 w-8 shrink-0 rounded-full px-0 text-[10px] text-yellow-400 hover:bg-yellow-400/10 hover:text-yellow-300 2xl:w-auto 2xl:px-2"
+                            className="h-8 w-8 shrink-0 rounded-full px-0 text-[10px] text-accent-gold hover:bg-accent-gold/10 2xl:w-auto 2xl:px-2"
                             disabled={busyEvents.has(`${session.session_id}:no_show`)}
                             onClick={() => submitQuickEvent(session, "no_show")}
                             title="Registrar bolo / não compareceu"
@@ -2442,7 +2442,7 @@ export default function ConversasPage() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="h-8 w-8 shrink-0 rounded-full px-0 text-[10px] text-blue-400 hover:bg-blue-400/10 hover:text-blue-300 2xl:w-auto 2xl:px-2"
+                            className="h-8 w-8 shrink-0 rounded-full px-0 text-[10px] text-accent-blue hover:bg-accent-blue/10 2xl:w-auto 2xl:px-2"
                             onClick={() => submitQuickEvent(session, "sale")}
                             title="Registrar venda realizada"
                           >
@@ -2451,7 +2451,7 @@ export default function ConversasPage() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="h-8 w-8 shrink-0 rounded-full px-0 text-[10px] text-emerald-300 hover:bg-emerald-500/10 hover:text-emerald-200 2xl:w-auto 2xl:px-2"
+                            className="h-8 w-8 shrink-0 rounded-full px-0 text-[10px] text-accent-green hover:bg-accent-green/10 2xl:w-auto 2xl:px-2"
                             disabled={busyEvents.has(`${session.session_id}:student:yes`)}
                             onClick={() => submitStudentFlag(session, true)}
                             title="Marcar como aluno"
@@ -2461,7 +2461,7 @@ export default function ConversasPage() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="h-8 w-8 shrink-0 rounded-full px-0 text-[10px] text-amber-300 hover:bg-amber-500/10 hover:text-amber-200 2xl:w-auto 2xl:px-2"
+                            className="h-8 w-8 shrink-0 rounded-full px-0 text-[10px] text-accent-gold hover:bg-accent-gold/10 2xl:w-auto 2xl:px-2"
                             disabled={busyEvents.has(`${session.session_id}:student:no`)}
                             onClick={() => submitStudentFlag(session, false)}
                             title="Marcar como não aluno"
@@ -2516,7 +2516,7 @@ export default function ConversasPage() {
                        <span className="min-w-0 truncate">{current.contact_name || "Lead"}</span>
                        <Badge
                          variant="outline"
-                         className={`hidden shrink-0 text-[10px] border min-[360px]:inline-flex ${current.channel === "instagram" ? "border-pink-400/60 text-pink-300" : "border-emerald-400/60 text-emerald-300"}`}
+                         className={`hidden shrink-0 text-[10px] border min-[360px]:inline-flex ${current.channel === "instagram" ? "border-accent-gold/45 text-accent-gold" : "border-accent-green/45 text-accent-green"}`}
                        >
                          {current.channel === "instagram" ? "Instagram" : "WhatsApp"}
                        </Badge>
@@ -2525,8 +2525,8 @@ export default function ConversasPage() {
                            variant="outline"
                             className={`hidden shrink-0 text-[10px] border sm:inline-flex ${
                              current.isStudent
-                               ? "border-emerald-500/40 text-emerald-300 bg-emerald-500/10"
-                               : "border-amber-500/40 text-amber-300 bg-amber-500/10"
+                               ? "border-accent-green/40 text-accent-green bg-accent-green/10"
+                               : "border-accent-gold/40 text-accent-gold bg-accent-gold/10"
                            }`}
                          >
                            <GraduationCap className="w-2.5 h-2.5 mr-1" />
@@ -2578,8 +2578,8 @@ export default function ConversasPage() {
                         onClick={() => togglePauseParam("pausar")}
                         disabled={pauseLoading}
                         className={`shrink-0 text-xs ${pauseStatus.pausar
-                          ? "bg-accent-gold/20 text-accent-gold border-accent-gold/35"
-                          : "bg-accent-green/15 text-accent-green border-accent-green/30"
+                          ? "bg-accent-gold/10 text-accent-gold border-accent-gold/30"
+                          : "bg-accent-green/10 text-accent-green border-accent-green/25"
                           }`}
                       >
                         {pauseStatus.pausar ? <PauseCircle className="w-3 h-3 mr-1" /> : <PlayCircle className="w-3 h-3 mr-1" />}
@@ -2591,8 +2591,8 @@ export default function ConversasPage() {
                         onClick={() => togglePauseParam("vaga")}
                         disabled={pauseLoading}
                         className={`shrink-0 text-xs ${pauseStatus.vaga
-                          ? "bg-blue-500/20 text-blue-400 border-blue-500/30"
-                          : "bg-gray-500/20 text-gray-400 border-gray-500/30"
+                          ? "bg-accent-green/10 text-accent-green border-accent-green/25"
+                          : "bg-secondary text-text-gray border-border"
                           }`}
                       >
                         <UserMinus className="w-3 h-3 mr-1" />
@@ -2604,8 +2604,8 @@ export default function ConversasPage() {
                         onClick={() => togglePauseParam("agendamento")}
                         disabled={pauseLoading}
                         className={`shrink-0 text-xs ${pauseStatus.agendamento
-                          ? "bg-accent-gold/20 text-accent-gold border-accent-gold/35"
-                          : "bg-gray-500/20 text-gray-400 border-gray-500/30"
+                          ? "bg-accent-gold/10 text-accent-gold border-accent-gold/30"
+                          : "bg-secondary text-text-gray border-border"
                           }`}
                       >
                         <Calendar className="w-3 h-3 mr-1" />
@@ -2621,7 +2621,7 @@ export default function ConversasPage() {
                       disabled={followupAILoading}
                       className={`shrink-0 text-xs ${followupAIEnabled
                         ? "bg-accent-green/10 text-accent-green border-accent-green/30"
-                        : "bg-gray-500/20 text-gray-400 border-gray-500/30"
+                        : "bg-secondary text-text-gray border-border"
                         }`}
                     >
                       {followupAILoading ? (
@@ -2642,7 +2642,7 @@ export default function ConversasPage() {
                       size="sm"
                       variant="outline"
                       onClick={handleExportChat}
-                      className="shrink-0 text-xs bg-gray-500/10 text-gray-400 border-gray-500/30 hover:bg-gray-500/20 hover:text-white transition-colors"
+                      className="shrink-0 text-xs bg-secondary text-text-gray border-border hover:bg-accent hover:text-foreground transition-colors"
                       title="Baixar conversa em TXT"
                     >
                       <Download className="w-3 h-3 mr-1" />
@@ -2730,7 +2730,7 @@ export default function ConversasPage() {
                         {current.formData.comparecimento && (
                           <div>
                             <div className="text-xs text-text-gray mb-1">Comparecimento</div>
-                            <Badge variant="outline" className={current.formData.comparecimento === 'sim' ? 'border-emerald-500/30 text-emerald-400' : 'border-gray-500/30 text-gray-400'}>
+                            <Badge variant="outline" className={current.formData.comparecimento === 'sim' ? 'border-accent-green/30 text-accent-green' : 'border-border text-text-gray'}>
                               {current.formData.comparecimento === 'sim' ? 'Sim' : 'Não'}
                             </Badge>
                           </div>
@@ -2756,13 +2756,13 @@ export default function ConversasPage() {
                       >
                         <div
                           className={`relative max-w-[94%] sm:max-w-[88%] lg:max-w-[80%] xl:max-w-[76%] 2xl:max-w-[72%] rounded-[1.1rem] px-3.5 py-3 shadow-sm transition-all sm:rounded-[1.2rem] sm:px-5 sm:py-4 ${isLead
-                            ? "border border-blue-200 bg-blue-50 text-slate-900 dark:border-blue-500/30 dark:bg-blue-500/15 dark:text-slate-50"
+                            ? "border border-accent-green/25 bg-accent text-foreground dark:border-accent-green/25 dark:bg-accent-green/10 dark:text-foreground"
                             : isHuman
-                              ? "border border-amber-200 bg-amber-50 text-slate-900 dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-50"
+                              ? "border border-accent-gold/25 bg-accent-gold/10 text-foreground dark:border-accent-gold/30 dark:bg-accent-gold/10 dark:text-foreground"
                               : msg.isError
                                 ? "border border-red-300 bg-red-50 text-red-900 dark:border-red-500/40 dark:bg-red-500/15 dark:text-red-50"
                                 : msg.isSuccess
-                                  ? "border border-emerald-300 bg-emerald-50 text-emerald-950 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-50"
+                                  ? "border border-accent-green/30 bg-accent-green/10 text-foreground dark:border-accent-green/40 dark:bg-accent-green/15 dark:text-foreground"
                                   : "border border-border bg-card text-foreground"
                             }`}
                         >
@@ -2772,8 +2772,8 @@ export default function ConversasPage() {
                             disabled={!msg.message_id || !msg.provider_message_id || deletingMessageId === msg.message_id}
                             title={!msg.provider_message_id ? "Mensagem sem ID no WhatsApp" : "Excluir mensagem"}
                             className={`absolute right-2 top-2 rounded-full p-1 text-xs transition-opacity ${isLead
-                              ? "text-white/70 hover:text-white"
-                              : "text-white/60 hover:text-white"
+                              ? "text-foreground/45 hover:text-foreground"
+                              : "text-foreground/40 hover:text-foreground"
                               } ${!msg.message_id || !msg.provider_message_id ? "opacity-40 cursor-not-allowed" : "opacity-80 hover:opacity-100"}`}
                           >
                             {deletingMessageId === msg.message_id ? (
@@ -2804,7 +2804,7 @@ export default function ConversasPage() {
                             <Clock className="w-3 h-3 flex-shrink-0" />
                             <span>{fmtBR(msg.created_at)}</span>
                             {msg.isError && <AlertCircle className="w-3 h-3 text-red-400 flex-shrink-0" />}
-                            {msg.isSuccess && <CheckCircle2 className="w-3 h-3 text-emerald-400 flex-shrink-0" />}
+                            {msg.isSuccess && <CheckCircle2 className="w-3 h-3 text-accent-green flex-shrink-0" />}
                           </div>
                         </div>
                       </div>
@@ -2818,7 +2818,7 @@ export default function ConversasPage() {
             <div className="conversation-composer safe-area-bottom border-t border-border bg-card p-2.5 sm:p-4">
               <div className="conversation-pausebar mb-2 flex items-center justify-between gap-2 rounded-xl border border-border bg-secondary p-2 sm:mb-3 sm:gap-3">
                 <span className="min-w-0 shrink text-[11px] text-text-gray font-medium flex items-center gap-1 sm:text-xs">
-                  <PauseCircle className="w-3 h-3 text-green-500" />
+                  <PauseCircle className="w-3 h-3 text-accent-green" />
                   <span className="hidden min-[380px]:inline">Ao assumir, </span>pausar IA:
                 </span>
                 <div className="flex min-w-0 shrink-0 items-center gap-2">
@@ -2838,7 +2838,7 @@ export default function ConversasPage() {
                     onClick={handleActivatePause}
                     disabled={takeoverLoading || pauseStatus?.pausar}
                     variant="outline"
-                    className="h-9 shrink-0 px-3 text-xs border-green-500/30 text-green-400 hover:bg-green-500/10 sm:h-8"
+                    className="h-9 shrink-0 px-3 text-xs border-accent-green/30 text-accent-green hover:bg-accent-green/10 sm:h-8"
                   >
                     {pauseStatus?.pausar ? "Ativo" : takeoverLoading ? "..." : "Ativar"}
                   </Button>
@@ -2892,12 +2892,12 @@ export default function ConversasPage() {
                   <Button
                     onClick={handleSendMessage}
                     disabled={!messageInput.trim() || isSending}
-                    className="h-10 w-full rounded-xl bg-accent-green hover:bg-dark-green sm:h-[52px]"
+                    className="h-10 w-full rounded-xl bg-accent-green text-primary-foreground hover:bg-dark-green sm:h-[52px]"
                   >
                     {isSending ? (
-                      <Loader2 className="w-5 h-5 animate-spin text-white" />
+                      <Loader2 className="w-5 h-5 animate-spin" />
                     ) : (
-                      <Send className="w-5 h-5 text-white" />
+                      <Send className="w-5 h-5" />
                     )}
                   </Button>
                 </div>
@@ -3158,11 +3158,11 @@ export default function ConversasPage() {
                       {result.error && <div className="text-red-400">{result.error}</div>}
                     </div>
                     {result.status === "success" ? (
-                      <Badge variant="outline" className="border-green-500/40 text-green-400">
+                      <Badge variant="outline" className="border-accent-green/40 text-accent-green">
                         Enviado
                       </Badge>
                     ) : result.status === "skipped" ? (
-                      <Badge variant="outline" className="border-green-500/40 text-green-400">
+                      <Badge variant="outline" className="border-accent-green/40 text-accent-green">
                         Ignorado
                       </Badge>
                     ) : (
@@ -3197,7 +3197,7 @@ export default function ConversasPage() {
       </Dialog>
 
       <Dialog open={detailLoadingSessionId !== null}>
-        <DialogContent className="sm:max-w-md bg-secondary-black border border-border-gray text-white flex flex-col items-center justify-center py-10">
+        <DialogContent className="sm:max-w-md bg-secondary-black border border-border-gray text-foreground flex flex-col items-center justify-center py-10">
           <Loader2 className="h-10 w-10 text-accent-green animate-spin mb-4" />
           <DialogTitle>Carregando histórico completo...</DialogTitle>
           <DialogDescription className="text-text-gray">
@@ -3207,7 +3207,7 @@ export default function ConversasPage() {
       </Dialog>
       
       <Dialog open={editContactModalOpen} onOpenChange={setEditContactModalOpen}>
-        <DialogContent className="sm:max-w-md bg-secondary-black border border-border-gray text-white">
+        <DialogContent className="sm:max-w-md bg-secondary-black border border-border-gray text-foreground">
           <DialogHeader>
             <DialogTitle>Editar Nome do Lead</DialogTitle>
             <DialogDescription className="text-text-gray">
@@ -3219,12 +3219,12 @@ export default function ConversasPage() {
                 value={editContactName} 
                 onChange={e => setEditContactName(e.target.value)} 
                 placeholder="Novo nome" 
-                className="bg-primary-black border-border-gray text-white" 
+                className="bg-primary-black border-border-gray text-foreground"
              />
           </div>
           <DialogFooter>
              <Button variant="ghost" className="text-foreground hover:text-foreground" onClick={() => setEditContactModalOpen(false)}>Cancelar</Button>
-             <Button className="bg-accent-green text-white hover:bg-emerald-500" onClick={async () => {
+             <Button className="bg-accent-green text-primary-foreground hover:bg-dark-green" onClick={async () => {
                 if (!current) return
                 try {
                   const res = await fetch("/api/conversas/contacts", {
@@ -3332,7 +3332,7 @@ export default function ConversasPage() {
             <Button
               onClick={handleSaleSubmit}
               disabled={submittingSale}
-              className="bg-accent-green text-white hover:bg-accent-green/90"
+              className="bg-accent-green text-primary-foreground hover:bg-dark-green"
             >
               {submittingSale ? (
                 <Loader2 className="w-4 h-4 animate-spin mr-2" />

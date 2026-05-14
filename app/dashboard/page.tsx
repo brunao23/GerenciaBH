@@ -149,8 +149,8 @@ const CAPT_PERIOD_OPTIONS = [
 
 const SOURCE_LABELS: Record<string, string> = { meta_lead: "Meta Ads", whatsapp_direct: "WhatsApp", organic: "Orgânico" }
 const SOURCE_COLORS: Record<string, string> = {
-  meta_lead: "text-blue-500 border-blue-500/30",
-  whatsapp_direct: "text-green-500 border-green-500/30",
+  meta_lead: "text-accent-blue border-accent-blue/30",
+  whatsapp_direct: "text-accent-green border-accent-green/30",
   organic: "text-purple-500 border-purple-500/30",
 }
 
@@ -209,7 +209,7 @@ function LeadRow({
         <td className="py-3 px-3 text-sm text-muted-foreground max-w-[180px] truncate">{lead.campaign_name || "—"}</td>
         <td className="py-3 px-3">
           {lead.whatsapp_sent ? (
-            <CheckCircle className="h-4 w-4 text-emerald-500" />
+            <CheckCircle className="h-4 w-4 text-accent-green" />
           ) : (
             <Clock className="h-4 w-4 text-muted-foreground" />
           )}
@@ -221,7 +221,7 @@ function LeadRow({
               onClick={() => setOpen((v) => !v)}
               className={`flex items-center gap-1 text-xs px-2 py-1 rounded border transition-colors ${
                 open
-                  ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-500"
+                  ? "bg-accent-green/10 border-accent-green/40 text-accent-green"
                   : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/30"
               }`}
               title="Ver campos do formulário"
@@ -239,7 +239,7 @@ function LeadRow({
               <button
                 onClick={(e) => { e.stopPropagation(); onResend(lead.id) }}
                 disabled={isResending || isDeleting}
-                className="flex items-center justify-center rounded border border-amber-500/30 p-1.5 text-amber-500 hover:bg-amber-500/10 disabled:opacity-60"
+                className="flex items-center justify-center rounded border border-accent-gold/30 p-1.5 text-accent-gold hover:bg-accent-gold/10 disabled:opacity-60"
                 title={lead.whatsapp_sent ? "Reenviar mensagem novamente" : "Enviar mensagem"}
               >
                 {isResending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
@@ -927,7 +927,7 @@ export default function DashboardPage() {
                             key={i}
                             className="flex items-start gap-3 border-b border-border/30 pb-3 last:border-0 hover:bg-secondary transition-colors rounded-lg p-2 -mx-2 cursor-pointer block"
                           >
-                            <div className={`mt-1 h-2 w-2 rounded-full shrink-0 ${activity.status === "success" ? "bg-accent-green" : activity.status === "error" ? "bg-red-500" : "bg-blue-400"}`} />
+                            <div className={`mt-1 h-2 w-2 rounded-full shrink-0 ${activity.status === "success" ? "bg-accent-green" : activity.status === "error" ? "bg-red-500" : "bg-accent-blue"}`} />
                             <div className="flex-1 space-y-1 min-w-0">
                               <div className="flex items-center justify-between gap-2">
                                 <p className="text-sm font-medium text-pure-white truncate">{activity.contactName || activity.id}</p>
@@ -1051,7 +1051,7 @@ export default function DashboardPage() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-xl font-bold text-pure-white flex items-center gap-2">
-                <Target className="h-5 w-5 text-emerald-500" /> Captação de Leads
+                <Target className="h-5 w-5 text-accent-green" /> Captação de Leads
               </h2>
               <p className="text-sm text-text-gray mt-0.5">Leads via Meta Lead Ads e WhatsApp direto</p>
             </div>
@@ -1061,7 +1061,7 @@ export default function DashboardPage() {
                   <button
                     key={opt.value}
                     onClick={() => setCaptPeriod(opt.value)}
-                    className={`px-3 py-1.5 text-xs font-medium transition-colors ${captPeriod === opt.value ? "bg-emerald-500 text-white" : "bg-card text-muted-foreground hover:text-foreground"}`}
+                    className={`px-3 py-1.5 text-xs font-medium transition-colors ${captPeriod === opt.value ? "bg-accent-green text-primary-foreground" : "bg-card text-muted-foreground hover:text-foreground"}`}
                   >
                     {opt.label}
                   </button>
@@ -1081,9 +1081,9 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <Card className="border-emerald-500/20 bg-emerald-500/5">
+          <Card className="border-accent-green/20 bg-accent-green/5">
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-emerald-300 flex items-center gap-2">
+              <CardTitle className="text-sm font-medium text-accent-green flex items-center gap-2">
                 <Clock className="h-4 w-4" />
                 Disparo inicial pos-formulario
               </CardTitle>
@@ -1106,7 +1106,7 @@ export default function DashboardPage() {
                       variant={captAutoWelcomeEnabled ? "default" : "outline"}
                       onClick={handleToggleCaptacaoAutoWelcome}
                       disabled={captSettingsSaving || captSettingsLoading}
-                      className={captAutoWelcomeEnabled ? "bg-emerald-500 text-white hover:bg-emerald-500/90" : ""}
+                      className={captAutoWelcomeEnabled ? "bg-accent-green text-primary-foreground hover:bg-dark-green" : ""}
                     >
                       {captAutoWelcomeEnabled ? "Disparo ligado" : "Disparo desligado"}
                     </Button>
@@ -1117,7 +1117,7 @@ export default function DashboardPage() {
                     size="sm"
                     onClick={handleSaveCaptacaoDelay}
                     disabled={captSettingsSaving || captSettingsLoading}
-                    className="bg-emerald-500 text-white hover:bg-emerald-500/90"
+                    className="bg-accent-green text-primary-foreground hover:bg-dark-green"
                   >
                     {captSettingsSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar configuracao"}
                   </Button>
@@ -1135,9 +1135,9 @@ export default function DashboardPage() {
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {[
               { label: "Total de Leads", value: captData?.totals.leads ?? 0, icon: Users, color: "text-foreground", hint: "no período selecionado" },
-              { label: "Meta Lead Ads", value: captData?.totals.meta ?? 0, icon: Instagram, color: "text-blue-500", hint: "Facebook / Instagram" },
-              { label: "WhatsApp Direto", value: captData?.totals.whatsapp ?? 0, icon: MessageCircle, color: "text-green-500", hint: "entrada orgânica" },
-              { label: "Mensagens Enviadas", value: captData?.totals.whatsappSent ?? 0, icon: Send, color: "text-emerald-500", hint: `${captData?.totals.sendRate ?? 0}% taxa de envio` },
+              { label: "Meta Lead Ads", value: captData?.totals.meta ?? 0, icon: Instagram, color: "text-accent-blue", hint: "Facebook / Instagram" },
+              { label: "WhatsApp Direto", value: captData?.totals.whatsapp ?? 0, icon: MessageCircle, color: "text-accent-green", hint: "entrada orgânica" },
+              { label: "Mensagens Enviadas", value: captData?.totals.whatsappSent ?? 0, icon: Send, color: "text-accent-green", hint: `${captData?.totals.sendRate ?? 0}% taxa de envio` },
             ].map((m) => {
               const Icon = m.icon
               return (
@@ -1160,7 +1160,7 @@ export default function DashboardPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex flex-wrap items-center gap-2 text-base">
-                <Users className="h-4 w-4 text-emerald-500" />
+                <Users className="h-4 w-4 text-accent-green" />
                 Leads
                 {captData?.leads?.length ? <Badge variant="secondary" className="ml-1">{filteredLeads.length}</Badge> : null}
                 <div className="ml-auto flex items-center gap-1">
@@ -1170,7 +1170,7 @@ export default function DashboardPage() {
                       onClick={() => setFilterSent(f)}
                       className={`px-2.5 py-1 text-xs rounded-md border transition-colors font-normal ${
                         filterSent === f
-                          ? f === "unsent" ? "bg-amber-500/20 border-amber-500/40 text-amber-500" : "bg-emerald-500/20 border-emerald-500/40 text-emerald-500"
+                          ? f === "unsent" ? "bg-accent-gold/10 border-accent-gold/40 text-accent-gold" : "bg-accent-green/10 border-accent-green/40 text-accent-green"
                           : "border-border text-muted-foreground hover:text-foreground"
                       }`}
                     >
@@ -1180,7 +1180,7 @@ export default function DashboardPage() {
                 </div>
               </CardTitle>
               {filterSent === "unsent" && filteredLeads.length > 0 && (
-                <p className="text-xs text-amber-500/80 mt-1">Use o botão <RefreshCw className="inline h-3 w-3" /> para enviar ou reenviar a mensagem de boas-vindas</p>
+                <p className="text-xs text-accent-gold/80 mt-1">Use o botão <RefreshCw className="inline h-3 w-3" /> para enviar ou reenviar a mensagem de boas-vindas</p>
               )}
             </CardHeader>
             <CardContent>
@@ -1227,7 +1227,7 @@ export default function DashboardPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
-                <Megaphone className="h-4 w-4 text-emerald-500" /> Por Campanha
+                <Megaphone className="h-4 w-4 text-accent-green" /> Por Campanha
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -1251,9 +1251,9 @@ export default function DashboardPage() {
                         <tr key={row.name} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
                           <td className="py-3 px-2 font-medium text-foreground">{row.name}</td>
                           <td className="py-3 px-2 text-right"><Badge variant="secondary">{row.total}</Badge></td>
-                          <td className="py-3 px-2 text-right"><Badge variant="outline" className="text-emerald-500 border-emerald-500/30">{row.sent}</Badge></td>
+                          <td className="py-3 px-2 text-right"><Badge variant="outline" className="text-accent-green border-accent-green/30">{row.sent}</Badge></td>
                           <td className="py-3 px-2 text-right">
-                            <span className={`font-medium ${row.total > 0 && row.sent / row.total >= 0.9 ? "text-emerald-500" : "text-muted-foreground"}`}>
+                            <span className={`font-medium ${row.total > 0 && row.sent / row.total >= 0.9 ? "text-accent-green" : "text-muted-foreground"}`}>
                               {row.total > 0 ? Math.round((row.sent / row.total) * 100) : 0}%
                             </span>
                           </td>
@@ -1271,7 +1271,7 @@ export default function DashboardPage() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base">
-                  <TrendingUp className="h-4 w-4 text-emerald-500" /> Leads por Dia
+                  <TrendingUp className="h-4 w-4 text-accent-green" /> Leads por Dia
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -1282,7 +1282,7 @@ export default function DashboardPage() {
                     return (
                       <div key={d.date} className="flex flex-col items-center gap-1 min-w-[28px]">
                         <span className="text-[10px] text-muted-foreground">{d.count}</span>
-                        <div className="w-5 rounded-t bg-emerald-500/80 hover:bg-emerald-500 transition-colors" style={{ height: `${Math.max(pct, 4)}%` }} title={`${d.date}: ${d.count} leads`} />
+                        <div className="w-5 rounded-t bg-accent-green/70 hover:bg-dark-green transition-colors" style={{ height: `${Math.max(pct, 4)}%` }} title={`${d.date}: ${d.count} leads`} />
                         <span className="text-[9px] text-muted-foreground rotate-45 origin-top-left mt-1 whitespace-nowrap">{d.date.slice(5)}</span>
                       </div>
                     )
@@ -1313,7 +1313,7 @@ export default function DashboardPage() {
                     size="sm"
                     onClick={() => setRelPeriodo(p)}
                     disabled={relLoading}
-                    className={relPeriodo === p ? "bg-accent-green text-white hover:bg-accent-green/90" : "border-border-gray hover:border-accent-green text-text-gray hover:text-foreground"}
+                    className={relPeriodo === p ? "bg-accent-green text-primary-foreground hover:bg-dark-green" : "border-border-gray hover:border-accent-green text-text-gray hover:text-foreground"}
                   >
                     {REL_PERIODO_LABELS[p]}
                   </Button>
@@ -1328,7 +1328,7 @@ export default function DashboardPage() {
                   {exportingCsv ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
                   CSV
                 </Button>
-                <Button size="sm" onClick={handleExportPdf} disabled={!relatorio || exportingPdf} className="bg-accent-green text-white hover:bg-accent-green/90">
+                <Button size="sm" onClick={handleExportPdf} disabled={!relatorio || exportingPdf} className="bg-accent-green text-primary-foreground hover:bg-dark-green">
                   {exportingPdf ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
                   PDF
                 </Button>
@@ -1367,10 +1367,10 @@ export default function DashboardPage() {
 
           {/* Warnings */}
           {(relatorio?.warnings ?? []).length > 0 && (
-            <Alert className="border-green-500/40 bg-green-500/10 text-green-200">
-              <AlertTriangle className="h-4 w-4 text-green-300" />
-              <AlertTitle className="text-green-200">Algumas tabelas ainda não existem para esta unidade</AlertTitle>
-              <AlertDescription className="text-green-200/80">{relatorio!.warnings!.join(" ")}</AlertDescription>
+            <Alert className="border-accent-green/40 bg-accent-green/10 text-accent-green">
+              <AlertTriangle className="h-4 w-4 text-accent-green" />
+              <AlertTitle className="text-accent-green">Algumas tabelas ainda não existem para esta unidade</AlertTitle>
+              <AlertDescription className="text-accent-green/80">{relatorio!.warnings!.join(" ")}</AlertDescription>
             </Alert>
           )}
 
@@ -1391,7 +1391,7 @@ export default function DashboardPage() {
                 <BarChart3 className="w-20 h-20 text-text-gray mx-auto mb-6 opacity-50" />
                 <h3 className="text-xl text-pure-white mb-2">Nenhum relatório carregado</h3>
                 <p className="text-text-gray mb-6">Selecione uma unidade e um período.</p>
-                <Button onClick={() => fetchRelatorio()} disabled={!tenant} className="bg-accent-green text-white hover:bg-accent-green/90">
+                <Button onClick={() => fetchRelatorio()} disabled={!tenant} className="bg-accent-green text-primary-foreground hover:bg-dark-green">
                   <RefreshCw className="w-4 h-4 mr-2" /> Carregar relatório
                 </Button>
               </CardContent>
@@ -1403,10 +1403,10 @@ export default function DashboardPage() {
               {/* KPI row 1 */}
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                 {[
-                  { key: "conversas", label: "Total de Conversas", value: relatorio.metricas.totalConversas, icon: MessageSquare, color: "text-blue-400", bg: "bg-blue-400/10", border: "border-blue-400/30", hint: "sessões com lead no período" },
+                  { key: "conversas", label: "Total de Conversas", value: relatorio.metricas.totalConversas, icon: MessageSquare, color: "text-accent-blue", bg: "bg-accent-blue/10", border: "border-accent-blue/30", hint: "sessões com lead no período" },
                   { key: "leads", label: "Leads únicos", value: relatorio.metricas.totalLeads, icon: Users, color: "text-purple-400", bg: "bg-purple-400/10", border: "border-purple-400/30", hint: "contatos distintos" },
-                  { key: "agendamentos", label: "Agendamentos", value: relatorio.metricas.totalAgendamentos, icon: Calendar, color: "text-green-400", bg: "bg-green-400/10", border: "border-green-400/30", hint: "confirmados" },
-                  { key: "taxa", label: "Taxa de conversão", value: `${relatorio.metricas.taxaAgendamento.toFixed(1)}%`, icon: TrendingUp, color: "text-amber-400", bg: "bg-amber-400/10", border: "border-amber-400/30", hint: "agendamentos / leads" },
+                  { key: "agendamentos", label: "Agendamentos", value: relatorio.metricas.totalAgendamentos, icon: Calendar, color: "text-accent-green", bg: "bg-accent-green/10", border: "border-accent-green/30", hint: "confirmados" },
+                  { key: "taxa", label: "Taxa de conversão", value: `${relatorio.metricas.taxaAgendamento.toFixed(1)}%`, icon: TrendingUp, color: "text-accent-gold", bg: "bg-accent-gold/10", border: "border-accent-gold/30", hint: "agendamentos / leads" },
                 ].map((metric) => {
                   const Icon = metric.icon
                   return (
@@ -1429,7 +1429,7 @@ export default function DashboardPage() {
                 {[
                   { key: "followups", label: "Follow-ups enviados", value: relatorio.metricas.followUpsEnviados, icon: Send, color: "text-cyan-400", bg: "bg-cyan-400/10", border: "border-cyan-400/30", hint: "acompanhamento" },
                   { key: "leadtime", label: "Lead time médio", value: `${relatorio.metricas.leadTimeHoras}h`, icon: Clock, color: "text-rose-400", bg: "bg-rose-400/10", border: "border-rose-400/30", hint: "tempo médio de resposta" },
-                  { key: "ativas", label: "Conversas ativas", value: relatorio.metricas.conversasAtivas, icon: MessageSquare, color: "text-emerald-400", bg: "bg-emerald-400/10", border: "border-emerald-400/30", hint: "com interação completa" },
+                  { key: "ativas", label: "Conversas ativas", value: relatorio.metricas.conversasAtivas, icon: MessageSquare, color: "text-accent-green", bg: "bg-accent-green/10", border: "border-accent-green/30", hint: "com interação completa" },
                   { key: "finalizadas", label: "Conversas finalizadas", value: relatorio.metricas.conversasFinalizadas, icon: BarChart3, color: "text-slate-300", bg: "bg-slate-400/10", border: "border-slate-400/30", hint: "sem interação completa" },
                 ].map((metric) => {
                   const Icon = metric.icon
@@ -1472,8 +1472,8 @@ export default function DashboardPage() {
                           {relatorio.porDia.slice(-14).reverse().map((dia, index) => (
                             <tr key={dia.data} className={`border-b border-border-gray/50 ${index % 2 === 0 ? "bg-secondary-black/30" : ""}`}>
                               <td className="py-3 px-4 text-pure-white font-medium">{formatDateShort(dia.data)}</td>
-                              <td className="text-right py-3 px-4 text-blue-400">{dia.conversas.toLocaleString("pt-BR")}</td>
-                              <td className="text-right py-3 px-4 text-green-400">{dia.agendamentos.toLocaleString("pt-BR")}</td>
+                              <td className="text-right py-3 px-4 text-accent-blue">{dia.conversas.toLocaleString("pt-BR")}</td>
+                              <td className="text-right py-3 px-4 text-accent-green">{dia.agendamentos.toLocaleString("pt-BR")}</td>
                               <td className="text-right py-3 px-4 text-cyan-400">{dia.followups.toLocaleString("pt-BR")}</td>
                             </tr>
                           ))}
@@ -1481,8 +1481,8 @@ export default function DashboardPage() {
                         <tfoot>
                           <tr className="bg-accent-green/10 border-t-2 border-accent-green/30">
                             <td className="py-3 px-4 text-pure-white font-bold">Total</td>
-                            <td className="text-right py-3 px-4 text-blue-400 font-bold">{relatorio.porDia.reduce((acc, d) => acc + d.conversas, 0).toLocaleString("pt-BR")}</td>
-                            <td className="text-right py-3 px-4 text-green-400 font-bold">{relatorio.porDia.reduce((acc, d) => acc + d.agendamentos, 0).toLocaleString("pt-BR")}</td>
+                            <td className="text-right py-3 px-4 text-accent-blue font-bold">{relatorio.porDia.reduce((acc, d) => acc + d.conversas, 0).toLocaleString("pt-BR")}</td>
+                            <td className="text-right py-3 px-4 text-accent-green font-bold">{relatorio.porDia.reduce((acc, d) => acc + d.agendamentos, 0).toLocaleString("pt-BR")}</td>
                             <td className="text-right py-3 px-4 text-cyan-400 font-bold">{relatorio.porDia.reduce((acc, d) => acc + d.followups, 0).toLocaleString("pt-BR")}</td>
                           </tr>
                         </tfoot>
@@ -1520,10 +1520,10 @@ export default function DashboardPage() {
             </div>
 
             {!metaReady && (
-              <Alert className="border-green-500/40 bg-green-500/10 text-green-200">
-                <AlertTriangle className="h-4 w-4 text-green-300" />
-                <AlertTitle className="text-green-200">Integração Meta incompleta</AlertTitle>
-                <AlertDescription className="text-green-200/80">Configure Access Token, WABA ID e Phone Number ID.</AlertDescription>
+              <Alert className="border-accent-green/40 bg-accent-green/10 text-accent-green">
+                <AlertTriangle className="h-4 w-4 text-accent-green" />
+                <AlertTitle className="text-accent-green">Integração Meta incompleta</AlertTitle>
+                <AlertDescription className="text-accent-green/80">Configure Access Token, WABA ID e Phone Number ID.</AlertDescription>
               </Alert>
             )}
 
@@ -1550,8 +1550,8 @@ export default function DashboardPage() {
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                   {[
                     { key: "sent", label: "Enviadas", value: metaReport.totals.sent, icon: Send, color: "text-cyan-400", bg: "bg-cyan-400/10", border: "border-cyan-400/30" },
-                    { key: "delivered", label: "Entregues", value: metaReport.totals.delivered, icon: CheckCircle2, color: "text-emerald-400", bg: "bg-emerald-400/10", border: "border-emerald-400/30" },
-                    { key: "read", label: "Lidas", value: metaReport.totals.read, icon: Eye, color: "text-blue-400", bg: "bg-blue-400/10", border: "border-blue-400/30" },
+                    { key: "delivered", label: "Entregues", value: metaReport.totals.delivered, icon: CheckCircle2, color: "text-accent-green", bg: "bg-accent-green/10", border: "border-accent-green/30" },
+                    { key: "read", label: "Lidas", value: metaReport.totals.read, icon: Eye, color: "text-accent-blue", bg: "bg-accent-blue/10", border: "border-accent-blue/30" },
                     { key: "failed", label: "Falhas", value: metaReport.totals.failed, icon: XCircle, color: "text-red-400", bg: "bg-red-400/10", border: "border-red-400/30" },
                   ].map((metric) => {
                     const Icon = metric.icon
@@ -1570,7 +1570,7 @@ export default function DashboardPage() {
                 {/* Engagement cards */}
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                   {[
-                    { key: "responses", label: "Respostas recebidas", value: metaReport.totals.responses, icon: MessageSquare, color: "text-amber-400", bg: "bg-amber-400/10", border: "border-amber-400/30" },
+                    { key: "responses", label: "Respostas recebidas", value: metaReport.totals.responses, icon: MessageSquare, color: "text-accent-gold", bg: "bg-accent-gold/10", border: "border-accent-gold/30" },
                     { key: "quickReplies", label: "Quick replies", value: metaReport.totals.quickReplies, icon: MousePointerClick, color: "text-purple-400", bg: "bg-purple-400/10", border: "border-purple-400/30" },
                     { key: "billable", label: "Conversas faturáveis", value: metaReport.totals.billable, icon: ShieldCheck, color: "text-teal-400", bg: "bg-teal-400/10", border: "border-teal-400/30" },
                   ].map((metric) => {
@@ -1636,7 +1636,7 @@ export default function DashboardPage() {
                               {metaReport.openedBy.slice(0, 20).map((item) => (
                                 <tr key={item.recipient} className="border-b border-border-gray/50">
                                   <td className="py-2 px-3 text-pure-white font-mono">{item.recipient}</td>
-                                  <td className="py-2 px-3 text-right text-blue-400">{item.count}</td>
+                                  <td className="py-2 px-3 text-right text-accent-blue">{item.count}</td>
                                   <td className="py-2 px-3 text-right text-text-gray">{formatDate(item.lastReadAt)}</td>
                                 </tr>
                               ))}
@@ -1666,7 +1666,7 @@ export default function DashboardPage() {
                               {metaReport.clicks.slice(0, 20).map((item, index) => (
                                 <tr key={`${item.recipient}-${index}`} className="border-b border-border-gray/50">
                                   <td className="py-2 px-3 text-pure-white font-mono">{item.recipient}</td>
-                                  <td className="py-2 px-3 text-amber-300">{item.label} ({item.type})</td>
+                                  <td className="py-2 px-3 text-accent-gold">{item.label} ({item.type})</td>
                                   <td className="py-2 px-3 text-right text-text-gray">{formatDate(item.at)}</td>
                                 </tr>
                               ))}
