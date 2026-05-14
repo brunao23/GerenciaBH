@@ -445,7 +445,11 @@ function leadAskedNightOrPeriodHours(value: string): boolean {
   return asksHour && mentionsPeriod
 }
 
-function enforceExplicitLeadQuestionCoverage(responseText: string, leadMessage?: string | null): string {
+function enforceExplicitLeadQuestionCoverage(
+  responseText: string,
+  leadMessage?: string | null,
+  qualification?: QualificationState,
+): string {
   let text = String(responseText || "").trim()
   const lead = String(leadMessage || "").trim()
   if (!text || !lead) return text
@@ -454,8 +458,19 @@ function enforceExplicitLeadQuestionCoverage(responseText: string, leadMessage?:
   const leadAskedValue = leadExplicitlyAskedValue(lead)
   const leadAskedPeriodHours = leadAskedNightOrPeriodHours(lead)
 
-  if (leadAskedValue && !textMentionsCommercialValue(text)) {
-    text = `${text}\n\nSobre valores: consigo te orientar com segurança depois de entender melhor o seu caso no diagnóstico. O consultor te explica as opções e condições com clareza, sem compromisso.`
+  if (leadAskedValue) {
+    const alreadyHandledValuePath =
+      textMentionsCommercialValue(text) ||
+      /\b(entender|conhecer|perfil|caso|contexto|diagnostico|consultor|avaliacao)\b/.test(
+        normalizedResponse,
+      )
+
+    if (!alreadyHandledValuePath) {
+      const scriptPreservingValueBridge = qualification?.qualified
+        ? "Com esse contexto, o consultor consegue te explicar os valores com segurança no diagnóstico."
+        : "Para falar de valores com precisão, primeiro preciso entender melhor seu perfil e objetivo."
+      text = `${text}\n\n${scriptPreservingValueBridge}`
+    }
   }
 
   if (
@@ -4109,6 +4124,7 @@ export class NativeAgentOrchestratorService {
     responseText = enforceExplicitLeadQuestionCoverage(
       responseText,
       effectiveLeadMessage || content,
+      qualificationState,
     )
     // Prompt Base e o regente principal do fluxo comercial.
     // Desabilitamos guardas estaticos de qualificacao para evitar conflito com o script do tenant.
@@ -5390,10 +5406,10 @@ export class NativeAgentOrchestratorService {
             : "- Mantenha continuidade precisa com o ponto exato onde a conversa parou."
           : "- Primeira resposta pode seguir fluxo livre."
     const directQuestionReturnRule = [
-      "- PERGUNTA DIRETA DO LEAD (REGRA OBRIGATORIA): se o lead perguntar algo objetivo, responda primeiro de forma clara e curta e, na MESMA mensagem, retome imediatamente o proximo passo do fluxo do Prompt Base.",
-      "- Se o lead mandar duas ou mais perguntas em mensagens seguidas, responda TODAS antes de fazer nova pergunta de funil. NUNCA responda apenas a primeira.",
+      "- PERGUNTA DIRETA DO LEAD (REGRA OBRIGATORIA): se o lead perguntar algo objetivo OPERACIONAL (ex.: horario, endereco, modalidade, funcionamento), responda de forma clara e curta e, na MESMA mensagem, retome o proximo passo do Prompt Base.",
+      "- Se o lead mandar duas ou mais perguntas em mensagens seguidas, considere TODAS antes de responder. NUNCA ignore uma pergunta, mas tambem NUNCA atropele o script comercial.",
       "- Se o lead perguntar 'a noite seria que horas?', 'que horas tem?', 'quais horarios?', consulte/disponibilize horarios reais; NUNCA repita genericamente 'manha, tarde ou noite funciona melhor?'.",
-      "- Se o lead perguntar 'quais sao os valores?', 'qual valor?', 'quanto custa?', responda conforme a politica configurada de valores/preco: se nao houver preco explicito no contexto, diga que o investimento e explicado no diagnostico/por um consultor apos entender o caso. NUNCA ignore a pergunta de valores.",
+      "- EXCECAO COMERCIAL - VALORES/PRECO: se o lead perguntar 'quais sao os valores?', 'qual valor?', 'quanto custa?', NAO pule o script e NAO revele/invente preco antes da qualificacao. Reconheca a pergunta de forma breve, explique que precisa entender o perfil/objetivo primeiro para orientar corretamente e continue a etapa de descoberta/qualificacao do Prompt Base. So fale de valor depois que o script permitir ou quando houver informacao explicita configurada no prompt/contexto.",
     ].join("\n")
     const contextualReasoningRule =
       "- CONTEXTUALIZACAO OBRIGATORIA: NUNCA use resposta enrijecida. Responda com base na ultima mensagem do lead, no historico recente e no estagio atual do fluxo. Evite copiar texto-padrao quando a mensagem do lead exigir adaptacao."
