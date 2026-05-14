@@ -1,8 +1,3 @@
-const deploymentAssetPrefix =
-  process.env.VERCEL === '1' && process.env.VERCEL_URL
-    ? `https://${process.env.VERCEL_URL}`
-    : undefined
-
 const noStoreHeaders = [
   { key: 'Cache-Control', value: 'no-store, no-cache, must-revalidate, max-age=0, s-maxage=0' },
   { key: 'CDN-Cache-Control', value: 'no-store' },
@@ -17,7 +12,6 @@ const nextConfig = {
   reactStrictMode: false,
   compress: true,
   poweredByHeader: false,
-  ...(deploymentAssetPrefix ? { assetPrefix: deploymentAssetPrefix } : {}),
   images: {
     formats: ['image/avif', 'image/webp'],
     minimumCacheTTL: 60 * 60 * 24 * 30,
