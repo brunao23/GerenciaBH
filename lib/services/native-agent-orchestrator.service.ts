@@ -49,6 +49,7 @@ import {
   adjustToBusinessHours,
   parseTenantBusinessHours,
 } from "@/lib/helpers/business-hours"
+import { RedisService } from "@/lib/services/redis.service"
 
 type AppointmentResult = {
   ok: boolean
@@ -112,6 +113,16 @@ type CancelAppointmentResult = {
   eventId?: string
   appointmentMode?: "presencial" | "online"
   error?: string
+}
+
+type AgendamentosColumnMap = {
+  dateColumn: string | null
+  timeColumn: string | null
+  statusColumn: string | null
+  modeColumn: string | null
+  noteColumn: string | null
+  phoneColumns: string[]
+  sessionColumns: string[]
 }
 
 const DEFAULT_FOLLOWUP_INTERVALS_MINUTES = [15, 60, 360, 1440, 2880, 4320, 7200]
@@ -4625,6 +4636,43 @@ export class NativeAgentOrchestratorService {
     return undefined
   }
 
+  private async withAppointmentSlotLock<T extends { ok: boolean; error?: string }>(params: {
+    tenant: string
+    config: NativeAgentConfig
+    action: AgentActionPlan
+    run: () => Promise<T>
+  }): Promise<T> {
+    if (params.config.allowOverlappingAppointments === true) {
+      return params.run()
+    }
+
+    const date = normalizeDateToIso(params.action.date)
+    const time = normalizeTimeToHHmm(params.action.time)
+    if (!date || !time) {
+      return params.run()
+    }
+
+    const lockKey = `lock:appointment-slot:${normalizeTenant(params.tenant)}:${date}:${time}`
+    const acquired = await RedisService
+      .waitAndAcquireLock(lockKey, 90, 20000)
+      .catch((error) => {
+        console.warn("[native-agent][slot-lock] failed to acquire lock, continuing with DB guard:", error)
+        return true
+      })
+
+    if (!acquired) {
+      return { ok: false, error: "appointment_slot_lock_timeout" } as T
+    }
+
+    try {
+      return await params.run()
+    } finally {
+      await RedisService.releaseLock(lockKey).catch((error) => {
+        console.warn("[native-agent][slot-lock] failed to release lock:", error)
+      })
+    }
+  }
+
   private async resolveRecentScheduleDateHintFromHistory(params: {
     tenant: string
     sessionId: string
@@ -6305,13 +6353,18 @@ export class NativeAgentOrchestratorService {
         action.customer_email = resolvedEmail
       }
 
-      const result = await this.createAppointment({
+      const result = await this.withAppointmentSlotLock({
         tenant: params.tenant,
-        phone: params.phone,
-        sessionId: params.sessionId,
-        contactName: params.contactName,
         config: params.config,
         action,
+        run: () => this.createAppointment({
+          tenant: params.tenant,
+          phone: params.phone,
+          sessionId: params.sessionId,
+          contactName: params.contactName,
+          config: params.config,
+          action,
+        }),
       })
 
       const scheduleOk = result.ok
@@ -6444,13 +6497,18 @@ export class NativeAgentOrchestratorService {
         action.customer_email = resolvedEmail
       }
 
-      const result = await this.editAppointment({
+      const result = await this.withAppointmentSlotLock({
         tenant: params.tenant,
-        phone: params.phone,
-        sessionId: params.sessionId,
-        contactName: params.contactName,
         config: params.config,
         action,
+        run: () => this.editAppointment({
+          tenant: params.tenant,
+          phone: params.phone,
+          sessionId: params.sessionId,
+          contactName: params.contactName,
+          config: params.config,
+          action,
+        }),
       })
 
       const editError = String(result.error || "").trim().toLowerCase()
@@ -6838,15 +6896,7 @@ export class NativeAgentOrchestratorService {
     }
   }
 
-  private resolveAgendamentosColumns(columns: Set<string>): {
-    dateColumn: string | null
-    timeColumn: string | null
-    statusColumn: string | null
-    modeColumn: string | null
-    noteColumn: string | null
-    phoneColumns: string[]
-    sessionColumns: string[]
-  } {
+  private resolveAgendamentosColumns(columns: Set<string>): AgendamentosColumnMap {
     const has = (column: string) => columns.has(column)
     const pick = (candidates: string[]): string | null => candidates.find((c) => has(c)) || null
 
@@ -7695,6 +7745,106 @@ export class NativeAgentOrchestratorService {
     }
   }
 
+  private async rollbackInsertedAppointmentIfSlotLost(params: {
+    table: string
+    columns: Set<string>
+    mappedColumns: AgendamentosColumnMap
+    appointmentId?: string
+    date: string
+    time: string
+    durationMinutes: number
+    bufferMinutes: number
+  }): Promise<{ conflict: boolean; error?: string }> {
+    const appointmentId = String(params.appointmentId || "").trim()
+    const dateColumn = params.mappedColumns.dateColumn
+    const timeColumn = params.mappedColumns.timeColumn
+    if (!appointmentId || !dateColumn || !timeColumn) return { conflict: false }
+
+    const requestedStart = parseTimeToMinutes(params.time)
+    if (requestedStart === null) return { conflict: false }
+    const requestedEnd = requestedStart + params.durationMinutes + params.bufferMinutes
+    const dateVariants = Array.from(new Set([params.date, toBrDateFromIso(params.date)]))
+
+    const { data, error } = await this.supabase
+      .from(params.table)
+      .select("*")
+      .in(dateColumn, dateVariants)
+      .limit(3000)
+
+    if (error || !Array.isArray(data)) {
+      return { conflict: false, error: error?.message || "slot_post_insert_check_failed" }
+    }
+
+    const overlappingRows = data
+      .filter((row: any) => {
+        const rowId = String(row?.id || "").trim()
+        if (!rowId) return false
+        const rowDate = normalizeDateToIso(row?.[dateColumn])
+        if (rowDate !== params.date) return false
+        const rowStatus = params.mappedColumns.statusColumn
+          ? row?.[params.mappedColumns.statusColumn]
+          : row?.status
+        if (isCancelledAppointmentStatus(rowStatus)) return false
+
+        const rowTime = normalizeTimeToHHmm(row?.[timeColumn])
+        const rowStart = rowTime ? parseTimeToMinutes(rowTime) : null
+        if (rowStart === null) return false
+
+        const rowDuration = Math.max(
+          5,
+          Math.min(
+            240,
+            Number(
+              row?.duracao_minutos ??
+                row?.duracao ??
+                row?.duration_minutes ??
+                params.durationMinutes,
+            ),
+          ),
+        )
+        const rowEnd = rowStart + rowDuration + params.bufferMinutes
+        return requestedStart < rowEnd && requestedEnd > rowStart
+      })
+      .sort((a: any, b: any) => {
+        const aCreated = new Date(String(a?.created_at || "")).getTime()
+        const bCreated = new Date(String(b?.created_at || "")).getTime()
+        const aMs = Number.isFinite(aCreated) ? aCreated : Number.MAX_SAFE_INTEGER
+        const bMs = Number.isFinite(bCreated) ? bCreated : Number.MAX_SAFE_INTEGER
+        if (aMs !== bMs) return aMs - bMs
+        return Number(a?.id || 0) - Number(b?.id || 0)
+      })
+
+    if (overlappingRows.length <= 1) return { conflict: false }
+
+    const winnerId = String(overlappingRows[0]?.id || "").trim()
+    if (winnerId === appointmentId) return { conflict: false }
+
+    if (params.mappedColumns.statusColumn) {
+      const rollbackPayload: Record<string, any> = {
+        [params.mappedColumns.statusColumn]: "cancelado",
+      }
+      if (params.columns.has("updated_at")) {
+        rollbackPayload.updated_at = new Date().toISOString()
+      }
+      if (params.mappedColumns.noteColumn) {
+        rollbackPayload[params.mappedColumns.noteColumn] =
+          "Cancelado automaticamente: conflito de horario detectado apos insercao."
+      }
+
+      await this
+        .updateWithColumnFallback(params.table, { id: appointmentId }, rollbackPayload)
+        .catch(() => null)
+    } else {
+      try {
+        await this.supabase.from(params.table).delete().eq("id", appointmentId)
+      } catch {
+        // Status column is absent in legacy tables; deletion is only a rollback fallback.
+      }
+    }
+
+    return { conflict: true, error: "time_slot_unavailable" }
+  }
+
   private async createAppointment(params: {
     tenant: string
     phone: string
@@ -8002,6 +8152,22 @@ export class NativeAgentOrchestratorService {
     }
 
     const appointmentId = inserted.data?.id ? String(inserted.data.id) : undefined
+
+    if (!params.config.allowOverlappingAppointments) {
+      const postInsertGuard = await this.rollbackInsertedAppointmentIfSlotLost({
+        table: agendamentosTable,
+        columns,
+        mappedColumns,
+        appointmentId,
+        date,
+        time,
+        durationMinutes,
+        bufferMinutes,
+      })
+      if (postInsertGuard.conflict) {
+        return { ok: false, appointmentId, appointmentMode, error: postInsertGuard.error || "time_slot_unavailable" }
+      }
+    }
 
     let eventId: string | undefined
     let htmlLink: string | undefined
