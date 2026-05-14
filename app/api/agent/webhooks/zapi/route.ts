@@ -3009,6 +3009,18 @@ function selectReplyAnchorTurn(turns: BufferedUserTurn[]): BufferedUserTurn | nu
   return withMessageId[0]
 }
 
+function isBufferedDirectQuestionOrAsk(text: string): boolean {
+  const raw = String(text || "").trim()
+  const normalized = normalizeComparableText(raw)
+  if (!normalized) return false
+
+  return (
+    /[?？]/.test(raw) ||
+    /\b(valor|valores|preco|precos|mensalidade|investimento|quanto custa|orcamento)\b/.test(normalized) ||
+    /\b(que horas|qual horario|quais horarios|horario|horarios|a noite|de noite|manha|tarde)\b/.test(normalized)
+  )
+}
+
 function normalizeComparableText(value: string): string {
   return String(value || "")
     .normalize("NFD")
@@ -3245,7 +3257,14 @@ function mergeBufferedUserContent(turns: BufferedUserTurn[], fallback: string): 
     }
   }
 
-  const preferredChunks = substantiveChunks.length > 0 ? substantiveChunks : chunks
+  const droppedImportantContinuation = chunks.some(
+    (chunk) => !substantiveChunks.includes(chunk) && isBufferedDirectQuestionOrAsk(chunk),
+  )
+  const preferredChunks = droppedImportantContinuation
+    ? chunks
+    : substantiveChunks.length > 0
+      ? substantiveChunks
+      : chunks
   if (preferredChunks.length === 0) return String(fallback || "").trim()
   if (preferredChunks.length === 1) return preferredChunks[0]
   return preferredChunks.join("\n")

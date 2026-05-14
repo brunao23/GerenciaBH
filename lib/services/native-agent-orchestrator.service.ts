@@ -236,6 +236,8 @@ function firstName(name?: string): string | null {
     "secretario", "secretaria", "estagiario", "estagiaria",
     "funcionario", "funcionaria", "colaborador", "colaboradora",
     "coordenadora", "coordenador", "subgerente",
+    // Artigos/preposicoes que aparecem em frases de perfil ("Princesa de Deus")
+    "de", "da", "do", "das", "dos", "e",
     // ProfissÃµes comuns usadas como nome no WhatsApp
     "barbeiro", "barbeira", "medico", "medica", "dentista", "advogado", "advogada",
     "enfermeiro", "enfermeira", "nutricionista", "personal", "coach", "terapeuta",
@@ -249,6 +251,8 @@ function firstName(name?: string): string | null {
     "alegria", "prosperidade", "abundancia", "bencao", "gloria",
     "forca", "vida", "luz", "conquista", "vitoria", "sucesso",
     "evolucao", "energia", "positividade", "felicidade", "sorriso",
+    "princesa", "principe", "rainha", "rei", "filha", "filho", "serva", "servo",
+    "abencoada", "abencoado", "ungida", "ungido", "crista", "cristao",
   ])
 
   // Texto sem acentos para checar padrÃµes invÃ¡lidos
@@ -429,6 +433,43 @@ function leadExplicitlyAskedValue(value: string): boolean {
   const text = normalizeComparableMessage(value)
   if (!text) return false
   return /\b(valor|valores|preco|precos|mensalidade|investimento|quanto custa|orcamento)\b/.test(text)
+}
+
+function leadAskedNightOrPeriodHours(value: string): boolean {
+  const text = normalizeComparableMessage(value)
+  if (!text) return false
+  const asksHour =
+    /\b(que horas|qual horario|quais horarios|horarios?|horas?)\b/.test(text) ||
+    /\b(a que horas|seria que horas|seria qual horario)\b/.test(text)
+  const mentionsPeriod = /\b(noite|noturno|tarde|manha|periodo)\b/.test(text)
+  return asksHour && mentionsPeriod
+}
+
+function enforceExplicitLeadQuestionCoverage(responseText: string, leadMessage?: string | null): string {
+  let text = String(responseText || "").trim()
+  const lead = String(leadMessage || "").trim()
+  if (!text || !lead) return text
+
+  const normalizedResponse = normalizeComparableMessage(text)
+  const leadAskedValue = leadExplicitlyAskedValue(lead)
+  const leadAskedPeriodHours = leadAskedNightOrPeriodHours(lead)
+
+  if (leadAskedValue && !textMentionsCommercialValue(text)) {
+    text = `${text}\n\nSobre valores: consigo te orientar com segurança depois de entender melhor o seu caso no diagnóstico. O consultor te explica as opções e condições com clareza, sem compromisso.`
+  }
+
+  if (
+    leadAskedPeriodHours &&
+    !/\b([01]?\d|2[0-3])[:h][0-5]?\d?\b/.test(normalizedResponse) &&
+    /\b(manha|tarde|noite funciona melhor|qual periodo|qual funciona melhor)\b/.test(normalizedResponse)
+  ) {
+    text = text.replace(
+      /(?:Ainda tenho horarios?|Tenho horarios?)[^.?!]*(?:manha|tarde|noite)[^.?!]*(?:funciona melhor|fica melhor)[^?!.]*[?!.]?/gi,
+      "Para te passar os horários exatos desse período, preciso consultar a agenda do dia que você prefere.",
+    ).trim()
+  }
+
+  return text
 }
 
 function stripCommercialValueSegments(value: string): string {
@@ -1961,7 +2002,62 @@ function normalizeNameForCompare(value: string): string {
     .replace(/[\u0300-\u036f]/g, "")
 }
 
+function isNonPersonContactDisplayName(contactName?: string | null): boolean {
+  const raw = String(contactName || "")
+    .normalize("NFKC")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .trim()
+  if (!raw) return false
+
+  if (/\p{Emoji_Presentation}|\p{Extended_Pictographic}/u.test(raw)) return true
+  if (/@|https?:\/\/|www\.|\.com\b/i.test(raw)) return true
+  if ((raw.match(/\d/g) || []).length >= 5) return true
+
+  const normalized = normalizeNameForCompare(raw)
+    .replace(/[^\p{L}\p{N}\s'-]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+  if (!normalized) return true
+
+  const compact = normalized.replace(/\s+/g, "")
+  const laughRegex = /^(k+)(a|k|s)*$|^(h?a+h+)(a|h|s)*$|^(h?e+h+)(e|h|s)*$|^(rs)+s*$/i
+  if (laughRegex.test(compact)) return true
+  if (!/[aeiouy]/.test(compact)) return true
+  if (/(.)\1{2,}/.test(compact)) return true
+
+  const words = normalized.split(/\s+/).filter(Boolean)
+  const firstWord = words[0] || ""
+  if (!firstWord || firstWord.length <= 2) return true
+
+  const nonNameWords = new Set([
+    "de", "da", "do", "das", "dos", "e",
+    "deus", "jesus", "senhor", "senhora", "cristo",
+    "nossa", "nosso", "minha", "meu", "tua", "teu",
+    "princesa", "principe", "rainha", "rei", "filha", "filho", "serva", "servo",
+    "abencoada", "abencoado", "ungida", "ungido", "crista", "cristao",
+    "gratidao", "amor", "paz", "fe", "esperanca", "bencao", "gloria", "vitoria",
+    "contato", "usuario", "lead", "cliente", "whatsapp", "bot", "ia",
+    "assistente", "agente", "atendente", "suporte", "admin", "teste",
+    "vendas", "compras", "comercial", "financeiro", "recepcao", "atendimento",
+    "sac", "loja", "empresa", "numero", "celular", "zap",
+  ])
+
+  if (nonNameWords.has(firstWord)) return true
+
+  const religiousOrStatusPhrase =
+    /\b(princesa|principe|rainha|rei|filha|filho|serva|servo|abencoada|abencoado|ungida|ungido|crista|cristao)\b/.test(
+      normalized,
+    ) ||
+    /\b(de|com|em|para|por)\s+(deus|jesus|cristo|senhor)\b/.test(normalized) ||
+    /\b(deus|jesus|cristo|senhor)\b/.test(normalized)
+
+  if (religiousOrStatusPhrase && words.length > 1) return true
+
+  return false
+}
+
 function sanitizeSafeVocativeName(contactName?: string | null): string | null {
+  if (isNonPersonContactDisplayName(contactName)) return null
   const base = firstName(contactName || "")
   if (!base) return null
   const flat = normalizeNameForCompare(base)
@@ -3110,14 +3206,14 @@ export class NativeAgentOrchestratorService {
         .catch((error) => console.warn("[native-agent][auto-pause] failed to persist critical pause:", error))
 
       // 1) Create notification for the attendant
-      const contactFirstName = firstName(input.contactName)
+      const contactFirstName = sanitizeSafeVocativeName(input.contactName)
       const leadLabel = contactFirstName || phone
       await createNotification({
         type: "lead_paused",
         title: `Lead pausado automaticamente`,
         message: `${leadLabel} foi pausado: ${label}. Mensagem: "${content.slice(0, 120)}"`,
         phoneNumber: phone,
-        leadName: contactFirstName || input.contactName || undefined,
+        leadName: contactFirstName || undefined,
         metadata: {
           category: negativeIntent.category,
           matchedPattern: negativeIntent.matchedPattern,
@@ -3168,7 +3264,7 @@ export class NativeAgentOrchestratorService {
             sendSuccess: true,
             humanIntervention: true,
             outcome: "negative",
-            contactName: input.contactName,
+            contactName: contactFirstName || undefined,
           })
           .catch(() => {})
       }
@@ -3224,7 +3320,7 @@ export class NativeAgentOrchestratorService {
           tenant,
           sessionId,
           phone,
-          leadName: firstName(input.contactName) || input.contactName || undefined,
+          leadName: sanitizeSafeVocativeName(input.contactName) || undefined,
           lastUserMessage: content,
           lastAgentMessage: followupMessage,
           intervalsMinutes: [delayMinutes],
@@ -3480,6 +3576,7 @@ export class NativeAgentOrchestratorService {
       const rawName = String(input.contactName || "").trim()
       const rawNorm = rawName.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
       const rawFirst = rawNorm.split(/\s+/)[0] || ""
+      const safeRawFirstName = sanitizeSafeVocativeName(rawName)
       const genericNames = new Set([
         "vendas", "compras", "comercial", "financeiro", "recepcao", "atendimento",
         "helpdesk", "sac", "caixa", "estoque", "logistica", "producao", "operacoes",
@@ -3489,9 +3586,12 @@ export class NativeAgentOrchestratorService {
         "coordenadora", "colaborador", "colaboradora", "contato", "usuario", "lead",
         "cliente", "assistente", "agente", "atendente", "suporte", "admin",
         "vendedor", "vendedora", "dono", "dona", "secretario", "secretaria",
-        "ceo", "cto", "cfo", "coo",
+        "ceo", "cto", "cfo", "coo", "princesa", "principe", "rainha", "rei",
+        "filha", "filho", "serva", "servo", "deus", "jesus", "senhor",
       ])
       const looksGeneric =
+        !safeRawFirstName ||
+        isNonPersonContactDisplayName(rawName) ||
         !rawFirst ||
         rawFirst.length <= 2 ||
         genericNames.has(rawFirst) ||
@@ -3512,7 +3612,9 @@ export class NativeAgentOrchestratorService {
           const match = text.match(pattern)
           if (match) {
             const candidate = (match[1] || match[0]).trim()
+            const safeCandidate = sanitizeSafeVocativeName(candidate)
             if (
+              safeCandidate &&
               /^[A-ZÀ-Ÿ]/.test(candidate) &&
               candidate.length >= 3 &&
               candidate.length <= 25 &&
@@ -3520,12 +3622,12 @@ export class NativeAgentOrchestratorService {
               !/\d/.test(candidate) &&
               !genericNames.has(candidate.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase())
             ) {
-              return candidate
+              return safeCandidate
             }
           }
         }
       }
-      return rawName
+      return safeRawFirstName ? rawName : ""
     })()
 
     const basePrompt = this.buildSystemPrompt(config, {
@@ -3602,7 +3704,7 @@ export class NativeAgentOrchestratorService {
               tenant,
               phone,
               sessionId,
-              contactName: input.contactName,
+              contactName: resolvedContactName || undefined,
               config,
               chat,
               incomingMessageId: input.messageId,
@@ -3642,7 +3744,7 @@ export class NativeAgentOrchestratorService {
                     tenant,
                     phone,
                     sessionId,
-                    contactName: input.contactName,
+                    contactName: resolvedContactName || undefined,
                     config,
                     chat,
                     incomingMessageId: input.messageId,
@@ -3753,7 +3855,7 @@ export class NativeAgentOrchestratorService {
             tenant,
             phone,
             sessionId,
-            contactName: input.contactName,
+            contactName: resolvedContactName || undefined,
             config,
             chat,
             incomingMessageId: input.messageId,
@@ -3821,7 +3923,7 @@ export class NativeAgentOrchestratorService {
                 tenant,
                 phone,
                 sessionId,
-                contactName: input.contactName,
+                contactName: resolvedContactName || undefined,
                 config,
                 chat,
                 incomingMessageId: input.messageId,
@@ -3958,7 +4060,7 @@ export class NativeAgentOrchestratorService {
           tenant,
           phone,
           sessionId,
-          contactName: input.contactName,
+          contactName: resolvedContactName || undefined,
           incomingMessageId: input.messageId,
           config,
           chat,
@@ -3975,7 +4077,7 @@ export class NativeAgentOrchestratorService {
     })
     
     // GUILHOTINA: Proteção dupla contra nomes alucinados na saudação.
-    const contactFirstNameGuillotine = firstName(input.contactName)
+    const contactFirstNameGuillotine = sanitizeSafeVocativeName(resolvedContactName)
     if (responseText) {
       // Regex para capturar saudação + nome na abertura da resposta
       const greetingNamePattern = /^(Bom dia|Boa tarde|Boa noite|Ol[aá]|Oie?)[,\s]+([A-ZÀ-Ÿ][a-zà-ÿ]{2,20})[,\s!\.]+/i
@@ -3997,12 +4099,16 @@ export class NativeAgentOrchestratorService {
       }
     }
 
-    responseText = fixGreetingTemporalAndVocative(responseText, config, input.contactName)
+    responseText = fixGreetingTemporalAndVocative(responseText, config, resolvedContactName)
     responseText = applyTemporalPeriodGuard(responseText, config)
     responseText = enforceSchedulingResponseWeekdayConsistency(
       responseText,
       decision.executions,
       config.timezone || "America/Sao_Paulo",
+    )
+    responseText = enforceExplicitLeadQuestionCoverage(
+      responseText,
+      effectiveLeadMessage || content,
     )
     // Prompt Base e o regente principal do fluxo comercial.
     // Desabilitamos guardas estaticos de qualificacao para evitar conflito com o script do tenant.
@@ -4021,7 +4127,7 @@ export class NativeAgentOrchestratorService {
         allowLanguageVices: false,
       })
       responseText = applyTemporalPeriodGuard(
-        fixGreetingTemporalAndVocative(sanitizedFallback, config, input.contactName),
+        fixGreetingTemporalAndVocative(sanitizedFallback, config, resolvedContactName),
         config,
       )
 
@@ -4153,7 +4259,7 @@ export class NativeAgentOrchestratorService {
             assistantMessage: responseText,
             sendSuccess: true,
             outcome: learningOutcome,
-            contactName: input.contactName,
+            contactName: resolvedContactName || undefined,
           })
           .catch(() => {})
       }
@@ -4180,7 +4286,7 @@ export class NativeAgentOrchestratorService {
               tenant,
               sessionId,
               phone,
-              leadName: firstName(input.contactName) || input.contactName || undefined,
+              leadName: sanitizeSafeVocativeName(resolvedContactName) || undefined,
               lastUserMessage: followupLeadContext,
               lastAgentMessage: responseText,
               intervalsMinutes: followupIntervals,
@@ -4346,7 +4452,7 @@ export class NativeAgentOrchestratorService {
           assistantMessage: responseText,
           sendSuccess: false,
           outcome: "send_failed",
-          contactName: input.contactName,
+          contactName: resolvedContactName || undefined,
         })
         .catch(() => {})
       }
@@ -4385,7 +4491,7 @@ export class NativeAgentOrchestratorService {
           assistantMessage: responseText,
           sendSuccess: true,
           outcome: learningOutcome,
-          contactName: input.contactName,
+          contactName: resolvedContactName || undefined,
         })
         .catch(() => {})
     }
@@ -4447,7 +4553,7 @@ export class NativeAgentOrchestratorService {
             tenant,
             sessionId,
             phone,
-            leadName: firstName(input.contactName) || input.contactName || undefined,
+            leadName: sanitizeSafeVocativeName(resolvedContactName) || undefined,
             lastUserMessage: followupLeadContext,
             lastAgentMessage: responseText,
             intervalsMinutes: followupIntervals,
@@ -4838,7 +4944,7 @@ export class NativeAgentOrchestratorService {
     result?: { meetLink?: string; htmlLink?: string }
     isEdit?: boolean
   }): string {
-    const name = String(input.contactName || firstName(input.contactName) || "Lead").trim()
+    const name = String(sanitizeSafeVocativeName(input.contactName) || "Lead").trim()
     const day = formatDateToBr(input.action.date)
     const time = String(input.action.time || "nao informado").trim()
     const notes = String(input.action.note || "").trim()
@@ -4887,7 +4993,7 @@ export class NativeAgentOrchestratorService {
     action: AgentActionPlan
     error: string
   }): string {
-    const name = String(input.contactName || firstName(input.contactName) || "Lead").trim()
+    const name = String(sanitizeSafeVocativeName(input.contactName) || "Lead").trim()
     const day = formatDateToBr(input.action.date)
     const time = String(input.action.time || "nao informado").trim()
     const contact = formatNotificationContact(input.phone)
@@ -4914,7 +5020,7 @@ export class NativeAgentOrchestratorService {
     contactName?: string
     reason: string
   }): string {
-    const name = String(input.contactName || firstName(input.contactName) || "Lead").trim()
+    const name = String(sanitizeSafeVocativeName(input.contactName) || "Lead").trim()
     const contact = formatNotificationContact(input.phone)
     const notes = String(input.reason || "Lead solicitou apoio humano.").trim()
 
@@ -5040,6 +5146,7 @@ export class NativeAgentOrchestratorService {
     const rawContactName = String(ctx.contactName || "").trim()
     const isNonPersonDisplayName = (() => {
       if (!rawContactName) return false
+      if (isNonPersonContactDisplayName(rawContactName)) return true
 
       // Rejeita imediatamente se o nome contÃ©m qualquer emoji (ex: "aldinha Ã°Å¸Â¦â€¹ Ã°Å¸ÂËœ Ã°Å¸â€˜ÂÃ¯Â¸Â")
       if (/\p{Emoji_Presentation}|\p{Extended_Pictographic}/u.test(rawContactName)) return true
@@ -5063,7 +5170,7 @@ export class NativeAgentOrchestratorService {
       // Reject if 3 or more consecutive identical letters
       if (/(.)\1{2,}/.test(firstWord)) return true
 
-      const possessives = new Set(["minha", "meu", "nossa", "nosso", "tua", "teu", "deus", "jesus"])
+      const possessives = new Set(["minha", "meu", "nossa", "nosso", "tua", "teu", "deus", "jesus", "princesa", "principe", "filha", "filho", "serva", "servo"])
       if (possessives.has(words[0])) return true
       const phraseVerbs = new Set(["e", "vive", "vem", "esta", "sou", "somos", "sao", "salva", "ama"])
       for (let i = 1; i < words.length; i++) {
@@ -5101,6 +5208,8 @@ export class NativeAgentOrchestratorService {
         "ti", "ceo", "cto", "cfo", "coo", "expedicao", "almoxarifado",
         "comprador", "compradora", "loja", "filial", "sede", "matriz", "empresa",
         "numero", "contatos", "celular", "whatsapp", "zap",
+        "princesa", "principe", "rainha", "rei", "filha", "filho", "serva", "servo",
+        "abencoada", "abencoado", "ungida", "ungido", "crista", "cristao",
       ])
       if (cargosTitulosBloqueados.has(firstWord)) return true
 
@@ -5180,7 +5289,7 @@ export class NativeAgentOrchestratorService {
         "- PROFISSÃ•ES: Barbeiro, Barbeira, MÃ©dico, MÃ©dica, Dentista, Advogado, Advogada, Enfermeiro, Enfermeira, Nutricionista, Personal, Coach, Terapeuta, Fisioterapeuta, PsicÃ³logo, PsicÃ³loga, EmpresÃ¡rio, EmpresÃ¡ria, Corretor, Corretora, Engenheiro, Engenheira, Arquiteto, Arquiteta, Vendedor, Vendedora, Gerente, Diretor, Diretora, Contador, Contadora, Motorista, Cozinheiro, Cozinheira",
         "- TÃƒÂTULOS E HONORÃƒÂFICOS: Treinador, Professor, Doutor, Dr, Dra, Mestre, Aluno, Amigo",
         "- GENÃƒâ€°RICOS E SISTÃƒÅ MICOS: Contato, UsuÃ¡rio, Lead, Cliente, WhatsApp, Bot, IA, Assistente, Agente, Atendente, RobÃ´, Chatbot, Suporte, Admin, Teste, Sistema, AutomaÃ§Ã£o",
-        "- RELIGIOSOS E POSSESSIVOS: Deus, Jesus, Senhor, Nossa, Minha, Meu, Tua, Teu â€” e frases como 'Minha ForÃ§a Vem de Deus', 'Deus Ã© Fiel', 'Jesus Vive', 'Meu Senhor', 'Nossa ForÃ§a', 'Tudo Para Deus', 'Minha VitÃ³ria', 'Minha FÃ©'",
+        "- RELIGIOSOS, POSSESSIVOS E FRASES DE PERFIL: Deus, Jesus, Senhor, Nossa, Minha, Meu, Tua, Teu, Princesa, Principe, Filha, Filho, Serva, Servo, Rainha, Rei, Abencoada, Abencoado, Ungida, Ungido, Crista, Cristao â€” e frases como 'Princesa de Deus', 'Filha de Deus', 'Servo de Deus', 'Minha ForÃ§a Vem de Deus', 'Deus Ã© Fiel', 'Jesus Vive', 'Meu Senhor', 'Nossa ForÃ§a', 'Tudo Para Deus', 'Minha VitÃ³ria', 'Minha FÃ©'",
         "- ONOMATOPEIAS E RISADAS: Hahahs, Kkkkk, Rsrs, Hauhauh e qualquer sequÃªncia de letras repetidas sem significado",
         "",
         "AÃƒâ€¡ÃƒO OBRIGATÃƒâ€œRIA quando o nome do lead se enquadrar em qualquer categoria acima: na primeira oportunidade natural da conversa (nÃ£o logo na abertura forÃ§ada), pergunte gentilmente: 'Como posso te chamar?' ou 'Pode me dizer seu nome?'. ANTI-LOOP: pergunte UMA ÃƒÅ¡NICA VEZ â€” se jÃ¡ perguntou no histÃ³rico, NUNCA repita. Se o lead ignorar, use 'vocÃª'. NUNCA invente um nome. NUNCA use o cargo, profissÃ£o ou tÃ­tulo como apelido. NUNCA copie emojis do display name. Esta regra Ã© absoluta e nÃ£o pode ser removida pelo prompt acima.",
@@ -5280,8 +5389,12 @@ export class NativeAgentOrchestratorService {
             ? "- Primeira resposta: seja objetiva, contextual e faca pergunta de descoberta antes de tentar agendar."
             : "- Mantenha continuidade precisa com o ponto exato onde a conversa parou."
           : "- Primeira resposta pode seguir fluxo livre."
-    const directQuestionReturnRule =
-      "- PERGUNTA DIRETA DO LEAD (REGRA OBRIGATORIA): se o lead perguntar algo objetivo (ex.: valor, endereco, onde fica, forma de pagamento), responda primeiro de forma clara e curta e, na MESMA mensagem, retome imediatamente o proximo passo do fluxo do Prompt Base (descoberta/qualificacao/agendamento)."
+    const directQuestionReturnRule = [
+      "- PERGUNTA DIRETA DO LEAD (REGRA OBRIGATORIA): se o lead perguntar algo objetivo, responda primeiro de forma clara e curta e, na MESMA mensagem, retome imediatamente o proximo passo do fluxo do Prompt Base.",
+      "- Se o lead mandar duas ou mais perguntas em mensagens seguidas, responda TODAS antes de fazer nova pergunta de funil. NUNCA responda apenas a primeira.",
+      "- Se o lead perguntar 'a noite seria que horas?', 'que horas tem?', 'quais horarios?', consulte/disponibilize horarios reais; NUNCA repita genericamente 'manha, tarde ou noite funciona melhor?'.",
+      "- Se o lead perguntar 'quais sao os valores?', 'qual valor?', 'quanto custa?', responda conforme a politica configurada de valores/preco: se nao houver preco explicito no contexto, diga que o investimento e explicado no diagnostico/por um consultor apos entender o caso. NUNCA ignore a pergunta de valores.",
+    ].join("\n")
     const contextualReasoningRule =
       "- CONTEXTUALIZACAO OBRIGATORIA: NUNCA use resposta enrijecida. Responda com base na ultima mensagem do lead, no historico recente e no estagio atual do fluxo. Evite copiar texto-padrao quando a mensagem do lead exigir adaptacao."
     const qualification = ctx.qualificationState || {
@@ -5548,6 +5661,7 @@ export class NativeAgentOrchestratorService {
         "- Respeite integralmente as configuracoes de agenda da unidade (dias, horarios, bloqueios, feriados e conflitos).",
         "",
         firstMessageRule,
+        directQuestionReturnRule,
         toneRule,
         humanizationRule,
         firstNameUsageRule,
