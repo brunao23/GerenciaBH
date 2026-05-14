@@ -21,6 +21,7 @@ export const viewport: Viewport = {
 import { TenantProvider } from '@/lib/contexts/TenantContext'
 import { ThemeProvider } from "@/components/theme-provider"
 import { Toaster } from "@/components/ui/sonner"
+import { ChunkReloadGuard } from "@/components/runtime/ChunkReloadGuard"
 
 const manrope = Manrope({
   subsets: ["latin"],
@@ -44,6 +45,7 @@ export default function RootLayout({
       <body className={`${manrope.variable} ${sora.variable} h-full min-h-dvh overflow-x-hidden antialiased`} suppressHydrationWarning>
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
           <TenantProvider>
+            <ChunkReloadGuard />
             {children}
             <Toaster />
           </TenantProvider>

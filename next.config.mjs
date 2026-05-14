@@ -1,3 +1,14 @@
+const deploymentAssetPrefix =
+  process.env.VERCEL === '1' && process.env.VERCEL_URL
+    ? `https://${process.env.VERCEL_URL}`
+    : undefined
+
+const noStoreHeaders = [
+  { key: 'Cache-Control', value: 'no-store, no-cache, must-revalidate, max-age=0, s-maxage=0' },
+  { key: 'CDN-Cache-Control', value: 'no-store' },
+  { key: 'Vercel-CDN-Cache-Control', value: 'no-store' },
+]
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   typescript: {
@@ -6,6 +17,7 @@ const nextConfig = {
   reactStrictMode: false,
   compress: true,
   poweredByHeader: false,
+  ...(deploymentAssetPrefix ? { assetPrefix: deploymentAssetPrefix } : {}),
   images: {
     formats: ['image/avif', 'image/webp'],
     minimumCacheTTL: 60 * 60 * 24 * 30,
@@ -34,9 +46,7 @@ const nextConfig = {
       },
       {
         source: '/api/:path*',
-        headers: [
-          { key: 'Cache-Control', value: 'no-store, max-age=0' },
-        ],
+        headers: noStoreHeaders,
       },
       {
         source: '/_next/static/:path*',
@@ -46,9 +56,7 @@ const nextConfig = {
       },
       {
         source: '/((?!api|_next/static|_next/image|favicon.ico).*)',
-        headers: [
-          { key: 'Cache-Control', value: 'public, max-age=0, must-revalidate' },
-        ],
+        headers: noStoreHeaders,
       },
     ]
   },
