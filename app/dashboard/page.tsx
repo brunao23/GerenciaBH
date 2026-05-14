@@ -250,6 +250,14 @@ function trendToneClass(tone: TrendTone): string {
   return "border-border bg-muted text-text-gray"
 }
 
+function formatFunnelRate(current: number, previous: number): string {
+  if (!Number.isFinite(previous) || previous <= 0) {
+    return current > 0 ? "novo" : "0%"
+  }
+  const rate = Math.max(0, (current / previous) * 100)
+  return `${rate >= 10 ? rate.toFixed(0) : rate.toFixed(1)}%`
+}
+
 // â”€â”€â”€ LeadRow â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function LeadRow({
@@ -847,12 +855,22 @@ export default function DashboardPage() {
   const salesRevenue = businessMetrics.totalSalesAmount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
 
   const commercialPanelRows = [
-    { label: "Entrada", value: data?.totalLeads ?? 0, caption: "Leads no funil", tone: "bg-accent-blue", soft: "bg-accent-blue/15", text: "text-accent-blue" },
-    { label: "Atendimento", value: data?.conversas ?? 0, caption: "Conversas ativas", tone: "bg-accent-green", soft: "bg-accent-green/15", text: "text-accent-green" },
-    { label: "Diagnóstico", value: data?.agendamentos ?? 0, caption: "Agenda marcada", tone: "bg-accent-gold", soft: "bg-accent-gold/15", text: "text-accent-gold" },
-    { label: "Matrícula", value: businessMetrics.salesCount, caption: "Vendas registradas", tone: "bg-accent-green", soft: "bg-accent-green/15", text: "text-accent-green" },
+    { label: "Entrada", value: data?.totalLeads ?? 0, caption: "Leads no funil", tone: "bg-accent-blue", soft: "bg-accent-blue/15", text: "text-accent-blue", fill: "var(--accent-blue)" },
+    { label: "Atendimento", value: data?.conversas ?? 0, caption: "Conversas ativas", tone: "bg-accent-green", soft: "bg-accent-green/15", text: "text-accent-green", fill: "var(--accent-green)" },
+    { label: "Diagnóstico", value: data?.agendamentos ?? 0, caption: "Agenda marcada", tone: "bg-accent-gold", soft: "bg-accent-gold/15", text: "text-accent-gold", fill: "var(--accent-gold)" },
+    { label: "Matrícula", value: businessMetrics.salesCount, caption: "Vendas registradas", tone: "bg-accent-green", soft: "bg-accent-green/15", text: "text-accent-green", fill: "var(--dark-green)" },
   ]
-  const maxCommercialPanelValue = Math.max(1, ...commercialPanelRows.map((row) => Number(row.value) || 0))
+  const funnelWidths = [100, 88, 76, 64]
+  const funnelStages = commercialPanelRows.map((row, index) => {
+    const currentValue = Number(row.value) || 0
+    const previousValue = index === 0 ? currentValue : Number(commercialPanelRows[index - 1]?.value) || 0
+    return {
+      ...row,
+      width: funnelWidths[index] ?? Math.max(52, 100 - index * 12),
+      valueLabel: currentValue.toLocaleString("pt-BR"),
+      rateLabel: index === 0 ? "Base" : formatFunnelRate(currentValue, previousValue),
+    }
+  })
 
   const panelSummaryRows = [
     {
@@ -954,7 +972,7 @@ export default function DashboardPage() {
 
           <Card className="dashboard-command-panel rounded-2xl">
             <CardContent className="relative z-[1] p-4 sm:p-6">
-              <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr_0.9fr]">
+              <div className="grid gap-5 xl:grid-cols-2 2xl:grid-cols-[1.1fr_0.95fr_0.9fr]">
                 <div className="space-y-5">
                   <div>
                     <div className="inline-flex items-center gap-2 rounded-full border border-accent-green/30 bg-accent-green/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-accent-green">
@@ -987,37 +1005,73 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-border bg-background/70 p-4">
-                  <div className="mb-4 flex items-center justify-between gap-3">
+                <div className="rounded-2xl border border-border bg-background/70 p-4 sm:p-5">
+                  <div className="mb-4 flex items-start justify-between gap-3">
                     <div>
                       <p className="text-xs font-bold uppercase tracking-[0.16em] text-text-gray">Termômetro</p>
                       <h3 className="text-lg font-bold text-foreground">Funil de oportunidades</h3>
+                      <p className="mt-1 text-xs text-text-gray">Entrada até matrícula, com taxa real por etapa.</p>
                     </div>
-                    <Badge variant="outline" className="border-accent-gold/30 text-accent-gold">
+                    <Badge variant="outline" className="shrink-0 border-accent-gold/30 text-accent-gold">
                       {periodLabel}
                     </Badge>
                   </div>
-                  <div className="space-y-3">
-                    {commercialPanelRows.map((row) => {
-                      const value = Number(row.value) || 0
-                      const pct = Math.max(8, Math.round((value / maxCommercialPanelValue) * 100))
+                  <div className="rounded-2xl border border-border bg-card/55 p-3 sm:p-4" aria-label="Funil de oportunidades">
+                    <div className="space-y-2 sm:space-y-2.5">
+                      {funnelStages.map((row, index) => {
+                        const inset = index >= 2 ? "10%" : "8%"
                       return (
-                        <div key={`funnel-${row.label}`} className="rounded-xl border border-border bg-card/75 p-3">
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="min-w-0 truncate text-sm font-semibold text-foreground">{row.label}</span>
-                            <span className={`shrink-0 text-sm font-bold tabular-nums ${row.text}`}>{row.value}</span>
+                        <div
+                          key={`funnel-${row.label}`}
+                          className="relative mx-auto h-[58px] min-w-[210px] max-w-full sm:h-[64px]"
+                          style={{ width: `${row.width}%` }}
+                        >
+                          <svg
+                            className="absolute inset-0 h-full w-full overflow-visible drop-shadow-sm"
+                            viewBox="0 0 100 100"
+                            preserveAspectRatio="none"
+                            aria-hidden="true"
+                          >
+                            <polygon
+                              points={`0,0 100,0 ${100 - Number.parseFloat(inset)},100 ${Number.parseFloat(inset)},100`}
+                              fill={row.fill}
+                              stroke="rgba(255,255,255,0.26)"
+                              strokeWidth="1"
+                              vectorEffect="non-scaling-stroke"
+                            />
+                          </svg>
+                          <div className="relative z-[1] flex h-full items-center justify-between gap-3 px-6 text-white sm:px-8">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-extrabold sm:text-base">{row.label}</p>
+                              <p className="truncate text-[10px] font-medium text-white/80 sm:text-[11px]">
+                                {row.caption}
+                              </p>
+                            </div>
+                            <div className="shrink-0 text-right">
+                              <p className="text-lg font-black leading-none tabular-nums sm:text-xl">{row.valueLabel}</p>
+                              <p className="mt-1 text-[10px] font-semibold leading-none text-white/80 sm:text-[11px]">
+                                {row.rateLabel}
+                              </p>
+                            </div>
                           </div>
-                          <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-muted">
-                            <div className={`h-full rounded-full ${row.tone}`} style={{ width: `${pct}%` }} />
-                          </div>
-                          <p className="mt-1 text-[11px] text-text-gray">{row.caption}</p>
                         </div>
                       )
-                    })}
+                      })}
+                    </div>
+                    <div className="mt-4 grid grid-cols-2 gap-2 text-[11px] sm:text-xs">
+                      <div className="rounded-xl border border-border bg-background/70 px-3 py-2">
+                        <p className="font-semibold text-foreground">Taxa diagnóstico</p>
+                        <p className="mt-0.5 text-text-gray">{conversionPercent.toFixed(1)}% dos leads</p>
+                      </div>
+                      <div className="rounded-xl border border-border bg-background/70 px-3 py-2">
+                        <p className="font-semibold text-foreground">Matrículas</p>
+                        <p className="mt-0.5 text-text-gray">{businessMetrics.salesCount.toLocaleString("pt-BR")} registradas</p>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-border bg-background/70 p-4">
+                <div className="rounded-2xl border border-border bg-background/70 p-4 xl:col-span-2 2xl:col-span-1">
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <p className="text-xs font-bold uppercase tracking-[0.16em] text-text-gray">Comparativo automatico</p>
