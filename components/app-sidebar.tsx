@@ -37,7 +37,6 @@ import {
   Clock,
   ChevronDown,
   ChevronRight,
-  GraduationCap,
 } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useState } from "react"
@@ -103,18 +102,32 @@ export function AppSidebar() {
 
   return (
     <Sidebar className="border-sidebar-border bg-sidebar">
-      <SidebarHeader className="border-b border-sidebar-border px-4 py-5">
-        <div className="flex items-center gap-3 px-2">
-          <div className="brand-mark flex h-10 w-10 items-center justify-center rounded-xl">
-            <GraduationCap className="h-5 w-5" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <span className="block truncate text-lg font-bold tracking-tight text-foreground">GerencIA</span>
-            <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--accent-green)]">
-              Educação
-            </div>
-          </div>
-        </div>
+      <SidebarHeader className="border-b border-sidebar-border px-4 py-5 group-data-[collapsible=icon]:px-2">
+        <Link
+          href="/dashboard"
+          aria-label="Ir para a visão geral do GerencIA Educação"
+          title="GerencIA Educação"
+          onClick={() => {
+            if (isMobile) setOpenMobile(false)
+          }}
+          className="flex items-center px-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
+        >
+          <img
+            src="/gerencia-educacao-logo-light.svg"
+            alt=""
+            className="h-12 w-[190px] max-w-full object-contain object-left dark:hidden group-data-[collapsible=icon]:hidden"
+          />
+          <img
+            src="/gerencia-educacao-logo-dark.svg"
+            alt=""
+            className="hidden h-12 w-[190px] max-w-full object-contain object-left dark:block group-data-[collapsible=icon]:hidden"
+          />
+          <img
+            src="/gerencia-educacao-mark.svg"
+            alt=""
+            className="hidden h-10 w-10 object-contain group-data-[collapsible=icon]:block"
+          />
+        </Link>
 
         {/* Nome da Unidade */}
         {!loading && sessionData?.session?.unitName && (

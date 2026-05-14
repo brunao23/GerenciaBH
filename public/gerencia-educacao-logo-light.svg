@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 540 170" role="img" aria-labelledby="title desc">
+  <title id="title">GerencIA Educação</title>
+  <desc id="desc">Logo da plataforma GerencIA Educação</desc>
+  <g fill="none" stroke="#00C7EA" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M24 73 108 25l84 48-84 48-84-48Z" stroke-width="10"/>
+    <path d="M54 91v35c19 2 37 9 54 21 17-12 35-19 54-21V91" stroke-width="8"/>
+    <path d="M45 126c22 1 43 9 63 22 20-13 41-21 63-22" stroke-width="8"/>
+    <path d="M41 145c23 2 46 10 67 23 21-13 44-21 67-23" stroke="#0798D6" stroke-width="8"/>
+    <circle cx="108" cy="72" r="15" stroke-width="9"/>
+    <path d="M108 88v58" stroke-width="9"/>
+    <path d="M78 97c11 0 20 7 25 16" stroke-width="9"/>
+    <path d="M138 97c-11 0-20 7-25 16" stroke-width="9"/>
+    <circle cx="72" cy="97" r="10" fill="#00C7EA" stroke-width="0"/>
+    <circle cx="144" cy="97" r="10" fill="#00C7EA" stroke-width="0"/>
+  </g>
+  <g font-family="Montserrat, Poppins, Arial, sans-serif">
+    <text x="215" y="91" fill="#031B4D" font-size="74" font-weight="800" letter-spacing="-4">Gerenc</text>
+    <text x="458" y="91" fill="#00C7EA" font-size="74" font-weight="900" letter-spacing="-5">IA</text>
+    <text x="218" y="137" fill="#496889" font-size="27" font-weight="700" letter-spacing="17">EDUCAÇÃO</text>
+  </g>
+</svg>
