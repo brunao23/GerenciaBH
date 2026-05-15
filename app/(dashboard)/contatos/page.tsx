@@ -57,6 +57,7 @@ import {
   X,
 } from "lucide-react"
 import Link from "next/link"
+import { LeadWorkspacePanel } from "@/components/crm/lead-workspace-panel"
 
 type Contact = {
   id: number
@@ -86,6 +87,13 @@ type Contact = {
   data_nascimento?: string
   telefone_secundario?: string
   created_at: string
+}
+
+type ContactHistoryMessage = {
+  role: "user" | "bot"
+  content: string
+  created_at: string
+  senderType?: "lead" | "ia" | "human" | "system"
 }
 
 const ORIGENS = [
@@ -139,6 +147,9 @@ export default function ContatosPage() {
   const [search, setSearch] = useState("")
   const [showForm, setShowForm] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<Contact | null>(null)
+  const [selectedContact, setSelectedContact] = useState<Contact | null>(null)
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [contactHistory, setContactHistory] = useState<ContactHistoryMessage[]>([])
 
   // ── Seções colapsáveis ──
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
@@ -210,6 +221,39 @@ export default function ContatosPage() {
     fetchContacts()
   }, [fetchContacts])
 
+  useEffect(() => {
+    if (!selectedContact) {
+      setContactHistory([])
+      return
+    }
+
+    let cancelled = false
+    const loadHistory = async () => {
+      setHistoryLoading(true)
+      try {
+        const session = selectedContact.session_id || selectedContact.telefone
+        const res = await fetch(`/api/supabase/chats?session=${encodeURIComponent(session)}`)
+        const data = await res.json().catch(() => [])
+        if (!res.ok) throw new Error(data?.error || "Falha ao buscar historico")
+        const sessionData = Array.isArray(data) ? data[0] : null
+        const messages = Array.isArray(sessionData?.messages) ? sessionData.messages : []
+        if (!cancelled) setContactHistory(messages)
+      } catch (error: any) {
+        if (!cancelled) {
+          setContactHistory([])
+          toast.error(`Erro ao carregar historico: ${error.message}`)
+        }
+      } finally {
+        if (!cancelled) setHistoryLoading(false)
+      }
+    }
+
+    loadHistory()
+    return () => {
+      cancelled = true
+    }
+  }, [selectedContact])
+
   const resetForm = () => {
     setNome(""); setTelefone(""); setTelefoneSecundario(""); setEmail("")
     setDataNascimento(""); setTipoContato(""); setOrigem(""); setPrioridade("")
@@ -276,7 +320,12 @@ export default function ContatosPage() {
   const handleDelete = async (contact: Contact) => {
     try {
       const res = await fetch(`/api/contatos?sessionId=${encodeURIComponent(contact.session_id)}`, { method: "DELETE" })
-      if (res.ok) { toast.success("Contato removido"); setDeleteTarget(null); fetchContacts() }
+      if (res.ok) {
+        toast.success("Contato removido")
+        if (selectedContact?.session_id === contact.session_id) setSelectedContact(null)
+        setDeleteTarget(null)
+        fetchContacts()
+      }
       else { toast.error("Erro ao remover contato") }
     } catch { toast.error("Erro de conexão") }
   }
@@ -359,7 +408,7 @@ export default function ContatosPage() {
               <Button variant="ghost" size="icon" onClick={handleExportCSV} title="Exportar CSV" className="text-text-gray hover:text-white h-8 w-8">
                 <FileDown className="w-4 h-4" />
               </Button>
-              <Button size="sm" onClick={() => { resetForm(); setShowForm(true) }} className="bg-accent-green hover:bg-emerald-500 text-black gap-1.5 h-8 text-xs">
+              <Button size="sm" onClick={() => { resetForm(); setSelectedContact(null); setShowForm(true) }} className="bg-accent-green hover:bg-emerald-500 text-black gap-1.5 h-8 text-xs">
                 <UserPlus className="w-3.5 h-3.5" />
                 Novo
               </Button>
@@ -391,7 +440,16 @@ export default function ContatosPage() {
             ) : (
               <div className="divide-y divide-border-gray">
                 {filtered.map((contact) => (
-                  <div key={contact.id} className="p-3.5 hover:bg-hover-gray transition-colors group cursor-pointer">
+                  <div
+                    key={contact.id}
+                    onClick={() => {
+                      setShowForm(false)
+                      setSelectedContact(contact)
+                    }}
+                    className={`p-3.5 transition-colors group cursor-pointer ${
+                      selectedContact?.id === contact.id ? "bg-accent-green/10" : "hover:bg-hover-gray"
+                    }`}
+                  >
                     <div className="flex items-start gap-3">
                       <div className="w-9 h-9 rounded-full bg-accent-green/10 border border-accent-green/20 flex items-center justify-center shrink-0 mt-0.5">
                         <span className="text-accent-green font-semibold text-xs">{contact.nome.charAt(0).toUpperCase()}</span>
@@ -400,10 +458,22 @@ export default function ContatosPage() {
                         <div className="flex items-center justify-between gap-2">
                           <h4 className="font-semibold text-pure-white truncate text-[13px]">{contact.nome}</h4>
                           <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                            <Link href={`/conversas?numero=${contact.telefone}`} className="p-1 hover:bg-accent-green/20 rounded" title="Ver conversa">
+                            <Link
+                              href={`/conversas?numero=${contact.telefone}`}
+                              onClick={(event) => event.stopPropagation()}
+                              className="p-1 hover:bg-accent-green/20 rounded"
+                              title="Ver conversa"
+                            >
                               <MessageSquare className="w-3 h-3 text-accent-green" />
                             </Link>
-                            <button onClick={() => setDeleteTarget(contact)} className="p-1 hover:bg-red-500/20 rounded" title="Remover">
+                            <button
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                setDeleteTarget(contact)
+                              }}
+                              className="p-1 hover:bg-red-500/20 rounded"
+                              title="Remover"
+                            >
                               <Trash2 className="w-3 h-3 text-red-400" />
                             </button>
                           </div>
@@ -690,20 +760,153 @@ export default function ContatosPage() {
               </div>
             </ScrollArea>
           </>
+        ) : selectedContact ? (
+          <>
+            <CardHeader className="border-b border-border-gray pb-3 shrink-0">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex min-w-0 items-start gap-3">
+                  <div className="h-12 w-12 rounded-2xl bg-accent-green/10 border border-accent-green/25 flex items-center justify-center shrink-0">
+                    <span className="text-accent-green font-bold">{selectedContact.nome.charAt(0).toUpperCase()}</span>
+                  </div>
+                  <div className="min-w-0">
+                    <CardTitle className="text-pure-white text-xl truncate">{selectedContact.nome}</CardTitle>
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-text-gray">
+                      <span className="font-mono">{formatPhone(selectedContact.telefone)}</span>
+                      {selectedContact.email && <span>{selectedContact.email}</span>}
+                      {selectedContact.origem && <Badge variant="secondary" className="text-[10px]">{selectedContact.origem}</Badge>}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex shrink-0 flex-wrap gap-2">
+                  <Button asChild variant="outline" className="border-border-gray text-text-gray hover:text-white">
+                    <Link href={`/conversas?numero=${selectedContact.telefone}`}>
+                      <MessageSquare className="mr-2 h-4 w-4" />
+                      Conversa
+                    </Link>
+                  </Button>
+                  <Button onClick={() => { resetForm(); setSelectedContact(null); setShowForm(true) }} className="bg-accent-green text-black hover:bg-emerald-500">
+                    <UserPlus className="mr-2 h-4 w-4" />
+                    Novo
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <ScrollArea className="flex-1 genial-scrollbar">
+              <div className="p-4 space-y-4">
+                <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
+                  <div className="rounded-2xl border border-border-gray bg-primary-black/45 p-4">
+                    <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-text-gray">
+                      <User className="h-3.5 w-3.5 text-accent-green" />
+                      Dados
+                    </div>
+                    <div className="space-y-2 text-sm">
+                      <p className="text-pure-white">{selectedContact.nome}</p>
+                      <p className="font-mono text-text-gray">{formatPhone(selectedContact.telefone)}</p>
+                      {selectedContact.telefone_secundario && <p className="font-mono text-text-gray">{formatPhone(selectedContact.telefone_secundario)}</p>}
+                      {selectedContact.email && <p className="break-all text-text-gray">{selectedContact.email}</p>}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-border-gray bg-primary-black/45 p-4">
+                    <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-text-gray">
+                      <Briefcase className="h-3.5 w-3.5 text-accent-green" />
+                      Perfil
+                    </div>
+                    <div className="space-y-2 text-sm text-text-gray">
+                      {selectedContact.empresa && <p><span className="text-pure-white">Empresa:</span> {selectedContact.empresa}</p>}
+                      {selectedContact.cargo && <p><span className="text-pure-white">Cargo:</span> {selectedContact.cargo}</p>}
+                      {selectedContact.segmento && <p><span className="text-pure-white">Segmento:</span> {selectedContact.segmento}</p>}
+                      {selectedContact.cidade && <p><span className="text-pure-white">Cidade:</span> {selectedContact.cidade}{selectedContact.estado ? `/${selectedContact.estado}` : ""}</p>}
+                      {!selectedContact.empresa && !selectedContact.cargo && !selectedContact.segmento && !selectedContact.cidade && <p>Sem dados de perfil cadastrados.</p>}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-border-gray bg-primary-black/45 p-4">
+                    <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-text-gray">
+                      <Tag className="h-3.5 w-3.5 text-accent-green" />
+                      Atendimento
+                    </div>
+                    <div className="space-y-2 text-sm text-text-gray">
+                      {selectedContact.status_cliente && <p><span className="text-pure-white">Status:</span> {selectedContact.status_cliente}</p>}
+                      {selectedContact.servico_produto && <p><span className="text-pure-white">Interesse:</span> {selectedContact.servico_produto}</p>}
+                      {selectedContact.valor && <p><span className="text-pure-white">Valor:</span> {selectedContact.valor}</p>}
+                      {selectedContact.prioridade && <p><span className="text-pure-white">Prioridade:</span> {selectedContact.prioridade}</p>}
+                      {selectedContact.tags && <p><span className="text-pure-white">Tags:</span> {selectedContact.tags}</p>}
+                      {!selectedContact.status_cliente && !selectedContact.servico_produto && !selectedContact.valor && !selectedContact.prioridade && !selectedContact.tags && <p>Sem dados comerciais cadastrados.</p>}
+                    </div>
+                  </div>
+                </div>
+
+                {selectedContact.observacao && (
+                  <div className="rounded-2xl border border-border-gray bg-primary-black/45 p-4">
+                    <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-pure-white">
+                      <StickyNote className="h-4 w-4 text-accent-green" />
+                      Observacao manual do cadastro
+                    </div>
+                    <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-text-gray">{selectedContact.observacao}</p>
+                  </div>
+                )}
+
+                <LeadWorkspacePanel
+                  leadId={selectedContact.session_id}
+                  sessionId={selectedContact.session_id}
+                  phone={selectedContact.telefone}
+                  leadName={selectedContact.nome}
+                  title="Historico interno do contato"
+                />
+
+                <div className="rounded-2xl border border-border-gray bg-primary-black/45 p-4">
+                  <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <h3 className="flex items-center gap-2 text-sm font-semibold text-pure-white">
+                      <MessageSquare className="h-4 w-4 text-accent-green" />
+                      Historico completo da conversa
+                    </h3>
+                    <span className="text-xs text-text-gray">{contactHistory.length} mensagem(ns)</span>
+                  </div>
+                  <ScrollArea className="h-[360px] rounded-xl border border-border-gray bg-secondary-black/40 p-3 genial-scrollbar">
+                    {historyLoading ? (
+                      <div className="flex h-40 items-center justify-center text-text-gray">
+                        <Loader2 className="mr-2 h-5 w-5 animate-spin text-accent-green" />
+                        Carregando historico...
+                      </div>
+                    ) : contactHistory.length > 0 ? (
+                      <div className="space-y-3">
+                        {contactHistory.map((message, index) => {
+                          const isLead = message.senderType === "lead" || message.role === "user"
+                          return (
+                            <div
+                              key={`${message.created_at}-${index}`}
+                              className={`rounded-xl border p-3 ${isLead ? "border-accent-green/25 bg-accent-green/10" : "border-border-gray bg-primary-black/70"}`}
+                            >
+                              <div className="mb-1 flex items-center justify-between gap-2 text-xs text-text-gray">
+                                <span className="font-semibold text-pure-white">{isLead ? "Lead" : "Atendimento"}</span>
+                                <span>{new Date(message.created_at).toLocaleString("pt-BR")}</span>
+                              </div>
+                              <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-pure-white/90">{message.content}</p>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    ) : (
+                      <div className="flex h-40 items-center justify-center text-center text-sm text-text-gray">
+                        Nenhum historico de conversa encontrado para este contato.
+                      </div>
+                    )}
+                  </ScrollArea>
+                </div>
+              </div>
+            </ScrollArea>
+          </>
         ) : (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center max-w-lg px-6">
               <div className="w-24 h-24 mx-auto mb-6 rounded-2xl bg-accent-green/10 border border-accent-green/20 flex items-center justify-center">
                 <BookUser className="w-12 h-12 text-accent-green" />
               </div>
-              <h2 className="text-2xl font-bold text-pure-white mb-3">Gestão de Contatos</h2>
+              <h2 className="text-2xl font-bold text-pure-white mb-3">Gestao de Contatos</h2>
               <p className="text-text-gray mb-8 leading-relaxed">
-                Cadastre e gerencie seus leads com informações detalhadas — dados pessoais, empresariais,
-                redes sociais, valores e status. Contatos ficam disponíveis para conversas,
-                disparos em massa e follow-ups automáticos.
+                Clique em um contato para abrir historico, notas, tarefas e lembretes. Ou cadastre um novo contato manualmente.
               </p>
               <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                <Button onClick={() => { resetForm(); setShowForm(true) }}
+                <Button onClick={() => { resetForm(); setSelectedContact(null); setShowForm(true) }}
                   className="bg-accent-green hover:bg-emerald-500 text-black font-semibold gap-2 h-11">
                   <UserPlus className="w-4 h-4" />
                   Cadastrar Novo Contato

@@ -3,6 +3,7 @@ import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
 import { resolveTenant } from "@/lib/helpers/resolve-tenant"
 import { getTablesForTenant } from "@/lib/helpers/tenant"
+import { ensureLeadWorkspaceAutomation } from "@/lib/services/lead-workspace-automation.service"
 
 type InternalItemType = "note" | "task" | "reminder"
 type InternalItemStatus = "open" | "done" | "archived"
@@ -18,7 +19,7 @@ function isMissingTableError(error: any): boolean {
 
 function normalizePhone(value: unknown): string {
   const digits = String(value || "").replace(/\D/g, "")
-  if (!digits) return ""
+  if (digits.length < 10) return ""
   return digits.startsWith("55") ? digits : `55${digits}`
 }
 
@@ -56,38 +57,97 @@ function buildIdentityFilters(params: {
   return filters.join(",")
 }
 
+async function loadWorkspaceItems(params: {
+  table: string
+  leadId?: string
+  sessionId?: string
+  phone?: string
+}) {
+  const supabase = createBiaSupabaseServerClient()
+  const leadId = normalizeText(params.leadId, 220)
+  const sessionId = normalizeText(params.sessionId, 220)
+  const phone = normalizePhone(params.phone)
+  const rows = new Map<string, any>()
+
+  const queries: Array<Promise<{ data: any[] | null; error: any }>> = []
+  if (leadId) {
+    queries.push(supabase.from(params.table).select("*").eq("lead_id", leadId).limit(100) as any)
+  }
+  if (sessionId && sessionId !== leadId) {
+    queries.push(supabase.from(params.table).select("*").eq("session_id", sessionId).limit(100) as any)
+  }
+  if (phone) {
+    const without55 = phone.startsWith("55") ? phone.slice(2) : phone
+    queries.push(supabase.from(params.table).select("*").eq("phone", phone).limit(100) as any)
+    if (without55 && without55 !== phone) {
+      queries.push(supabase.from(params.table).select("*").eq("phone", without55).limit(100) as any)
+    }
+  }
+
+  for (const result of await Promise.all(queries)) {
+    if (result.error) return { data: null, error: result.error }
+    for (const row of result.data || []) {
+      if (row?.id) rows.set(String(row.id), row)
+    }
+  }
+
+  return {
+    data: Array.from(rows.values()).sort((a, b) =>
+      String(b.created_at || "").localeCompare(String(a.created_at || "")),
+    ),
+    error: null,
+  }
+}
+
 export async function GET(req: Request) {
   try {
     const { tenant } = await resolveTenantContext(req)
     const tables = getTablesForTenant(tenant)
     const table = tables.leadInternalItems
-    const supabase = createBiaSupabaseServerClient()
     const url = new URL(req.url)
-    const filters = buildIdentityFilters({
-      leadId: url.searchParams.get("leadId") || "",
-      sessionId: url.searchParams.get("sessionId") || "",
-      phone: url.searchParams.get("phone") || "",
-    })
+    const leadId = url.searchParams.get("leadId") || ""
+    const sessionId = url.searchParams.get("sessionId") || ""
+    const phone = url.searchParams.get("phone") || ""
+    const leadName = url.searchParams.get("leadName") || ""
+    const filters = buildIdentityFilters({ leadId, sessionId, phone })
 
     if (!filters) {
       return NextResponse.json({ error: "leadId, sessionId ou phone e obrigatorio" }, { status: 400 })
     }
 
-    const { data, error } = await supabase
-      .from(table)
-      .select("*")
-      .or(filters)
-      .order("created_at", { ascending: false })
-      .limit(100)
+    const automation = await ensureLeadWorkspaceAutomation({
+      tenant,
+      leadId,
+      sessionId,
+      phone,
+      leadName,
+    }).catch((error) => {
+      console.warn("[LeadWorkspace] Automation skipped:", error?.message || error)
+      return null
+    })
+
+    const { data, error } = await loadWorkspaceItems({ table, leadId, sessionId, phone })
 
     if (error) {
       if (isMissingTableError(error)) {
-        return NextResponse.json({ items: [], missingTable: true })
+        return NextResponse.json({
+          items: [],
+          missingTable: true,
+          attendanceSummary: automation?.summary || "",
+          automation: { created: 0, updated: 0 },
+        })
       }
       throw error
     }
 
-    return NextResponse.json({ items: data || [] })
+    return NextResponse.json({
+      items: data || [],
+      attendanceSummary: automation?.summary || "",
+      automation: {
+        created: automation?.created || 0,
+        updated: automation?.updated || 0,
+      },
+    })
   } catch (error: any) {
     console.error("[LeadWorkspace] GET error:", error)
     return NextResponse.json(

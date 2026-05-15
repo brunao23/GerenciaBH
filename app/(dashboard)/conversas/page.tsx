@@ -33,6 +33,7 @@ import { Search, MessageSquare, Phone, User, Clock, AlertCircle, CheckCircle2, P
 import { useTenant } from "@/lib/contexts/TenantContext"
 import { resolveAvatarImageSrc } from "@/lib/helpers/avatar-proxy"
 import { toast } from "sonner"
+import { LeadWorkspacePanel } from "@/components/crm/lead-workspace-panel"
 
 type ChatMessage = {
   role: "user" | "bot"
@@ -2738,6 +2739,16 @@ export default function ConversasPage() {
                       </div>
                     </div>
                   )}
+
+                  <LeadWorkspacePanel
+                    leadId={current.session_id}
+                    sessionId={current.session_id}
+                    phone={current.channel === "instagram" ? undefined : current.numero || current.session_id}
+                    leadName={current.contact_name || "Lead"}
+                    compact
+                    title="Historico interno do lead"
+                    className="mb-4"
+                  />
 
                   {detailLoadingSessionId === current.session_id && current.isSummary ? (
                     <div className="flex items-center justify-center py-10 text-text-gray">
