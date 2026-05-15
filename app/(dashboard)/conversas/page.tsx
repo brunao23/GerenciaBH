@@ -90,6 +90,83 @@ function readBlobAsDataUrl(blob: Blob): Promise<string> {
   })
 }
 
+function inferAudioMimeTypeFromName(name: string, fallback = ""): string {
+  const lower = String(name || "").toLowerCase()
+  if (lower.endsWith(".mp3")) return "audio/mpeg"
+  if (lower.endsWith(".ogg") || lower.endsWith(".opus")) return "audio/ogg"
+  if (lower.endsWith(".wav")) return "audio/wav"
+  if (lower.endsWith(".m4a") || lower.endsWith(".mp4") || lower.endsWith(".aac")) return "audio/mp4"
+  if (lower.endsWith(".webm")) return "audio/webm"
+  return fallback || "audio/mpeg"
+}
+
+function shouldConvertAudioToWav(mimeType: string, name: string, forceWav = false): boolean {
+  if (forceWav) return true
+  const mime = String(mimeType || "").toLowerCase()
+  const lowerName = String(name || "").toLowerCase()
+  return mime.includes("webm") || lowerName.endsWith(".webm")
+}
+
+function writeAscii(view: DataView, offset: number, value: string) {
+  for (let i = 0; i < value.length; i += 1) {
+    view.setUint8(offset + i, value.charCodeAt(i))
+  }
+}
+
+function encodeAudioBufferToWav(buffer: AudioBuffer): Blob {
+  const samples = buffer.getChannelData(0)
+  const dataLength = samples.length * 2
+  const wav = new ArrayBuffer(44 + dataLength)
+  const view = new DataView(wav)
+
+  writeAscii(view, 0, "RIFF")
+  view.setUint32(4, 36 + dataLength, true)
+  writeAscii(view, 8, "WAVE")
+  writeAscii(view, 12, "fmt ")
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true)
+  view.setUint16(22, 1, true)
+  view.setUint32(24, buffer.sampleRate, true)
+  view.setUint32(28, buffer.sampleRate * 2, true)
+  view.setUint16(32, 2, true)
+  view.setUint16(34, 16, true)
+  writeAscii(view, 36, "data")
+  view.setUint32(40, dataLength, true)
+
+  let offset = 44
+  for (let i = 0; i < samples.length; i += 1, offset += 2) {
+    const sample = Math.max(-1, Math.min(1, samples[i] || 0))
+    view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true)
+  }
+
+  return new Blob([wav], { type: "audio/wav" })
+}
+
+async function convertAudioBlobToWav(blob: Blob): Promise<Blob> {
+  if (typeof window === "undefined") throw new Error("audio_conversion_unavailable")
+  const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext
+  if (!AudioContextCtor || typeof OfflineAudioContext === "undefined") {
+    throw new Error("Seu navegador nao suporta conversao de audio")
+  }
+
+  const input = await blob.arrayBuffer()
+  const audioContext = new AudioContextCtor()
+  try {
+    const decoded = await audioContext.decodeAudioData(input.slice(0))
+    const targetSampleRate = 16000
+    const frameCount = Math.max(1, Math.ceil(decoded.duration * targetSampleRate))
+    const offline = new OfflineAudioContext(1, frameCount, targetSampleRate)
+    const source = offline.createBufferSource()
+    source.buffer = decoded
+    source.connect(offline.destination)
+    source.start(0)
+    const rendered = await offline.startRendering()
+    return encodeAudioBufferToWav(rendered)
+  } finally {
+    audioContext.close?.().catch?.(() => {})
+  }
+}
+
 function getMessageAudioSource(message: ChatMessage): string {
   const value = String(message.audioUrl || "").trim()
   if (value) return value
@@ -1389,13 +1466,16 @@ export default function ConversasPage() {
           headers: {
             "Content-Type": "application/json"
           },
-          body: JSON.stringify({
-            numero: currentPausePhone,
-            pausar: param === "pausar" ? newValue : (pauseStatus?.pausar ?? false),
-            vaga: param === "vaga" ? newValue : (pauseStatus?.vaga ?? true),
-            agendamento: param === "agendamento" ? newValue : (pauseStatus?.agendamento ?? false),
-          }),
-        })
+        body: JSON.stringify({
+          numero: currentPausePhone,
+          pausar: param === "pausar" ? newValue : (pauseStatus?.pausar ?? false),
+          vaga: param === "vaga" ? newValue : (pauseStatus?.vaga ?? true),
+          agendamento: param === "agendamento" ? newValue : (pauseStatus?.agendamento ?? false),
+          ...(param === "pausar" && newValue
+            ? { pause_reason: "manual_human_panel", paused_until: null }
+            : {}),
+        }),
+      })
 
         if (response.ok) {
           setPauseStatus((prev) =>
@@ -2247,22 +2327,40 @@ export default function ConversasPage() {
     }
   }
 
-  const setAudioFromBlob = async (blob: Blob, name: string) => {
+  const setAudioFromBlob = async (blob: Blob, name: string, options?: { forceWav?: boolean }) => {
     if (!blob || blob.size <= 0) {
       toast.error("Audio vazio")
       return
     }
-    if (blob.size > MAX_MANUAL_AUDIO_BYTES) {
-      toast.error("Audio maior que 3 MB")
+    const inferredMimeType = inferAudioMimeTypeFromName(name, blob.type || "")
+    let preparedBlob = blob.type ? blob : new Blob([blob], { type: inferredMimeType })
+    let preparedName = name || "audio"
+    let preparedMimeType = preparedBlob.type || inferredMimeType
+
+    if (shouldConvertAudioToWav(preparedMimeType, preparedName, options?.forceWav === true)) {
+      try {
+        toast.message("Preparando audio para envio...")
+        preparedBlob = await convertAudioBlobToWav(preparedBlob)
+        preparedName = preparedName.replace(/\.[a-z0-9]+$/i, "") || "audio"
+        preparedName = `${preparedName}.wav`
+        preparedMimeType = "audio/wav"
+      } catch (error: any) {
+        toast.error(error?.message || "Nao foi possivel converter este audio")
+        return
+      }
+    }
+
+    if (preparedBlob.size > MAX_MANUAL_AUDIO_BYTES) {
+      toast.error(`Audio maior que ${formatBytes(MAX_MANUAL_AUDIO_BYTES)} apos preparo`)
       return
     }
-    const dataUrl = await readBlobAsDataUrl(blob)
-    const mimeType = blob.type || String(dataUrl.match(/^data:(audio\/[^;]+);/i)?.[1] || "audio/webm")
+    const dataUrl = await readBlobAsDataUrl(preparedBlob)
+    const mimeType = preparedMimeType || String(dataUrl.match(/^data:(audio\/[^;]+);/i)?.[1] || "audio/wav")
     setPendingAudio({
       dataUrl,
-      name,
+      name: preparedName,
       mimeType,
-      size: blob.size,
+      size: preparedBlob.size,
     })
   }
 
@@ -2317,7 +2415,7 @@ export default function ConversasPage() {
         try {
           const finalType = recorder.mimeType || mimeType || "audio/webm"
           const blob = new Blob(chunks, { type: finalType })
-          await setAudioFromBlob(blob, `audio-${new Date().toISOString().replace(/[:.]/g, "-")}.webm`)
+          await setAudioFromBlob(blob, `audio-${new Date().toISOString().replace(/[:.]/g, "-")}.wav`, { forceWav: true })
         } catch (error: any) {
           toast.error(error?.message || "Erro ao finalizar gravacao")
         }
@@ -2606,7 +2704,8 @@ export default function ConversasPage() {
           pausar: true,
           vaga: false,
           agendamento: false,
-          paused_until: pausedUntil
+          paused_until: pausedUntil,
+          pause_reason: "manual_human_panel",
         })
       })
 

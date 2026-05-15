@@ -492,8 +492,16 @@ export class ZApiService {
         return { success: false, error: "Audio obrigatorio para envio" }
       }
       const isAudioUrl = /^https?:\/\//i.test(audio)
-      const base64Candidate = audio.replace(/\s+/g, "").trim()
-      const isBase64Payload = !isAudioUrl && /^[a-zA-Z0-9+/=]+$/.test(base64Candidate) && base64Candidate.length > 80
+      const dataUriMatch = audio.match(/^data:(audio\/[^;]+);base64,([A-Za-z0-9+/=\s]+)$/i)
+      const audioMimeType = String(dataUriMatch?.[1] || "").trim()
+      const base64Candidate = String(dataUriMatch?.[2] || audio).replace(/\s+/g, "").trim()
+      const dataUriPayload = audioMimeType && base64Candidate
+        ? `data:${audioMimeType};base64,${base64Candidate}`
+        : ""
+      const isBase64Payload =
+        !isAudioUrl &&
+        /^[a-zA-Z0-9+/=]+$/.test(base64Candidate) &&
+        base64Candidate.length > 80
 
       const delayMessage = Number.isFinite(Number(params.delayMessage))
         ? Math.max(1, Math.min(15, Math.floor(Number(params.delayMessage))))
@@ -512,6 +520,7 @@ export class ZApiService {
               {
                 phone: target,
                 audio: base64Candidate,
+                ...(audioMimeType ? { mimeType: audioMimeType } : {}),
                 delayMessage,
                 delayTyping,
                 waveform,
@@ -520,6 +529,7 @@ export class ZApiService {
                 phone: target,
                 audio: base64Candidate,
                 isBase64: true,
+                ...(audioMimeType ? { mimeType: audioMimeType } : {}),
                 delayMessage,
                 delayTyping,
                 waveform,
@@ -527,10 +537,20 @@ export class ZApiService {
               {
                 phone: target,
                 base64: base64Candidate,
+                ...(audioMimeType ? { mimeType: audioMimeType } : {}),
                 delayMessage,
                 delayTyping,
                 waveform,
               },
+              ...(dataUriPayload
+                ? [{
+                    phone: target,
+                    audio: dataUriPayload,
+                    delayMessage,
+                    delayTyping,
+                    waveform,
+                  }]
+                : []),
             ]
           : [
               {

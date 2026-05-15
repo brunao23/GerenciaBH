@@ -4298,6 +4298,19 @@ export async function POST(req: NextRequest) {
       } catch (orchestratorError: any) {
         console.error(`[Webhook][Background] Orquestrador falhou para ${sessionForInbound}:`, orchestratorError)
         try {
+          const fallbackPauseLookupPhone = normalizeLikelyWhatsappPhone(
+            replyPhone || canonicalPhone || sessionForInbound || routing.phone || event.phone,
+          )
+          if (fallbackPauseLookupPhone) {
+            const fallbackPauseState = await getLeadPauseState({ tenant, phone: fallbackPauseLookupPhone })
+            if (fallbackPauseState?.paused) {
+              console.warn(
+                `[Webhook][Background] Fallback bloqueado por pausa ativa: tenant=${tenant} phone=${fallbackPauseLookupPhone}`,
+              )
+              return
+            }
+          }
+
           const fallbackMessage =
             "Recebi sua mensagem. Estou validando as informacoes e ja continuo seu atendimento."
           const messaging = new TenantMessagingService()

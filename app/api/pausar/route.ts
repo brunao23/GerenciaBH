@@ -90,6 +90,17 @@ function parseBooleanInput(value: unknown, fallback: boolean): boolean {
   return fallback
 }
 
+function isExpiredPause(row: any): boolean {
+  const paused = row?.pausar === true || String(row?.pausar || "").trim().toLowerCase() === "true"
+  if (!paused) return false
+
+  const pausedUntil = String(row?.paused_until || "").trim()
+  if (!pausedUntil) return false
+
+  const until = new Date(pausedUntil)
+  return Number.isFinite(until.getTime()) && until.getTime() <= Date.now()
+}
+
 // GET - Listar todos os registros de pausa ou buscar por número específico
 export async function GET(request: NextRequest) {
   try {
@@ -147,6 +158,16 @@ export async function GET(request: NextRequest) {
 
     if (numero) {
       const record = Array.isArray(data) ? data[0] : data
+      if (record && isExpiredPause(record)) {
+        return NextResponse.json({
+          success: true,
+          data: {
+            ...record,
+            pausar: false,
+            pause_expired: true,
+          }
+        })
+      }
       return NextResponse.json({
         success: true,
         data: record
@@ -239,6 +260,10 @@ export async function POST(request: NextRequest) {
 
     if (paused_until !== undefined) {
       payload.paused_until = paused_until // Pode ser null ou data ISO string
+    } else if (hasPausarField && pausarBool) {
+      // Pausa acionada pelo botão "Pausado" deve ser permanente.
+      // Sem isso, um paused_until antigo/vencido fica no registro e a IA volta a responder.
+      payload.paused_until = null
     }
 
     if (hasPausarField && pausarBool) {

@@ -800,7 +800,8 @@ export class TenantMessagingService {
 
       if (input.persistInHistory !== false) {
         const historyContent = String(input.historyContent || "").trim() || "[audio]"
-        const historyAudioUrl = String(input.historyAudioUrl || "").trim() || audio
+        const explicitHistoryAudioUrl = String(input.historyAudioUrl || "").trim()
+        const historyAudioUrl = explicitHistoryAudioUrl || (/^data:audio\//i.test(audio) ? "" : audio)
         const audioMimeType = this.resolveAudioMimeType(historyAudioUrl || audio, input.audioMimeType)
         await this.persistOutgoingMessage({
           tenant,
