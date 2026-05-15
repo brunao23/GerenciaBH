@@ -56,7 +56,12 @@ export default function LoginPage() {
         return
       }
 
-      window.location.href = "/dashboard"
+      const nextPath = new URLSearchParams(window.location.search).get("next")
+      const safeNextPath =
+        nextPath && nextPath.startsWith("/") && !nextPath.startsWith("//")
+          ? nextPath
+          : "/dashboard"
+      window.location.href = safeNextPath
     } catch {
       setError("Erro ao conectar com o servidor")
       setLoading(false)

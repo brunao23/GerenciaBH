@@ -5,6 +5,7 @@ export const dynamic = "force-dynamic"
 import { useEffect, useMemo, useState } from "react"
 import nextDynamic from "next/dynamic"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
@@ -385,7 +386,8 @@ function LeadRow({
 // Main page
 
 export default function DashboardPage() {
-  const { tenant } = useTenant()
+  const router = useRouter()
+  const { tenant, session, loading: sessionLoading } = useTenant()
   // Visão Geral state
   const [data, setData] = useState<Overview | null>(null)
   const [previousData, setPreviousData] = useState<Overview | null>(null)
@@ -430,6 +432,12 @@ export default function DashboardPage() {
   const [metaLoading, setMetaLoading] = useState(false)
   const [metaError, setMetaError] = useState<string | null>(null)
   const [metaConfig, setMetaConfig] = useState<any>(null)
+
+  useEffect(() => {
+    if (sessionLoading || session) return
+    router.replace("/login?next=%2Fdashboard")
+  }, [router, session, sessionLoading])
+
   // Overview fetch
 
   const buildPeriodParams = () => {
@@ -921,6 +929,17 @@ export default function DashboardPage() {
     },
   ]
   // Render
+
+  if (sessionLoading || !session) {
+    return (
+      <div className="flex h-[calc(100dvh-4rem)] min-h-[420px] w-full items-center justify-center bg-background text-foreground">
+        <div className="flex flex-col items-center gap-3 rounded-2xl border border-border bg-card px-6 py-5 shadow-sm">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary/25 border-t-primary" />
+          <p className="text-sm font-medium text-muted-foreground">Carregando acesso...</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="w-full min-w-0 max-w-full space-y-6 overflow-x-hidden pb-10">
