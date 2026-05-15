@@ -462,6 +462,7 @@ function leadSelectedSingleSchedulingPeriod(value: string): "manha" | "tarde" | 
   if (!text || text.length > 60) return null
   const hasQuestion = /\?|\b(que horas|qual horario|quais horarios|quanto|valor|onde|como)\b/.test(text)
   if (hasQuestion) return null
+  if (/\b(trabalho|trabalhar|estudo|estudar|curso|atuo|rotina)\b/.test(text)) return null
 
   const periods = [
     { key: "manha" as const, pattern: /\b(manha|cedo)\b/ },
@@ -911,6 +912,245 @@ function detectsSchedulingIntent(rawMessage: string): boolean {
   }
 
   return false
+}
+
+const SCHEDULING_TOOL_TYPES = new Set([
+  "get_available_slots",
+  "schedule_appointment",
+  "edit_appointment",
+  "cancel_appointment",
+])
+
+function hasSchedulingToolExecution(executions: GeminiToolExecution[] | undefined): boolean {
+  return Array.isArray(executions) && executions.some((execution) => {
+    const type = String(execution?.action?.type || execution?.call?.name || "").trim().toLowerCase()
+    return SCHEDULING_TOOL_TYPES.has(type)
+  })
+}
+
+function hasAppointmentMutationExecution(executions: GeminiToolExecution[] | undefined): boolean {
+  return Array.isArray(executions) && executions.some((execution) => {
+    const type = String(execution?.action?.type || execution?.call?.name || "").trim().toLowerCase()
+    return type === "schedule_appointment" || type === "edit_appointment"
+  })
+}
+
+function detectsAvailabilityLookupIntent(rawMessage: string): boolean {
+  const text = normalizeComparableMessage(rawMessage)
+  if (!text) return false
+  if (detectsSchedulingIntent(rawMessage)) return true
+  if (leadSelectedSingleSchedulingPeriod(rawMessage)) return true
+
+  if (
+    /\b(horario|horarios|hora|horas|vaga|vagas|agenda|agendar|marcar|reservar|disponivel|disponibilidade|tem vaga|que horas|qual horario|quais horarios)\b/.test(text)
+  ) {
+    return true
+  }
+
+  if (
+    text.length <= 90 &&
+    /\b(hoje|amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo|manha|tarde|noite|noturno)\b/.test(text)
+  ) {
+    return true
+  }
+
+  return false
+}
+
+function extractSchedulingTimeCandidate(rawMessage: string): string | undefined {
+  const raw = String(rawMessage || "").trim()
+  if (!raw) return undefined
+
+  const explicit =
+    raw.match(/\b(?:as|a|às)\s*([01]?\d|2[0-3])(?:\s*[:h]\s*([0-5]\d))?\b/i) ||
+    raw.match(/\b([01]?\d|2[0-3])\s*[:h]\s*([0-5]\d)\b/i)
+  if (explicit) {
+    const hour = Number(explicit[1])
+    const minute = explicit[2] !== undefined ? Number(explicit[2]) : 0
+    if (Number.isInteger(hour) && Number.isInteger(minute)) {
+      return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`
+    }
+  }
+
+  const normalized = normalizeComparableMessage(raw)
+  const numericOnly = normalized.match(/^([01]?\d|2[0-3])$/)
+  if (numericOnly && raw.length <= 8) {
+    return `${String(Number(numericOnly[1])).padStart(2, "0")}:00`
+  }
+
+  return undefined
+}
+
+function responseMentionsAvailabilityOrSpecificSlots(responseText: string): boolean {
+  const text = normalizeComparableMessage(responseText)
+  if (!text) return false
+  if (responseClaimsAppointmentConfirmed(responseText)) return true
+
+  const saysWillCheckSchedule =
+    /\b(vou validar|vou verificar|vou consultar|validar os horarios|verificar os horarios|consultar a agenda)\b/.test(text)
+  const hasScheduleNoun = /\b(agenda|disponivel|disponiveis|horario|horarios|vaga|vagas)\b/.test(text)
+  const hasConcreteTimeOrDay =
+    /\b([01]?\d|2[0-3])[:h](?:[0-5]\d)?\b/.test(text) ||
+    /\b(hoje|amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo)\b/.test(text)
+  const offersSlot = /\b(tenho|temos)\b/.test(text) && hasConcreteTimeOrDay
+
+  return saysWillCheckSchedule || hasScheduleNoun || offersSlot
+}
+
+function responseClaimsAppointmentConfirmed(responseText: string): boolean {
+  const text = normalizeComparableMessage(responseText)
+  if (!text) return false
+  return /\b(agendado|agendamento confirmado|agendamento realizado|confirmado|reservado|formalizado|te espero|diagnostico com)\b/.test(text)
+}
+
+function shouldBypassSemanticCacheForScheduling(leadMessage: string, responseText?: string): boolean {
+  if (detectsAvailabilityLookupIntent(leadMessage)) return true
+  if (responseText && responseMentionsAvailabilityOrSpecificSlots(responseText)) return true
+  return false
+}
+
+function extractEmailCandidate(rawMessage: string): string | undefined {
+  const text = String(rawMessage || "")
+  EMAIL_REGEX.lastIndex = 0
+  const match = EMAIL_REGEX.exec(text)
+  EMAIL_REGEX.lastIndex = 0
+  return match?.[0] ? normalizeEmailCandidate(match[0]) || undefined : undefined
+}
+
+function findRecentSchedulingTimeCandidate(rows: any[] | undefined, currentMessage: string): string | undefined {
+  const current = extractSchedulingTimeCandidate(currentMessage)
+  if (current) return current
+
+  const ordered = Array.isArray(rows) ? [...rows].reverse() : []
+  for (const row of ordered.slice(0, 12)) {
+    const message = row?.message || row || {}
+    const role = String(message?.role || row?.role || "").trim().toLowerCase()
+    if (role !== "user") continue
+    const candidate = extractSchedulingTimeCandidate(String(message?.content || row?.content || ""))
+    if (candidate) return candidate
+  }
+  return undefined
+}
+
+function findRecentSchedulingDateCandidate(rows: any[] | undefined, currentMessage: string, timezone: string, timeValue?: string): string | undefined {
+  const current = resolveTemporalDateFromLeadMessage({
+    leadMessage: currentMessage,
+    timezone,
+    timeValue,
+  })
+  if (current) return current
+
+  const ordered = Array.isArray(rows) ? [...rows].reverse() : []
+  for (const row of ordered.slice(0, 16)) {
+    const message = row?.message || row || {}
+    const content = String(message?.content || row?.content || "")
+    if (!content) continue
+    const role = String(message?.role || row?.role || "").trim().toLowerCase()
+    if (role !== "assistant" && role !== "user") continue
+    const candidate = resolveTemporalDateFromLeadMessage({
+      leadMessage: content,
+      timezone,
+      timeValue,
+    })
+    if (candidate) return candidate
+  }
+  return undefined
+}
+
+function hasRecentAssistantOfferedSchedule(rows: any[] | undefined): boolean {
+  const ordered = Array.isArray(rows) ? [...rows].reverse() : []
+  for (const row of ordered.slice(0, 10)) {
+    const message = row?.message || row || {}
+    const role = String(message?.role || row?.role || "").trim().toLowerCase()
+    if (role !== "assistant") continue
+    const content = String(message?.content || row?.content || "")
+    if (responseMentionsAvailabilityOrSpecificSlots(content)) return true
+  }
+  return false
+}
+
+function periodMatchesSlot(timeValue: any, period: "manha" | "tarde" | "noite"): boolean {
+  const normalized = normalizeTimeToHHmm(timeValue)
+  if (!normalized) return false
+  const [hourRaw] = normalized.split(":")
+  const hour = Number(hourRaw)
+  if (period === "manha") return hour < 12
+  if (period === "tarde") return hour >= 12 && hour < 18
+  return hour >= 18
+}
+
+function formatSlotTimeForLead(timeValue: any): string {
+  const normalized = normalizeTimeToHHmm(timeValue) || String(timeValue || "").trim()
+  if (!normalized) return ""
+  return normalized.replace(":", "h")
+}
+
+function formatSlotLabelForLead(slot: any): string {
+  const date = normalizeDateToIso(slot?.date)
+  const time = formatSlotTimeForLead(slot?.time)
+  if (!date || !time) return time || ""
+  const info = getWeekdayInfoForDateIso(date)
+  const relative = normalizeComparableMessage(slot?.relative_label || "")
+  if (relative === "hoje" || relative === "amanha") {
+    return `${relative}, ${info?.weekday_name_pt || ""}, as ${time}`.replace(/\s+,/g, ",").trim()
+  }
+  return `${info?.weekday_name_pt || "dia"} ${info?.date_br || formatDateIsoToBr(date)}, as ${time}`
+}
+
+function buildAvailableSlotsRecoveryReply(response: Record<string, any>, leadMessage: string): string {
+  const rawSlots = Array.isArray(response?.slots_with_context) && response.slots_with_context.length > 0
+    ? response.slots_with_context
+    : Array.isArray(response?.slots)
+      ? response.slots
+      : []
+
+  if (!rawSlots.length) {
+    return "Consultei a agenda agora e nao encontrei horarios livres nesse periodo. Voce consegue outro dia ou periodo?"
+  }
+
+  const selectedPeriod = leadSelectedSingleSchedulingPeriod(leadMessage)
+  const periodSlots = selectedPeriod
+    ? rawSlots.filter((slot: any) => periodMatchesSlot(slot?.time, selectedPeriod))
+    : rawSlots
+  const selectedSlots = (periodSlots.length ? periodSlots : rawSlots).slice(0, 2)
+  const labels = selectedSlots.map(formatSlotLabelForLead).filter(Boolean)
+
+  if (!labels.length) {
+    return "Consultei a agenda agora e encontrei disponibilidade, mas preciso validar o melhor horario exato. Voce consegue me dizer o dia que prefere?"
+  }
+
+  if (labels.length === 1) {
+    return `Consultei a agenda. Tenho ${labels[0]}. Esse horario funciona para voce?`
+  }
+
+  return `Consultei a agenda. Tenho ${labels[0]} ou ${labels[1]}. Qual funciona melhor para voce?`
+}
+
+function buildScheduleRecoveryReply(execution: GeminiToolExecution, contactName?: string | null): string | undefined {
+  const response = execution.response || {}
+  if (!execution.ok || response?.ok === false) {
+    const alternativeSlots = Array.isArray(response?.alternativeSlots) ? response.alternativeSlots : []
+    if (alternativeSlots.length) {
+      return buildAvailableSlotsRecoveryReply({ slots: alternativeSlots }, "")
+    }
+    return undefined
+  }
+
+  const date = normalizeDateToIso(response?.confirmed_date || response?.date || execution.action?.date)
+  const time = normalizeTimeToHHmm(response?.confirmed_time || response?.time || execution.action?.time)
+  const info = getWeekdayInfoForDateIso(date)
+  const leadName = sanitizeSafeVocativeName(contactName) || ""
+  const namePrefix = leadName ? `${leadName}, ` : ""
+  const dateLabel = info?.weekday_name_pt && info?.date_br
+    ? `${info.weekday_name_pt}, dia ${info.date_br}`
+    : date
+      ? `dia ${formatDateIsoToBr(date)}`
+      : "no horario combinado"
+  const timeLabel = time ? `as ${formatSlotTimeForLead(time)}` : ""
+  const mode = String(response?.appointmentMode || execution.action?.appointment_mode || "").toLowerCase()
+  const modeLabel = mode === "online" ? " online" : ""
+
+  return `${namePrefix}agendamento confirmado com sucesso${modeLabel}: ${dateLabel}${timeLabel ? `, ${timeLabel}` : ""}.`
 }
 
 function shouldForceRescheduleBeforeCancel(rawMessage: string): boolean {
@@ -3846,6 +4086,24 @@ export class NativeAgentOrchestratorService {
           console.log(
             `[native-agent][semantic-cache] HIT tenant=${tenant} sim=${cacheHit.similarity.toFixed(3)} cat=${cacheHit.category}`,
           )
+          if (shouldBypassSemanticCacheForScheduling(String(effectiveLeadMessage || content || ""), cacheHit.responseText)) {
+            await this
+              .persistDebugStatus({
+                chat,
+                sessionId,
+                content: "semantic_cache_bypassed_for_scheduling",
+                details: {
+                  debug_event: "semantic_cache_bypassed_for_scheduling",
+                  debug_severity: "info",
+                  cache_category: cacheHit.category,
+                  cache_similarity: cacheHit.similarity,
+                  lead_preview: String(effectiveLeadMessage || content || "").slice(0, 180),
+                  cached_reply_preview: String(cacheHit.responseText || "").slice(0, 180),
+                },
+              })
+              .catch(() => {})
+            cacheHit = null
+          }
         } else {
           console.log(
             `[native-agent][semantic-cache] MISS tenant=${tenant} threshold=${config.semanticCacheSimilarityThreshold ?? 0.88}`,
@@ -3993,7 +4251,16 @@ export class NativeAgentOrchestratorService {
           .catch(() => {})
       }
       // Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬ Semantic Cache: store Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬
-      if (cacheEnabled && decision?.reply && !looksLikeInternalDecisionPayload(String(decision.reply || ""))) {
+      const cacheUnsafeSchedulingReply = shouldBypassSemanticCacheForScheduling(
+        String(effectiveLeadMessage || content || ""),
+        String(decision?.reply || ""),
+      )
+      if (
+        cacheEnabled &&
+        decision?.reply &&
+        !cacheUnsafeSchedulingReply &&
+        !looksLikeInternalDecisionPayload(String(decision.reply || ""))
+      ) {
         try {
           const hasToolCalls = (decision.toolCalls?.length || 0) > 0
           const cacheCheck = this.semanticCache.shouldCache({
@@ -4028,6 +4295,10 @@ export class NativeAgentOrchestratorService {
         } catch (storeErr) {
           console.warn("[native-agent][semantic-cache] store failed:", storeErr)
         }
+      } else if (cacheEnabled && cacheUnsafeSchedulingReply) {
+        console.log(
+          `[native-agent][semantic-cache] NOT_CACHED tenant=${tenant} reason=scheduling_sensitive_response msgLen=${effectiveMessage.length}`,
+        )
       }
     }
 
@@ -4188,6 +4459,72 @@ export class NativeAgentOrchestratorService {
             },
           })
           .catch(() => {})
+      }
+    }
+
+    const originalDecisionReplyBeforeSchedulingRecovery = String(decision.reply || "")
+    const schedulingRecovery = await this.recoverMissingSchedulingToolUse({
+      tenant,
+      phone,
+      sessionId,
+      contactName: resolvedContactName || undefined,
+      config,
+      chat,
+      incomingMessageId: input.messageId,
+      qualificationState,
+      leadMessage: String(effectiveLeadMessage || content || ""),
+      responseText: originalDecisionReplyBeforeSchedulingRecovery,
+      conversationRows,
+      existingExecutions: decision.executions as GeminiToolExecution[],
+    })
+    if (schedulingRecovery?.executions?.length) {
+      decision.executions = [
+        ...(Array.isArray(decision.executions) ? decision.executions : []),
+        ...schedulingRecovery.executions,
+      ]
+      decision.actions = decision.executions.map((execution: GeminiToolExecution) => execution.action)
+      if (schedulingRecovery.reply) {
+        decision.reply = schedulingRecovery.reply
+      }
+      await this
+        .persistDebugStatus({
+          chat,
+          sessionId,
+          content: "scheduling_tool_recovery_forced",
+          details: {
+            debug_event: "scheduling_tool_recovery_forced",
+            debug_severity: "warning",
+            reason: schedulingRecovery.reason,
+            tool_names: schedulingRecovery.executions.map((execution) => execution.call?.name || execution.action?.type),
+            lead_preview: String(effectiveLeadMessage || content || "").slice(0, 180),
+            original_reply_preview: originalDecisionReplyBeforeSchedulingRecovery.slice(0, 180),
+          },
+        })
+        .catch(() => {})
+    }
+
+    if (
+      !hasAppointmentMutationExecution(decision.executions as GeminiToolExecution[]) &&
+      responseClaimsAppointmentConfirmed(String(decision.reply || ""))
+    ) {
+      await this
+        .persistDebugStatus({
+          chat,
+          sessionId,
+          content: "schedule_confirmation_blocked_without_tool",
+          details: {
+            debug_event: "schedule_confirmation_blocked_without_tool",
+            debug_severity: "error",
+            lead_preview: String(effectiveLeadMessage || content || "").slice(0, 180),
+            blocked_reply_preview: String(decision.reply || "").slice(0, 240),
+          },
+        })
+        .catch(() => {})
+      return {
+        processed: true,
+        replied: false,
+        actions: [],
+        reason: "schedule_confirmation_without_tool_blocked",
       }
     }
 
@@ -5070,6 +5407,175 @@ export class NativeAgentOrchestratorService {
     }
 
     return undefined
+  }
+
+  private async recoverMissingSchedulingToolUse(params: {
+    tenant: string
+    phone: string
+    sessionId: string
+    contactName?: string
+    config: NativeAgentConfig
+    chat: TenantChatHistoryService
+    incomingMessageId?: string
+    qualificationState: QualificationState
+    leadMessage: string
+    responseText: string
+    conversationRows: Array<{ role: "user" | "assistant" | "system"; content: string }>
+    existingExecutions: GeminiToolExecution[]
+  }): Promise<{ executions: GeminiToolExecution[]; reply?: string; reason: string } | null> {
+    const leadMessage = String(params.leadMessage || "").trim()
+    const responseText = String(params.responseText || "").trim()
+    const timezone = params.config.timezone || "America/Sao_Paulo"
+    const claimsConfirmed = responseClaimsAppointmentConfirmed(responseText)
+    const needsLookup =
+      detectsAvailabilityLookupIntent(leadMessage) ||
+      responseMentionsAvailabilityOrSpecificSlots(responseText)
+
+    if (claimsConfirmed ? hasAppointmentMutationExecution(params.existingExecutions) : hasSchedulingToolExecution(params.existingExecutions)) {
+      return null
+    }
+
+    if (!claimsConfirmed && !needsLookup) return null
+
+    const recentScheduleContext = [...params.conversationRows]
+      .reverse()
+      .slice(0, 10)
+      .filter((row) => row.role === "assistant" || row.role === "user")
+      .map((row) => String(row.content || "").trim())
+      .filter((content) => content && (detectsAvailabilityLookupIntent(content) || responseMentionsAvailabilityOrSpecificSlots(content)))
+      .slice(0, 4)
+      .reverse()
+      .join("\n")
+
+    const combinedContext = [recentScheduleContext, leadMessage, responseText]
+      .filter(Boolean)
+      .join("\n")
+      .slice(0, 3000)
+
+    const toExecution = (
+      toolCall: GeminiToolCall,
+      handled: GeminiToolHandlerResult,
+      fallbackAction: AgentActionPlan,
+    ): GeminiToolExecution => {
+      const ok = Boolean(handled?.ok)
+      const responsePayload =
+        handled?.response && typeof handled.response === "object"
+          ? handled.response
+          : ok
+            ? { ok: true }
+            : { ok: false, error: handled?.error || "tool_execution_failed" }
+
+      return {
+        call: toolCall,
+        action: handled?.action || fallbackAction,
+        ok,
+        response: responsePayload,
+        error: handled?.error,
+      }
+    }
+
+    const leadEmail = extractEmailCandidate(leadMessage) || extractEmailCandidate(responseText)
+    const selectedTime = findRecentSchedulingTimeCandidate(params.conversationRows, `${leadMessage}\n${responseText}`)
+    const selectedDate = findRecentSchedulingDateCandidate(
+      params.conversationRows,
+      combinedContext,
+      timezone,
+      selectedTime,
+    )
+    const shouldSchedule =
+      Boolean(selectedTime) &&
+      (
+        claimsConfirmed ||
+        Boolean(leadEmail) ||
+        hasRecentAssistantOfferedSchedule(params.conversationRows)
+      )
+
+    if (shouldSchedule && selectedTime) {
+      const scheduleArgs: Record<string, any> = {
+        time: selectedTime,
+      }
+      if (selectedDate) scheduleArgs.date = selectedDate
+      if (leadEmail) scheduleArgs.customer_email = leadEmail
+
+      const toolCall: GeminiToolCall = {
+        name: "schedule_appointment",
+        args: scheduleArgs,
+      }
+      const handled = await this.executeToolCall({
+        toolCall,
+        tenant: params.tenant,
+        phone: params.phone,
+        sessionId: params.sessionId,
+        contactName: params.contactName,
+        config: params.config,
+        chat: params.chat,
+        incomingMessageId: params.incomingMessageId,
+        qualificationState: params.qualificationState,
+        leadMessageContext: combinedContext || leadMessage,
+      })
+      const execution = toExecution(toolCall, handled, {
+        type: "schedule_appointment",
+        date: selectedDate,
+        time: selectedTime,
+        customer_email: leadEmail,
+      })
+
+      return {
+        executions: [execution],
+        reply: buildScheduleRecoveryReply(execution, params.contactName),
+        reason: "forced_schedule_appointment_tool",
+      }
+    }
+
+    if (needsLookup) {
+      const nowParts = getNowPartsForTimezone(timezone)
+      const advanceDays = Math.max(
+        1,
+        Math.min(
+          365,
+          Number(params.config.calendarMaxAdvanceDays || 0) ||
+            Number(params.config.calendarMaxAdvanceWeeks || 0) * 7 ||
+            21,
+        ),
+      )
+      const dateFrom = selectedDate || formatDateFromParts(nowParts)
+      const dateTo = selectedDate || formatDateFromParts(addMinutesToParts(nowParts, advanceDays * 24 * 60))
+      const maxSlots = Math.max(100, Math.min(1000, Number(params.config.calendarMaxSlotsPerQuery || 100) || 100))
+      const toolCall: GeminiToolCall = {
+        name: "get_available_slots",
+        args: {
+          date_from: dateFrom,
+          date_to: dateTo,
+          max_slots: maxSlots,
+        },
+      }
+      const handled = await this.executeToolCall({
+        toolCall,
+        tenant: params.tenant,
+        phone: params.phone,
+        sessionId: params.sessionId,
+        contactName: params.contactName,
+        config: params.config,
+        chat: params.chat,
+        incomingMessageId: params.incomingMessageId,
+        qualificationState: params.qualificationState,
+        leadMessageContext: combinedContext || leadMessage,
+      })
+      const execution = toExecution(toolCall, handled, {
+        type: "get_available_slots",
+        date_from: dateFrom,
+        date_to: dateTo,
+        max_slots: maxSlots,
+      })
+
+      return {
+        executions: [execution],
+        reply: execution.ok ? buildAvailableSlotsRecoveryReply(execution.response, leadMessage) : undefined,
+        reason: "forced_get_available_slots_tool",
+      }
+    }
+
+    return null
   }
 
   private async processToolExecutions(params: {
@@ -6383,6 +6889,8 @@ export class NativeAgentOrchestratorService {
     const sourceLower = String(options?.source || "").toLowerCase()
     const isInstagramCommentChannel = sourceLower.includes("instagram-comment") || sourceLower.includes("instagram-mention")
     const isInstagramDmChannel = sourceLower.includes("instagram") && !isInstagramCommentChannel
+    const hasConfiguredUnitCoordinates =
+      Number.isFinite(Number(config.unitLatitude)) && Number.isFinite(Number(config.unitLongitude))
     const scheduleRequired = ["date", "time"]
     const editRequired = ["date", "time"]
 
