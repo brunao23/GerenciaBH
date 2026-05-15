@@ -4,6 +4,22 @@ const noStoreHeaders = [
   { key: 'Vercel-CDN-Cache-Control', value: 'no-store' },
 ]
 
+const publicAssetCacheHeaders = [
+  { key: 'Cache-Control', value: 'public, max-age=86400, stale-while-revalidate=604800' },
+]
+
+const cacheablePublicAssets = [
+  '/gerencia-educacao-logo-light.svg',
+  '/gerencia-educacao-logo-dark.svg',
+  '/gerencia-educacao-mark.svg',
+  '/icon.svg',
+  '/placeholder.svg',
+  '/placeholder-logo.svg',
+  '/placeholder-logo.png',
+  '/placeholder.jpg',
+  '/placeholder-user.jpg',
+]
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   typescript: {
@@ -28,6 +44,9 @@ const nextConfig = {
       '@radix-ui/react-popover',
     ],
   },
+  turbopack: {
+    root: process.cwd(),
+  },
   async headers() {
     return [
       {
@@ -48,8 +67,12 @@ const nextConfig = {
           { key: 'Cache-Control', value: 'public, max-age=31536000, immutable' },
         ],
       },
+      ...cacheablePublicAssets.map((source) => ({
+        source,
+        headers: publicAssetCacheHeaders,
+      })),
       {
-        source: '/((?!api|_next/static|_next/image|favicon.ico).*)',
+        source: '/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|avif|ico)$).*)',
         headers: noStoreHeaders,
       },
     ]

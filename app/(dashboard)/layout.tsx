@@ -9,11 +9,11 @@ import NotificationsMenu from "../../components/notifications-menu"
 import { Toaster } from "../../components/ui/sonner"
 import { TenantSelector } from "../../components/saas/TenantSelector"
 import { ThemeToggle } from "../../components/theme-toggle"
-import OnboardingTour from "../../components/onboarding/OnboardingTour"
 import Link from "next/link"
 
 const NotificationCenter = lazy(() => import("../../components/notification-center"))
 const FeedbackWidget = lazy(() => import("../../components/feedback-widget"))
+const OnboardingTour = lazy(() => import("../../components/onboarding/OnboardingTour"))
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [onboardingForceOpen, setOnboardingForceOpen] = useState(false)
@@ -60,16 +60,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <img
                   src="/gerencia-educacao-logo-light.svg"
                   alt=""
+                  width={540}
+                  height={170}
                   className="topbar-brand-logo-full block dark:hidden"
                 />
                 <img
                   src="/gerencia-educacao-logo-dark.svg"
                   alt=""
+                  width={540}
+                  height={170}
                   className="topbar-brand-logo-full hidden dark:block"
                 />
                 <img
                   src="/gerencia-educacao-mark.svg"
                   alt=""
+                  width={220}
+                  height={180}
                   className="topbar-brand-logo-mark"
                 />
               </Link>
@@ -99,8 +105,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <Suspense fallback={null}>
             <FeedbackWidget />
             <NotificationCenter />
+            <OnboardingTour forceOpen={onboardingForceOpen} onClose={() => setOnboardingForceOpen(false)} />
           </Suspense>
-          <OnboardingTour forceOpen={onboardingForceOpen} onClose={() => setOnboardingForceOpen(false)} />
           <Toaster />
           <style jsx global>{`
             div[id*="v0-built-with-button"] {

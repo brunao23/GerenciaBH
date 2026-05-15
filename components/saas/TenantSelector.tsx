@@ -3,30 +3,10 @@
 import { Button } from "@/components/ui/button"
 import { useTenant } from '@/lib/contexts/TenantContext'
 import { Building2, LogOut, Shield } from 'lucide-react'
-import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import { useEffect, useState } from 'react'
 
 export function TenantSelector() {
-    const router = useRouter()
-    const { tenant } = useTenant()
-    const [isAdmin, setIsAdmin] = useState(false)
-
-    useEffect(() => {
-        // Verificar se e admin
-        async function checkAdmin() {
-            try {
-                const res = await fetch('/api/auth/session')
-                if (res.ok) {
-                    const data = await res.json()
-                    setIsAdmin(data.session?.isAdmin || false)
-                }
-            } catch (error) {
-                console.error('Erro ao verificar admin:', error)
-            }
-        }
-        checkAdmin()
-    }, [])
+    const { tenant, isAdmin } = useTenant()
 
     if (!tenant) return null
 

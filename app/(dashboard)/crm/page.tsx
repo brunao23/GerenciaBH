@@ -1,8 +1,7 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { KanbanBoard } from "@/components/crm/kanban-board"
-import { Card } from "@/components/ui/card"
 import { Loader2, RefreshCw, TrendingDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
@@ -16,85 +15,84 @@ export default function CRMPage() {
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
 
-    const fetchData = async () => {
-        if (!tenant) {
-            console.log('[CRM Page] Tenant nao carregado ainda')
-            return // Wait for tenant load
-        }
+    const fetchData = useCallback(async (signal?: AbortSignal) => {
+        if (!tenant) return
 
-        console.log('[CRM Page] Buscando dados para tenant:', tenant.prefix)
         setLoading(true)
+        setError(null)
         try {
-            const res = await fetch('/api/crm')
-            console.log('[CRM Page] Resposta recebida:', res.status)
+            const res = await fetch('/api/crm', { signal })
             if (!res.ok) throw new Error('Falha ao carregar dados do CRM')
             const json = await res.json()
-            console.log('[CRM Page] Dados recebidos:', json.columns?.length || 0, 'colunas')
             setData(json.columns)
             setFunnelConfig(json.funnelConfig || [])
         } catch (err: any) {
-            console.error('[CRM Page] Erro:', err)
-            setError(err.message)
+            if (err?.name === 'AbortError') return
+            setError(err?.message || 'Erro ao carregar CRM')
         } finally {
-            setLoading(false)
+            if (!signal?.aborted) setLoading(false)
         }
-    }
+    }, [tenant])
 
     useEffect(() => {
-        fetchData()
-    }, [tenant])
+        const controller = new AbortController()
+        fetchData(controller.signal)
+        return () => controller.abort()
+    }, [fetchData])
 
     if (error) {
         return (
-            <div className="flex flex-col items-center justify-center h-[calc(100vh-100px)] text-red-400">
-                <p>Erro: {error}</p>
-                <Button onClick={fetchData} variant="outline" className="mt-4">
-                    Tentar Novamente
+            <div className="flex h-full min-h-[calc(100dvh-8rem)] flex-col items-center justify-center gap-4 text-accent-red">
+                <p className="text-sm font-medium">Erro: {error}</p>
+                <Button onClick={() => fetchData()} variant="outline">
+                    Tentar novamente
                 </Button>
             </div>
         )
     }
 
     return (
-        <div className="h-[calc(100vh-100px)] flex flex-col space-y-3 sm:space-y-4 p-2 sm:p-4 overflow-hidden">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between flex-shrink-0 gap-3">
-                <div>
-                    <h1 className="text-xl sm:text-2xl font-bold text-foreground">Pipeline de Matrículas</h1>
-                    <p className="max-w-3xl text-xs text-text-gray sm:text-sm">
-                        Funil educacional completo para captação, atendimento, diagnóstico, follow-up, matrícula e perda, com controle manual por arrastar.
+        <section className="flex h-full min-h-[calc(100dvh-8rem)] min-w-0 flex-col overflow-hidden">
+            <div className="mb-3 flex shrink-0 flex-col gap-3 rounded-2xl border border-border bg-card/80 p-3 shadow-sm sm:mb-4 sm:flex-row sm:items-center sm:justify-between sm:p-4">
+                <div className="min-w-0">
+                    <h1 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">Pipeline de Matrículas</h1>
+                    <p className="mt-1 max-w-3xl text-xs leading-5 text-text-gray sm:text-sm">
+                        Arraste leads entre etapas, registre ações comerciais e acompanhe a jornada até matrícula.
                     </p>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                    <Link href="/crm/quality">
+                <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:flex sm:flex-wrap sm:justify-end">
+                    <Link href="/crm/quality" className="min-w-0">
                         <Button
                             variant="outline"
-                            className="border-accent-green/30 text-accent-green hover:bg-accent-green/10"
+                            className="h-10 w-full border-accent-green/30 text-accent-green hover:bg-accent-green/10 sm:w-auto"
                         >
-                            <TrendingDown className="w-4 h-4 mr-2" />
-                            Analise de Qualidade
+                            <TrendingDown className="mr-2 h-4 w-4" />
+                            Qualidade
                         </Button>
                     </Link>
                     <Button
-                        onClick={fetchData}
+                        onClick={() => fetchData()}
                         disabled={loading}
                         variant="outline"
-                        className="border-accent-green/30 text-accent-green hover:bg-accent-green/10"
+                        className="h-10 w-full border-accent-green/30 text-accent-green hover:bg-accent-green/10 sm:w-auto"
                     >
-                        {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <RefreshCw className="w-4 h-4 mr-2" />}
+                        {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
                         Atualizar
                     </Button>
                 </div>
             </div>
 
             {loading && !data ? (
-                <div className="flex items-center justify-center h-full">
-                    <Loader2 className="w-8 h-8 text-accent-green animate-spin" />
+                <div className="grid flex-1 min-h-0 gap-3 overflow-hidden sm:grid-cols-2 lg:grid-cols-4">
+                    {[1, 2, 3, 4].map((item) => (
+                        <div key={item} className="h-full min-h-[22rem] animate-pulse rounded-2xl border border-border bg-card/60" />
+                    ))}
                 </div>
             ) : (
-                <div className="flex-1 overflow-auto min-h-0">
+                <div className="min-h-0 flex-1 overflow-hidden">
                     <KanbanBoard initialData={data || []} funnelConfig={funnelConfig} />
                 </div>
             )}
-        </div>
+        </section>
     )
 }

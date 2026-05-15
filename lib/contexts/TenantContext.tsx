@@ -1,14 +1,22 @@
 'use client'
 
-import React, { createContext, useContext, useState, useEffect } from 'react'
+import React, { createContext, useContext, useEffect, useState } from 'react'
 
 interface Tenant {
     name: string
     prefix: string
 }
 
+interface TenantSession {
+    unitName: string
+    unitPrefix: string
+    isAdmin: boolean
+}
+
 interface TenantContextType {
     tenant: Tenant | null
+    session: TenantSession | null
+    isAdmin: boolean
     setTenant: (tenant: Tenant) => void
     loading: boolean
     reloadSession: () => Promise<void>
@@ -18,13 +26,13 @@ const TenantContext = createContext<TenantContextType | undefined>(undefined)
 
 export function TenantProvider({ children }: { children: React.ReactNode }) {
     const [tenant, setTenantState] = useState<Tenant | null>(null)
+    const [session, setSession] = useState<TenantSession | null>(null)
     const [loading, setLoading] = useState(true)
 
     const loadSession = async () => {
         try {
-            console.log('[TenantContext] Carregando sessão...')
             const res = await fetch('/api/auth/session', {
-                cache: 'no-store', // Sempre buscar nova sessão
+                cache: 'no-store',
                 headers: {
                     'Cache-Control': 'no-cache',
                 },
@@ -33,21 +41,22 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
             if (res.ok) {
                 const data = await res.json()
                 if (data.session) {
-                    console.log('[TenantContext] Sessão carregada:', data.session.unitPrefix)
+                    setSession(data.session)
                     setTenantState({
                         name: data.session.unitName,
                         prefix: data.session.unitPrefix,
                     })
                 } else {
-                    console.log('[TenantContext] Sem sessão')
+                    setSession(null)
                     setTenantState(null)
                 }
             } else {
-                console.log('[TenantContext] Erro ao carregar sessão:', res.status)
+                setSession(null)
                 setTenantState(null)
             }
         } catch (error) {
-            console.error('[TenantContext] Erro ao carregar sessão:', error)
+            console.error('[TenantContext] Erro ao carregar sessao:', error)
+            setSession(null)
             setTenantState(null)
         } finally {
             setLoading(false)
@@ -57,9 +66,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     useEffect(() => {
         loadSession()
 
-        // Listener para eventos de mudança de tenant
         const handleTenantChange = () => {
-            console.log('[TenantContext] Evento de mudança detectado, recarregando...')
             loadSession()
         }
 
@@ -71,18 +78,16 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     }, [])
 
     const setTenant = (newTenant: Tenant) => {
-        console.log('[TenantContext] setTenant chamado:', newTenant.prefix)
         setTenantState(newTenant)
     }
 
     const reloadSession = async () => {
-        console.log('[TenantContext] reloadSession chamado')
         setLoading(true)
         await loadSession()
     }
 
     return (
-        <TenantContext.Provider value={{ tenant, setTenant, loading, reloadSession }}>
+        <TenantContext.Provider value={{ tenant, session, isAdmin: Boolean(session?.isAdmin), setTenant, loading, reloadSession }}>
             {children}
         </TenantContext.Provider>
     )

@@ -8,6 +8,11 @@ export const metadata: Metadata = {
   description:
     "Plataforma educacional com IA para captação, atendimento, agenda, follow-ups e matrículas em múltiplas unidades.",
   generator: "GerencIA Educação by Genial Labs AI",
+  icons: {
+    icon: "/icon.svg",
+    shortcut: "/icon.svg",
+    apple: "/icon.svg",
+  },
 }
 
 export const viewport: Viewport = {

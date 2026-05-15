@@ -40,9 +40,10 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useState } from "react"
+import { useTenant } from "@/lib/contexts/TenantContext"
 
 const items = [
-  { title: "Visão Geral", url: "/dashboard", icon: BarChart3 },
+  { title: "VisÃ£o Geral", url: "/dashboard", icon: BarChart3 },
   { title: "Pipeline", url: "/crm", icon: LayoutTemplate },
   { title: "Conversas", url: "/conversas", icon: MessageCircle },
   { title: "Contatos", url: "/contatos", icon: BookUser },
@@ -51,11 +52,11 @@ const items = [
   { title: "Follow-ups", url: "/followups", icon: Workflow },
   { title: "Pausas", url: "/pausas", icon: PauseCircle },
   { title: "Campanhas", url: "/disparos", icon: Megaphone },
-  { title: "Configurações", url: "/configuracao", icon: ShieldCheck },
+  { title: "ConfiguraÃ§Ãµes", url: "/configuracao", icon: ShieldCheck },
 ]
 
 const agentesItems = [
-  { title: "Agente de Matrículas WhatsApp", slug: "whatsapp", icon: MessageCircle },
+  { title: "Agente de MatrÃ­culas WhatsApp", slug: "whatsapp", icon: MessageCircle },
   { title: "Social Seller Instagram", slug: "instagram", icon: Instagram },
   { title: "Engajamento", slug: "engajamento", icon: Zap },
   { title: "Boas-vindas", slug: "boas-vindas", icon: Heart },
@@ -66,8 +67,7 @@ export function AppSidebar() {
   const { isMobile, setOpenMobile } = useSidebar()
   const pathname = usePathname()
   const router = useRouter()
-  const [sessionData, setSessionData] = useState<any>(null)
-  const [loading, setLoading] = useState(true)
+  const { tenant, session, isAdmin, loading } = useTenant()
   const agentesSubActive = pathname?.startsWith("/agente-ia") ?? false
   const [agentesOpen, setAgentesOpen] = useState(false)
 
@@ -75,20 +75,6 @@ export function AppSidebar() {
     if (agentesSubActive) setAgentesOpen(true)
   }, [agentesSubActive])
 
-  useEffect(() => {
-    fetch('/api/auth/session')
-      .then(res => res.json())
-      .then(data => {
-        setSessionData(data)
-        setLoading(false)
-      })
-      .catch(err => {
-        console.error('Erro ao buscar sessão:', err)
-        setLoading(false)
-      })
-  }, [])
-
-  const isAdmin = sessionData?.session?.isAdmin || sessionData?.role === 'admin' || sessionData?.email === 'admin@geniallabs.com.br'
 
   const handleLogout = async () => {
     try {
@@ -105,8 +91,8 @@ export function AppSidebar() {
       <SidebarHeader className="border-b border-sidebar-border px-4 py-5 group-data-[collapsible=icon]:px-2">
         <Link
           href="/dashboard"
-          aria-label="Ir para a visão geral do GerencIA Educação"
-          title="GerencIA Educação"
+          aria-label="Ir para a visÃ£o geral do GerencIA EducaÃ§Ã£o"
+          title="GerencIA EducaÃ§Ã£o"
           onClick={() => {
             if (isMobile) setOpenMobile(false)
           }}
@@ -115,34 +101,40 @@ export function AppSidebar() {
           <img
             src="/gerencia-educacao-logo-light.svg"
             alt=""
+            width={540}
+            height={170}
             className="h-12 w-[190px] max-w-full object-contain object-left dark:hidden group-data-[collapsible=icon]:hidden"
           />
           <img
             src="/gerencia-educacao-logo-dark.svg"
             alt=""
+            width={540}
+            height={170}
             className="hidden h-12 w-[190px] max-w-full object-contain object-left dark:block group-data-[collapsible=icon]:hidden"
           />
           <img
             src="/gerencia-educacao-mark.svg"
             alt=""
+            width={220}
+            height={180}
             className="hidden h-10 w-10 object-contain group-data-[collapsible=icon]:block"
           />
         </Link>
 
         {/* Nome da Unidade */}
-        {!loading && sessionData?.session?.unitName && (
+        {!loading && tenant?.name && (
           <div className="mt-3 px-2">
             <div className="flex items-center gap-2 rounded-xl border border-sidebar-border bg-sidebar-accent p-2.5">
               <Building2 className="w-4 h-4 text-[var(--accent-green)]" />
               <div className="flex-1">
                 <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Unidade</div>
-                <div className="font-semibold text-foreground text-sm">{sessionData.session.unitName}</div>
+                <div className="font-semibold text-foreground text-sm">{tenant.name}</div>
               </div>
             </div>
           </div>
         )}
 
-        {/* Botão Trocar de Cliente — apenas admin */}
+        {/* BotÃ£o Trocar de Cliente â€” apenas admin */}
         {!loading && isAdmin && (
           <div className="mt-2 px-2">
             <button
@@ -166,7 +158,7 @@ export function AppSidebar() {
       <SidebarContent className="px-2">
         <SidebarGroup>
           <SidebarGroupLabel className="px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
-            Operação educacional
+            OperaÃ§Ã£o educacional
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu className="space-y-0.5">
@@ -272,7 +264,7 @@ export function AppSidebar() {
 
       <SidebarFooter className="px-4 py-4 border-t border-sidebar-border">
         <div className="space-y-2">
-{/* Botão Sair */}
+{/* BotÃ£o Sair */}
           <button
             onClick={handleLogout}
             className="flex items-center gap-2.5 w-full p-2.5 rounded-lg bg-[var(--accent-red)]/8 border border-[var(--accent-red)]/15 hover:border-[var(--accent-red)]/30 transition-all duration-200 group"
@@ -281,7 +273,7 @@ export function AppSidebar() {
             <div className="flex-1 text-left">
               <span className="font-medium text-foreground text-xs">Sair</span>
               <div className="text-[10px] text-muted-foreground">
-                {loading ? 'Carregando...' : (sessionData?.email || 'Desconectar')}
+                {loading ? 'Carregando...' : (session?.unitName || 'Desconectar')}
               </div>
             </div>
           </button>

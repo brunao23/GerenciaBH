@@ -3,6 +3,7 @@
 export const dynamic = "force-dynamic"
 
 import { useEffect, useMemo, useState } from "react"
+import nextDynamic from "next/dynamic"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -11,7 +12,6 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { toast } from "sonner"
-import { OverviewChart } from "@/components/dashboard/overview-chart"
 import { PeriodFilter } from "@/components/dashboard/period-filter"
 import { useTenant } from "@/lib/contexts/TenantContext"
 import {
@@ -20,6 +20,21 @@ import {
   FileText, Download, Loader2, RefreshCw, BarChart3, Calendar, CheckCircle2, Eye, Trash2,
   MousePointerClick, ShieldCheck, XCircle,
 } from "lucide-react"
+
+const OverviewChart = nextDynamic(
+  () => import("@/components/dashboard/overview-chart").then((mod) => mod.OverviewChart),
+  {
+    ssr: false,
+    loading: () => (
+      <Card className="genial-card genial-elevate">
+        <CardHeader><CardTitle className="text-pure-white">Volume de Atendimentos</CardTitle></CardHeader>
+        <CardContent className="flex h-[300px] items-center justify-center">
+          <Loader2 className="h-6 w-6 animate-spin text-accent-green" />
+        </CardContent>
+      </Card>
+    ),
+  }
+)
 
 // Types
 
@@ -431,17 +446,18 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!tenant) return
+    const controller = new AbortController()
     setLoading(true)
     setError(null)
     const params = buildPeriodParams()
     const previousRange = buildPreviousPeriodParams(period, customStartDate, customEndDate)
     setComparisonLabel(previousRange.label)
     Promise.all([
-      fetch(`/api/supabase/overview?${params.toString()}`),
-      fetch(`/api/dashboard/business-events?${params.toString()}`),
-      fetch(`/api/dashboard/captacao?${params.toString()}`),
-      fetch(`/api/supabase/overview?${previousRange.params.toString()}`),
-      fetch(`/api/dashboard/business-events?${previousRange.params.toString()}`),
+      fetch(`/api/supabase/overview?${params.toString()}`, { signal: controller.signal }),
+      fetch(`/api/dashboard/business-events?${params.toString()}`, { signal: controller.signal }),
+      fetch(`/api/dashboard/captacao?${params.toString()}`, { signal: controller.signal }),
+      fetch(`/api/supabase/overview?${previousRange.params.toString()}`, { signal: controller.signal }),
+      fetch(`/api/dashboard/business-events?${previousRange.params.toString()}`, { signal: controller.signal }),
     ])
       .then(async ([overviewRes, businessRes, captacaoRes, previousOverviewRes, previousBusinessRes]) => {
         if (!overviewRes.ok) {
@@ -479,11 +495,13 @@ export default function DashboardPage() {
         setLoading(false)
       })
       .catch((err) => {
+        if (err?.name === "AbortError") return
         setError(err?.message || "Erro ao carregar dados")
         setPreviousData(null)
         setPreviousBusinessMetrics(defaultBusinessMetrics)
         setLoading(false)
       })
+    return () => controller.abort()
   }, [tenant, period, customRangeVersion])
 
   const handleApplyCustomRange = () => {

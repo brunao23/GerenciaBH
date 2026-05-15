@@ -483,7 +483,6 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                 }
 
                 toast.success(`Lead movido para "${destCol.title}"`)
-                console.log(`[CRM] Movimento manual: ${removed.name} -> ${destination.droppableId}`)
             } catch (error) {
                 console.error('Erro ao salvar status:', error)
                 toast.error('Erro ao salvar mudança de status')
@@ -521,10 +520,20 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
 
             if (!response.ok) throw new Error('Erro ao salvar funil')
 
+            const normalizedFunnel = normalizeEducationFunnelColumns(customColumns)
+            setCustomColumns(normalizedFunnel)
+            setColumns((currentColumns) =>
+                normalizedFunnel.map((funnelColumn) => {
+                    const existing = currentColumns.find((column) => column.id === funnelColumn.id)
+                    return {
+                        id: funnelColumn.id,
+                        title: funnelColumn.title,
+                        cards: existing?.cards || [],
+                    }
+                })
+            )
             toast.success('Funil personalizado salvo com sucesso!')
             setIsFunnelModalOpen(false)
-            // Recarregar página para aplicar mudanças
-            window.location.reload()
         } catch (error) {
             console.error('Erro ao salvar funil:', error)
             toast.error('Erro ao salvar funil personalizado')
@@ -581,7 +590,8 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
 
     return (
         <>
-            <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div className="flex h-full min-h-0 min-w-0 flex-col">
+            <div className="mb-4 flex shrink-0 flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                 <div className="max-w-3xl">
                     <p className="text-xs font-bold uppercase tracking-[0.16em] text-text-gray">Funil educacional</p>
                     <h2 className="text-lg font-bold text-foreground sm:text-xl">Captação, diagnóstico e matrícula</h2>
@@ -698,13 +708,14 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                 </Dialog>
             </div>
 
+            <div className="min-h-0 flex-1">
             <DragDropContext onDragEnd={onDragEnd}>
                 <Droppable droppableId="columns" direction="horizontal" type="COLUMN">
                     {(provided) => (
                         <div
                             {...provided.droppableProps}
                             ref={provided.innerRef}
-                            className="flex h-full gap-3 overflow-x-auto overflow-y-hidden pb-4 pr-2 md:gap-4"
+                            className="genial-scrollbar flex h-full min-h-0 gap-3 overflow-x-auto overflow-y-hidden pb-4 pr-2 md:gap-4"
                         >
                             {columns.map((column, columnIndex) => (
                                 <Draggable key={column.id} draggableId={column.id} index={columnIndex}>
@@ -712,7 +723,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                         <div
                                             ref={provided.innerRef}
                                             {...provided.draggableProps}
-                                            className="flex h-full min-h-0 w-[300px] flex-shrink-0 flex-col sm:w-[320px]"
+                                            className="flex h-full min-h-0 w-[min(86vw,20rem)] flex-shrink-0 flex-col sm:w-[20rem] xl:w-[21rem]"
                                             style={{
                                                 ...provided.draggableProps.style,
                                                 opacity: snapshot.isDragging ? 0.8 : 1
@@ -739,7 +750,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                                         className={`flex-1 bg-muted/70 border border-border rounded-xl p-2 transition-colors min-h-0 ${snapshot.isDraggingOver ? 'bg-accent-green/10 border-accent-green/30' : ''
                                                             }`}
                                                     >
-                                                        <div className="h-full overflow-y-auto overflow-x-hidden">
+                                                        <div className="genial-scrollbar h-full overflow-y-auto overflow-x-hidden">
                                                             <div className="space-y-3 pr-1">
                                                                 {column.cards.map((card, index) => (
                                                                     <Draggable key={card.id} draggableId={card.id} index={index}>
@@ -955,6 +966,8 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                     )}
                 </Droppable>
             </DragDropContext>
+            </div>
+            </div>
 
             <LeadDetailsModal
                 isOpen={isModalOpen}
