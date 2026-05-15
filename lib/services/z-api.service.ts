@@ -652,10 +652,13 @@ export class ZApiService {
       for (const target of uniqueTargets) {
         const payload: Record<string, any> = {
           phone: target,
-          latitude: params.latitude,
-          longitude: params.longitude,
+          latitude: String(params.latitude),
+          longitude: String(params.longitude),
         }
-        if (params.name) payload.name = params.name
+        if (params.name) {
+          payload.title = params.name
+          payload.name = params.name
+        }
         if (params.address) payload.address = params.address
 
         const response = await fetch(this.senderLocationUrl, {

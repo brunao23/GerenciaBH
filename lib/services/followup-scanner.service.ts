@@ -5,6 +5,7 @@ import { resolveChatHistoriesTable } from '@/lib/helpers/resolve-chat-table'
 import { adjustToBusinessHours, parseTenantBusinessHours } from '@/lib/helpers/business-hours'
 import { getNativeAgentConfigForTenant } from '@/lib/helpers/native-agent-config'
 import { resolveEffectiveFollowupBusinessDays } from '@/lib/helpers/effective-followup-days'
+import { getLeadPauseState } from '@/lib/services/lead-pause.service'
 
 export interface ScannerResult {
     scheduled: number
@@ -302,16 +303,16 @@ export class FollowUpScannerService {
 
                     const phoneNumber = sessionId.replace('@s.whatsapp.net', '').replace(/[^\d]/g, '')
 
-                    // CHECK SEGURANÃ‡A 1: Pausa Manual
-                    const pausarTable = `${this.tenant}_pausar`
-                    const { data: pauseData } = await this.supabase
-                        .from(pausarTable)
-                        .select('pausar,pause_reason')
-                        .eq('numero', phoneNumber)
-                        .maybeSingle()
+                    // CHECK SEGURANCA 1: pausa ativa em qualquer variante do telefone.
+                    const pauseState = await getLeadPauseState({
+                        tenant: this.tenant,
+                        phone: phoneNumber,
+                        supabase: this.supabase,
+                        failClosedOnError: true,
+                    })
 
-                    if (pauseData?.pausar) {
-                        const pauseReason = String((pauseData as any)?.pause_reason || '').trim().toLowerCase()
+                    if (pauseState.paused) {
+                        const pauseReason = String(pauseState.pauseReason || '').trim().toLowerCase()
                         const pausedStatus = pauseReason
                             ? `paused_${pauseReason.replace(/[^a-z0-9_]/g, '_').slice(0, 64)}`
                             : 'paused_manual'

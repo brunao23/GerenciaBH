@@ -1,4 +1,4 @@
-﻿import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
+import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { SemanticCacheService, type CacheHitResult } from "@/lib/services/semantic-cache.service"
 import { getTablesForTenant } from "@/lib/helpers/tenant"
 import { getTableColumns } from "@/lib/helpers/supabase-table-columns"
@@ -675,7 +675,13 @@ function detectNegativeLeadIntent(rawMessage: string): NegativeIntentResult {
     /\bnao\s+me\s+incomod/,
     /\bnao\s+quero\s+ser\s+(mais\s+)?(contatado|contactado|chamado|incomodado)/,
     /\bnao\s+tenho\s+interesse\b/,
+    /\bnao\s+(tenho|tenho\s+mais|estou\s+com)\s+interesse\b/,
+    /\bnao\s+(quero|vou)\s+(continuar|seguir|fazer|fechar|comprar|contratar)\b/,
+    /\bnao\s+quero\b.{0,80}\b(mais|continuar|seguir|fazer|comprar|contratar|atendimento|curso|aula|diagnostico)\b/,
     /\bsem\s+interesse\b/,
+    /\bperdi\s+o\s+interesse\b/,
+    /\bnao\s+e\s+o\s+momento\b/,
+    /\bdeixa\s+(pra|para)\s+la\b/,
     /\bnao\s+insista\b/,
     /\bparem?\s+de\s+me\s+enviar\b/,
     /\bparem?\s+de\s+mandar\b/,
@@ -709,12 +715,15 @@ function detectNegativeLeadIntent(rawMessage: string): NegativeIntentResult {
   // --- WILL CONTACT LATER: lead says they'll reach out themselves ---
   const willContactPatterns = [
     /\b(eu\s+)?(entro|faco)\s+contato/,
+    /\b(eu\s+)?entro\s+em\s+contato\s+(depois|mais\s+tarde|quando|assim\s+que)/,
     /\b(eu\s+)?(te\s+)?ligo\s+(depois|amanha|mais\s+tarde|na\s+semana)/,
     /\b(eu\s+)?(te\s+)?chamo\s+(depois|amanha|mais\s+tarde|quando)/,
     /\b(eu\s+)?(te\s+)?procuro\s+(depois|amanha|mais\s+tarde|quando)/,
     /\bquando\s+(eu\s+)?(tiver|puder|quiser)\s+(eu\s+)?(entro|faco)\s+contato/,
     /\beu\s+(que\s+)?entro\s+em\s+contato/,
     /\beu\s+retorno/,
+    /\b(retorno|falo|chamo|procuro)\s+(depois|mais\s+tarde|quando\s+puder)/,
+    /\bmais\s+(pra|para)\s+frente\s+(eu\s+)?(vejo|falo|chamo|procuro|retorno)/,
     /\bdepois\s+eu\s+(te\s+)?(ligo|chamo|procuro|falo)/,
   ]
 
@@ -792,9 +801,11 @@ function shouldAutoPauseFromNegativeIntent(result: NegativeIntentResult): boolea
   //   opt_out       â€” pedido explÃƒÃ‚Â­cito de remoÃƒÃ‚Â§ÃƒÃ‚Â£o da lista
   //   dissatisfaction â€” insatisfaÃƒÃ‚Â§ÃƒÃ‚Â£o grave/ameaÃƒÃ‚Â§a legal
   //   bot_message   â€” nÃƒÃ‚Âºmero automatizado/voicemail (nÃƒÃ‚Â£o tem lead humano)
-  // "will_contact_later" NÃƒÃ†â€™O pausa â€” lead pode simplesmente estar ocupado.
+  // "will_contact_later" tambem pausa: se o lead disse que ele mesmo retorna,
+  // o sistema nao deve insistir nem gerar follow-up automatico.
   return (
     result.category === "opt_out" ||
+    result.category === "will_contact_later" ||
     result.category === "dissatisfaction" ||
     result.category === "bot_message" ||
     result.category === "travel_later"
@@ -3342,22 +3353,12 @@ export class NativeAgentOrchestratorService {
         `[native-agent][auto-pause] Negative intent detected for ${phone}@${tenant}: ${negativeIntent.category} (${negativeIntent.matchedPattern})`,
       )
 
-      const travelPauseMinutes =
-        negativeIntent.category === "travel_later"
-          ? Math.max(24 * 60, resolveTravelPauseMinutes(content))
-          : null
-      const travelPauseUntilIso =
-        travelPauseMinutes && Number.isFinite(travelPauseMinutes)
-          ? new Date(Date.now() + travelPauseMinutes * 60_000).toISOString()
-          : undefined
-
       await this
         .pauseLeadForCriticalReason({
           tenant,
           sessionId,
           phone,
-          reason: `negative_intent_${negativeIntent.category || "detected"}`,
-          pausedUntilIso: travelPauseUntilIso,
+          reason: `definitive_pause_negative_intent_${negativeIntent.category || "detected"}`,
         })
         .catch((error) => console.warn("[native-agent][auto-pause] failed to persist critical pause:", error))
 
@@ -3376,8 +3377,8 @@ export class NativeAgentOrchestratorService {
           originalMessage: content.slice(0, 500),
           sessionId,
           autoPaused: true,
-          pausedUntil: travelPauseUntilIso || null,
-          pauseMinutes: travelPauseMinutes || null,
+          pausedUntil: null,
+          definitivePause: true,
         },
         priority: "urgent",
         tenant,
@@ -3394,8 +3395,8 @@ export class NativeAgentOrchestratorService {
           category: negativeIntent.category,
           label,
           original_message: content.slice(0, 500),
-          paused_until: travelPauseUntilIso || null,
-          pause_minutes: travelPauseMinutes || null,
+          paused_until: null,
+          definitive_pause: true,
         },
       }).catch(() => {})
 
@@ -3434,6 +3435,8 @@ export class NativeAgentOrchestratorService {
         comprehensionMessage = "Lamento muito que tenha tido essa experiencia. Sua opiniao e muito importante para nos. Se quiser, posso conectar voce com um responsavel para resolver essa situacao da melhor forma."
       } else if (negativeIntent.category === "travel_later") {
         comprehensionMessage = "Perfeito, combinado. Aproveite sua viagem com tranquilidade. Vou pausar seu atendimento por enquanto e, quando voce retornar, e so me chamar que retomamos na hora."
+      } else if (negativeIntent.category === "will_contact_later") {
+        comprehensionMessage = "Combinado. Vou pausar seu atendimento para nao te incomodar. Quando quiser retomar, e so chamar por aqui."
       }
       // bot_message nao recebe resposta (e mensagem automatica, nÃ£o tem humano)
 
@@ -3443,7 +3446,7 @@ export class NativeAgentOrchestratorService {
           phone,
           message: comprehensionMessage,
           sessionId,
-          source: "native-agent-comprehension",
+          source: "manual-send-auto-pause-ack",
         }).catch(() => {})
 
         await chat.persistMessage({
@@ -3465,49 +3468,6 @@ export class NativeAgentOrchestratorService {
         responseText: comprehensionMessage || undefined,
         actions: [{ type: "handoff_human" as AgentActionPlan["type"], ok: true, details: { autoPaused: true, category: negativeIntent.category } }],
         reason: "lead_auto_paused_negative_intent",
-      }
-    }
-
-    if (negativeIntent.detected && negativeIntent.category === "will_contact_later") {
-      const delayMinutes = resolveContactLaterFollowupDelayMinutes(content, config)
-      const followupMessage = "Combinado. Retomo seu atendimento no momento combinado."
-      await this.taskQueue
-        .enqueueFollowupSequence({
-          tenant,
-          sessionId,
-          phone,
-          leadName: sanitizeSafeVocativeName(input.contactName) || undefined,
-          lastUserMessage: content,
-          lastAgentMessage: followupMessage,
-          intervalsMinutes: [delayMinutes],
-        })
-        .catch((error) => console.warn("[native-agent][contact-later] failed to schedule followup task:", error))
-
-      await chat
-        .persistMessage({
-          sessionId,
-          role: "system",
-          type: "status",
-          content: "lead_requested_contact_later_followup_scheduled",
-          additional: {
-            category: negativeIntent.category,
-            delay_minutes: delayMinutes,
-            original_message: content.slice(0, 500),
-          },
-        })
-        .catch(() => {})
-
-      return {
-        processed: true,
-        replied: false,
-        actions: [
-          {
-            type: "create_followup" as AgentActionPlan["type"],
-            ok: true,
-            details: { scheduled: true, delayMinutes },
-          },
-        ],
-        reason: "lead_requested_contact_later_followup_scheduled",
       }
     }
 
@@ -4171,6 +4131,52 @@ export class NativeAgentOrchestratorService {
     )
     const learningOutcome: "conversion" | "handoff" | "neutral" =
       hasSuccessfulSchedulingAction ? "conversion" : hasSuccessfulHandoffAction ? "handoff" : "neutral"
+    const hasSuccessfulPresentialSchedulingAction =
+      hasSuccessfulSchedulingAction &&
+      decision.executions.some((execution) => {
+        const actionType = String(execution.action?.type || "")
+        if (!execution.ok || (actionType !== "schedule_appointment" && actionType !== "edit_appointment")) {
+          return false
+        }
+        const mode = String(
+          (execution.response as any)?.appointmentMode ||
+          (execution.action as any)?.appointment_mode ||
+          "",
+        ).toLowerCase()
+        return mode !== "online"
+      })
+    const locationAlreadySentByTool = decision.executions.some((execution) => {
+      const callName = String(execution.call?.name || "").toLowerCase()
+      return execution.ok && callName === "send_location"
+    })
+    const sendConfiguredLocationAfterScheduling = async () => {
+      if (!hasSuccessfulPresentialSchedulingAction || locationAlreadySentByTool) return
+      const lat = Number(config.unitLatitude)
+      const lng = Number(config.unitLongitude)
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
+
+      const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${lat},${lng}`)}`
+      const fallbackText = [
+        config.unitAddress ? `Endereco: ${config.unitAddress}` : "",
+        `Localizacao: ${mapsUrl}`,
+      ].filter(Boolean).join("\n")
+
+      await this.messaging
+        .sendLocation({
+          tenant,
+          phone: recipient,
+          latitude: lat,
+          longitude: lng,
+          name: config.unitName || "Unidade",
+          address: config.unitAddress,
+          sessionId,
+          source: "native-agent-post-schedule-location",
+          fallbackText,
+        })
+        .catch((error) => {
+          console.warn("[native-agent] failed to send post-schedule location:", error)
+        })
+    }
 
     const configuredProvider = String(config.aiProvider || "google").trim().toLowerCase()
     const configuredModel =
@@ -4430,6 +4436,7 @@ export class NativeAgentOrchestratorService {
       }
 
       if (hasSuccessfulSchedulingAction) {
+        await sendConfiguredLocationAfterScheduling()
         await this.pauseLeadAfterScheduling(tenant, phone).catch(() => {})
       }
 
@@ -4692,6 +4699,7 @@ export class NativeAgentOrchestratorService {
           })
           .catch(() => {})
       }
+      await sendConfiguredLocationAfterScheduling()
       await this.pauseLeadAfterScheduling(tenant, phone).catch(() => {})
     }
 
@@ -5807,7 +5815,9 @@ export class NativeAgentOrchestratorService {
         dayScheduleLines.push(`  ${dayNames[key]}: FECHADO`)
       }
     }
-    const dayScheduleRule = `- HORARIOS DE ATENDIMENTO POR DIA (OBRIGATORIO respeitar â€” fonte de verdade sobre quais dias a unidade atende):\n${dayScheduleLines.join("\n")}`
+    const hasConfiguredUnitCoordinates =
+      Number.isFinite(Number(config.unitLatitude)) && Number.isFinite(Number(config.unitLongitude))
+    const dayScheduleRule = `- HORARIOS DE ATENDIMENTO POR DIA (OBRIGATORIO respeitar - fonte de verdade sobre quais dias a unidade atende):\n${dayScheduleLines.join("\n")}`
 
     const lunchBreakRule = config.calendarLunchBreakEnabled
       ? `- HORARIO DE ALMOCO (bloqueado para agendamentos): ${config.calendarLunchBreakStart || "12:00"} ate ${config.calendarLunchBreakEnd || "13:00"}. NUNCA oferecer ou aceitar horario dentro deste periodo.`
@@ -5899,7 +5909,7 @@ export class NativeAgentOrchestratorService {
       "- [CANCELAMENTO COM CRITERIO] cancel_appointment so pode ser usado quando o lead pedir cancelamento definitivo de forma explicita. Se houver qualquer chance de remarcacao, priorize reagendar antes de cancelar.",
       "- [FLUXO OBRIGATORIO DE CANCELAMENTO + NOVO AGENDAMENTO] Se edit_appointment falhar ou nÃ£o Ã©ncontrar o agendamento anterior: (1) tente cancel_appointment; (2) crie novo agendamento via schedule_appointment. NUNCA desista e transfira para humano.",
       "- [UNICO CASO DE HANDOFF] Use handoff_human SOMENTE quando: o lead pedir para falar com humano sobre assunto NAO relacionado a agenda, houver violacao de guardrail, ou o assunto for completamente fora do escopo do negocio.",
-      config.unitLatitude !== undefined && config.unitLongitude !== undefined
+      hasConfiguredUnitCoordinates
         ? "- Se o lead perguntar onde fica a unidade, como chegar, o endereco ou a localizacao: acione send_location IMEDIATAMENTE (sem pedir confirmacao). Se a tool nao retornar ok=true, envie o link do Google Maps com o endereco textual. NUNCA envie o link de texto diretamente sem antes tentar send_location."
         : null,
       maxWindowDays > 0
@@ -5928,7 +5938,9 @@ export class NativeAgentOrchestratorService {
       "FORMATO OBRIGATORIO DA MENSAGEM DE CONFIRMACAO DE AGENDAMENTO:",
       "- Quando schedule_appointment ou edit_appointment retornar ok=true, envie a confirmacao em mensagens curtas e separadas â€” nao junte tudo em um unico paragrafo.",
       "- MENSAGEM 1: apenas a confirmacao do agendamento, usando o nome do dia da semana + a data exata no formato 'dia dd/MM'. Exemplo: 'Perfeito! Agendado para quinta-feira, dia 15/05, as 18h30.'",
-      "- MENSAGEM 2 (somente se houver endereco configurado): apenas o endereco e como chegar. Exemplo: 'Nosso endereco e Av. Dr. Julio Marques Luz, 1433 A, Jatiuca. Estamos em frente ao Hospital Veterinario DOK.'",
+      hasConfiguredUnitCoordinates
+        ? "- MENSAGEM 2: confirme o endereco em texto curto e NAO escreva link de Google Maps. O sistema enviara o pin de localizacao automaticamente quando houver coordenadas configuradas."
+        : "- MENSAGEM 2 (somente se houver endereco configurado): apenas o endereco e como chegar. Exemplo: 'Nosso endereco e Av. Dr. Julio Marques Luz, 1433 A, Jatiuca. Estamos em frente ao Hospital Veterinario DOK.'",
       "- MENSAGEM 3: frase de encerramento leve e breve, sem repetir data ou horario. Exemplo: 'Qualquer duvida, e so falar.'",
       "- PROIBIDO: usar apenas o nome do dia sem a data numerica na confirmacao (ex: so 'quinta as 18h30' e insuficiente â€” use 'quinta-feira, dia 15/05, as 18h30').",
     ] as (string | null)[]).filter((v): v is string => v !== null).join("\n")
@@ -6411,7 +6423,7 @@ export class NativeAgentOrchestratorService {
           },
         },
       },
-      ...(config.unitLatitude !== undefined && config.unitLongitude !== undefined
+      ...(hasConfiguredUnitCoordinates
         ? [
             {
               name: "send_location",
@@ -9300,5 +9312,3 @@ export class NativeAgentOrchestratorService {
     await Promise.all(postScheduleTasks)
   }
 }
-
-

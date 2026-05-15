@@ -61,6 +61,11 @@ export function isManualPauseReason(reason: string): boolean {
   if (normalized.includes("manual_human")) return true
   if (normalized.includes("group_manual")) return true
   if (normalized.includes("human_intervention")) return true
+  if (normalized.includes("negative_intent")) return true
+  if (normalized.includes("definitive_pause")) return true
+  if (normalized.includes("explicit_opt_out")) return true
+  if (normalized.includes("travel_later")) return true
+  if (normalized.includes("will_contact_later")) return true
   return false
 }
 
@@ -201,7 +206,13 @@ export async function getLeadPauseState(input: {
       }
     }
 
-    if (pausedUntil) {
+    const inferredManualWithoutReason =
+      !pauseReason &&
+      ((activeRow?.vaga === false && activeRow?.agendamento === false) ||
+        (activeRow?.vaga === true && activeRow?.agendamento === true))
+    const isManual = isManualPauseReason(pauseReason) || inferredManualWithoutReason
+
+    if (pausedUntil && !isManual) {
       const untilDate = new Date(pausedUntil)
       if (Number.isFinite(untilDate.getTime()) && untilDate.getTime() <= Date.now()) {
         return {
@@ -215,17 +226,12 @@ export async function getLeadPauseState(input: {
       }
     }
 
-    const inferredManualWithoutReason =
-      !pauseReason &&
-      ((activeRow?.vaga === false && activeRow?.agendamento === false) ||
-        (activeRow?.vaga === true && activeRow?.agendamento === true))
-
     return {
       paused: true,
       matchedNumber: String(activeRow?.numero || normalized),
       pauseReason,
       pausedUntil,
-      isManual: isManualPauseReason(pauseReason) || inferredManualWithoutReason,
+      isManual,
       sourceRow: activeRow,
     }
   } catch {

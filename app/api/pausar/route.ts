@@ -2,6 +2,7 @@ import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { type NextRequest, NextResponse } from "next/server"
 import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
 import { AgentTaskQueueService } from "@/lib/services/agent-task-queue.service"
+import { isManualPauseReason } from "@/lib/services/lead-pause.service"
 
 /**
  * Normaliza número de telefone removendo caracteres não numéricos
@@ -96,6 +97,7 @@ function isExpiredPause(row: any): boolean {
 
   const pausedUntil = String(row?.paused_until || "").trim()
   if (!pausedUntil) return false
+  if (isManualPauseReason(String(row?.pause_reason || ""))) return false
 
   const until = new Date(pausedUntil)
   return Number.isFinite(until.getTime()) && until.getTime() <= Date.now()

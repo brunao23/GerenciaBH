@@ -88,11 +88,11 @@ export async function GET(req: NextRequest) {
 
     const oauthClientId =
       String(statePayload?.clientId || "").trim() ||
-      current.googleOAuthClientId ||
       process.env.GOOGLE_OAUTH_CLIENT_ID ||
+      current.googleOAuthClientId ||
       ""
     const oauthClientSecret =
-      current.googleOAuthClientSecret || process.env.GOOGLE_OAUTH_CLIENT_SECRET || ""
+      process.env.GOOGLE_OAUTH_CLIENT_SECRET || current.googleOAuthClientSecret || ""
 
     if (!oauthClientId || !oauthClientSecret) {
       return redirectToAgentPage(req, "error", "google_oauth_client_id_ou_secret_ausente")

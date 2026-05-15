@@ -2512,13 +2512,13 @@ export default function AgenteIAPage() {
         <CardHeader>
           <CardTitle>Google Calendar</CardTitle>
           <CardDescription className="text-gray-400">
-            Conexao direta via botao. As credenciais globais ficam no servidor.
+            Conex?o direta via bot?o. As credenciais globais ficam no servidor.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid md:grid-cols-[220px_1fr] gap-4 items-start">
             <div className="space-y-2">
-              <Label>Integracao Calendar</Label>
+              <Label>Integra??o Calendar</Label>
               <Select
                 value={config.googleCalendarEnabled ? "on" : "off"}
                 onValueChange={(v) =>

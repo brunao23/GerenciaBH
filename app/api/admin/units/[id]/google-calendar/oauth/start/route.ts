@@ -120,7 +120,7 @@ export async function GET(req: NextRequest, context: { params: RouteParams }) {
     const calendarIdOverride = String(url.searchParams.get("calendarId") || "").trim()
 
     const oauthClientId =
-      clientIdOverride || current?.googleOAuthClientId || process.env.GOOGLE_OAUTH_CLIENT_ID || ""
+      clientIdOverride || process.env.GOOGLE_OAUTH_CLIENT_ID || current?.googleOAuthClientId || ""
     if (!oauthClientId) {
       return NextResponse.json(
         {
@@ -139,7 +139,7 @@ export async function GET(req: NextRequest, context: { params: RouteParams }) {
       unitRef: String(unit.id || unitRef || "").trim(),
       nonce: randomBytes(12).toString("hex"),
       issuedAt: Date.now(),
-      clientId: clientIdOverride || undefined,
+      clientId: oauthClientId,
       calendarId: calendarIdOverride || undefined,
     })
     const state = signStatePayload(statePayload)
@@ -153,7 +153,7 @@ export async function GET(req: NextRequest, context: { params: RouteParams }) {
       "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly",
     )
     authUrl.searchParams.set("access_type", "offline")
-    authUrl.searchParams.set("prompt", "consent")
+    authUrl.searchParams.set("prompt", "select_account consent")
     authUrl.searchParams.set("include_granted_scopes", "true")
     authUrl.searchParams.set("state", state)
 
