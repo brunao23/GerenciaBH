@@ -1183,6 +1183,9 @@ export async function GET(req: Request) {
 
     const { searchParams } = new URL(req.url)
     const q = (searchParams.get("q") || "").trim().slice(0, 120)
+    const fresh = ["1", "true", "yes"].includes(
+      String(searchParams.get("live") ?? searchParams.get("fresh") ?? "").trim().toLowerCase(),
+    )
     const mode = detectSearchMode(q)
     const digitsQuery = onlyDigits(q)
     const normalizedQuery = normalizeText(q)
@@ -1193,9 +1196,11 @@ export async function GET(req: Request) {
     const scanLimit = clampInt(searchParams.get("scan"), defaultScanLimit, 1000, 50000)
     const cacheKey = buildCacheKey(tenant, q, limitSessions, scanLimit)
 
-    const cached = readCache(cacheKey)
-    if (cached) {
-      return NextResponse.json(cached)
+    if (!fresh) {
+      const cached = readCache(cacheKey)
+      if (cached) {
+        return NextResponse.json(cached)
+      }
     }
 
     const { chatHistories: defaultChatHistories } = getTablesForTenant(tenant)
@@ -1475,9 +1480,11 @@ export async function GET(req: Request) {
       }
     })
 
-    writeCache(cacheKey, payload)
+    if (!fresh) {
+      writeCache(cacheKey, payload)
+    }
 
-    return NextResponse.json(payload)
+    return NextResponse.json(payload, fresh ? { headers: { "Cache-Control": "no-store" } } : undefined)
   } catch (error: any) {
     console.error("[ChatsSummary] Erro:", error)
     return NextResponse.json({ error: error?.message || "Erro ao carregar resumo de conversas" }, { status: 500 })

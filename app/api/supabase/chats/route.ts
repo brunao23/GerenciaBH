@@ -1532,6 +1532,9 @@ export async function GET(req: Request) {
     const start = searchParams.get("start")
     const end = searchParams.get("end")
     const session = searchParams.get("session")
+    const fresh = ["1", "true", "yes"].includes(
+      String(searchParams.get("live") ?? searchParams.get("fresh") ?? "").trim().toLowerCase(),
+    )
     const sessionMode = Boolean(session && session.trim().length > 0)
     const sessionVariants = sessionMode && session ? buildSessionFilterVariants(session) : []
     const sessionVariantSet = new Set(sessionVariants.map((value) => value.toLowerCase()))
@@ -1541,10 +1544,12 @@ export async function GET(req: Request) {
     console.log("[v0] ChatsAPI: Parâmetros recebidos:", { start, end, session })
 
     // LEI INVIOLÁVEL: Busca TODAS as mensagens de forma completa e ordenada
-    const cachedData = readChatsCache(cacheKey)
-    if (cachedData) {
-      console.log("[v0] ChatsAPI: Retornando cache em memoria")
-      return NextResponse.json(cachedData)
+    if (!fresh) {
+      const cachedData = readChatsCache(cacheKey)
+      if (cachedData) {
+        console.log("[v0] ChatsAPI: Retornando cache em memoria")
+        return NextResponse.json(cachedData)
+      }
     }
 
     const pageSize = sessionMode ? 4000 : 2000
@@ -2301,8 +2306,10 @@ export async function GET(req: Request) {
     console.log("[v0] ChatsAPI: Retornando dados com sucesso")
 
     const payload = result.map(({ last_id, ...rest }) => rest)
-    writeChatsCache(cacheKey, payload)
-    return NextResponse.json(payload)
+    if (!fresh) {
+      writeChatsCache(cacheKey, payload)
+    }
+    return NextResponse.json(payload, fresh ? { headers: { "Cache-Control": "no-store" } } : undefined)
   } catch (e: any) {
     console.log("[v0] ChatsAPI: Erro geral:", e?.message)
     return NextResponse.json({ error: e?.message ?? "Erro ao consultar conversas" }, { status: 500 })

@@ -60,6 +60,8 @@ type PendingAudio = {
 }
 
 const MAX_MANUAL_AUDIO_BYTES = 3 * 1024 * 1024
+const ACTIVE_CHAT_LIVE_POLL_MS = 1_800
+const SUMMARY_LIVE_POLL_MS = 4_500
 
 function formatBytes(bytes: number): string {
   const safe = Number.isFinite(bytes) ? Math.max(0, bytes) : 0
@@ -357,6 +359,112 @@ const dedupeSessionsById = (sessions: ChatSession[]): ChatSession[] => {
   }
 
   return Array.from(byId.values())
+}
+
+function buildChatMessageKey(message: ChatMessage, fallbackIndex = 0): string {
+  const providerId = String(message.provider_message_id || "").trim()
+  if (providerId) return `provider:${providerId}`
+
+  const messageId = Number(message.message_id)
+  if (Number.isFinite(messageId) && messageId > 0) return `id:${messageId}`
+
+  const sender = resolveMessageSenderType(message)
+  const createdAt = String(message.created_at || "").trim()
+  const audioUrl = String(message.audioUrl || "").trim()
+  const content = String(message.content || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 180)
+
+  return `fallback:${sender}:${createdAt}:${audioUrl}:${content}:${fallbackIndex}`
+}
+
+function chatMessageSortValue(message: ChatMessage): number {
+  const time = new Date(String(message.created_at || "")).getTime()
+  if (Number.isFinite(time)) return time
+  const messageId = Number(message.message_id)
+  if (Number.isFinite(messageId)) return messageId
+  return 0
+}
+
+function mergeChatMessageLists(existingMessages: ChatMessage[], incomingMessages: ChatMessage[]): ChatMessage[] {
+  const byKey = new Map<string, ChatMessage>()
+
+  for (let index = 0; index < existingMessages.length; index += 1) {
+    const message = existingMessages[index]
+    if (!message) continue
+    byKey.set(buildChatMessageKey(message, index), message)
+  }
+
+  for (let index = 0; index < incomingMessages.length; index += 1) {
+    const message = incomingMessages[index]
+    if (!message) continue
+    const key = buildChatMessageKey(message, index)
+    const current = byKey.get(key)
+    byKey.set(key, current ? { ...current, ...message } : message)
+  }
+
+  return Array.from(byKey.values()).sort((a, b) => {
+    const timeDiff = chatMessageSortValue(a) - chatMessageSortValue(b)
+    if (timeDiff !== 0) return timeDiff
+    return Number(a.message_id || 0) - Number(b.message_id || 0)
+  })
+}
+
+function buildMessageListSignature(messages: ChatMessage[]): string {
+  const tail = messages.slice(-8)
+  return `${messages.length}:${tail.map((message, index) => buildChatMessageKey(message, index)).join("|")}`
+}
+
+function areMessageListsEquivalent(a: ChatMessage[], b: ChatMessage[]): boolean {
+  return buildMessageListSignature(a) === buildMessageListSignature(b)
+}
+
+function mergeSummarySessionShell(existing: ChatSession | undefined, incoming: ChatSession): ChatSession {
+  if (!existing) return incoming
+
+  const incomingName = String(incoming.contact_name || "").trim()
+  const existingName = String(existing.contact_name || "").trim()
+  const incomingIsGeneric = isGenericSessionName(incomingName)
+  const mergedName = incomingName && !incomingIsGeneric ? incomingName : existingName || incomingName
+
+  const incomingPic = String(incoming.profile_pic || "").trim()
+  const existingPic = String(existing.profile_pic || "").trim()
+  const incomingPicValid = /^https?:\/\//i.test(incomingPic) || /^data:image\//i.test(incomingPic)
+  const existingPicValid = /^https?:\/\//i.test(existingPic) || /^data:image\//i.test(existingPic)
+  const keepDetailedMessages = existing.isSummary === false
+  const existingMessages = Array.isArray(existing.messages) ? existing.messages : []
+  const incomingMessages = Array.isArray(incoming.messages) ? incoming.messages : []
+  const messages = keepDetailedMessages ? existingMessages : incomingMessages.length ? incomingMessages : existingMessages
+  const incomingCount = Number(incoming.messages_count ?? incomingMessages.length)
+  const existingCount = Number(existing.messages_count ?? existingMessages.length)
+
+  return {
+    ...existing,
+    ...incoming,
+    session_id: existing.session_id || incoming.session_id,
+    contact_name: mergedName || existing.contact_name || incoming.contact_name,
+    profile_pic: incomingPicValid ? incomingPic : existingPicValid ? existingPic : undefined,
+    instagram_username: incoming.instagram_username || existing.instagram_username,
+    instagram_bio: incoming.instagram_bio || existing.instagram_bio,
+    channel: existing.channel === "instagram" || incoming.channel === "instagram" ? "instagram" : "whatsapp",
+    numero:
+      toCanonicalWhatsappPhone(existing.numero || incoming.numero || existing.session_id || incoming.session_id) ||
+      existing.numero ||
+      incoming.numero ||
+      null,
+    isStudent: incoming.isStudent ?? existing.isStudent ?? null,
+    usage_input_tokens: Math.max(existing.usage_input_tokens || 0, incoming.usage_input_tokens || 0),
+    usage_output_tokens: Math.max(existing.usage_output_tokens || 0, incoming.usage_output_tokens || 0),
+    usage_total_tokens: Math.max(existing.usage_total_tokens || 0, incoming.usage_total_tokens || 0),
+    usage_total_cost_brl: Math.max(existing.usage_total_cost_brl || 0, incoming.usage_total_cost_brl || 0),
+    isGroup: Boolean(existing.isGroup || incoming.isGroup),
+    last_id: Math.max(existing.last_id || 0, incoming.last_id || 0),
+    last_message_preview: incoming.last_message_preview || existing.last_message_preview,
+    messages,
+    messages_count: Math.max(existingCount || 0, incomingCount || 0, messages.length),
+    isSummary: keepDetailedMessages ? false : incoming.isSummary ?? existing.isSummary,
+  }
 }
 
 const parseMetaTemplateLines = (input: string) => {
@@ -970,6 +1078,8 @@ export default function ConversasPage() {
   const sessionsRef = useRef<ChatSession[]>([])
   const fetchControllerRef = useRef<AbortController | null>(null)
   const detailRequestsRef = useRef<Set<string>>(new Set())
+  const liveSummaryInFlightRef = useRef(false)
+  const liveDetailInFlightRef = useRef(false)
 
   // Sync tab from URL param
   useEffect(() => {
@@ -1373,6 +1483,155 @@ export default function ConversasPage() {
     }
   }, [tenant, sessions])
 
+  const refreshSummaryLive = useCallback(async () => {
+    if (!tenant || liveSummaryInFlightRef.current) return
+    if (typeof document !== "undefined" && document.hidden) return
+
+    liveSummaryInFlightRef.current = true
+    try {
+      const trimmedSearch = deferredQuery.trim()
+      const queryParams = new URLSearchParams()
+      queryParams.set("limit", "250")
+      queryParams.set("live", "1")
+      queryParams.set("t", String(Date.now()))
+      if (trimmedSearch) queryParams.set("q", trimmedSearch)
+
+      const response = await fetch(`/api/supabase/chats/summary?${queryParams.toString()}`, {
+        cache: "no-store",
+      })
+      if (!response.ok) return
+
+      const payload = await response.json().catch(() => null)
+      const incoming = dedupeSessionsById(Array.isArray(payload) ? (payload as ChatSession[]) : [])
+      if (incoming.length === 0) return
+
+      setSessions((prev) => {
+        const prevById = new Map(prev.map((session) => [session.session_id, session]))
+        const next: ChatSession[] = []
+        let changed = incoming.length !== prev.length
+
+        for (const session of incoming) {
+          const existing = prevById.get(session.session_id)
+          const merged = mergeSummarySessionShell(existing, session)
+          next.push(merged)
+
+          if (!existing) {
+            changed = true
+            continue
+          }
+
+          if (
+            existing.last_id !== merged.last_id ||
+            existing.messages_count !== merged.messages_count ||
+            existing.contact_name !== merged.contact_name ||
+            existing.profile_pic !== merged.profile_pic ||
+            existing.last_message_preview !== merged.last_message_preview
+          ) {
+            changed = true
+          }
+        }
+
+        const activeSessionId = activeRef.current
+        if (activeSessionId && !next.some((session) => session.session_id === activeSessionId)) {
+          const activeSession = prevById.get(activeSessionId)
+          if (activeSession) next.push(activeSession)
+        }
+
+        return changed ? next : prev
+      })
+
+      setActive((prevActive) => {
+        const currentActive = prevActive ?? activeRef.current
+        if (currentActive && incoming.some((session) => session.session_id === currentActive)) {
+          return currentActive
+        }
+        if (currentActive && sessionsRef.current.some((session) => session.session_id === currentActive)) {
+          return currentActive
+        }
+        return incoming[0]?.session_id ?? currentActive ?? null
+      })
+    } catch (error) {
+      console.warn("[Conversas] Falha na atualizacao em tempo real da lista:", error)
+    } finally {
+      liveSummaryInFlightRef.current = false
+    }
+  }, [tenant, deferredQuery])
+
+  const refreshActiveSessionLive = useCallback(async () => {
+    const sessionId = activeRef.current
+    if (!tenant || !sessionId || liveDetailInFlightRef.current) return
+    if (detailRequestsRef.current.has(sessionId)) return
+    if (typeof document !== "undefined" && document.hidden) return
+
+    liveDetailInFlightRef.current = true
+    try {
+      const queryParams = new URLSearchParams()
+      queryParams.set("session", sessionId)
+      queryParams.set("live", "1")
+      queryParams.set("t", String(Date.now()))
+
+      const response = await fetch(`/api/supabase/chats?${queryParams.toString()}`, {
+        cache: "no-store",
+      })
+      if (!response.ok) return
+
+      const payload = await response.json().catch(() => null)
+      const detailed = Array.isArray(payload) ? (payload[0] as ChatSession | undefined) : undefined
+      if (!detailed || !Array.isArray(detailed.messages)) return
+
+      setSessions((prev) =>
+        prev.map((session) => {
+          if (session.session_id !== sessionId) return session
+
+          const existingMessages = Array.isArray(session.messages) ? session.messages : []
+          const incomingMessages = Array.isArray(detailed.messages) ? detailed.messages : []
+          const mergedMessages = mergeChatMessageLists(existingMessages, incomingMessages)
+          const sameMessages = areMessageListsEquivalent(existingMessages, mergedMessages)
+
+          const existingName = String(session.contact_name || "").trim()
+          const detailedName = String(detailed.contact_name || "").trim()
+          const mergedName =
+            isGenericSessionName(existingName) && detailedName
+              ? detailedName
+              : existingName || detailedName || session.contact_name
+
+          const existingPic = String(session.profile_pic || "").trim()
+          const detailedPic = String(detailed.profile_pic || "").trim()
+          const existingPicValid = /^https?:\/\//i.test(existingPic) || /^data:image\//i.test(existingPic)
+          const detailedPicValid = /^https?:\/\//i.test(detailedPic) || /^data:image\//i.test(detailedPic)
+          const nextProfilePic = detailedPicValid ? detailedPic : existingPicValid ? existingPic : undefined
+          const nextCount = Math.max(Number(detailed.messages_count || 0), mergedMessages.length)
+
+          if (
+            sameMessages &&
+            session.messages_count === nextCount &&
+            session.contact_name === mergedName &&
+            session.profile_pic === nextProfilePic
+          ) {
+            return session
+          }
+
+          return {
+            ...session,
+            ...detailed,
+            contact_name: mergedName || session.contact_name || detailed.contact_name,
+            profile_pic: nextProfilePic,
+            instagram_username: session.instagram_username || detailed.instagram_username,
+            instagram_bio: session.instagram_bio || detailed.instagram_bio,
+            isStudent: detailed.isStudent ?? session.isStudent ?? null,
+            messages: mergedMessages,
+            messages_count: nextCount,
+            isSummary: false,
+          }
+        }),
+      )
+    } catch (error) {
+      console.warn("[Conversas] Falha na atualizacao em tempo real da conversa:", error)
+    } finally {
+      liveDetailInFlightRef.current = false
+    }
+  }, [tenant])
+
   useEffect(() => {
     activeRef.current = active
   }, [active])
@@ -1389,6 +1648,24 @@ export default function ConversasPage() {
 
     return () => clearTimeout(timer)
   }, [tenant, deferredQuery, fetchData])
+
+  useEffect(() => {
+    if (!tenant) return
+    const timer = window.setInterval(() => {
+      refreshSummaryLive()
+    }, SUMMARY_LIVE_POLL_MS)
+
+    return () => window.clearInterval(timer)
+  }, [tenant, refreshSummaryLive])
+
+  useEffect(() => {
+    if (!tenant || !active) return
+    const timer = window.setInterval(() => {
+      refreshActiveSessionLive()
+    }, ACTIVE_CHAT_LIVE_POLL_MS)
+
+    return () => window.clearInterval(timer)
+  }, [tenant, active, refreshActiveSessionLive])
 
   useEffect(() => {
     if (!active) return
