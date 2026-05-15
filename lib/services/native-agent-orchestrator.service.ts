@@ -1,5 +1,9 @@
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
-import { SemanticCacheService, type CacheHitResult } from "@/lib/services/semantic-cache.service"
+import {
+  isSemanticCacheRuntimeEnabled,
+  SemanticCacheService,
+  type CacheHitResult,
+} from "@/lib/services/semantic-cache.service"
 import { getTablesForTenant } from "@/lib/helpers/tenant"
 import { getTableColumns } from "@/lib/helpers/supabase-table-columns"
 import {
@@ -3969,7 +3973,7 @@ export class NativeAgentOrchestratorService {
     // â”€â”€ Parallel: Learning Prompt + Semantic Cache Embedding â”€â”€â”€â”€â”€â”€â”€â”€
     let cacheHit: CacheHitResult | null = null
     let cacheEmbedding: number[] | null = null
-    const cacheEnabled = config.semanticCacheEnabled && !!config.geminiApiKey
+    const cacheEnabled = isSemanticCacheRuntimeEnabled() && config.semanticCacheEnabled && !!config.geminiApiKey
     const effectiveMessage = effectiveLeadMessage || content
     const shouldGenerateEmbedding = cacheEnabled && effectiveMessage.trim().length > 0
 
@@ -4071,7 +4075,7 @@ export class NativeAgentOrchestratorService {
 
     // â”€â”€ Semantic Cache: lookup â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if (!cacheEnabled) {
-      console.log(`[native-agent][semantic-cache] DISABLED tenant=${tenant} enabled=${config.semanticCacheEnabled} hasKey=${!!config.geminiApiKey}`)
+      console.log(`[native-agent][semantic-cache] DISABLED tenant=${tenant} global=${isSemanticCacheRuntimeEnabled()} enabled=${config.semanticCacheEnabled} hasKey=${!!config.geminiApiKey}`)
     }
 
     if (cacheEnabled && effectiveMessage.trim().length > 0) {
@@ -4106,7 +4110,7 @@ export class NativeAgentOrchestratorService {
           }
         } else {
           console.log(
-            `[native-agent][semantic-cache] MISS tenant=${tenant} threshold=${config.semanticCacheSimilarityThreshold ?? 0.88}`,
+            `[native-agent][semantic-cache] MISS tenant=${tenant} threshold=${config.semanticCacheSimilarityThreshold ?? 0.98}`,
           )
         }
       } catch (cacheErr) {

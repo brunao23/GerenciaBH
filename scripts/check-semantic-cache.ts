@@ -125,6 +125,12 @@ async function main() {
 
   // 5. Checar config dos tenants ativos
   console.log("\n--- 5. Config semanticCache por tenant ---")
+  const globalCacheEnabled = ["1", "true", "yes", "on"].includes(
+    String(process.env.SEMANTIC_CACHE_GLOBAL_ENABLED || "")
+      .trim()
+      .toLowerCase(),
+  )
+  console.log(`  global: ${globalCacheEnabled ? "ENABLED" : "DISABLED (global opt-in ausente)"}`)
   const { data: units, error: unitsErr } = await supabase
     .from("units_registry")
     .select("unit_prefix, metadata")
@@ -136,10 +142,12 @@ async function main() {
     for (const unit of units || []) {
       const na = unit.metadata?.nativeAgent || {}
       const enabled = !!na.enabled
-      const cacheEnabled = na.semanticCacheEnabled !== false // default true
+      const cacheEnabled = na.semanticCacheEnabled === true
       const hasKey = !!(na.geminiApiKey || process.env.GEMINI_API_KEY)
       const status = !enabled
         ? "DISABLED (agent off)"
+        : !globalCacheEnabled
+          ? "DISABLED (global)"
         : !hasKey
           ? "DISABLED (no geminiApiKey)"
           : !cacheEnabled

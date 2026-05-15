@@ -49,8 +49,14 @@ const EMBEDDING_MODEL = "gemini-embedding-001"
 const EMBEDDING_DIMS = 768
 const EMBEDDING_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 
-const DEFAULT_SIMILARITY_THRESHOLD = 0.92 // Subido de 0.88 — evita falsos positivos entre unidades
-const DEFAULT_TTL_HOURS = 168 // 7 days (reduzido de 14 para evitar respostas stale)
+const DEFAULT_SIMILARITY_THRESHOLD = 0.98
+const DEFAULT_TTL_HOURS = 24
+
+export function isSemanticCacheRuntimeEnabled(): boolean {
+  const raw = String(process.env.SEMANTIC_CACHE_GLOBAL_ENABLED || "").trim().toLowerCase()
+
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on"
+}
 
 // Patterns that indicate the message should NOT be cached
 const PII_PATTERNS = [
@@ -268,9 +274,10 @@ export class SemanticCacheService {
     embedding?: number[] | null
     similarityThreshold?: number
   }): Promise<CacheHitResult | null> {
+    if (!isSemanticCacheRuntimeEnabled()) return null
     if (!isExplicitPriceQuery(input.message)) return null
 
-    const threshold = input.similarityThreshold ?? DEFAULT_SIMILARITY_THRESHOLD
+    const threshold = Math.max(input.similarityThreshold ?? DEFAULT_SIMILARITY_THRESHOLD, DEFAULT_SIMILARITY_THRESHOLD)
 
     // 1) Try exact hash match first (cheapest)
     const normalized = normalizeForCache(input.message)
@@ -335,6 +342,10 @@ export class SemanticCacheService {
   // ── Cache Storage ────────────────────────────────────────────
 
   async storeResponse(input: CacheStoreInput): Promise<{ stored: boolean; reason?: string }> {
+    if (!isSemanticCacheRuntimeEnabled()) {
+      return { stored: false, reason: "globally_disabled" }
+    }
+
     const normalized = normalizeForCache(input.message)
     const hash = hashMessage(normalized)
 

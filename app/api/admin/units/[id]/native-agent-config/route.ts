@@ -660,9 +660,9 @@ export async function PATCH(req: NextRequest, context: { params: RouteParams }) 
         followupSamplingTemperature: 0.55,
         followupSamplingTopP: 0.9,
         followupSamplingTopK: 40,
-        semanticCacheEnabled: true,
-        semanticCacheSimilarityThreshold: 0.92,
-        semanticCacheTtlHours: 168,
+        semanticCacheEnabled: false,
+        semanticCacheSimilarityThreshold: 0.98,
+        semanticCacheTtlHours: 24,
       }) as NativeAgentConfig
 
     const nextCalendarBusinessDays =

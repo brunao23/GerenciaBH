@@ -179,7 +179,7 @@ export interface NativeAgentConfig {
   // Semantic cache (ML)
   semanticCacheEnabled: boolean
   semanticCacheSimilarityThreshold: number // 0.80 - 0.99
-  semanticCacheTtlHours: number            // default 168 (7 days)
+  semanticCacheTtlHours: number            // default 24h when globally enabled
 
   // Localização da unidade (para envio de pin de localização via WhatsApp)
   unitLatitude?: number
@@ -302,9 +302,14 @@ const DEFAULT_AUDIO_MIN_CHARS = 1
 const DEFAULT_AUDIO_MAX_CHARS = 600
 const DEFAULT_AUDIO_CUSTOM_AUTH_HEADER = "Authorization"
 const DEFAULT_AUDIO_WAVEFORM_ENABLED = true
-const DEFAULT_SEMANTIC_CACHE_ENABLED = true
-const DEFAULT_SEMANTIC_CACHE_SIMILARITY_THRESHOLD = 0.85
-const DEFAULT_SEMANTIC_CACHE_TTL_HOURS = 336 // 14 days
+const DEFAULT_SEMANTIC_CACHE_ENABLED = false
+const DEFAULT_SEMANTIC_CACHE_SIMILARITY_THRESHOLD = 0.98
+const DEFAULT_SEMANTIC_CACHE_TTL_HOURS = 24
+
+function isSemanticCacheGlobalOptInEnabled(): boolean {
+  const raw = String(process.env.SEMANTIC_CACHE_GLOBAL_ENABLED || "").trim().toLowerCase()
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on"
+}
 
 const DEFAULT_DURATION_MIN = 50
 const DEFAULT_MIN_LEAD_MIN = 15
@@ -711,8 +716,18 @@ function readToolNotificationTargets(input: any): string[] {
 }
 
 function mergeWithEnv(config: NativeAgentConfig): NativeAgentConfig {
+  const semanticCacheGloballyEnabled = isSemanticCacheGlobalOptInEnabled()
   return {
     ...config,
+    semanticCacheEnabled: semanticCacheGloballyEnabled ? config.semanticCacheEnabled : false,
+    semanticCacheSimilarityThreshold: Math.max(
+      Number(config.semanticCacheSimilarityThreshold || DEFAULT_SEMANTIC_CACHE_SIMILARITY_THRESHOLD),
+      DEFAULT_SEMANTIC_CACHE_SIMILARITY_THRESHOLD,
+    ),
+    semanticCacheTtlHours: Math.min(
+      Number(config.semanticCacheTtlHours || DEFAULT_SEMANTIC_CACHE_TTL_HOURS),
+      DEFAULT_SEMANTIC_CACHE_TTL_HOURS,
+    ),
     geminiApiKey: config.geminiApiKey || process.env.GEMINI_API_KEY || undefined,
     geminiModel: config.geminiModel || process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL,
     timezone: config.timezone || process.env.TZ || DEFAULT_TIMEZONE,
