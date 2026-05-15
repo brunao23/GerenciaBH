@@ -10,7 +10,7 @@ import { Toaster } from "../../components/ui/sonner"
 import { TenantSelector } from "../../components/saas/TenantSelector"
 import { ThemeToggle } from "../../components/theme-toggle"
 import OnboardingTour from "../../components/onboarding/OnboardingTour"
-import { GraduationCap } from "lucide-react"
+import Link from "next/link"
 
 const NotificationCenter = lazy(() => import("../../components/notification-center"))
 const FeedbackWidget = lazy(() => import("../../components/feedback-widget"))
@@ -50,14 +50,29 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <SidebarInset className="education-app-shell h-dvh min-h-dvh max-h-dvh overflow-hidden">
           <header className={`education-topbar sticky top-0 z-20 items-center safe-area-top ${isConversationsPage ? "hidden h-16 gap-3 overflow-hidden px-4 lg:flex" : "flex h-14 gap-2 px-3 sm:h-16 sm:gap-3 sm:px-4"}`}>
             <SidebarTrigger className="genial-hover border border-transparent hover:border-primary/30 hover:bg-primary/8 rounded-lg" />
-            <div className={`min-w-0 items-center gap-2 ${isConversationsPage ? "hidden min-[380px]:flex" : "flex"}`}>
-              <span className="brand-mark flex h-8 w-8 shrink-0 items-center justify-center rounded-xl">
-                <GraduationCap className="h-4 w-4" />
-              </span>
-              <div className="min-w-0 leading-tight">
-                <div className="truncate font-display text-sm font-bold tracking-tight text-primary sm:text-base">GerencIA Educação</div>
-                <div className="hidden text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground sm:block">captação e matrículas</div>
-              </div>
+            <div className={`shrink-0 items-center gap-2 ${isConversationsPage ? "hidden min-[380px]:flex" : "flex"}`}>
+              <Link
+                href="/dashboard"
+                aria-label="Ir para a visão geral do GerencIA Educação"
+                title="GerencIA Educação"
+                className="flex shrink-0 items-center"
+              >
+                <img
+                  src="/gerencia-educacao-logo-light.svg"
+                  alt=""
+                  className="topbar-brand-logo-full block dark:hidden"
+                />
+                <img
+                  src="/gerencia-educacao-logo-dark.svg"
+                  alt=""
+                  className="topbar-brand-logo-full hidden dark:block"
+                />
+                <img
+                  src="/gerencia-educacao-mark.svg"
+                  alt=""
+                  className="topbar-brand-logo-mark"
+                />
+              </Link>
             </div>
             <div className={`ml-auto flex min-w-0 items-center ${isConversationsPage ? "gap-1.5 sm:gap-2" : "gap-2"}`}>
               <TenantSelector />

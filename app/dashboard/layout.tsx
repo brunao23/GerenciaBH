@@ -7,7 +7,7 @@ import FeedbackWidget from "../../components/feedback-widget"
 import { TenantSelector } from "../../components/saas/TenantSelector"
 import { ThemeToggle } from "../../components/theme-toggle"
 import { Toaster } from "../../components/ui/sonner"
-import { GraduationCap } from "lucide-react"
+import Link from "next/link"
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -16,14 +16,29 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <SidebarInset className="education-app-shell">
         <header className="education-topbar sticky top-0 z-10 flex h-14 items-center gap-2 px-3 sm:h-16 sm:gap-3 sm:px-4">
           <SidebarTrigger className="genial-hover border border-transparent hover:border-primary/30 hover:bg-primary/8 rounded-lg" />
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="brand-mark flex h-8 w-8 shrink-0 items-center justify-center rounded-xl">
-              <GraduationCap className="h-4 w-4" />
-            </span>
-            <div className="min-w-0 leading-tight">
-              <div className="truncate font-display text-sm font-bold tracking-tight text-primary sm:text-base">GerencIA Educação</div>
-              <div className="hidden text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground sm:block">captação e matrículas</div>
-            </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Link
+              href="/dashboard"
+              aria-label="Ir para a visão geral do GerencIA Educação"
+              title="GerencIA Educação"
+              className="flex shrink-0 items-center"
+            >
+              <img
+                src="/gerencia-educacao-logo-light.svg"
+                alt=""
+                className="topbar-brand-logo-full block dark:hidden"
+              />
+              <img
+                src="/gerencia-educacao-logo-dark.svg"
+                alt=""
+                className="topbar-brand-logo-full hidden dark:block"
+              />
+              <img
+                src="/gerencia-educacao-mark.svg"
+                alt=""
+                className="topbar-brand-logo-mark"
+              />
+            </Link>
           </div>
           <div className="ml-auto flex items-center gap-2">
             <TenantSelector />
