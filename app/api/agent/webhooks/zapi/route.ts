@@ -3952,7 +3952,11 @@ export async function POST(req: NextRequest) {
       canonicalPhone || canonicalSessionId || routing.phone || event.phone,
     )
     if (earlyPauseLookupPhone && event.callbackType === "received") {
-      const earlyPauseState = await getLeadPauseState({ tenant, phone: earlyPauseLookupPhone })
+      const earlyPauseState = await getLeadPauseState({
+        tenant,
+        phone: earlyPauseLookupPhone,
+        failClosedOnError: true,
+      })
       if (earlyPauseState?.paused) {
         let explicitResume = false
         if (event.fromMe !== true) {
@@ -4106,7 +4110,7 @@ export async function POST(req: NextRequest) {
       replyPhone || canonicalPhone || canonicalSessionId || routing.phone || event.phone,
     )
     const pauseState = pauseLookupPhone
-      ? await getLeadPauseState({ tenant, phone: pauseLookupPhone })
+      ? await getLeadPauseState({ tenant, phone: pauseLookupPhone, failClosedOnError: true })
       : null
     if (pauseState?.paused) {
       const inboundText = String(event.text || "")
@@ -4162,6 +4166,30 @@ export async function POST(req: NextRequest) {
     )
     if (inboundBufferSeconds > 0) {
       await sleep(inboundBufferSeconds * 1000)
+    }
+
+    const postBufferPauseLookupPhone = normalizeLikelyWhatsappPhone(
+      replyPhone || canonicalPhone || canonicalSessionId || routing.phone || event.phone,
+    )
+    if (postBufferPauseLookupPhone) {
+      const postBufferPauseState = await getLeadPauseState({
+        tenant,
+        phone: postBufferPauseLookupPhone,
+        failClosedOnError: true,
+      })
+      if (postBufferPauseState?.paused) {
+        const taskInsight = await taskInsightPromise
+        return NextResponse.json({
+          received: true,
+          ignored: true,
+          reason: "ai_paused_by_human_post_buffer",
+          tenant,
+          persisted,
+          taskInsight,
+          pauseReason: postBufferPauseState.pauseReason || null,
+          pauseIsManual: postBufferPauseState.isManual,
+        })
+      }
     }
 
     const bufferedSince = new Date(Date.now() - inboundAggregationWindowSeconds * 1000).toISOString()
@@ -4253,6 +4281,23 @@ export async function POST(req: NextRequest) {
       }
 
       try {
+        const preOrchestratorPauseLookupPhone = normalizeLikelyWhatsappPhone(
+          replyPhone || canonicalPhone || sessionForInbound || routing.phone || event.phone,
+        )
+        if (preOrchestratorPauseLookupPhone) {
+          const preOrchestratorPauseState = await getLeadPauseState({
+            tenant,
+            phone: preOrchestratorPauseLookupPhone,
+            failClosedOnError: true,
+          })
+          if (preOrchestratorPauseState?.paused) {
+            console.warn(
+              `[Webhook][Background] Orquestrador bloqueado por pausa ativa: tenant=${tenant} phone=${preOrchestratorPauseLookupPhone} reason=${preOrchestratorPauseState.pauseReason || "paused"}`,
+            )
+            return
+          }
+        }
+
         const orchestrator = new NativeAgentOrchestratorService()
         await orchestrator.handleInboundMessage({
           tenant,
@@ -4302,7 +4347,11 @@ export async function POST(req: NextRequest) {
             replyPhone || canonicalPhone || sessionForInbound || routing.phone || event.phone,
           )
           if (fallbackPauseLookupPhone) {
-            const fallbackPauseState = await getLeadPauseState({ tenant, phone: fallbackPauseLookupPhone })
+            const fallbackPauseState = await getLeadPauseState({
+              tenant,
+              phone: fallbackPauseLookupPhone,
+              failClosedOnError: true,
+            })
             if (fallbackPauseState?.paused) {
               console.warn(
                 `[Webhook][Background] Fallback bloqueado por pausa ativa: tenant=${tenant} phone=${fallbackPauseLookupPhone}`,

@@ -9,6 +9,7 @@ import { ZApiService } from "@/lib/services/z-api.service"
 import { EvolutionAPIService } from "@/lib/services/evolution-api.service"
 import { MetaWhatsAppService } from "@/lib/services/meta-whatsapp.service"
 import { MetaInstagramService } from "@/lib/services/meta-instagram.service"
+import { getLeadPauseState } from "@/lib/services/lead-pause.service"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import {
   normalizePhoneNumber,
@@ -212,6 +213,68 @@ type InstagramTarget =
   | { mode: "comment"; commentId: string; recipientId?: string }
 
 export class TenantMessagingService {
+  private isManualOutboundSource(source?: string): boolean {
+    const normalized = String(source || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_]+/g, "-")
+    if (!normalized) return false
+
+    return (
+      normalized.includes("human-manual") ||
+      normalized.includes("manual-send") ||
+      normalized === "dashboard-manual" ||
+      normalized.startsWith("manual-")
+    )
+  }
+
+  private shouldSkipPauseGateForRecipient(rawTarget: string): boolean {
+    const target = String(rawTarget || "").trim().toLowerCase()
+    if (!target) return true
+    return (
+      target.startsWith("ig:") ||
+      target.startsWith("ig_") ||
+      target.startsWith("ig-comment:") ||
+      target.startsWith("group_") ||
+      target.includes("@g.us") ||
+      target.includes("@lid") ||
+      target.endsWith("-group")
+    )
+  }
+
+  private async blockAutomatedOutboundWhenPaused(input: {
+    tenant: string
+    phone: string
+    sessionId?: string
+    source?: string
+  }): Promise<SendTenantTextResult | null> {
+    if (this.isManualOutboundSource(input.source)) return null
+    if (this.shouldSkipPauseGateForRecipient(input.phone)) return null
+
+    const lookupPhone =
+      normalizePhoneNumber(input.phone) ||
+      normalizePhoneNumber(String(input.sessionId || ""))
+    if (!lookupPhone) return null
+
+    const pauseState = await getLeadPauseState({
+      tenant: input.tenant,
+      phone: lookupPhone,
+      failClosedOnError: true,
+    })
+
+    if (!pauseState.paused) return null
+
+    console.warn(
+      `[TenantMessaging][PauseGuard] Envio automatizado bloqueado por pausa ativa: tenant=${input.tenant} phone=${lookupPhone} source=${input.source || "unknown"} reason=${pauseState.pauseReason || "paused"}`,
+    )
+
+    return {
+      success: false,
+      provider: "pause-guard",
+      error: "ai_paused_by_human",
+    }
+  }
+
   private parseInstagramTarget(value: string): InstagramTarget | null {
     const raw = String(value || "").trim()
     if (!raw) return null
@@ -277,6 +340,14 @@ export class TenantMessagingService {
     if (!phone || !message) {
       return { success: false, error: "phone and message are required" }
     }
+
+    const pauseBlock = await this.blockAutomatedOutboundWhenPaused({
+      tenant,
+      phone,
+      sessionId: input.sessionId,
+      source: input.source || (instagramTarget ? "instagram-agent" : "native-agent"),
+    })
+    if (pauseBlock) return pauseBlock
 
     let config = await getMessagingConfigForTenant(tenant)
     if (!config || config.isActive === false) {
@@ -475,6 +546,13 @@ export class TenantMessagingService {
     if (!phone) return { success: false, error: "phone e obrigatorio" }
     if (!instagramTarget && !messageId) return { success: false, error: "messageId e obrigatorio" }
 
+    const pauseBlock = await this.blockAutomatedOutboundWhenPaused({
+      tenant,
+      phone,
+      source: "native-agent-reaction",
+    })
+    if (pauseBlock) return { success: false, error: pauseBlock.error }
+
     const config = await getMessagingConfigForTenant(tenant)
     if (!config || config.isActive === false) {
       return { success: false, error: "Config de mensageria ausente ou desativada" }
@@ -549,6 +627,14 @@ export class TenantMessagingService {
     if (!phone || !message || !buttons.length) {
       return { success: false, error: "phone, message e buttons sao obrigatorios" }
     }
+
+    const pauseBlock = await this.blockAutomatedOutboundWhenPaused({
+      tenant,
+      phone,
+      sessionId: input.sessionId,
+      source: input.source || "native-agent",
+    })
+    if (pauseBlock) return pauseBlock
 
     const config = await getMessagingConfigForTenant(tenant)
     if (!config || config.isActive === false) {
@@ -627,6 +713,14 @@ export class TenantMessagingService {
 
     const phone = this.normalizeRecipient(input.phone)
     if (!phone) return { success: false, error: "phone is required" }
+
+    const pauseBlock = await this.blockAutomatedOutboundWhenPaused({
+      tenant,
+      phone,
+      sessionId: input.sessionId,
+      source: input.source || "native-agent-location",
+    })
+    if (pauseBlock) return pauseBlock
 
     const config = await getMessagingConfigForTenant(tenant)
     if (!config || config.isActive === false) {
@@ -745,6 +839,14 @@ export class TenantMessagingService {
     if (!phone || !audio) {
       return { success: false, error: "phone and audio are required" }
     }
+
+    const pauseBlock = await this.blockAutomatedOutboundWhenPaused({
+      tenant,
+      phone,
+      sessionId: input.sessionId,
+      source: input.source || "native-agent-audio",
+    })
+    if (pauseBlock) return pauseBlock
 
     const config = await getMessagingConfigForTenant(tenant)
     if (!config || config.isActive === false) {
@@ -1005,6 +1107,14 @@ export class TenantMessagingService {
     if (!phone || !mediaUrl) {
       return { success: false, error: "phone and mediaUrl are required" }
     }
+
+    const pauseBlock = await this.blockAutomatedOutboundWhenPaused({
+      tenant,
+      phone,
+      sessionId: input.sessionId,
+      source: input.source || "native-agent",
+    })
+    if (pauseBlock) return pauseBlock
 
     const config = await getMessagingConfigForTenant(tenant)
     if (!config || config.isActive === false) {

@@ -129,9 +129,9 @@ async function uploadAudioDataUriToStorage(params: {
   }
 }
 
-async function pauseAiForLead(tenant: string, phone: string, pausedUntil?: string): Promise<void> {
+async function pauseAiForLead(tenant: string, phone: string, pausedUntil?: string): Promise<boolean> {
   const normalized = normalizePhoneNumber(phone)
-  if (!normalized) return
+  if (!normalized) return false
 
   const supabase = createBiaSupabaseServerClient()
   const { pausar: pauseTable } = getTablesForTenant(tenant)
@@ -166,7 +166,9 @@ async function pauseAiForLead(tenant: string, phone: string, pausedUntil?: strin
 
   if (upsert.error) {
     console.warn("[SendAudio] Falha ao pausar IA apos audio humano:", upsert.error.message)
+    return false
   }
+  return true
 }
 
 export async function POST(req: Request) {
@@ -202,6 +204,14 @@ export async function POST(req: Request) {
     const effectiveMimeType = storageAudio?.mimeType || audioMimeType
 
     const historyContent = caption || "[Audio enviado pelo humano]"
+    const paused = await pauseAiForLead(tenant, phone, pausedUntil || undefined)
+    if (!paused) {
+      return NextResponse.json(
+        { error: "Nao foi possivel ativar a pausa de seguranca da IA para este lead." },
+        { status: 500 },
+      )
+    }
+
     const messaging = new TenantMessagingService()
     const sent = await messaging.sendAudio({
       tenant,
@@ -222,7 +232,6 @@ export async function POST(req: Request) {
       )
     }
 
-    await pauseAiForLead(tenant, phone, pausedUntil || undefined)
     await new AgentTaskQueueService()
       .cancelPendingFollowups({ tenant, sessionId, phone })
       .catch(() => {})

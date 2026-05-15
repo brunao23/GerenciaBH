@@ -457,6 +457,45 @@ function leadAskedNightOrPeriodHours(value: string): boolean {
   return asksHour && mentionsPeriod
 }
 
+function leadSelectedSingleSchedulingPeriod(value: string): "manha" | "tarde" | "noite" | null {
+  const text = normalizeComparableMessage(value)
+  if (!text || text.length > 60) return null
+  const hasQuestion = /\?|\b(que horas|qual horario|quais horarios|quanto|valor|onde|como)\b/.test(text)
+  if (hasQuestion) return null
+
+  const periods = [
+    { key: "manha" as const, pattern: /\b(manha|cedo)\b/ },
+    { key: "tarde" as const, pattern: /\btarde\b/ },
+    { key: "noite" as const, pattern: /\b(noite|noturno)\b/ },
+  ].filter((item) => item.pattern.test(text))
+
+  return periods.length === 1 ? periods[0].key : null
+}
+
+function stripRepeatedPeriodChoiceQuestion(responseText: string, selectedPeriod: "manha" | "tarde" | "noite"): string {
+  let text = String(responseText || "").trim()
+  if (!text) return text
+
+  const periodToken = "(?:manha|manh[aã]|tarde|noite|noturno)"
+  const selectedPattern =
+    selectedPeriod === "manha"
+      ? /manh[aã]|manha|cedo/i
+      : selectedPeriod === "tarde"
+        ? /tarde/i
+        : /noite|noturno/i
+
+  text = text.replace(
+    new RegExp(`\\b(?:(?:voc[eê])\\s+)?(?:prefere|qual periodo|qual funciona melhor|funciona melhor|fica melhor)[^?]{0,100}${periodToken}[^?]*\\?`, "gi"),
+    (match) => (selectedPattern.test(match) ? "Qual dia funciona melhor para voce?" : match),
+  )
+
+  text = text.replace(new RegExp(`\\s*${periodToken}(?:\\s*,\\s*|\\s+ou\\s+)${periodToken}(?:\\s*,\\s*|\\s+ou\\s+${periodToken})*\\s*\\?`, "gi"), (match) =>
+    selectedPattern.test(match) ? "" : match,
+  )
+
+  return text.replace(/\s{2,}/g, " ").replace(/\s+\?/g, "?").trim()
+}
+
 function enforceExplicitLeadQuestionCoverage(
   responseText: string,
   leadMessage?: string | null,
@@ -469,6 +508,7 @@ function enforceExplicitLeadQuestionCoverage(
   const normalizedResponse = normalizeComparableMessage(text)
   const leadAskedValue = leadExplicitlyAskedValue(lead)
   const leadAskedPeriodHours = leadAskedNightOrPeriodHours(lead)
+  const selectedPeriod = leadSelectedSingleSchedulingPeriod(lead)
 
   if (leadAskedValue) {
     const alreadyHandledValuePath =
@@ -494,6 +534,10 @@ function enforceExplicitLeadQuestionCoverage(
       /(?:Ainda tenho horarios?|Tenho horarios?)[^.?!]*(?:manha|tarde|noite)[^.?!]*(?:funciona melhor|fica melhor)[^?!.]*[?!.]?/gi,
       "Para te passar os horários exatos desse período, preciso consultar a agenda do dia que você prefere.",
     ).trim()
+  }
+
+  if (selectedPeriod) {
+    text = stripRepeatedPeriodChoiceQuestion(text, selectedPeriod)
   }
 
   return text
@@ -5581,6 +5625,7 @@ export class NativeAgentOrchestratorService {
       "- PERGUNTA DIRETA DO LEAD (REGRA OBRIGATORIA): se o lead perguntar algo objetivo OPERACIONAL (ex.: horario, endereco, modalidade, funcionamento), responda de forma clara e curta e, na MESMA mensagem, retome o proximo passo do Prompt Base.",
       "- Se o lead mandar duas ou mais perguntas em mensagens seguidas, considere TODAS antes de responder. NUNCA ignore uma pergunta, mas tambem NUNCA atropele o script comercial.",
       "- Se o lead perguntar 'a noite seria que horas?', 'que horas tem?', 'quais horarios?', consulte/disponibilize horarios reais; NUNCA repita genericamente 'manha, tarde ou noite funciona melhor?'.",
+      "- Se a ultima mensagem do lead for somente uma escolha como 'manha', 'tarde' ou 'noite', considere que o periodo JA FOI respondido. NUNCA repita a mesma pergunta de periodo; avance para o proximo dado faltante, consulte a agenda ou ofereca horarios reais daquele periodo.",
       "- EXCECAO COMERCIAL - VALORES/PRECO: se o lead perguntar 'quais sao os valores?', 'qual valor?', 'quanto custa?', NAO pule o script e NAO revele/invente preco antes da qualificacao. Reconheca a pergunta de forma breve, explique que precisa entender o perfil/objetivo primeiro para orientar corretamente e continue a etapa de descoberta/qualificacao do Prompt Base. So fale de valor depois que o script permitir ou quando houver informacao explicita configurada no prompt/contexto.",
     ].join("\n")
     const contextualReasoningRule =
@@ -5771,6 +5816,7 @@ export class NativeAgentOrchestratorService {
       "- PASSO 1 â€” CONSULTAR: chame get_available_slots. Identifique quais periodos (manha / tarde / noite) possuem vagas reais.",
       "- PASSO 2 â€” PERGUNTAR O PERIODO: pergunte ao lead qual periodo prefere, oferecendo SOMENTE os periodos com vagas. Exemplo: 'Voce prefere de manha ou de tarde?' (se so houver manha e tarde). Se houver vagas hoje, mencione primeiro: 'Tenho hoje ainda de tarde â€” ou prefere outro dia? Pode sugerir um dia ou horario e eu verifico.'",
       "- PASSO 3 â€” SO ENTAO O HORARIO ESPECIFICO: apos o lead indicar o periodo ou o dia, apresente no maximo 1 ou 2 opcoes especificas dentro daquele periodo/dia.",
+      "- ANTI-REPETICAO DE PERIODO: se o lead ja respondeu 'manha', 'tarde' ou 'noite', e proibido perguntar de novo 'manha, tarde ou noite?' ou 'tarde ou noite?'. A proxima resposta deve usar essa escolha para avancar.",
       "- PROIBIDO ABSOLUTO: NUNCA apresente data e horario especificos (ex: 'quarta (29/04) as 14h') antes de o lead indicar o periodo ou dia de preferencia, EXCETO se o lead ja tiver pedido um dia/horario concreto.",
       "- PROIBIDO: repetir a mesma data, dia da semana ou horario em mensagens diferentes do mesmo turno. Diga uma vez.",
       "- PRIORIDADE HOJE: se hoje ainda tiver slots disponiveis no periodo preferido, priorize hoje. Exemplo: 'Tenho hoje ainda as 17h30.'",

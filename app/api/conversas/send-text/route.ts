@@ -34,9 +34,9 @@ function extractPhone(number: any, sessionId: any): string {
   return normalizePhoneNumber(rawSession)
 }
 
-async function pauseAiForLead(tenant: string, phone: string, pausedUntil?: string): Promise<void> {
+async function pauseAiForLead(tenant: string, phone: string, pausedUntil?: string): Promise<boolean> {
   const normalized = normalizePhoneNumber(phone)
-  if (!normalized) return
+  if (!normalized) return false
 
   const supabase = createBiaSupabaseServerClient()
   const { pausar: pauseTable } = getTablesForTenant(tenant)
@@ -72,7 +72,9 @@ async function pauseAiForLead(tenant: string, phone: string, pausedUntil?: strin
 
   if (upsert.error) {
     console.warn("[SendText] Falha ao pausar IA apos resposta humana:", upsert.error.message)
+    return false
   }
+  return true
 }
 
 export async function POST(req: Request) {
@@ -92,6 +94,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "number is required" }, { status: 400 })
     }
 
+    if (!/^ig:/i.test(phone)) {
+      const paused = await pauseAiForLead(tenant, phone, pausedUntil || undefined)
+      if (!paused) {
+        return NextResponse.json(
+          { error: "Nao foi possivel ativar a pausa de seguranca da IA para este lead." },
+          { status: 500 },
+        )
+      }
+    }
+
     const messaging = new TenantMessagingService()
     const sent = await messaging.sendText({
       tenant,
@@ -108,9 +120,6 @@ export async function POST(req: Request) {
       )
     }
 
-    if (!/^ig:/i.test(phone)) {
-      await pauseAiForLead(tenant, phone, pausedUntil || undefined)
-    }
     await new AgentTaskQueueService()
       .cancelPendingFollowups({
         tenant,

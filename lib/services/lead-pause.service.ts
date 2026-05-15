@@ -127,6 +127,7 @@ export async function getLeadPauseState(input: {
   tenant: string
   phone: string
   supabase?: SupabaseLike | any
+  failClosedOnError?: boolean
 }): Promise<LeadPauseState> {
   const normalized = normalizePhoneNumber(input.phone)
   if (!normalized) {
@@ -152,7 +153,28 @@ export async function getLeadPauseState(input: {
       .order("updated_at", { ascending: false })
       .limit(5)
 
-    if (error || !Array.isArray(data) || data.length === 0) {
+    if (error) {
+      if (input.failClosedOnError === true) {
+        return {
+          paused: true,
+          matchedNumber: normalized,
+          pauseReason: "pause_lookup_error",
+          pausedUntil: null,
+          isManual: true,
+          sourceRow: null,
+        }
+      }
+      return {
+        paused: false,
+        matchedNumber: normalized,
+        pauseReason: "",
+        pausedUntil: null,
+        isManual: false,
+        sourceRow: null,
+      }
+    }
+
+    if (!Array.isArray(data) || data.length === 0) {
       return {
         paused: false,
         matchedNumber: normalized,
@@ -207,6 +229,16 @@ export async function getLeadPauseState(input: {
       sourceRow: activeRow,
     }
   } catch {
+    if (input.failClosedOnError === true) {
+      return {
+        paused: true,
+        matchedNumber: normalized,
+        pauseReason: "pause_lookup_error",
+        pausedUntil: null,
+        isManual: true,
+        sourceRow: null,
+      }
+    }
     return {
       paused: false,
       matchedNumber: normalized,
