@@ -29,7 +29,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Search, MessageSquare, Phone, User, Clock, AlertCircle, CheckCircle2, PauseCircle, PlayCircle, Calendar, UserMinus, Loader2, Briefcase, Target, Clock3, Sparkles, Zap, Download, ListChecks, XCircle, Send, Trash2, Edit2, DollarSign, Copy, RefreshCcw, GraduationCap, ArrowLeft } from "lucide-react"
+import { Search, MessageSquare, Phone, User, Clock, AlertCircle, CheckCircle2, PauseCircle, PlayCircle, Calendar, UserMinus, Loader2, Briefcase, Target, Clock3, Sparkles, Zap, Download, ListChecks, XCircle, Send, Trash2, Edit2, DollarSign, Copy, RefreshCcw, GraduationCap, ArrowLeft, FileAudio, Mic, StopCircle, Upload } from "lucide-react"
 import { useTenant } from "@/lib/contexts/TenantContext"
 import { resolveAvatarImageSrc } from "@/lib/helpers/avatar-proxy"
 import { toast } from "sonner"
@@ -46,6 +46,61 @@ type ChatMessage = {
   provider_message_id?: string
   fromMe?: boolean
   senderType?: "lead" | "ia" | "human" | "system"
+  hasAudio?: boolean
+  audioUrl?: string
+  audioMimeType?: string
+  audioTranscription?: string
+}
+
+type PendingAudio = {
+  dataUrl: string
+  name: string
+  mimeType: string
+  size: number
+}
+
+const MAX_MANUAL_AUDIO_BYTES = 3 * 1024 * 1024
+
+function formatBytes(bytes: number): string {
+  const safe = Number.isFinite(bytes) ? Math.max(0, bytes) : 0
+  if (safe < 1024) return `${safe} B`
+  if (safe < 1024 * 1024) return `${(safe / 1024).toFixed(1)} KB`
+  return `${(safe / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function pickRecordingMimeType(): string {
+  if (typeof MediaRecorder === "undefined") return ""
+  const candidates = [
+    "audio/ogg;codecs=opus",
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/mp4",
+  ]
+  return candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate)) || ""
+}
+
+function readBlobAsDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ""))
+    reader.onerror = () => reject(reader.error || new Error("audio_read_failed"))
+    reader.readAsDataURL(blob)
+  })
+}
+
+function getMessageAudioSource(message: ChatMessage): string {
+  const value = String(message.audioUrl || "").trim()
+  if (value) return value
+  return ""
+}
+
+function getMessageAudioMimeType(message: ChatMessage): string {
+  const explicit = String(message.audioMimeType || "").trim()
+  if (explicit) return explicit
+  const source = getMessageAudioSource(message)
+  const match = source.match(/^data:(audio\/[^;]+);base64,/i)
+  if (match?.[1]) return match[1]
+  return "audio/mpeg"
 }
 
 type ChatSession = {
@@ -740,6 +795,9 @@ export default function ConversasPage() {
   const [messageInput, setMessageInput] = useState("")
   const [pauseDuration, setPauseDuration] = useState("30")
   const [isSending, setIsSending] = useState(false)
+  const [pendingAudio, setPendingAudio] = useState<PendingAudio | null>(null)
+  const [isSendingAudio, setIsSendingAudio] = useState(false)
+  const [isRecordingAudio, setIsRecordingAudio] = useState(false)
   const [isGeneratingSuggestion, setIsGeneratingSuggestion] = useState(false)
   const [lastSuggestedText, setLastSuggestedText] = useState("")
   const [suggestionVariant, setSuggestionVariant] = useState(0)
@@ -752,6 +810,11 @@ export default function ConversasPage() {
   const [saleModal, setSaleModal] = useState<{ open: boolean; session: ChatSession | null }>({ open: false, session: null })
   const [saleForm, setSaleForm] = useState({ amount: "", day: "", month: "", year: "" })
   const [submittingSale, setSubmittingSale] = useState(false)
+  const audioFileInputRef = useRef<HTMLInputElement | null>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const recordingStreamRef = useRef<MediaStream | null>(null)
+  const recordingChunksRef = useRef<BlobPart[]>([])
+  const discardRecordingRef = useRef(false)
 
   const submitQuickEvent = async (session: ChatSession, eventType: "attendance" | "no_show" | "sale") => {
     if (eventType === "sale") {
@@ -949,6 +1012,24 @@ export default function ConversasPage() {
     }
     return null
   }, [selectedBulkMetaTemplate])
+
+  useEffect(() => {
+    return () => {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+        discardRecordingRef.current = true
+        mediaRecorderRef.current.stop()
+      }
+      recordingStreamRef.current?.getTracks().forEach((track) => track.stop())
+    }
+  }, [])
+
+  useEffect(() => {
+    setPendingAudio(null)
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      discardRecordingRef.current = true
+      mediaRecorderRef.current.stop()
+    }
+  }, [active])
 
   useEffect(() => {
     if (bulkMetaParamFields.length === 0) {
@@ -1889,6 +1970,166 @@ export default function ConversasPage() {
     }
   }
 
+  const setAudioFromBlob = async (blob: Blob, name: string) => {
+    if (!blob || blob.size <= 0) {
+      toast.error("Audio vazio")
+      return
+    }
+    if (blob.size > MAX_MANUAL_AUDIO_BYTES) {
+      toast.error("Audio maior que 3 MB")
+      return
+    }
+    const dataUrl = await readBlobAsDataUrl(blob)
+    const mimeType = blob.type || String(dataUrl.match(/^data:(audio\/[^;]+);/i)?.[1] || "audio/webm")
+    setPendingAudio({
+      dataUrl,
+      name,
+      mimeType,
+      size: blob.size,
+    })
+  }
+
+  const handleAudioFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ""
+    if (!file) return
+    if (!/^audio\//i.test(file.type) && !/\.(mp3|ogg|opus|wav|m4a|aac|webm)$/i.test(file.name)) {
+      toast.error("Selecione um arquivo de audio valido")
+      return
+    }
+    try {
+      await setAudioFromBlob(file, file.name || "audio")
+    } catch (error: any) {
+      toast.error(error?.message || "Erro ao carregar audio")
+    }
+  }
+
+  const handleStartAudioRecording = async () => {
+    if (isRecordingAudio) return
+    if (!navigator?.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      toast.error("Gravacao de audio nao suportada neste navegador")
+      return
+    }
+    if (current?.channel === "instagram") {
+      toast.error("Audio manual esta disponivel para WhatsApp")
+      return
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mimeType = pickRecordingMimeType()
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)
+      discardRecordingRef.current = false
+      recordingChunksRef.current = []
+      recordingStreamRef.current = stream
+      mediaRecorderRef.current = recorder
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) recordingChunksRef.current.push(event.data)
+      }
+      recorder.onstop = async () => {
+        const chunks = recordingChunksRef.current
+        recordingChunksRef.current = []
+        recordingStreamRef.current?.getTracks().forEach((track) => track.stop())
+        recordingStreamRef.current = null
+        mediaRecorderRef.current = null
+        setIsRecordingAudio(false)
+        if (discardRecordingRef.current) {
+          discardRecordingRef.current = false
+          return
+        }
+        try {
+          const finalType = recorder.mimeType || mimeType || "audio/webm"
+          const blob = new Blob(chunks, { type: finalType })
+          await setAudioFromBlob(blob, `audio-${new Date().toISOString().replace(/[:.]/g, "-")}.webm`)
+        } catch (error: any) {
+          toast.error(error?.message || "Erro ao finalizar gravacao")
+        }
+      }
+      recorder.start()
+      setIsRecordingAudio(true)
+      toast.message("Gravando audio...")
+    } catch (error: any) {
+      recordingStreamRef.current?.getTracks().forEach((track) => track.stop())
+      recordingStreamRef.current = null
+      setIsRecordingAudio(false)
+      toast.error(error?.message || "Nao foi possivel acessar o microfone")
+    }
+  }
+
+  const handleStopAudioRecording = () => {
+    discardRecordingRef.current = false
+    const recorder = mediaRecorderRef.current
+    if (recorder && recorder.state !== "inactive") {
+      recorder.stop()
+      return
+    }
+    recordingStreamRef.current?.getTracks().forEach((track) => track.stop())
+    recordingStreamRef.current = null
+    setIsRecordingAudio(false)
+  }
+
+  const handleSendAudio = async () => {
+    if (!pendingAudio || !current) return
+    if (current.channel === "instagram") {
+      toast.error("Audio manual esta disponivel para WhatsApp")
+      return
+    }
+
+    setIsSendingAudio(true)
+    try {
+      const res = await fetch("/api/conversas/send-audio", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-tenant-prefix": tenant?.prefix || "",
+        },
+        body: JSON.stringify({
+          number: current.numero || current.session_id,
+          sessionId: current.session_id,
+          audio: pendingAudio.dataUrl,
+          mimeType: pendingAudio.mimeType,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data?.error || "Erro ao enviar audio")
+      }
+
+      const tempMsg: ChatMessage = {
+        role: "bot",
+        content: "[Audio enviado pelo humano]",
+        created_at: new Date().toISOString(),
+        isSuccess: true,
+        isManual: true,
+        provider_message_id: typeof data?.messageId === "string" ? data.messageId : undefined,
+        fromMe: true,
+        senderType: "human",
+        hasAudio: true,
+        audioUrl: pendingAudio.dataUrl,
+        audioMimeType: pendingAudio.mimeType,
+      }
+
+      setSessions((currentSessions) =>
+        currentSessions.map((session) => {
+          if (session.session_id !== current.session_id) return session
+          const nextMessages = [...session.messages, tempMsg]
+          return {
+            ...session,
+            messages: nextMessages,
+            messages_count: nextMessages.length,
+            isSummary: false,
+          }
+        }),
+      )
+      setPendingAudio(null)
+      toast.success("Audio enviado")
+    } catch (error: any) {
+      toast.error(error?.message || "Erro ao enviar audio")
+    } finally {
+      setIsSendingAudio(false)
+    }
+  }
+
   const handleGenerateAiSuggestion = async (regenerate = false) => {
     if (!current || isGeneratingSuggestion) return
     const sourceMessages = Array.isArray(current.messages) ? current.messages : []
@@ -2759,6 +3000,10 @@ export default function ConversasPage() {
                     const senderType = resolveMessageSenderType(msg)
                     const isLead = senderType === "lead"
                     const isHuman = senderType === "human"
+                    const audioSource = getMessageAudioSource(msg)
+                    const displayContent = current.channel === "instagram"
+                      ? cleanInstagramTransportText(msg.content, "message")
+                      : msg.content
                     return (
                       <div
                         key={`${msg.message_id || idx}`}
@@ -2803,14 +3048,23 @@ export default function ConversasPage() {
                               {resolveMessageRoleLabel(msg)}
                             </span>
                           </div>
-                          <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
-                            {highlightText(
-                              current.channel === "instagram"
-                                ? cleanInstagramTransportText(msg.content, "message")
-                                : msg.content,
-                              query,
-                            )}
-                          </p>
+                          {audioSource && (
+                            <div className="mb-3 rounded-xl border border-current/10 bg-background/35 p-2">
+                              <div className="mb-2 flex items-center gap-2 text-xs font-semibold">
+                                <FileAudio className="h-4 w-4" />
+                                <span>Audio</span>
+                              </div>
+                              <audio controls preload="metadata" className="w-full max-w-full">
+                                <source src={audioSource} type={getMessageAudioMimeType(msg)} />
+                                Seu navegador nao conseguiu reproduzir este audio.
+                              </audio>
+                            </div>
+                          )}
+                          {displayContent && (
+                            <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+                              {highlightText(displayContent, query)}
+                            </p>
+                          )}
                           <div className="flex items-center gap-2 mt-3 pt-2 border-t border-current/10 text-xs opacity-75">
                             <Clock className="w-3 h-3 flex-shrink-0" />
                             <span>{fmtBR(msg.created_at)}</span>
@@ -2854,6 +3108,84 @@ export default function ConversasPage() {
                     {pauseStatus?.pausar ? "Ativo" : takeoverLoading ? "..." : "Ativar"}
                   </Button>
                 </div>
+              </div>
+              <input
+                ref={audioFileInputRef}
+                type="file"
+                accept="audio/*,.mp3,.ogg,.opus,.wav,.m4a,.aac,.webm"
+                className="hidden"
+                onChange={handleAudioFileChange}
+              />
+              <div className="conversation-audiobar mb-2 rounded-xl border border-border bg-secondary p-2 sm:mb-3">
+                <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+                      <FileAudio className="h-4 w-4 text-accent-green" />
+                      <span>Audio</span>
+                      {pendingAudio && (
+                        <span className="truncate text-[11px] font-normal text-text-gray">
+                          {pendingAudio.name} · {formatBytes(pendingAudio.size)}
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-0.5 text-[11px] text-text-gray">
+                      Grave, anexe, escute antes de enviar e depois acompanhe pelo historico.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => audioFileInputRef.current?.click()}
+                      disabled={current?.channel === "instagram" || isSendingAudio || isRecordingAudio}
+                      className="h-8 rounded-lg border-border px-2 text-xs"
+                    >
+                      <Upload className="mr-1.5 h-3.5 w-3.5" />
+                      Anexar
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={isRecordingAudio ? handleStopAudioRecording : handleStartAudioRecording}
+                      disabled={current?.channel === "instagram" || isSendingAudio}
+                      className={`h-8 rounded-lg border-border px-2 text-xs ${isRecordingAudio ? "text-red-400" : ""}`}
+                    >
+                      {isRecordingAudio ? <StopCircle className="mr-1.5 h-3.5 w-3.5" /> : <Mic className="mr-1.5 h-3.5 w-3.5" />}
+                      {isRecordingAudio ? "Parar" : "Gravar"}
+                    </Button>
+                    {pendingAudio && (
+                      <>
+                        <Button
+                          type="button"
+                          onClick={handleSendAudio}
+                          disabled={isSendingAudio}
+                          className="h-8 rounded-lg bg-accent-green px-3 text-xs text-primary-foreground hover:bg-dark-green"
+                        >
+                          {isSendingAudio ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Send className="mr-1.5 h-3.5 w-3.5" />}
+                          Enviar audio
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          onClick={() => setPendingAudio(null)}
+                          disabled={isSendingAudio}
+                          className="h-8 rounded-lg px-2 text-xs text-text-gray hover:text-foreground"
+                        >
+                          <XCircle className="mr-1.5 h-3.5 w-3.5" />
+                          Remover
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
+                {pendingAudio && (
+                  <div className="mt-2 rounded-lg border border-border bg-card p-2">
+                    <audio controls preload="metadata" className="w-full">
+                      <source src={pendingAudio.dataUrl} type={pendingAudio.mimeType} />
+                      Seu navegador nao conseguiu reproduzir este audio.
+                    </audio>
+                  </div>
+                )}
               </div>
               <div className="conversation-input-row flex flex-col gap-2 sm:flex-row sm:gap-3">
                 <Textarea

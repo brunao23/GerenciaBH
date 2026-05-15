@@ -2005,6 +2005,24 @@ export async function GET(req: Request) {
 
           const created_at: string = ts ?? ""
           const roleForDisplay: "user" | "bot" = senderType === "lead" ? "user" : "bot"
+          const mediaType = String(msg?.media_type ?? msg?.mediaType ?? "").trim().toLowerCase()
+          const rawAudioUrl = String(
+            msg?.audio_url ??
+            msg?.audioUrl ??
+            (mediaType === "audio" ? msg?.media_url ?? msg?.mediaUrl : "") ??
+            "",
+          ).trim()
+          const audioMimeType = String(
+            msg?.audio_mime_type ??
+            msg?.audioMimeType ??
+            (mediaType === "audio" ? msg?.media_mime_type ?? msg?.mediaMimeType : "") ??
+            "",
+          ).trim()
+          const hasAudio =
+            msg?.has_audio === true ||
+            msg?.hasAudio === true ||
+            mediaType === "audio" ||
+            Boolean(rawAudioUrl)
 
           return {
             role: roleForDisplay,
@@ -2017,6 +2035,10 @@ export async function GET(req: Request) {
             message_id: r.id,
             provider_message_id: providerMessageId || undefined,
             fromMe,
+            hasAudio,
+            audioUrl: rawAudioUrl || undefined,
+            audioMimeType: audioMimeType || undefined,
+            audioTranscription: String(msg?.audio_transcription ?? msg?.audioTranscription ?? "").trim() || undefined,
           }
         })
         .filter((m): m is NonNullable<typeof m> => {

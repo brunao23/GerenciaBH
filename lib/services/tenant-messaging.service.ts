@@ -39,6 +39,8 @@ export interface SendTenantAudioInput {
   tenant: string
   phone: string
   audio: string
+  audioMimeType?: string
+  historyAudioUrl?: string
   sessionId?: string
   source?: string
   zapiDelayMessageSeconds?: number
@@ -798,6 +800,8 @@ export class TenantMessagingService {
 
       if (input.persistInHistory !== false) {
         const historyContent = String(input.historyContent || "").trim() || "[audio]"
+        const historyAudioUrl = String(input.historyAudioUrl || "").trim() || audio
+        const audioMimeType = this.resolveAudioMimeType(historyAudioUrl || audio, input.audioMimeType)
         await this.persistOutgoingMessage({
           tenant,
           sessionId: input.sessionId || phone,
@@ -805,10 +809,15 @@ export class TenantMessagingService {
           messageId,
           source: input.source || "native-agent-audio",
           additional: {
+            has_audio: true,
             media_type: "audio",
+            media_url: historyAudioUrl || null,
+            audio_url: historyAudioUrl || null,
+            audio_mime_type: audioMimeType,
             audio_payload_kind: audio.startsWith("http://") || audio.startsWith("https://")
               ? "url"
               : "base64",
+            audio_waveform: input.waveform !== false,
           },
         })
       }
@@ -866,6 +875,21 @@ export class TenantMessagingService {
     }
 
     return value
+  }
+
+  private resolveAudioMimeType(audio: string, explicit?: string): string {
+    const configured = String(explicit || "").trim()
+    if (/^audio\//i.test(configured)) return configured
+
+    const dataUriMatch = String(audio || "").match(/^data:(audio\/[^;]+);base64,/i)
+    if (dataUriMatch?.[1]) return dataUriMatch[1]
+
+    const lower = String(audio || "").split("?")[0].toLowerCase()
+    if (lower.endsWith(".ogg") || lower.endsWith(".opus")) return "audio/ogg"
+    if (lower.endsWith(".wav")) return "audio/wav"
+    if (lower.endsWith(".m4a") || lower.endsWith(".mp4") || lower.endsWith(".aac")) return "audio/mp4"
+    if (lower.endsWith(".webm")) return "audio/webm"
+    return "audio/mpeg"
   }
 
   private async resolveMetaPhoneNumberIdFallback(

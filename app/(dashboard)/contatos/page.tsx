@@ -55,6 +55,7 @@ import {
   ChevronDown,
   ChevronUp,
   X,
+  FileAudio,
 } from "lucide-react"
 import Link from "next/link"
 import { LeadWorkspacePanel } from "@/components/crm/lead-workspace-panel"
@@ -94,6 +95,21 @@ type ContactHistoryMessage = {
   content: string
   created_at: string
   senderType?: "lead" | "ia" | "human" | "system"
+  hasAudio?: boolean
+  audioUrl?: string
+  audioMimeType?: string
+  audioTranscription?: string
+}
+
+function getContactMessageAudioSource(message: ContactHistoryMessage): string {
+  return String(message.audioUrl || "").trim()
+}
+
+function getContactMessageAudioMimeType(message: ContactHistoryMessage): string {
+  const explicit = String(message.audioMimeType || "").trim()
+  if (explicit) return explicit
+  const match = getContactMessageAudioSource(message).match(/^data:(audio\/[^;]+);base64,/i)
+  return match?.[1] || "audio/mpeg"
 }
 
 const ORIGENS = [
@@ -871,6 +887,7 @@ export default function ContatosPage() {
                       <div className="space-y-3">
                         {contactHistory.map((message, index) => {
                           const isLead = message.senderType === "lead" || message.role === "user"
+                          const audioSource = getContactMessageAudioSource(message)
                           return (
                             <div
                               key={`${message.created_at}-${index}`}
@@ -880,6 +897,18 @@ export default function ContatosPage() {
                                 <span className="font-semibold text-pure-white">{isLead ? "Lead" : "Atendimento"}</span>
                                 <span>{new Date(message.created_at).toLocaleString("pt-BR")}</span>
                               </div>
+                              {audioSource && (
+                                <div className="mb-2 rounded-lg border border-white/10 bg-black/10 p-2">
+                                  <div className="mb-1 flex items-center gap-2 text-xs text-text-gray">
+                                    <FileAudio className="h-3.5 w-3.5 text-accent-green" />
+                                    Audio
+                                  </div>
+                                  <audio controls preload="metadata" className="w-full">
+                                    <source src={audioSource} type={getContactMessageAudioMimeType(message)} />
+                                    Seu navegador nao conseguiu reproduzir este audio.
+                                  </audio>
+                                </div>
+                              )}
                               <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-pure-white/90">{message.content}</p>
                             </div>
                           )
