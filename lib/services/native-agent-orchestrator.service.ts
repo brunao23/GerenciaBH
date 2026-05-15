@@ -430,6 +430,76 @@ function responseAsksAreaAndPainTogether(value: string): boolean {
   return asksArea && asksPain
 }
 
+function lastAssistantAskedDiscoveryQuestion(
+  conversationRows: Array<{ role: "user" | "assistant" | "system"; content: string }>,
+): boolean {
+  const lastAssistant = [...(conversationRows || [])]
+    .reverse()
+    .find((row) => row.role === "assistant" && String(row.content || "").trim())
+  const text = normalizeComparableMessage(String(lastAssistant?.content || ""))
+  if (!text) return false
+  if (responseAsksAreaAndPainTogether(text)) return true
+
+  return (
+    /\b(area de atuacao|sua area de atuacao|qual e sua area|qual sua area|profissao|em que voce trabalha|com o que voce trabalha)\b/.test(text) ||
+    /\b(principal desafio|qual desafio|desafio de comunicacao|problema.*(comunicacao|oratoria)|desafio.*(comunicacao|oratoria)|objetivo.*(comunicacao|oratoria)|o que voce quer resolver|quer desenvolver)\b/.test(text) ||
+    /\b(me conta|me fale|me diz).{0,90}\b(area|desafio|contexto|objetivo|comunicacao|oratoria)\b/.test(text)
+  )
+}
+
+function leadExplicitlyRequestsScheduling(rawMessage: string): boolean {
+  const text = normalizeComparableMessage(rawMessage)
+  if (!text) return false
+  if (detectsSchedulingIntent(rawMessage)) return true
+  return /\b(agenda|agendar|agendamento|marcar|reservar|horario|horarios|vaga|vagas|disponivel|disponibilidade|que horas|qual horario|quais horarios|tem horario|tem vaga|quando voce tem|quando tem)\b/.test(text)
+}
+
+function leadIsAnsweringPromptBaseDiscovery(
+  rawMessage: string,
+  conversationRows: Array<{ role: "user" | "assistant" | "system"; content: string }>,
+): boolean {
+  const text = normalizeComparableMessage(rawMessage)
+  if (!text || text.length < 4) return false
+  if (!lastAssistantAskedDiscoveryQuestion(conversationRows)) return false
+  if (leadExplicitlyRequestsScheduling(rawMessage)) return false
+
+  const words = text.split(" ").filter(Boolean)
+  return detectQualificationAreaSignal(rawMessage) || detectQualificationPainSignal(rawMessage) || words.length >= 3
+}
+
+function buildPromptBaseDiscoveryContinuationReply(qualification: QualificationState): string {
+  if (!qualification.hasArea && !qualification.hasPain) {
+    return "Entendi. Para te orientar com precisao, me conta qual e sua area de atuacao e qual desafio de comunicacao voce quer resolver?"
+  }
+  if (!qualification.hasArea) {
+    return "Entendi. Para te orientar com precisao, me conta qual e sua area de atuacao hoje?"
+  }
+  if (!qualification.hasPain) {
+    return "Entendi. E qual e o principal desafio de comunicacao que voce quer resolver agora?"
+  }
+  return "Entendi. Isso ajuda bastante. Me conta um pouco mais sobre como esse desafio aparece na sua rotina hoje?"
+}
+
+function enforcePromptBaseDiscoveryBeforeScheduling(params: {
+  responseText: string
+  leadMessage: string
+  conversationRows: Array<{ role: "user" | "assistant" | "system"; content: string }>
+  qualification: QualificationState
+}): { responseText: string; blocked: boolean } {
+  const responseText = String(params.responseText || "").trim()
+  if (!responseText) return { responseText, blocked: false }
+  if (!leadIsAnsweringPromptBaseDiscovery(params.leadMessage, params.conversationRows)) {
+    return { responseText, blocked: false }
+  }
+  if (!responseMentionsAvailabilityOrSpecificSlots(responseText)) {
+    return { responseText, blocked: false }
+  }
+  return {
+    responseText: buildPromptBaseDiscoveryContinuationReply(params.qualification),
+    blocked: true,
+  }
+}
+
 function stripCombinedQualificationSegments(value: string): string {
   const raw = String(value || "").trim()
   if (!raw) return raw
@@ -3926,6 +3996,10 @@ export class NativeAgentOrchestratorService {
     const effectiveLeadMessage = isFromMeTrigger ? lastLeadMessageFromHistory : content
     const learningUserMessage = effectiveLeadMessage || (isFromMeTrigger ? "[internal_fromme_trigger]" : content)
     const qualificationState = resolveQualificationState(conversationRows, effectiveLeadMessage || content)
+    const promptBaseDiscoveryAnswerInProgress = leadIsAnsweringPromptBaseDiscovery(
+      effectiveLeadMessage || content,
+      conversationRows,
+    )
     const assistantMessagesCount = conversationRows.filter((turn) => turn.role === "assistant").length
     const userMessagesCount = conversationRows.filter((turn) => turn.role === "user").length
 
@@ -4152,8 +4226,21 @@ export class NativeAgentOrchestratorService {
           conversation,
           sampling: llmSampling,
           functionDeclarations: this.buildFunctionDeclarations(config, { source: input.source }),
-          onToolCall: (toolCall) =>
-            this.executeToolCall({
+          onToolCall: (toolCall) => {
+            const toolName = String(toolCall?.name || "").trim().toLowerCase()
+            if (promptBaseDiscoveryAnswerInProgress && SCHEDULING_TOOL_TYPES.has(toolName)) {
+              return Promise.resolve({
+                ok: false,
+                action: { type: "none" as AgentActionPlan["type"] },
+                response: {
+                  ok: false,
+                  error: "prompt_base_discovery_step_not_ready",
+                  guidance: "Continue the prompt base discovery/qualification step before using scheduling tools.",
+                },
+                error: "prompt_base_discovery_step_not_ready",
+              } satisfies GeminiToolHandlerResult)
+            }
+            return this.executeToolCall({
               toolCall,
               tenant,
               phone,
@@ -4164,7 +4251,8 @@ export class NativeAgentOrchestratorService {
               incomingMessageId: input.messageId,
               qualificationState,
               leadMessageContext: effectiveLeadMessage || content,
-            }),
+            })
+          },
         })
       } catch (toolError) {
         console.error("[native-agent] tool-calling fallback to legacy JSON:", toolError)
@@ -4192,8 +4280,21 @@ export class NativeAgentOrchestratorService {
                 conversation,
                 sampling: llmSampling,
                 functionDeclarations: this.buildFunctionDeclarations(config, { source: input.source }),
-                onToolCall: (toolCall) =>
-                  this.executeToolCall({
+                onToolCall: (toolCall) => {
+                  const toolName = String(toolCall?.name || "").trim().toLowerCase()
+                  if (promptBaseDiscoveryAnswerInProgress && SCHEDULING_TOOL_TYPES.has(toolName)) {
+                    return Promise.resolve({
+                      ok: false,
+                      action: { type: "none" as AgentActionPlan["type"] },
+                      response: {
+                        ok: false,
+                        error: "prompt_base_discovery_step_not_ready",
+                        guidance: "Continue the prompt base discovery/qualification step before using scheduling tools.",
+                      },
+                      error: "prompt_base_discovery_step_not_ready",
+                    } satisfies GeminiToolHandlerResult)
+                  }
+                  return this.executeToolCall({
                     toolCall,
                     tenant,
                     phone,
@@ -4204,7 +4305,8 @@ export class NativeAgentOrchestratorService {
                     incomingMessageId: input.messageId,
                     qualificationState,
                     leadMessageContext: effectiveLeadMessage || content,
-                  }),
+                  })
+                },
               })
               decision = fallbackDecision
             } catch (fallbackToolError) {
@@ -4401,8 +4503,21 @@ export class NativeAgentOrchestratorService {
             sampling: llmSampling,
             maxSteps: 2,
             functionDeclarations: this.buildFunctionDeclarations(config, { source: input.source }),
-            onToolCall: (toolCall) =>
-              this.executeToolCall({
+            onToolCall: (toolCall) => {
+              const toolName = String(toolCall?.name || "").trim().toLowerCase()
+              if (promptBaseDiscoveryAnswerInProgress && SCHEDULING_TOOL_TYPES.has(toolName)) {
+                return Promise.resolve({
+                  ok: false,
+                  action: { type: "none" as AgentActionPlan["type"] },
+                  response: {
+                    ok: false,
+                    error: "prompt_base_discovery_step_not_ready",
+                    guidance: "Continue the prompt base discovery/qualification step before using scheduling tools.",
+                  },
+                  error: "prompt_base_discovery_step_not_ready",
+                } satisfies GeminiToolHandlerResult)
+              }
+              return this.executeToolCall({
                 toolCall,
                 tenant,
                 phone,
@@ -4413,7 +4528,8 @@ export class NativeAgentOrchestratorService {
                 incomingMessageId: input.messageId,
                 qualificationState,
                 leadMessageContext: effectiveLeadMessage || content,
-              }),
+              })
+            },
           })
           return hasMeaningfulDecisionOutput(recovered) ? recovered : null
         } catch (error) {
@@ -4711,6 +4827,31 @@ export class NativeAgentOrchestratorService {
       effectiveLeadMessage || content,
       qualificationState,
     )
+    const promptBaseDiscoveryGuard = enforcePromptBaseDiscoveryBeforeScheduling({
+      responseText,
+      leadMessage: String(effectiveLeadMessage || content || ""),
+      conversationRows,
+      qualification: qualificationState,
+    })
+    if (promptBaseDiscoveryGuard.blocked) {
+      responseText = applyAssistantOutputPolicy(promptBaseDiscoveryGuard.responseText, {
+        allowEmojis: config.moderateEmojiEnabled !== false,
+        allowLanguageVices: false,
+      })
+      await this
+        .persistDebugStatus({
+          chat,
+          sessionId,
+          content: "prompt_base_discovery_schedule_blocked",
+          details: {
+            debug_event: "prompt_base_discovery_schedule_blocked",
+            debug_severity: "warning",
+            lead_preview: String(effectiveLeadMessage || content || "").slice(0, 180),
+            blocked_reply_preview: String(decision.reply || "").slice(0, 240),
+          },
+        })
+        .catch(() => {})
+    }
     // Prompt Base e o regente principal do fluxo comercial.
     // Desabilitamos guardas estaticos de qualificacao para evitar conflito com o script do tenant.
     if (isInstagramCommentChannel) {
@@ -5540,6 +5681,15 @@ export class NativeAgentOrchestratorService {
       responseMentionsAvailabilityOrSpecificSlots(responseText)
 
     if (claimsConfirmed ? hasAppointmentMutationExecution(params.existingExecutions) : hasSchedulingToolExecution(params.existingExecutions)) {
+      return null
+    }
+
+    if (
+      !claimsConfirmed &&
+      needsLookup &&
+      leadIsAnsweringPromptBaseDiscovery(leadMessage, params.conversationRows) &&
+      !leadExplicitlyRequestsScheduling(leadMessage)
+    ) {
       return null
     }
 
@@ -6577,6 +6727,7 @@ export class NativeAgentOrchestratorService {
 
     const schedulingAndFlowBlock = ([
       "REGRAS CRITICAS DE AGENDAMENTO (PRECISAO OBRIGATORIA):",
+      "- [NAO PULAR ETAPAS] As regras de agenda so podem ser usadas quando o Prompt Base ja chegou na etapa de agendamento OU quando o lead pedir/confirmar horario, data, vaga, agenda ou disponibilidade. Se o lead estiver respondendo pergunta de descoberta/qualificacao, continue o Prompt Base e NAO ofereca datas.",
       "- [OBRIGATORIO] ANTES de qualquer resposta que mencione datas, dias, horarios, disponibilidade ou 'quando', voce DEVE chamar get_available_slots. SEM EXCECAO.",
       "- [PROIBIDO] NUNCA mencione datas, dias da semana, turnos (manha/tarde/noite) ou horarios sem ANTES chamar get_available_slots e usar os resultados reais da ferramenta.",
       "- [PROIBIDO] NUNCA use seu conhecimento de treinamento para responder sobre disponibilidade. Datas do seu treinamento estao ERRADAS. Use SOMENTE o retorno de get_available_slots.",
