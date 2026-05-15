@@ -5165,6 +5165,18 @@ export class NativeAgentOrchestratorService {
     })
   }
 
+  private appendAttendanceSummaryLines(lines: string[], attendanceSummary: string): void {
+    const summaryLines = String(attendanceSummary || "")
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .slice(0, 8)
+    if (!summaryLines.length) return
+
+    lines.push(`\u{1F9ED} *Resumo do atendimento:*`)
+    lines.push(...summaryLines)
+  }
+
   private buildScheduleSuccessNotification(input: {
     phone: string
     contactName?: string
@@ -5196,8 +5208,8 @@ export class NativeAgentOrchestratorService {
         `\u23F0 *Novo horario:* ${day} as ${time}`,
         `\u{1F3E2} *Modalidade:* ${mode}`,
       ]
-      if (notes) lines.push(`\u{1F4DD} *Obs:* ${notes}`)
-      if (attendanceSummary) lines.push(`\u{1F9ED} *Resumo do atendimento:* ${attendanceSummary}`)
+      if (notes) lines.push(`\u{1F4DD} *Observa\u00e7\u00f5es:* ${notes}`)
+      this.appendAttendanceSummaryLines(lines, attendanceSummary)
       if (meetLink) lines.push(`\u{1F4BB} *Google Meet:* ${meetLink}`)
       if (calLink) lines.push(`\u{1F4C5} *Calendario:* ${calLink}`)
       return lines.filter(Boolean).join("\n")
@@ -5212,8 +5224,8 @@ export class NativeAgentOrchestratorService {
       `\u23F0 *Horario:* ${time}`,
       `\u{1F3E2} *Modalidade:* ${mode}`,
     ]
-    if (notes) lines.push(`\u{1F4DD} *Obs:* ${notes}`)
-    if (attendanceSummary) lines.push(`\u{1F9ED} *Resumo do atendimento:* ${attendanceSummary}`)
+    if (notes) lines.push(`\u{1F4DD} *Observa\u00e7\u00f5es:* ${notes}`)
+    this.appendAttendanceSummaryLines(lines, attendanceSummary)
     if (meetLink) lines.push(`\u{1F4BB} *Google Meet:* ${meetLink}`)
     if (calLink) lines.push(`\u{1F4C5} *Calendario:* ${calLink}`)
     return lines.filter(Boolean).join("\n")
