@@ -757,7 +757,7 @@ export async function scheduleRemindersForTenant(
         .select("id,status,payload")
         .eq("tenant", tenant)
         .eq("task_type", "reminder")
-        .in("status", ["pending", "done"])
+        .in("status", ["pending", "processing", "done"])
         .limit(5000)
 
       for (const row of existing || []) {
@@ -940,6 +940,14 @@ export async function scheduleRemindersForTenant(
         })
 
         if (insertError) {
+          const insertCode = String((insertError as any)?.code || "")
+          const insertMessage = String(insertError.message || "")
+          if (insertCode === "23505" || insertMessage.toLowerCase().includes("duplicate key")) {
+            result.skipped++
+            existingReminders.add(reminderKey)
+            continue
+          }
+
           result.errors.push(`Failed to schedule ${rt.type} for appointment ${appointment.id}: ${insertError.message}`)
         } else {
           result.scheduled++

@@ -24,6 +24,7 @@ const MIGRATIONS = {
     'semantic-cache-embedding-nullable': 'supabase/migrations/20260428_semantic_cache_embedding_nullable.sql',
     'pause-state-columns': 'supabase/migrations/20260505_pause_state_columns.sql',
     'llm-usage-events': 'supabase/migrations/20260502_llm_usage_events.sql',
+    'agent-task-queue-reminder-idempotency': 'supabase/migrations/20260515_agent_task_queue_reminder_idempotency.sql',
 };
 
 function resolveProjectRefFromSupabaseUrl(rawUrl?: string | null): string | null {

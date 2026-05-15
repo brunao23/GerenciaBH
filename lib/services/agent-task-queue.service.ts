@@ -1889,6 +1889,58 @@ export class AgentTaskQueueService {
     }
   }
 
+  private async releaseStaleProcessingTasks(maxAgeMinutes = 10): Promise<number> {
+    const safeMaxAgeMinutes = Math.max(5, Math.min(60, Math.floor(maxAgeMinutes)))
+    const cutoff = new Date(Date.now() - safeMaxAgeMinutes * 60 * 1000).toISOString()
+
+    try {
+      const { data, error } = await this.supabase
+        .from(this.table)
+        .update({
+          status: "pending",
+          last_error: "processing_lock_released_after_timeout",
+        })
+        .eq("status", "processing")
+        .lt("updated_at", cutoff)
+        .select("id")
+
+      if (error) return 0
+      return Array.isArray(data) ? data.length : 0
+    } catch {
+      return 0
+    }
+  }
+
+  private async hasCompletedOfficialReminderWithKey(input: {
+    tenant: string
+    reminderKey: string
+    excludeTaskId?: string
+  }): Promise<boolean> {
+    const reminderKey = String(input.reminderKey || "").trim()
+    if (!input.tenant || !reminderKey) return false
+
+    try {
+      let query = this.supabase
+        .from(this.table)
+        .select("id")
+        .eq("tenant", input.tenant)
+        .eq("task_type", "reminder")
+        .eq("status", "done")
+        .filter("payload->>reminder_key", "eq", reminderKey)
+        .limit(1)
+
+      if (input.excludeTaskId) {
+        query = query.neq("id", input.excludeTaskId)
+      }
+
+      const { data, error } = await query
+      if (error) return false
+      return Array.isArray(data) && data.length > 0
+    } catch {
+      return false
+    }
+  }
+
   private async pauseLead(tenant: string, phone: string): Promise<void> {
     try {
       const tables = getTablesForTenant(tenant)
@@ -2419,6 +2471,7 @@ export class AgentTaskQueueService {
   }> {
     const nowIso = new Date().toISOString()
     const result = { processed: 0, sent: 0, failed: 0, skipped: 0 }
+    await this.releaseStaleProcessingTasks()
 
     const { data: tasks, error } = await this.supabase
       .from(this.table)
@@ -2877,6 +2930,19 @@ export class AgentTaskQueueService {
             sessionId,
           })
           message = renderedOfficialMessage || ""
+
+          const reminderKey = String(payload?.reminder_key || "").trim()
+          if (
+            message &&
+            reminderKey &&
+            (await this.hasCompletedOfficialReminderWithKey({
+              tenant,
+              reminderKey,
+              excludeTaskId: String(task.id || ""),
+            }))
+          ) {
+            message = ""
+          }
         }
 
         // Post-schedule messages are admin-configured, not AI-generated â€” skip internal leak filter
