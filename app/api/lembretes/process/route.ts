@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { scheduleRemindersForAllTenants } from "@/lib/services/reminder-scheduler.service"
+import { AgentTaskQueueService } from "@/lib/services/agent-task-queue.service"
 
 export const runtime = "nodejs"
 export const maxDuration = 120
@@ -23,8 +24,12 @@ export async function GET(req: Request) {
   try {
     const url = new URL(req.url)
     const dryRun = url.searchParams.get("dryRun") === "1"
+    const force = url.searchParams.get("force") === "1"
+    const limitRaw = Number(url.searchParams.get("limit") || "100")
+    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(200, Math.floor(limitRaw))) : 100
 
-    const result = await scheduleRemindersForAllTenants({ dryRun })
+    const result = await scheduleRemindersForAllTenants({ dryRun, force })
+    const queue = dryRun ? null : await new AgentTaskQueueService().processDueTasks(limit)
 
     const totalScheduled = result.results.reduce((sum, r) => sum + r.scheduled, 0)
     const totalScanned = result.results.reduce((sum, r) => sum + r.scanned, 0)
@@ -36,9 +41,11 @@ export async function GET(req: Request) {
     return NextResponse.json({
       success: true,
       dryRun,
+      force,
       tenants: result.total,
       totalScanned,
       totalScheduled,
+      queue,
       results: result.results,
     })
   } catch (error: any) {

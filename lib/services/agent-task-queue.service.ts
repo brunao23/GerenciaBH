@@ -10,8 +10,10 @@ import {
   type TenantBusinessHours,
 } from "@/lib/helpers/business-hours"
 import {
+  buildReminderKey,
   getReminderConfigForTenant,
   OFFICIAL_REMINDER_TYPES,
+  parseAppointmentDateTime,
   renderOfficialReminderMessageFromConfig,
   type OfficialReminderType,
 } from "@/lib/services/reminder-scheduler.service"
@@ -2063,6 +2065,9 @@ export class AgentTaskQueueService {
     const appointmentId = String(input.payload?.appointment_id || "").trim()
     let appointmentDate = String(input.payload?.appointment_date || "").trim()
     let appointmentTime = String(input.payload?.appointment_time || "").trim()
+    const payloadAppointmentDate = appointmentDate
+    const payloadAppointmentTime = appointmentTime
+    const payloadReminderKey = String(input.payload?.reminder_key || "").trim()
     let leadName = String(input.payload?.lead_name || input.payload?.nome_aluno || "").trim()
     let observacoes = String(input.payload?.servico || input.payload?.observacoes || "").trim()
 
@@ -2074,6 +2079,10 @@ export class AgentTaskQueueService {
           .select("id,status,dia,horario,nome_aluno,observacoes,contato,numero,session_id")
           .eq("id", appointmentId)
           .maybeSingle()
+
+        if (!liveAppointment.error && !liveAppointment.data) {
+          return null
+        }
 
         if (!liveAppointment.error && liveAppointment.data) {
           const row: any = liveAppointment.data
@@ -2098,6 +2107,29 @@ export class AgentTaskQueueService {
 
           const liveDate = String(row?.dia || "").trim()
           const liveTime = String(row?.horario || "").trim()
+          if (liveDate && liveTime) {
+            const expectedLiveKey = buildReminderKey({
+              tenant: input.tenant,
+              appointmentId,
+              type: reminderTypeRaw,
+              appointmentDate: liveDate,
+              appointmentTime: liveTime,
+            })
+            const expectedPayloadKey =
+              payloadAppointmentDate && payloadAppointmentTime
+                ? buildReminderKey({
+                    tenant: input.tenant,
+                    appointmentId,
+                    type: reminderTypeRaw,
+                    appointmentDate: payloadAppointmentDate,
+                    appointmentTime: payloadAppointmentTime,
+                  })
+                : ""
+
+            if (payloadReminderKey ? payloadReminderKey !== expectedLiveKey : expectedPayloadKey !== expectedLiveKey) {
+              return null
+            }
+          }
           if (liveDate) appointmentDate = liveDate
           if (liveTime) appointmentTime = liveTime
           leadName = String(row?.nome_aluno || leadName || "").trim()
@@ -2109,6 +2141,11 @@ export class AgentTaskQueueService {
     if (!appointmentDate || !appointmentTime) return null
 
     const config = await getReminderConfigForTenant(input.tenant)
+    const currentAppointmentDate = parseAppointmentDateTime(appointmentDate, appointmentTime, config.timezone)
+    if (!currentAppointmentDate || currentAppointmentDate.getTime() <= Date.now()) {
+      return null
+    }
+
     const message = renderOfficialReminderMessageFromConfig({
       config,
       reminderType: reminderTypeRaw,
@@ -2839,9 +2876,7 @@ export class AgentTaskQueueService {
             phone,
             sessionId,
           })
-          if (renderedOfficialMessage) {
-            message = renderedOfficialMessage
-          }
+          message = renderedOfficialMessage || ""
         }
 
         // Post-schedule messages are admin-configured, not AI-generated â€” skip internal leak filter

@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/agent/tasks/process",
-      "schedule": "*/10 * * * *"
+      "schedule": "* * * * *"
     },
     {
       "path": "/api/admin/reports/weekly",
@@ -18,7 +18,7 @@
     },
     {
       "path": "/api/lembretes/process",
-      "schedule": "0 */2 * * *"
+      "schedule": "*/5 * * * *"
     },
     {
       "path": "/api/meta-welcome-cron",

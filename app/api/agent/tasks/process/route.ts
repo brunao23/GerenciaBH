@@ -24,8 +24,8 @@ async function processQueue(req: NextRequest) {
     return NextResponse.json({ success: false, error: "unauthorized" }, { status: 401 })
   }
 
-  const limitRaw = Number(req.nextUrl.searchParams.get("limit") || "30")
-  const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(200, Math.floor(limitRaw))) : 30
+  const limitRaw = Number(req.nextUrl.searchParams.get("limit") || "100")
+  const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(200, Math.floor(limitRaw))) : 100
 
   const service = new AgentTaskQueueService()
   const result = await service.processDueTasks(limit)

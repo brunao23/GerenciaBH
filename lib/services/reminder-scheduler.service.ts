@@ -102,6 +102,13 @@ export interface ReminderScheduleResult {
 export const OFFICIAL_REMINDER_TYPES = ["3days", "1day", "4hours"] as const
 export type OfficialReminderType = (typeof OFFICIAL_REMINDER_TYPES)[number]
 const MINIMUM_LEAD_BEFORE_SEND_MS = 2 * 60 * 1000
+type ExistingOfficialReminderRow = {
+  id: string
+  status: string
+  reminderKey: string
+  appointmentId: string
+  reminderType: OfficialReminderType
+}
 const APPOINTMENT_SELECT_COLUMNS = [
   "id",
   "contato",
@@ -196,7 +203,7 @@ function normalizeReminderKeyPart(value: string): string {
     .replace(/[^a-z0-9_:/-]/g, "")
 }
 
-function buildReminderKey(input: {
+export function buildReminderKey(input: {
   tenant: string
   appointmentId: string
   type: OfficialReminderType
@@ -210,6 +217,10 @@ function buildReminderKey(input: {
     normalizeReminderKeyPart(input.appointmentDate),
     normalizeReminderKeyPart(input.appointmentTime),
   ].join("_")
+}
+
+function buildAppointmentReminderTypeKey(appointmentId: string, reminderType: OfficialReminderType): string {
+  return `${normalizeReminderKeyPart(appointmentId)}::${normalizeReminderKeyPart(reminderType)}`
 }
 
 // ── Config helpers ───────────────────────────────────────────────────────
@@ -402,7 +413,7 @@ function addDaysToLocalDate(year: number, month: number, day: number, daysToAdd:
   }
 }
 
-function parseAppointmentDateTime(dia: string, horario: string, timezone: string): Date | null {
+export function parseAppointmentDateTime(dia: string, horario: string, timezone: string): Date | null {
   if (!dia || !horario) return null
   if (dia.toLowerCase().includes("definir") || horario.toLowerCase().includes("definir")) return null
 
@@ -699,30 +710,64 @@ export async function scheduleRemindersForTenant(
       return result
     }
 
-    if (!appointments || appointments.length === 0) {
-      result.success = true
-      return result
-    }
+    const appointmentRows = appointments || []
 
     const now = new Date()
 
-    // Load already-scheduled reminders to avoid duplicates
+    // Load already-scheduled reminders to avoid duplicates and cancel stale pending jobs.
     const existingReminders = new Set<string>()
+    const pendingOfficialReminders: ExistingOfficialReminderRow[] = []
+    const pendingOfficialByAppointmentAndType = new Map<string, ExistingOfficialReminderRow[]>()
+    const cancelledPendingReminderIds = new Set<string>()
+    const rememberPendingOfficialReminder = (row: ExistingOfficialReminderRow) => {
+      pendingOfficialReminders.push(row)
+      const key = buildAppointmentReminderTypeKey(row.appointmentId, row.reminderType)
+      const current = pendingOfficialByAppointmentAndType.get(key) || []
+      current.push(row)
+      pendingOfficialByAppointmentAndType.set(key, current)
+    }
+    const cancelPendingOfficialRows = async (rows: ExistingOfficialReminderRow[], reason: string) => {
+      const ids = Array.from(
+        new Set(rows.map((row) => row.id).filter((id) => id && !cancelledPendingReminderIds.has(id))),
+      )
+      if (ids.length === 0 || options?.dryRun) return
+
+      const { error: cancelError } = await supabase
+        .from(taskQueueTable)
+        .update({
+          status: "cancelled",
+          last_error: reason,
+        })
+        .in("id", ids)
+
+      if (cancelError) {
+        result.errors.push(`Failed to cancel stale reminders: ${cancelError.message}`)
+        return
+      }
+
+      ids.forEach((id) => cancelledPendingReminderIds.add(id))
+      for (const row of rows) {
+        if (row.reminderKey) existingReminders.delete(row.reminderKey)
+      }
+    }
+
     try {
       const { data: existing } = await supabase
         .from(taskQueueTable)
-        .select("payload")
+        .select("id,status,payload")
         .eq("tenant", tenant)
         .eq("task_type", "reminder")
         .in("status", ["pending", "done"])
-        .limit(2000)
+        .limit(5000)
 
       for (const row of existing || []) {
         const payload = row?.payload && typeof row.payload === "object" ? row.payload : {}
         const key = String(payload?.reminder_key || "").trim()
+        const status = String(row?.status || "").trim().toLowerCase()
+        const rowId = String(row?.id || "").trim()
+        let resolvedReminderKey = key
         if (key) {
           existingReminders.add(key)
-          continue
         }
 
         const legacyAppointmentId = String(payload?.appointment_id || "").trim()
@@ -736,15 +781,31 @@ export async function scheduleRemindersForTenant(
           legacyAppointmentDate &&
           legacyAppointmentTime
         ) {
-          existingReminders.add(
+          resolvedReminderKey =
+            resolvedReminderKey ||
             buildReminderKey({
               tenant,
               appointmentId: legacyAppointmentId,
               type: legacyReminderType,
               appointmentDate: legacyAppointmentDate,
               appointmentTime: legacyAppointmentTime,
-            }),
-          )
+            })
+          existingReminders.add(resolvedReminderKey)
+        }
+
+        if (
+          status === "pending" &&
+          rowId &&
+          legacyAppointmentId &&
+          OFFICIAL_REMINDER_TYPES.includes(legacyReminderType)
+        ) {
+          rememberPendingOfficialReminder({
+            id: rowId,
+            status,
+            reminderKey: resolvedReminderKey,
+            appointmentId: legacyAppointmentId,
+            reminderType: legacyReminderType,
+          })
         }
       }
     } catch {}
@@ -758,8 +819,15 @@ export async function scheduleRemindersForTenant(
       { type: "1day", enabled: config.reminder1day, offsetMs: 1 * 24 * 60 * 60 * 1000 },
       { type: "4hours", enabled: config.reminder4hours, offsetMs: 4 * 60 * 60 * 1000 },
     ]
+    const enabledReminderTypes = new Set(reminderTypes.filter((rt) => rt.enabled).map((rt) => rt.type))
+    const disabledTypePendingRows = pendingOfficialReminders.filter((row) => !enabledReminderTypes.has(row.reminderType))
+    if (disabledTypePendingRows.length > 0) {
+      await cancelPendingOfficialRows(disabledTypePendingRows, "cancelled_by_reminder_type_disabled")
+    }
 
-    for (const appointment of appointments) {
+    const activeFutureAppointmentIds = new Set<string>()
+
+    for (const appointment of appointmentRows) {
       result.scanned++
 
       const appointmentDate = parseAppointmentDateTime(
@@ -786,17 +854,31 @@ export async function scheduleRemindersForTenant(
       }
 
       const sessionId = appointment.session_id || appointment.numero || phone
+      const appointmentId = String(appointment.id || "").trim()
+      if (!appointmentId) {
+        result.skipped++
+        continue
+      }
+      activeFutureAppointmentIds.add(appointmentId)
 
       for (const rt of reminderTypes) {
         if (!rt.enabled) continue
 
         const reminderKey = buildReminderKey({
           tenant,
-          appointmentId: String(appointment.id || "").trim(),
+          appointmentId,
           type: rt.type,
           appointmentDate: String(appointment.dia || "").trim(),
           appointmentTime: String(appointment.horario || "").trim(),
         })
+
+        const appointmentTypeKey = buildAppointmentReminderTypeKey(appointmentId, rt.type)
+        const stalePendingRows = (pendingOfficialByAppointmentAndType.get(appointmentTypeKey) || []).filter(
+          (row) => row.reminderKey !== reminderKey,
+        )
+        if (stalePendingRows.length > 0) {
+          await cancelPendingOfficialRows(stalePendingRows, "cancelled_by_appointment_reschedule")
+        }
 
         // Skip if already scheduled
         if (existingReminders.has(reminderKey)) continue
@@ -866,6 +948,13 @@ export async function scheduleRemindersForTenant(
       }
     }
 
+    const inactiveOrPastPendingRows = pendingOfficialReminders.filter(
+      (row) => !activeFutureAppointmentIds.has(row.appointmentId),
+    )
+    if (inactiveOrPastPendingRows.length > 0) {
+      await cancelPendingOfficialRows(inactiveOrPastPendingRows, "cancelled_by_appointment_inactive_or_past")
+    }
+
     result.success = result.errors.length === 0
     return result
   } catch (e: any) {
@@ -877,21 +966,17 @@ export async function scheduleRemindersForTenant(
 // ── Dispatch for all tenants ─────────────────────────────────────────────
 
 export async function scheduleRemindersForAllTenants(
-  options?: { dryRun?: boolean },
+  options?: { dryRun?: boolean; force?: boolean },
 ): Promise<{ total: number; results: ReminderScheduleResult[] }> {
   const supabase = createBiaSupabaseServerClient()
   const { data: units } = await supabase
     .from("units_registry")
-    .select("unit_prefix, metadata")
+    .select("unit_prefix")
     .eq("is_active", true)
 
   const results: ReminderScheduleResult[] = []
 
   for (const unit of units || []) {
-    const metadata = safeMetadata(unit.metadata)
-    const remindersConfig = metadata.reminders
-    if (remindersConfig && remindersConfig.enabled === false) continue
-
     const tenant = unit.unit_prefix
     if (!tenant) continue
 
