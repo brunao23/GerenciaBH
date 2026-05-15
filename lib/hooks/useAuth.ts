@@ -14,6 +14,8 @@ interface Session {
     isAdmin: boolean
 }
 
+const AUTH_REQUEST_TIMEOUT_MS = 10_000
+
 export function useAuth(options: UseAuthOptions = {}) {
     const router = useRouter()
     const [session, setSession] = useState<Session | null>(null)
@@ -21,8 +23,17 @@ export function useAuth(options: UseAuthOptions = {}) {
 
     useEffect(() => {
         async function checkAuth() {
+            const controller = new AbortController()
+            const timeout = window.setTimeout(() => controller.abort(), AUTH_REQUEST_TIMEOUT_MS)
+
             try {
-                const res = await fetch('/api/auth/session')
+                const res = await fetch('/api/auth/session', {
+                    cache: 'no-store',
+                    signal: controller.signal,
+                    headers: {
+                        'Cache-Control': 'no-cache',
+                    },
+                })
 
                 if (!res.ok) {
                     // Não autenticado
@@ -54,6 +65,8 @@ export function useAuth(options: UseAuthOptions = {}) {
                 console.error('[useAuth] Erro:', error)
                 const redirectUrl = options.redirectTo || '/login'
                 window.location.href = redirectUrl
+            } finally {
+                window.clearTimeout(timeout)
             }
         }
 

@@ -23,6 +23,11 @@ interface TenantContextType {
 }
 
 const TenantContext = createContext<TenantContextType | undefined>(undefined)
+const SESSION_REQUEST_TIMEOUT_MS = 10_000
+
+function isAbortError(error: unknown) {
+    return error instanceof DOMException && error.name === 'AbortError'
+}
 
 export function TenantProvider({ children }: { children: React.ReactNode }) {
     const [tenant, setTenantState] = useState<Tenant | null>(null)
@@ -30,9 +35,13 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     const [loading, setLoading] = useState(true)
 
     const loadSession = async () => {
+        const controller = new AbortController()
+        const timeout = window.setTimeout(() => controller.abort(), SESSION_REQUEST_TIMEOUT_MS)
+
         try {
             const res = await fetch('/api/auth/session', {
                 cache: 'no-store',
+                signal: controller.signal,
                 headers: {
                     'Cache-Control': 'no-cache',
                 },
@@ -55,10 +64,15 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
                 setTenantState(null)
             }
         } catch (error) {
-            console.error('[TenantContext] Erro ao carregar sessao:', error)
+            if (isAbortError(error)) {
+                console.error('[TenantContext] Timeout ao carregar sessao')
+            } else {
+                console.error('[TenantContext] Erro ao carregar sessao:', error)
+            }
             setSession(null)
             setTenantState(null)
         } finally {
+            window.clearTimeout(timeout)
             setLoading(false)
         }
     }

@@ -3,7 +3,7 @@
 import { useEffect } from 'react'
 
 const RELOAD_KEY = 'gerencia:last-chunk-reload'
-const RELOAD_COOLDOWN_MS = 30_000
+const RELOAD_COOLDOWN_MS = 45_000
 
 function readLastReload() {
   try {
@@ -37,20 +37,60 @@ function isChunkFailure(text: string, targetUrl = '') {
     normalized.includes('/_next/static/') ||
     normalized.includes('chunkloaderror') ||
     normalized.includes('loading chunk') ||
+    normalized.includes('loading css chunk') ||
+    normalized.includes('css_chunk_load_failed') ||
     normalized.includes('failed to fetch dynamically imported module') ||
     normalized.includes('dynamically imported module') ||
+    normalized.includes('importing a module script failed') ||
+    normalized.includes('module script') ||
+    normalized.includes('networkerror when attempting to fetch resource') ||
     normalized.includes('strict mime type') ||
     normalized.includes('mime type')
   )
 }
 
-function reloadWithFreshHtml(reason: string) {
+async function clearBrowserRuntimeState() {
+  const jobs: Array<Promise<unknown>> = []
+
+  if ('caches' in window) {
+    jobs.push(
+      window.caches
+        .keys()
+        .then((keys) => Promise.all(keys.map((key) => window.caches.delete(key)))),
+    )
+  }
+
+  if ('serviceWorker' in navigator) {
+    jobs.push(
+      navigator.serviceWorker
+        .getRegistrations()
+        .then((registrations) => Promise.all(registrations.map((registration) => registration.unregister()))),
+    )
+  }
+
+  await Promise.allSettled(jobs)
+}
+
+function removeRecoveryQueryParams() {
+  try {
+    const url = new URL(window.location.href)
+    if (!url.searchParams.has('__fresh') && !url.searchParams.has('__reason')) return
+    url.searchParams.delete('__fresh')
+    url.searchParams.delete('__reason')
+    window.history.replaceState(window.history.state, '', url.toString())
+  } catch {
+    // Query cleanup is best-effort only.
+  }
+}
+
+async function reloadWithFreshHtml(reason: string) {
   const now = Date.now()
   const lastReload = readLastReload()
 
   if (now - lastReload < RELOAD_COOLDOWN_MS) return
 
   writeLastReload(now)
+  await clearBrowserRuntimeState().catch(() => undefined)
 
   const url = new URL(window.location.href)
   url.searchParams.set('__fresh', String(now))
@@ -65,7 +105,7 @@ export function ChunkReloadGuard() {
       const message = `${event.message || ''} ${event.error?.message || ''}`
 
       if (isChunkFailure(message, targetUrl)) {
-        reloadWithFreshHtml('chunk-error')
+        void reloadWithFreshHtml('chunk-error')
       }
     }
 
@@ -77,10 +117,12 @@ export function ChunkReloadGuard() {
           : `${reason?.message || ''} ${reason?.name || ''} ${reason?.stack || ''}`
 
       if (isChunkFailure(message)) {
-        reloadWithFreshHtml('chunk-rejection')
+        event.preventDefault()
+        void reloadWithFreshHtml('chunk-rejection')
       }
     }
 
+    removeRecoveryQueryParams()
     window.addEventListener('error', handleError, true)
     window.addEventListener('unhandledrejection', handleUnhandledRejection)
 

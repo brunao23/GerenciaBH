@@ -2,7 +2,7 @@
 
 import type React from "react"
 import { lazy, Suspense, useEffect, useState } from "react"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "../../components/ui/sidebar"
 import { AppSidebar } from "../../components/app-sidebar"
 import NotificationsMenu from "../../components/notifications-menu"
@@ -10,6 +10,7 @@ import { Toaster } from "../../components/ui/sonner"
 import { TenantSelector } from "../../components/saas/TenantSelector"
 import { ThemeToggle } from "../../components/theme-toggle"
 import Link from "next/link"
+import { useTenant } from "@/lib/contexts/TenantContext"
 
 const NotificationCenter = lazy(() => import("../../components/notification-center"))
 const FeedbackWidget = lazy(() => import("../../components/feedback-widget"))
@@ -18,7 +19,15 @@ const OnboardingTour = lazy(() => import("../../components/onboarding/Onboarding
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [onboardingForceOpen, setOnboardingForceOpen] = useState(false)
   const pathname = usePathname()
+  const router = useRouter()
+  const { session, loading: sessionLoading } = useTenant()
   const isConversationsPage = pathname?.startsWith("/conversas")
+
+  useEffect(() => {
+    if (sessionLoading || session) return
+    const nextPath = pathname && pathname !== "/dashboard" ? `?next=${encodeURIComponent(pathname)}` : ""
+    router.replace(`/login${nextPath}`)
+  }, [pathname, router, session, sessionLoading])
 
   useEffect(() => {
     if (!isConversationsPage || typeof window === "undefined") return
@@ -43,6 +52,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       root.style.removeProperty("--app-visual-height")
     }
   }, [isConversationsPage])
+
+  if (sessionLoading || !session) {
+    return (
+      <div className="flex h-dvh min-h-dvh w-full items-center justify-center bg-background text-foreground">
+        <div className="flex flex-col items-center gap-3 rounded-2xl border border-border bg-card px-6 py-5 shadow-sm">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary/25 border-t-primary" />
+          <p className="text-sm font-medium text-muted-foreground">Carregando acesso...</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <SidebarProvider>

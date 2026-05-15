@@ -61,12 +61,6 @@ const nextConfig = {
         source: '/api/:path*',
         headers: noStoreHeaders,
       },
-      {
-        source: '/_next/static/:path*',
-        headers: [
-          { key: 'Cache-Control', value: 'public, max-age=31536000, immutable' },
-        ],
-      },
       ...cacheablePublicAssets.map((source) => ({
         source,
         headers: publicAssetCacheHeaders,
