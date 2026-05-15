@@ -16,6 +16,7 @@
  * ✅ {tenant}_knowbase
  * ✅ {tenant}_lembretes
  * ✅ {tenant}_notifications
+ * ✅ {tenant}_lead_internal_items
  * ✅ {tenant}_pausar
  * ✅ {tenant}_shared_reports
  * ✅ {tenant}_users
@@ -38,6 +39,7 @@ export interface TenantTables {
     crmLeadStatus: string           // Status dos leads no CRM
     crmFunnelConfig: string         // Configuração do funil
     notifications: string           // Notificações do sistema
+    leadInternalItems: string       // Notas, tarefas e lembretes internos do lead
     automationKeywords: string      // Palavras-chave para automação
     automationLogs: string          // Logs de automação
 
@@ -97,6 +99,7 @@ export function getTablesForTenant(tenant: string): Omit<TenantTables, 'tenant'>
         crmLeadStatus: `${tenant}_crm_lead_status`,
         crmFunnelConfig: `${tenant}_crm_funnel_config`,
         notifications: `${tenant}_notifications`,
+        leadInternalItems: `${tenant}_lead_internal_items`,
         automationKeywords: `${tenant}_automation_keywords`,
         automationLogs: `${tenant}_automation_logs`,
 

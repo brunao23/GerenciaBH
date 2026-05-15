@@ -6,6 +6,7 @@ import { resolveChatHistoriesTable } from "@/lib/helpers/resolve-chat-table"
 import { getKommoConfigForTenant } from "@/lib/helpers/kommo-config"
 import { resolveTenantRegistryPrefix } from "@/lib/helpers/tenant-resolution"
 import { getTableColumns } from "@/lib/helpers/supabase-table-columns"
+import { buildLeadAttendanceSummary } from "@/lib/helpers/lead-attendance-summary"
 
 interface CRMCard {
     id: string
@@ -26,6 +27,7 @@ interface CRMCard {
         type: string
         timestamp: string
     }>
+    attendanceSummary?: string
     formData?: {
         nome?: string
         primeiroNome?: string
@@ -1160,6 +1162,21 @@ export async function GET(req: Request) {
                 })
                 .filter((m): m is { content: string; type: string; timestamp: string } => m !== null)
 
+            const attendanceSummary = buildLeadAttendanceSummary({
+                leadName: name,
+                formData: formData || undefined,
+                messages: messageHistory.map((message) => ({
+                    role: message.type === "human" ? "user" : "assistant",
+                    type: message.type,
+                    content: message.content,
+                    timestamp: message.timestamp,
+                })),
+                maxLength: 520,
+            })
+            const hasActionableAttendanceSummary = !attendanceSummary
+                .toLowerCase()
+                .startsWith("resumo ainda sem")
+
             let lastMsgFinal = "Mensagem não disponível"
             let firstMsgFinal = "Mensagem não disponível"
 
@@ -1233,6 +1250,7 @@ export async function GET(req: Request) {
                 totalMessagesFromLead: messagesFromLead,
                 totalMessagesFromAI: messagesFromAI,
                 messageHistory,
+                attendanceSummary: hasActionableAttendanceSummary ? attendanceSummary : undefined,
                 formData: formData || undefined,
                 isStudent,
             })
@@ -1390,6 +1408,7 @@ export async function GET(req: Request) {
                         totalMessagesFromLead: 0,
                         totalMessagesFromAI: 0,
                         messageHistory: [],
+                        attendanceSummary: "Lead importado do Kommo CRM. Revisar dados no CRM antes do atendimento.",
                         isStudent: null,
                     }
 

@@ -1,16 +1,18 @@
 ﻿"use client"
 
-import { useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
-import { Phone, MessageSquare, Calendar, TrendingUp, ExternalLink, Clock, User, Bot, Briefcase, Target, Clock3, UserPlus, Loader2, MessageCircle, Instagram, Users } from "lucide-react"
+import { Phone, MessageSquare, Calendar, TrendingUp, ExternalLink, Clock, User, Bot, Briefcase, Target, Clock3, UserPlus, Loader2, MessageCircle, Instagram, Users, StickyNote, CheckSquare, Bell, Plus, Trash2, Check, type LucideIcon } from "lucide-react"
 import { toast } from "sonner"
 import Link from "next/link"
+import { buildLeadAttendanceSummary } from "@/lib/helpers/lead-attendance-summary"
 
 interface LeadDetailsProps {
     isOpen: boolean
@@ -32,6 +34,7 @@ interface LeadDetailsProps {
             type: string
             timestamp: string
         }>
+        attendanceSummary?: string
         formData?: {
             nome?: string
             primeiroNome?: string
@@ -42,6 +45,30 @@ interface LeadDetailsProps {
             comparecimento?: string
         }
     } | null
+}
+
+type InternalItemType = "note" | "task" | "reminder"
+
+type InternalItem = {
+    id: string
+    item_type: InternalItemType
+    content: string
+    status: "open" | "done" | "archived"
+    due_at?: string | null
+    created_at: string
+    created_by?: string | null
+}
+
+const INTERNAL_ITEM_LABELS: Record<InternalItemType, string> = {
+    note: "Nota",
+    task: "Tarefa",
+    reminder: "Lembrete",
+}
+
+const INTERNAL_ITEM_ICONS: Record<InternalItemType, LucideIcon> = {
+    note: StickyNote,
+    task: CheckSquare,
+    reminder: Bell,
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -61,6 +88,135 @@ export function LeadDetailsModal({ isOpen, onClose, lead }: LeadDetailsProps) {
     const [contactDialogOpen, setContactDialogOpen] = useState(false)
     const [contactForm, setContactForm] = useState({ nome: "", telefone: "", email: "", empresa: "", origem: "", observacao: "" })
     const [submittingContact, setSubmittingContact] = useState(false)
+    const [internalItems, setInternalItems] = useState<InternalItem[]>([])
+    const [loadingItems, setLoadingItems] = useState(false)
+    const [savingItem, setSavingItem] = useState(false)
+    const [itemForm, setItemForm] = useState<{
+        itemType: InternalItemType
+        content: string
+        dueAt: string
+    }>({ itemType: "note", content: "", dueAt: "" })
+
+    const attendanceSummary = useMemo(() => {
+        if (!lead) return ""
+        if (lead.attendanceSummary) return lead.attendanceSummary
+        return buildLeadAttendanceSummary({
+            leadName: lead.name,
+            formData: lead.formData,
+            messages: (lead.messageHistory || []).map((message) => ({
+                role: message.type === "human" ? "user" : "assistant",
+                type: message.type,
+                content: message.content,
+                timestamp: message.timestamp,
+            })),
+            maxLength: 560,
+        })
+    }, [lead])
+
+    const loadInternalItems = async () => {
+        if (!lead) return
+        setLoadingItems(true)
+        try {
+            const params = new URLSearchParams({
+                leadId: lead.id,
+                sessionId: lead.id,
+                phone: lead.numero || "",
+            })
+            const res = await fetch(`/api/crm/lead-workspace?${params.toString()}`)
+            const data = await res.json().catch(() => ({}))
+            if (!res.ok) throw new Error(data.error || "Falha ao buscar itens internos")
+            setInternalItems(Array.isArray(data.items) ? data.items : [])
+        } catch (err: any) {
+            toast.error(`Erro ao carregar notas: ${err.message}`)
+        } finally {
+            setLoadingItems(false)
+        }
+    }
+
+    useEffect(() => {
+        if (!isOpen || !lead) {
+            setInternalItems([])
+            return
+        }
+        loadInternalItems()
+        setItemForm({ itemType: "note", content: "", dueAt: "" })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOpen, lead?.id])
+
+    const handleCreateInternalItem = async () => {
+        if (!lead) return
+        if (!itemForm.content.trim()) {
+            toast.error("Escreva a nota, tarefa ou lembrete")
+            return
+        }
+        if (itemForm.itemType === "reminder" && !itemForm.dueAt) {
+            toast.error("Informe data e hora do lembrete")
+            return
+        }
+
+        setSavingItem(true)
+        try {
+            const res = await fetch("/api/crm/lead-workspace", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    leadId: lead.id,
+                    sessionId: lead.id,
+                    phone: lead.numero,
+                    itemType: itemForm.itemType,
+                    content: itemForm.content.trim(),
+                    dueAt: itemForm.dueAt ? new Date(itemForm.dueAt).toISOString() : undefined,
+                    metadata: {
+                        leadName: lead.name,
+                        leadStatus: lead.status,
+                    },
+                }),
+            })
+            const data = await res.json().catch(() => ({}))
+            if (!res.ok) throw new Error(data.error || "Falha ao salvar item interno")
+            if (data.item) setInternalItems((items) => [data.item, ...items])
+            setItemForm({ itemType: "note", content: "", dueAt: "" })
+            toast.success("Item interno salvo")
+        } catch (err: any) {
+            toast.error(`Erro: ${err.message}`)
+        } finally {
+            setSavingItem(false)
+        }
+    }
+
+    const handleUpdateInternalItem = async (id: string, status: "done" | "archived") => {
+        try {
+            const res = await fetch("/api/crm/lead-workspace", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ id, status }),
+            })
+            const data = await res.json().catch(() => ({}))
+            if (!res.ok) throw new Error(data.error || "Falha ao atualizar item")
+            setInternalItems((items) =>
+                items
+                    .map((item) => (item.id === id ? data.item || { ...item, status } : item))
+                    .filter((item) => item.status !== "archived"),
+            )
+        } catch (err: any) {
+            toast.error(`Erro: ${err.message}`)
+        }
+    }
+
+    const handleDeleteInternalItem = async (id: string) => {
+        try {
+            const res = await fetch("/api/crm/lead-workspace", {
+                method: "DELETE",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ id }),
+            })
+            const data = await res.json().catch(() => ({}))
+            if (!res.ok) throw new Error(data.error || "Falha ao remover item")
+            setInternalItems((items) => items.filter((item) => item.id !== id))
+        } catch (err: any) {
+            toast.error(`Erro: ${err.message}`)
+        }
+    }
 
     const openContactDialog = () => {
         if (!lead) return
@@ -217,6 +373,16 @@ export function LeadDetailsModal({ isOpen, onClose, lead }: LeadDetailsProps) {
                         </div>
                     </div>
 
+                    <div className="rounded-xl border border-sky-500/25 bg-sky-500/10 p-4">
+                        <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-foreground">
+                            <MessageSquare className="h-4 w-4 text-sky-400" />
+                            Resumo do atendimento
+                        </h3>
+                        <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/85">
+                            {attendanceSummary}
+                        </p>
+                    </div>
+
                     <Separator className="bg-border" />
 
                     {/* Dados do Formulário */}
@@ -288,6 +454,97 @@ export function LeadDetailsModal({ isOpen, onClose, lead }: LeadDetailsProps) {
                             <Separator className="bg-border" />
                         </>
                     )}
+
+                    <div>
+                        <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                            <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                                <StickyNote className="w-4 h-4 text-accent-green" />
+                                Notas internas, tarefas e lembretes
+                            </h3>
+                            {loadingItems && <span className="text-xs text-text-gray">Carregando...</span>}
+                        </div>
+
+                        <div className="space-y-3 rounded-xl border border-border bg-muted/70 p-4">
+                            <div className="grid grid-cols-1 gap-2 md:grid-cols-[150px_210px_1fr_auto] md:items-start">
+                                <select
+                                    value={itemForm.itemType}
+                                    onChange={(e) => setItemForm((form) => ({ ...form, itemType: e.target.value as InternalItemType }))}
+                                    className="h-10 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-accent-green"
+                                >
+                                    <option value="note">Nota</option>
+                                    <option value="task">Tarefa</option>
+                                    <option value="reminder">Lembrete</option>
+                                </select>
+                                <Input
+                                    type="datetime-local"
+                                    value={itemForm.dueAt}
+                                    onChange={(e) => setItemForm((form) => ({ ...form, dueAt: e.target.value }))}
+                                    className="bg-background border-border text-foreground"
+                                />
+                                <Textarea
+                                    value={itemForm.content}
+                                    onChange={(e) => setItemForm((form) => ({ ...form, content: e.target.value }))}
+                                    placeholder="Escreva uma observação interna, tarefa para o time ou lembrete deste lead..."
+                                    className="min-h-10 bg-background border-border text-foreground"
+                                />
+                                <Button
+                                    onClick={handleCreateInternalItem}
+                                    disabled={savingItem}
+                                    className="bg-accent-green text-primary-foreground hover:bg-dark-green"
+                                >
+                                    {savingItem ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
+                                    Salvar
+                                </Button>
+                            </div>
+
+                            <div className="space-y-2">
+                                {internalItems.length > 0 ? (
+                                    internalItems.map((item) => {
+                                        const Icon = INTERNAL_ITEM_ICONS[item.item_type] || StickyNote
+                                        const isDone = item.status === "done"
+                                        return (
+                                            <div key={item.id} className={`rounded-lg border p-3 ${isDone ? "border-emerald-500/25 bg-emerald-500/10" : "border-border bg-background"}`}>
+                                                <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                                        <Badge variant="outline" className="border-accent-green/30 text-accent-green">
+                                                            <Icon className="mr-1 h-3 w-3" />
+                                                            {INTERNAL_ITEM_LABELS[item.item_type] || "Item"}
+                                                        </Badge>
+                                                        {item.due_at && (
+                                                            <span className="text-xs text-text-gray">
+                                                                {new Date(item.due_at).toLocaleString("pt-BR")}
+                                                            </span>
+                                                        )}
+                                                        {isDone && <span className="text-xs font-medium text-emerald-400">Concluído</span>}
+                                                    </div>
+                                                    <div className="flex shrink-0 items-center gap-1">
+                                                        {!isDone && item.item_type !== "note" && (
+                                                            <Button size="sm" variant="ghost" className="h-7 px-2 text-emerald-400 hover:bg-emerald-500/10" onClick={() => handleUpdateInternalItem(item.id, "done")}>
+                                                                <Check className="h-3.5 w-3.5" />
+                                                            </Button>
+                                                        )}
+                                                        <Button size="sm" variant="ghost" className="h-7 px-2 text-red-400 hover:bg-red-500/10" onClick={() => handleDeleteInternalItem(item.id)}>
+                                                            <Trash2 className="h-3.5 w-3.5" />
+                                                        </Button>
+                                                    </div>
+                                                </div>
+                                                <p className="whitespace-pre-wrap break-words text-sm text-foreground/90">{item.content}</p>
+                                                <p className="mt-2 text-[11px] text-text-gray">
+                                                    Criado em {new Date(item.created_at).toLocaleString("pt-BR")}
+                                                </p>
+                                            </div>
+                                        )
+                                    })
+                                ) : (
+                                    <p className="rounded-lg border border-dashed border-border bg-background p-4 text-center text-sm text-text-gray">
+                                        Nenhuma nota, tarefa ou lembrete interno salvo para este lead.
+                                    </p>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                    <Separator className="bg-border" />
 
                     {/* Histórico de Mensagens */}
                     <div>

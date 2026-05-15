@@ -50,6 +50,7 @@ import {
   parseTenantBusinessHours,
 } from "@/lib/helpers/business-hours"
 import { RedisService } from "@/lib/services/redis.service"
+import { buildLeadAttendanceSummary } from "@/lib/helpers/lead-attendance-summary"
 
 type AppointmentResult = {
   ok: boolean
@@ -4963,6 +4964,12 @@ export class NativeAgentOrchestratorService {
             old_date: execution.response?.previous_date || execution.action?.old_date,
             old_time: execution.response?.previous_time || execution.action?.old_time,
           }
+          const attendanceSummary = await this.buildLeadAttendanceObservation({
+            tenant: params.tenant,
+            sessionId: params.sessionId,
+            contactName: params.contactName,
+            chat: params.chat,
+          })
           const message = this.buildScheduleSuccessNotification({
             phone: params.phone,
             contactName: params.contactName,
@@ -4972,6 +4979,7 @@ export class NativeAgentOrchestratorService {
               htmlLink: String(execution.response?.htmlLink || ""),
             },
             isEdit,
+            attendanceSummary,
           })
           const dedupeKind = isEdit ? "reschedule" : "schedule"
           const notifyResult = await this.sendToolNotifications(params.tenant, targets, message, {
@@ -5094,12 +5102,32 @@ export class NativeAgentOrchestratorService {
     }
   }
 
+  private async buildLeadAttendanceObservation(params: {
+    tenant: string
+    sessionId: string
+    contactName?: string
+    chat?: TenantChatHistoryService
+  }): Promise<string> {
+    const chat = params.chat || new TenantChatHistoryService(params.tenant)
+    const turns = await chat.loadConversation(params.sessionId, 80).catch(() => [])
+    return buildLeadAttendanceSummary({
+      leadName: params.contactName,
+      messages: turns.map((turn) => ({
+        role: turn.role,
+        content: turn.content,
+        createdAt: turn.createdAt,
+      })),
+      maxLength: 700,
+    })
+  }
+
   private buildScheduleSuccessNotification(input: {
     phone: string
     contactName?: string
     action: AgentActionPlan
     result?: { meetLink?: string; htmlLink?: string }
     isEdit?: boolean
+    attendanceSummary?: string
   }): string {
     const name = String(sanitizeSafeVocativeName(input.contactName) || "Lead").trim()
     const day = formatDateToBr(input.action.date)
@@ -5112,6 +5140,7 @@ export class NativeAgentOrchestratorService {
     const oldDay = formatDateToBr((input.action as any).old_date)
     const oldTime = String((input.action as any).old_time || "").trim()
     const oldWhen = oldDay && oldTime ? `${oldDay} as ${oldTime}` : oldDay || oldTime || ""
+    const attendanceSummary = String(input.attendanceSummary || "").trim()
 
     if (input.isEdit) {
       const lines = [
@@ -5124,6 +5153,7 @@ export class NativeAgentOrchestratorService {
         `\u{1F3E2} *Modalidade:* ${mode}`,
       ]
       if (notes) lines.push(`\u{1F4DD} *Obs:* ${notes}`)
+      if (attendanceSummary) lines.push(`\u{1F9ED} *Resumo do atendimento:* ${attendanceSummary}`)
       if (meetLink) lines.push(`\u{1F4BB} *Google Meet:* ${meetLink}`)
       if (calLink) lines.push(`\u{1F4C5} *Calendario:* ${calLink}`)
       return lines.filter(Boolean).join("\n")
@@ -5139,6 +5169,7 @@ export class NativeAgentOrchestratorService {
       `\u{1F3E2} *Modalidade:* ${mode}`,
     ]
     if (notes) lines.push(`\u{1F4DD} *Obs:* ${notes}`)
+    if (attendanceSummary) lines.push(`\u{1F9ED} *Resumo do atendimento:* ${attendanceSummary}`)
     if (meetLink) lines.push(`\u{1F4BB} *Google Meet:* ${meetLink}`)
     if (calLink) lines.push(`\u{1F4C5} *Calendario:* ${calLink}`)
     return lines.filter(Boolean).join("\n")
@@ -8960,11 +8991,17 @@ export class NativeAgentOrchestratorService {
         old_time: params.appointmentData?.previousTime,
       }
 
+      const attendanceSummary = await this.buildLeadAttendanceObservation({
+        tenant: params.tenant,
+        sessionId: params.sessionId,
+        contactName: params.contactName,
+      })
       const message = this.buildScheduleSuccessNotification({
         phone: params.phone,
         contactName: params.contactName,
         action,
         isEdit,
+        attendanceSummary,
       })
       const dedupeKind = isEdit ? "reschedule" : "schedule"
       const dedupeKey = `schedule_success:${dedupeKind}:${params.phone}:${action.date || ""}:${action.time || ""}`

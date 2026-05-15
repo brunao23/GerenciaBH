@@ -26,6 +26,7 @@ const MIGRATIONS = {
     'llm-usage-events': 'supabase/migrations/20260502_llm_usage_events.sql',
     'agent-task-queue-reminder-idempotency': 'supabase/migrations/20260515_agent_task_queue_reminder_idempotency.sql',
     'agent-task-queue-health-indexes': 'supabase/migrations/20260515_agent_task_queue_health_indexes.sql',
+    'lead-internal-items': 'supabase/migrations/20260515_lead_internal_items.sql',
 };
 
 function resolveProjectRefFromSupabaseUrl(rawUrl?: string | null): string | null {

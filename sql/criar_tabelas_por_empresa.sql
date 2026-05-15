@@ -33,6 +33,7 @@ DECLARE
   v_notifications TEXT := p_schema || '_notifications';
   v_crm_lead_status TEXT := p_schema || '_crm_lead_status';
   v_crm_funnel_config TEXT := p_schema || '_crm_funnel_config';
+  v_lead_internal_items TEXT := p_schema || '_lead_internal_items';
   v_users TEXT := p_schema || '_users';
   v_sdrs TEXT := p_schema || '_sdrs';
   v_lembretes_ia TEXT := p_schema || '_lembretes_ia';
@@ -201,6 +202,40 @@ BEGIN
   RAISE NOTICE '✅ %', v_crm_lead_status;
 
   -- ============================================
+  -- 📝 TABELA: {schema}_lead_internal_items
+  -- ============================================
+  EXECUTE format('
+    CREATE TABLE IF NOT EXISTS public.%I (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      lead_id TEXT NOT NULL,
+      session_id TEXT,
+      phone TEXT,
+      item_type TEXT NOT NULL CHECK (item_type IN (''note'', ''task'', ''reminder'')),
+      content TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT ''open'' CHECK (status IN (''open'', ''done'', ''archived'')),
+      due_at TIMESTAMP WITH TIME ZONE,
+      completed_at TIMESTAMP WITH TIME ZONE,
+      created_by TEXT,
+      metadata JSONB NOT NULL DEFAULT ''{}''::jsonb,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )', v_lead_internal_items);
+
+  EXECUTE format('CREATE INDEX IF NOT EXISTS idx_%I_lead ON public.%I(lead_id)', v_lead_internal_items, v_lead_internal_items);
+  EXECUTE format('CREATE INDEX IF NOT EXISTS idx_%I_session ON public.%I(session_id)', v_lead_internal_items, v_lead_internal_items);
+  EXECUTE format('CREATE INDEX IF NOT EXISTS idx_%I_phone ON public.%I(phone)', v_lead_internal_items, v_lead_internal_items);
+  EXECUTE format('CREATE INDEX IF NOT EXISTS idx_%I_status_due ON public.%I(status, due_at)', v_lead_internal_items, v_lead_internal_items);
+
+  EXECUTE format('DROP TRIGGER IF EXISTS trg_%I_updated_at ON public.%I', v_lead_internal_items, v_lead_internal_items);
+  EXECUTE format('
+    CREATE TRIGGER trg_%I_updated_at
+    BEFORE UPDATE ON public.%I
+    FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column()
+  ', v_lead_internal_items, v_lead_internal_items);
+
+  RAISE NOTICE '✅ %', v_lead_internal_items;
+
+  -- ============================================
   -- ⚙️ TABELA: {schema}_crm_funnel_config
   -- ============================================
   EXECUTE format('
@@ -334,7 +369,7 @@ BEGIN
   -- ============================================
   RAISE NOTICE '';
   RAISE NOTICE '═══════════════════════════════════════════════';
-  RAISE NOTICE '🎉 TODAS AS 12 TABELAS CRIADAS PARA: %', p_schema;
+  RAISE NOTICE '🎉 TODAS AS 13 TABELAS CRIADAS PARA: %', p_schema;
   RAISE NOTICE '═══════════════════════════════════════════════';
   RAISE NOTICE '  📅 %_agendamentos', p_schema;
   RAISE NOTICE '  📱 %_follow_normal', p_schema;
@@ -343,6 +378,7 @@ BEGIN
   RAISE NOTICE '  🤖 %n8n_chat_histories', p_schema;
   RAISE NOTICE '  🔔 %_notifications', p_schema;
   RAISE NOTICE '  📊 %_crm_lead_status', p_schema;
+  RAISE NOTICE '  📝 %_lead_internal_items', p_schema;
   RAISE NOTICE '  ⚙️ %_crm_funnel_config', p_schema;
   RAISE NOTICE '  👤 %_users', p_schema;
   RAISE NOTICE '  👥 %_sdrs', p_schema;
@@ -368,6 +404,7 @@ DECLARE
     p_schema || 'n8n_chat_histories',
     p_schema || '_notifications',
     p_schema || '_crm_lead_status',
+    p_schema || '_lead_internal_items',
     p_schema || '_crm_funnel_config',
     p_schema || '_users',
     p_schema || '_sdrs',
@@ -405,6 +442,7 @@ DECLARE
     p_schema || 'n8n_chat_histories',
     p_schema || '_notifications',
     p_schema || '_crm_lead_status',
+    p_schema || '_lead_internal_items',
     p_schema || '_crm_funnel_config',
     p_schema || '_users',
     p_schema || '_sdrs',
@@ -497,13 +535,14 @@ SELECT
     e.schema || 'n8n_chat_histories',
     e.schema || '_notifications',
     e.schema || '_crm_lead_status',
+    e.schema || '_lead_internal_items',
     e.schema || '_crm_funnel_config',
     e.schema || '_users',
     e.schema || '_sdrs',
     e.schema || '_lembretes_ia',
     e.schema || '_config'
   ] AS tabelas,
-  12 AS total_tabelas
+  13 AS total_tabelas
 FROM public.empresas e
 WHERE e.schema IS NOT NULL;
 

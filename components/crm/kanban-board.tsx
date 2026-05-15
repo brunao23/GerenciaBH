@@ -30,6 +30,16 @@ interface CRMCard {
         type: string
         timestamp: string
     }>
+    attendanceSummary?: string
+    formData?: {
+        nome?: string
+        primeiroNome?: string
+        dificuldade?: string
+        motivo?: string
+        profissao?: string
+        tempoDecisao?: string
+        comparecimento?: string
+    }
     pauseStatus?: {
         pausar: boolean
         vaga: boolean
@@ -788,6 +798,13 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                                                                 <p className="mb-3 line-clamp-2 break-words rounded border border-border/60 bg-muted/70 p-1.5 text-xs text-text-gray">
                                                                                     "{card.lastMessage}"
                                                                                 </p>
+
+                                                                                {card.attendanceSummary && (
+                                                                                    <p className="mb-3 line-clamp-3 break-words rounded-lg border border-sky-500/20 bg-sky-500/10 p-2 text-[11px] leading-relaxed text-foreground/80">
+                                                                                        <span className="font-semibold text-sky-400">Resumo: </span>
+                                                                                        {card.attendanceSummary}
+                                                                                    </p>
+                                                                                )}
 
                                                                                 {/* Informações de Follow-Up */}
                                                                                 {card.followUpInfo && card.followUpInfo.isActive && (
