@@ -15,7 +15,7 @@ import { OverviewChart } from "@/components/dashboard/overview-chart"
 import { PeriodFilter } from "@/components/dashboard/period-filter"
 import { useTenant } from "@/lib/contexts/TenantContext"
 import {
-  MessageSquare, CalendarClock, Workflow, AlertTriangle, TrendingUp, Users, Target, Clock,
+  MessageSquare, CalendarClock, Workflow, AlertTriangle, TrendingUp, Users, Target, Clock, X,
   Megaphone, Send, Instagram, MessageCircle, ChevronDown, ChevronRight, CheckCircle, AlertCircle,
   FileText, Download, Loader2, RefreshCw, BarChart3, Calendar, CheckCircle2, Eye, Trash2,
   MousePointerClick, ShieldCheck, XCircle,
@@ -149,7 +149,7 @@ const CAPT_PERIOD_OPTIONS = [
   { value: "all", label: "Tudo" },
 ]
 
-const SOURCE_LABELS: Record<string, string> = { meta_lead: "Instagram / Facebook", whatsapp_direct: "WhatsApp", organic: "Orgânico" }
+const SOURCE_LABELS: Record<string, string> = { meta_lead: "Meta Ads", whatsapp_direct: "WhatsApp", organic: "Orgânico" }
 const SOURCE_COLORS: Record<string, string> = {
   meta_lead: "text-accent-blue border-accent-blue/30",
   whatsapp_direct: "text-accent-green border-accent-green/30",
@@ -376,6 +376,7 @@ export default function DashboardPage() {
   const [previousData, setPreviousData] = useState<Overview | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [conversionAlertDismissed, setConversionAlertDismissed] = useState(false)
   const [period, setPeriod] = useState<DashboardPeriod>("7d")
   const [customStartDate, setCustomStartDate] = useState(() => { const s = new Date(); s.setDate(s.getDate() - 6); return toInputDate(s) })
   const [customEndDate, setCustomEndDate] = useState(() => toInputDate(new Date()))
@@ -815,11 +816,18 @@ export default function DashboardPage() {
       : `${period === "7d" ? "7" : period === "15d" ? "15" : period === "30d" ? "30" : "90"} dias`
 
   const mainMetrics = [
-    { title: "Conversas", value: data?.conversas ?? 0, subtitle: `${data?.totalMessages ?? 0} mensagens`, icon: MessageSquare, color: "text-accent-blue", bg: "bg-accent-blue/10", border: "border-accent-blue/20" },
-    { title: "Leads", value: data?.totalLeads ?? 0, subtitle: "novos contatos", icon: Users, color: "text-accent-green", bg: "bg-accent-green/10", border: "border-accent-green/20" },
-    { title: "Agenda", value: data?.agendamentos ?? 0, subtitle: "horários marcados", icon: CalendarClock, color: "text-accent-gold", bg: "bg-accent-gold/10", border: "border-accent-gold/20" },
-    { title: "Retornos", value: data?.followups ?? 0, subtitle: "chamadas de volta", icon: Workflow, color: "text-accent-gold", bg: "bg-accent-gold/10", border: "border-accent-gold/20" },
+    { title: "Atendimentos", value: data?.conversas ?? 0, subtitle: `${data?.totalMessages ?? 0} mensagens no periodo`, icon: MessageSquare, color: "text-accent-blue", bg: "bg-accent-blue/10", border: "border-accent-blue/20" },
+    { title: "Leads qualificados", value: data?.totalLeads ?? 0, subtitle: "alunos em potencial", icon: Users, color: "text-accent-green", bg: "bg-accent-green/10", border: "border-accent-green/20" },
+    { title: "Diagnósticos", value: data?.agendamentos ?? 0, subtitle: `${data?.conversionRate?.toFixed?.(1) ?? "0.0"}% de conversao`, icon: CalendarClock, color: "text-accent-gold", bg: "bg-accent-gold/10", border: "border-accent-gold/20" },
+    { title: "Retomadas", value: data?.followups ?? 0, subtitle: "follow-ups enviados", icon: Workflow, color: "text-accent-gold", bg: "bg-accent-gold/10", border: "border-accent-gold/20" },
   ]
+
+  const conversionRateLow =
+    data?.conversionRate !== undefined &&
+    data.conversionRate < 5 &&
+    data.totalLeads &&
+    data.totalLeads > 0 &&
+    !conversionAlertDismissed
 
   const conversionPercent = Math.max(0, Math.min(100, Number(data?.conversionRate ?? 0)))
   const qualityPercent = Math.max(0, Math.min(100, Number(data?.successPercent ?? 0)))
@@ -840,10 +848,10 @@ export default function DashboardPage() {
   const salesRevenue = businessMetrics.totalSalesAmount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
 
   const commercialPanelRows = [
-    { label: "Leads", value: data?.totalLeads ?? 0, caption: "chegaram", tone: "bg-accent-blue", soft: "bg-accent-blue/15", text: "text-accent-blue", fill: "var(--accent-blue)" },
-    { label: "Conversas", value: data?.conversas ?? 0, caption: "em andamento", tone: "bg-accent-green", soft: "bg-accent-green/15", text: "text-accent-green", fill: "var(--accent-green)" },
-    { label: "Agenda", value: data?.agendamentos ?? 0, caption: "horário marcado", tone: "bg-accent-gold", soft: "bg-accent-gold/15", text: "text-accent-gold", fill: "var(--accent-gold)" },
-    { label: "Alunos", value: businessMetrics.salesCount, caption: "matrículas feitas", tone: "bg-accent-green", soft: "bg-accent-green/15", text: "text-accent-green", fill: "var(--dark-green)" },
+    { label: "Entrada", value: data?.totalLeads ?? 0, caption: "Leads no funil", tone: "bg-accent-blue", soft: "bg-accent-blue/15", text: "text-accent-blue", fill: "var(--accent-blue)" },
+    { label: "Atendimento", value: data?.conversas ?? 0, caption: "Conversas ativas", tone: "bg-accent-green", soft: "bg-accent-green/15", text: "text-accent-green", fill: "var(--accent-green)" },
+    { label: "Diagnóstico", value: data?.agendamentos ?? 0, caption: "Agenda marcada", tone: "bg-accent-gold", soft: "bg-accent-gold/15", text: "text-accent-gold", fill: "var(--accent-gold)" },
+    { label: "Matrícula", value: businessMetrics.salesCount, caption: "Vendas registradas", tone: "bg-accent-green", soft: "bg-accent-green/15", text: "text-accent-green", fill: "var(--dark-green)" },
   ]
   const funnelWidths = [100, 88, 76, 64]
   const funnelStages = commercialPanelRows.map((row, index) => {
@@ -853,29 +861,29 @@ export default function DashboardPage() {
       ...row,
       width: funnelWidths[index] ?? Math.max(52, 100 - index * 12),
       valueLabel: currentValue.toLocaleString("pt-BR"),
-      rateLabel: index === 0 ? "início" : formatFunnelRate(currentValue, previousValue),
+      rateLabel: index === 0 ? "Base" : formatFunnelRate(currentValue, previousValue),
     }
   })
 
   const panelSummaryRows = [
     {
-      label: "Agenda marcada",
+      label: "Taxa de diagnóstico",
       value: `${conversionPercent.toFixed(1)}%`,
-      hint: `${data?.agendamentos ?? 0} de ${data?.totalLeads ?? 0} leads`,
+      hint: `${data?.agendamentos ?? 0} diagnósticos / ${data?.totalLeads ?? 0} leads`,
       previous: `${previousConversionPercent.toFixed(1)}%`,
       trend: buildMetricTrend(conversionPercent, previousConversionPercent, { points: true }),
     },
     {
-      label: "Atendimento",
+      label: "Qualidade da IA",
       value: `${qualityPercent.toFixed(1)}%`,
-      hint: `${data?.successCount ?? 0} respostas sem falha`,
+      hint: `${data?.successCount ?? 0} respostas corretas`,
       previous: `${previousQualityPercent.toFixed(1)}%`,
       trend: buildMetricTrend(qualityPercent, previousQualityPercent, { points: true }),
     },
     {
-      label: "Resposta",
+      label: "Tempo médio",
       value: `${avgFirstResponseTime}s`,
-      hint: "tempo médio",
+      hint: "Primeira resposta da IA",
       previous: `${previousAvgFirstResponseTime}s`,
       trend: buildMetricTrend(avgFirstResponseTime, previousAvgFirstResponseTime, { lowerIsBetter: true }),
     },
@@ -887,9 +895,9 @@ export default function DashboardPage() {
       trend: buildMetricTrend(attendancePercent, previousAttendancePercent, { points: true }),
     },
     {
-      label: "Valor vendido",
+      label: "Receita",
       value: salesRevenue,
-      hint: "matrículas registradas",
+      hint: "Matrículas registradas",
       previous: previousBusinessMetrics.totalSalesAmount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }),
       trend: buildMetricTrend(businessMetrics.totalSalesAmount, previousBusinessMetrics.totalSalesAmount),
     },
@@ -903,14 +911,16 @@ export default function DashboardPage() {
         <div className="relative z-[1] flex min-w-0 flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
             <div className="education-badge mb-3 inline-flex rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em]">
-              Início
+              GerencIA Educação
             </div>
-            <h1 className="font-display text-2xl font-semibold text-foreground sm:text-3xl">Resumo da unidade</h1>
-            <p className="mt-2 max-w-2xl break-words text-sm text-text-gray sm:text-base">Leads, conversas, agenda e matrículas em uma tela limpa.</p>
+            <h1 className="font-display text-2xl font-semibold text-foreground sm:text-3xl">Painel de matrículas</h1>
+            <p className="mt-2 max-w-3xl break-words text-sm text-text-gray sm:text-base">
+              Visão clara da captação, atendimentos, diagnósticos marcados e retomadas que movem a operação educacional.
+            </p>
           </div>
           <div className="grid w-full grid-cols-1 gap-2 sm:w-auto sm:grid-cols-2 md:flex">
             <div className="min-w-0 rounded-xl border border-border bg-secondary px-4 py-3">
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-text-gray">Leads</div>
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-text-gray">Funil ativo</div>
               <div className="text-lg font-bold text-accent-green">{data?.totalLeads ?? 0}</div>
             </div>
             <div className="min-w-0 rounded-xl border border-border bg-secondary px-4 py-3">
@@ -922,16 +932,16 @@ export default function DashboardPage() {
       </div>
 
       <Tabs defaultValue="visao-geral" className="w-full px-0">
-        <div className="max-w-full overflow-x-auto px-1 pb-1">
+        <div className="overflow-x-auto px-1 pb-1">
           <TabsList className="mb-2 min-w-max rounded-xl border border-border bg-card p-1 shadow-sm sm:w-auto">
             <TabsTrigger value="visao-geral" className="flex items-center gap-1.5">
-              <BarChart3 className="h-4 w-4" /> Resumo
+              <BarChart3 className="h-4 w-4" /> Visão Geral
             </TabsTrigger>
             <TabsTrigger value="captacao" className="flex items-center gap-1.5">
-              <Target className="h-4 w-4" /> Novos contatos
+              <Target className="h-4 w-4" /> Captação
             </TabsTrigger>
             <TabsTrigger value="relatorios" className="flex items-center gap-1.5">
-              <TrendingUp className="h-4 w-4" /> Resultados
+              <TrendingUp className="h-4 w-4" /> Relatórios
             </TabsTrigger>
           </TabsList>
         </div>
@@ -940,7 +950,7 @@ export default function DashboardPage() {
         <TabsContent value="visao-geral" className="space-y-6 mt-4">
           {/* Period Filter */}
           <div className="flex min-w-0 flex-col justify-between gap-3 sm:flex-row sm:items-center">
-            <p className="text-sm text-text-gray">Mostrando: <span className="font-medium text-foreground">{periodLabel}</span></p>
+            <p className="text-sm text-text-gray">Período: <span className="text-pure-white font-medium">{periodLabel}</span></p>
             <PeriodFilter
               value={period}
               onChange={setPeriod}
@@ -953,104 +963,136 @@ export default function DashboardPage() {
             />
           </div>
 
-          <Card className="w-full min-w-0 max-w-full overflow-hidden rounded-3xl border border-border bg-card shadow-sm">
-            <CardContent className="p-0">
-              <div className="grid min-w-0 lg:grid-cols-[1.05fr_0.95fr] 2xl:grid-cols-[1fr_0.95fr_0.85fr]">
-                <section className="min-w-0 space-y-5 border-b border-border p-4 sm:p-6 lg:border-b-0 lg:border-r">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <p className="text-xs font-bold uppercase tracking-[0.16em] text-text-gray">Agora</p>
-                      <h2 className="mt-1 text-xl font-bold text-foreground sm:text-2xl">O que aconteceu</h2>
+          <Card className="dashboard-command-panel w-full min-w-0 max-w-full rounded-2xl">
+            <CardContent className="relative z-[1] p-4 sm:p-6">
+              <div className="grid gap-5 xl:grid-cols-2 2xl:grid-cols-[1.1fr_0.95fr_0.9fr]">
+                <div className="space-y-5">
+                  <div>
+                    <div className="inline-flex items-center gap-2 rounded-full border border-accent-green/30 bg-accent-green/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-accent-green">
+                      <Target className="h-3.5 w-3.5" />
+                      Funil da unidade
                     </div>
-                    <Badge variant="outline" className="w-fit border-accent-green/30 text-accent-green">
-                      {periodLabel}
-                    </Badge>
+                    <h2 className="mt-3 text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+                      Funil de matrículas
+                    </h2>
+                    <p className="mt-2 max-w-2xl text-sm leading-6 text-text-gray">
+                      Acompanhe leads, atendimentos, diagnósticos e matrículas por etapa.
+                    </p>
                   </div>
 
                   <div className="grid gap-3 sm:grid-cols-2">
-                    {mainMetrics.map((metric) => {
-                      const Icon = metric.icon
-                      return (
-                        <div key={metric.title} className="min-w-0 rounded-2xl border border-border bg-background/65 p-4 shadow-sm">
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-text-gray">{metric.title}</p>
-                              <p className={`mt-2 text-3xl font-black tabular-nums ${metric.color}`}>{metric.value}</p>
-                            </div>
-                            <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${metric.bg}`}>
-                              <Icon className={`h-5 w-5 ${metric.color}`} />
-                            </div>
-                          </div>
-                          <p className="mt-2 text-sm text-text-gray">{metric.subtitle}</p>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </section>
-
-                <section className="min-w-0 space-y-4 border-b border-border p-4 sm:p-6 lg:border-b-0 2xl:border-r">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-xs font-bold uppercase tracking-[0.16em] text-text-gray">Caminho do aluno</p>
-                      <h3 className="mt-1 text-xl font-bold text-foreground">Do lead à matrícula</h3>
-                    </div>
-                    <Target className="h-5 w-5 text-accent-green" />
-                  </div>
-
-                  <div className="space-y-3">
-                    {funnelStages.map((row) => (
-                      <div key={`funnel-${row.label}`} className="min-w-0 rounded-2xl border border-border bg-background/65 p-3 shadow-sm">
+                    {commercialPanelRows.map((row) => (
+                      <div key={row.label} className="dashboard-metric-cell rounded-xl p-4">
                         <div className="flex items-center justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-bold text-foreground">{row.label}</p>
-                            <p className="truncate text-xs text-text-gray">{row.caption}</p>
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-text-gray">{row.label}</p>
+                            <p className={`mt-1 text-3xl font-bold ${row.text}`}>{row.value}</p>
                           </div>
-                          <div className="text-right">
-                            <p className={`text-2xl font-black tabular-nums ${row.text}`}>{row.valueLabel}</p>
-                            <p className="text-[11px] font-semibold text-text-gray">{row.rateLabel}</p>
+                          <div className={`h-10 w-10 rounded-xl ${row.soft} flex items-center justify-center`}>
+                            <div className={`h-3 w-3 rounded-full ${row.tone}`} />
                           </div>
                         </div>
-                        <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
-                          <div
-                            className="h-full rounded-full"
-                            style={{ width: `${Math.max(6, row.width)}%`, background: row.fill }}
-                          />
-                        </div>
+                        <p className="mt-2 text-xs text-text-gray">{row.caption}</p>
                       </div>
                     ))}
                   </div>
-                </section>
+                </div>
 
-                <section className="min-w-0 space-y-4 p-4 sm:p-6 lg:col-span-2 2xl:col-span-1">
+                <div className="rounded-2xl border border-border bg-background/70 p-4 sm:p-5">
+                  <div className="mb-4 flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-[0.16em] text-text-gray">Funil</p>
+                      <h3 className="text-lg font-bold text-foreground">Funil de oportunidades</h3>
+                      <p className="mt-1 text-xs text-text-gray">Da entrada do lead até a matrícula.</p>
+                    </div>
+                    <Badge variant="outline" className="shrink-0 border-accent-gold/30 text-accent-gold">
+                      {periodLabel}
+                    </Badge>
+                  </div>
+                  <div className="rounded-2xl border border-border bg-card/55 p-3 sm:p-4" aria-label="Funil de oportunidades">
+                    <div className="space-y-2 sm:space-y-2.5">
+                      {funnelStages.map((row, index) => {
+                        const inset = index >= 2 ? "10%" : "8%"
+                      return (
+                        <div
+                          key={`funnel-${row.label}`}
+                          className="relative mx-auto h-[58px] min-w-[210px] max-w-full sm:h-[64px]"
+                          style={{ width: `${row.width}%` }}
+                        >
+                          <svg
+                            className="absolute inset-0 h-full w-full overflow-visible drop-shadow-sm"
+                            viewBox="0 0 100 100"
+                            preserveAspectRatio="none"
+                            aria-hidden="true"
+                          >
+                            <polygon
+                              points={`0,0 100,0 ${100 - Number.parseFloat(inset)},100 ${Number.parseFloat(inset)},100`}
+                              fill={row.fill}
+                              stroke="rgba(255,255,255,0.26)"
+                              strokeWidth="1"
+                              vectorEffect="non-scaling-stroke"
+                            />
+                          </svg>
+                          <div className="relative z-[1] flex h-full items-center justify-between gap-3 px-6 text-white sm:px-8">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-extrabold sm:text-base">{row.label}</p>
+                              <p className="truncate text-[10px] font-medium text-white/80 sm:text-[11px]">
+                                {row.caption}
+                              </p>
+                            </div>
+                            <div className="shrink-0 text-right">
+                              <p className="text-lg font-black leading-none tabular-nums sm:text-xl">{row.valueLabel}</p>
+                              <p className="mt-1 text-[10px] font-semibold leading-none text-white/80 sm:text-[11px]">
+                                {row.rateLabel}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                      })}
+                    </div>
+                    <div className="mt-4 grid grid-cols-2 gap-2 text-[11px] sm:text-xs">
+                      <div className="rounded-xl border border-border bg-background/70 px-3 py-2">
+                        <p className="font-semibold text-foreground">Taxa diagnóstico</p>
+                        <p className="mt-0.5 text-text-gray">{conversionPercent.toFixed(1)}% dos leads</p>
+                      </div>
+                      <div className="rounded-xl border border-border bg-background/70 px-3 py-2">
+                        <p className="font-semibold text-foreground">Matrículas</p>
+                        <p className="mt-0.5 text-text-gray">{businessMetrics.salesCount.toLocaleString("pt-BR")} registradas</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-border bg-background/70 p-4 xl:col-span-2 2xl:col-span-1">
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <p className="text-xs font-bold uppercase tracking-[0.16em] text-text-gray">Comparação</p>
-                      <h3 className="mt-1 text-xl font-bold text-foreground">Antes e agora</h3>
+                      <h3 className="text-lg font-bold text-foreground">Resultados do período</h3>
                       <p className="mt-1 text-xs text-text-gray">Comparado com {comparisonLabel}</p>
                     </div>
                     <div
-                      className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full border border-border text-sm font-black text-foreground"
+                      className="score-gauge flex h-20 w-20 shrink-0 items-center justify-center rounded-full"
                       style={{
                         background: `radial-gradient(circle at center, var(--card) 0 58%, transparent 59%), conic-gradient(var(--accent-green) 0 ${Math.max(pipelineHealthPercent, 4)}%, color-mix(in srgb, var(--border) 78%, transparent) ${Math.max(pipelineHealthPercent, 4)}% 100%)`,
                       }}
                     >
-                      {pipelineHealthPercent}%
+                      <span className="text-lg font-bold text-foreground">{pipelineHealthPercent}%</span>
                     </div>
                   </div>
-
-                  <div className="space-y-2.5">
-                    {panelSummaryRows.filter((row) => row.label !== "Atendimento").map((row) => (
-                      <div key={row.label} className="min-w-0 rounded-2xl border border-border bg-background/65 px-3 py-3 shadow-sm">
+                  <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                    {panelSummaryRows.map((row) => (
+                      <div key={row.label} className="rounded-xl border border-border bg-card/75 px-3 py-3">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
                             <p className="text-sm font-semibold text-foreground">{row.label}</p>
                             <p className="text-xs text-text-gray">{row.hint}</p>
                           </div>
-                          <p className="shrink-0 text-lg font-black text-accent-green">{row.value}</p>
+                          <p className="shrink-0 text-lg font-bold text-accent-green">{row.value}</p>
                         </div>
                         <div className="mt-3 flex items-center justify-between gap-2 text-[11px]">
                           <span className="min-w-0 truncate text-text-gray">
-                            Antes: <strong className="font-semibold text-foreground">{row.previous}</strong>
+                            Anterior: <strong className="font-semibold text-foreground">{row.previous}</strong>
                           </span>
                           <span className={`shrink-0 rounded-full border px-2 py-0.5 font-semibold ${trendToneClass(row.trend.tone)}`}>
                             {row.trend.label}
@@ -1059,10 +1101,26 @@ export default function DashboardPage() {
                       </div>
                     ))}
                   </div>
-                </section>
+                </div>
               </div>
             </CardContent>
           </Card>
+
+          {/* Conversion alert */}
+          {conversionRateLow && (
+            <Alert variant="destructive" className="border-red-500/50 bg-red-500/10 relative">
+              <Button variant="ghost" size="icon" className="absolute top-2 right-2 h-6 w-6 text-red-400 hover:text-red-300 hover:bg-red-500/20 rounded-full" onClick={() => setConversionAlertDismissed(true)}>
+                <X className="h-4 w-4" />
+              </Button>
+              <AlertTriangle className="h-5 w-5 text-red-400" />
+              <AlertTitle className="text-red-400 font-semibold pr-8">Atenção: conversão para diagnóstico baixa</AlertTitle>
+              <AlertDescription className="text-red-300/90 mt-2">
+                <p>Taxa em <strong>{data.conversionRate?.toFixed(1)}%</strong>, abaixo do mínimo recomendado de <strong>5%</strong>.</p>
+                <p className="mt-2 text-sm">Leads: <strong>{data.totalLeads}</strong> | Diagnósticos: <strong>{data.agendamentos}</strong></p>
+              </AlertDescription>
+            </Alert>
+          )}
+
           {/* Error */}
           {error && (
             <Alert variant="destructive" className="border-red-500/50 bg-red-500/10">
@@ -1083,10 +1141,31 @@ export default function DashboardPage() {
 
           {!loading && data && (
             <>
+              {/* Main metrics */}
+              <div className="grid gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
+                {mainMetrics.map((metric) => {
+                  const Icon = metric.icon
+                  return (
+                    <Card key={metric.title} className={`genial-card genial-elevate border-l-4 ${metric.border.replace("border", "border-l")}`}>
+                      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium text-pure-white">{metric.title}</CardTitle>
+                        <div className={`p-2 rounded-lg ${metric.bg}`}>
+                          <Icon className={`h-5 w-5 ${metric.color}`} />
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <div className={`text-2xl sm:text-3xl font-bold ${metric.color}`}>{metric.value}</div>
+                        <p className="mt-1 text-[11px] leading-snug text-text-gray">{metric.subtitle}</p>
+                      </CardContent>
+                    </Card>
+                  )
+                })}
+              </div>
+
               {/* Business Summary */}
               <Card className="genial-card genial-elevate">
                 <CardHeader className="flex flex-row items-center justify-between">
-                  <CardTitle className="text-foreground">Matrículas</CardTitle>
+                  <CardTitle className="text-pure-white">Resumo de matrículas</CardTitle>
                   <Button variant="ghost" size="sm" onClick={refreshBusinessPanel} className="text-text-gray hover:text-foreground h-8 px-2">
                     <RefreshCw className="h-3.5 w-3.5" />
                   </Button>
@@ -1094,7 +1173,7 @@ export default function DashboardPage() {
                 <CardContent className="space-y-3">
                   {[
                     { label: "Comparecimentos", value: businessMetrics.attendanceCount },
-                    { label: "Não compareceu", value: businessMetrics.noShowCount },
+                    { label: "No-show", value: businessMetrics.noShowCount },
                     { label: "Matrículas", value: businessMetrics.salesCount },
                   ].map((row) => (
                     <div key={row.label} className="flex items-center justify-between text-sm">
@@ -1114,7 +1193,7 @@ export default function DashboardPage() {
                     {recentBusinessEvents.slice(0, 5).map((event) => (
                       <div key={event.id} className="rounded border border-border/50 p-2 text-xs">
                         <p className="text-pure-white">
-                          {event.event_type === "attendance" ? "Compareceu" : event.event_type === "no_show" ? "Não compareceu" : "Matrícula"}
+                          {event.event_type === "attendance" ? "Comparecimento" : event.event_type === "no_show" ? "No-show" : "Venda"}
                           {event.lead_name ? ` - ${event.lead_name}` : ""}
                         </p>
                         <p className="text-text-gray">{new Date(event.event_at).toLocaleString("pt-BR")}</p>
@@ -1132,11 +1211,11 @@ export default function DashboardPage() {
                     <OverviewChart data={data.chartData} />
                   ) : (
                     <Card className="genial-card genial-elevate">
-                      <CardHeader><CardTitle className="text-foreground">Movimento dos últimos dias</CardTitle></CardHeader>
+                      <CardHeader><CardTitle className="text-pure-white">Volume de Atendimentos</CardTitle></CardHeader>
                       <CardContent className="h-[300px] flex items-center justify-center">
                         <div className="text-center space-y-2">
                           <MessageSquare className="h-12 w-12 text-text-gray/50 mx-auto" />
-                          <p className="text-text-gray">Sem dados para mostrar</p>
+                          <p className="text-text-gray">Nenhum dado disponível para o gráfico</p>
                         </div>
                       </CardContent>
                     </Card>
@@ -1147,7 +1226,7 @@ export default function DashboardPage() {
                   <CardHeader>
                     <CardTitle className="text-pure-white flex items-center gap-2">
                       <MessageSquare className="h-5 w-5 text-accent-green" />
-                      Últimas conversas
+                      Atividade Recente
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="flex-1 p-0">
@@ -1184,40 +1263,40 @@ export default function DashboardPage() {
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
                   <CardTitle className="text-pure-white flex items-center gap-2">
                     <Megaphone className="h-5 w-5 text-accent-green" />
-                    Novos contatos
+                    Captação educacional
                   </CardTitle>
-                  <span className="text-xs text-text-gray">Veja detalhes na aba Novos contatos</span>
+                  <span className="text-xs text-text-gray">Veja detalhes na aba Captação</span>
                 </CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                     <div className="rounded-lg border border-border bg-card/50 p-3">
-                      <p className="text-xs text-text-gray mb-1">Total</p>
+                      <p className="text-xs text-text-gray mb-1">Total Leads</p>
                       <p className="text-2xl font-bold text-pure-white">{captacaoTotals?.leads ?? 0}</p>
                     </div>
                     <div className="rounded-lg bg-accent-blue/10 border border-accent-blue/20 p-3">
-                      <p className="text-xs text-text-gray mb-1 flex items-center gap-1"><Instagram className="h-3 w-3" /> Instagram / Facebook</p>
+                      <p className="text-xs text-text-gray mb-1 flex items-center gap-1"><Instagram className="h-3 w-3" /> Meta Ads</p>
                       <p className="text-2xl font-bold text-accent-blue">{captacaoTotals?.meta ?? 0}</p>
                     </div>
                     <div className="rounded-lg bg-accent-green/10 border border-accent-green/20 p-3">
-                      <p className="text-xs text-text-gray mb-1">WhatsApp</p>
+                      <p className="text-xs text-text-gray mb-1">WhatsApp Direto</p>
                       <p className="text-2xl font-bold text-accent-green">{captacaoTotals?.whatsapp ?? 0}</p>
                     </div>
                     <div className="rounded-lg bg-accent-green/10 border border-accent-green/20 p-3">
-                      <p className="text-xs text-text-gray mb-1 flex items-center gap-1"><Send className="h-3 w-3" /> Contato feito</p>
+                      <p className="text-xs text-text-gray mb-1 flex items-center gap-1"><Send className="h-3 w-3" /> Taxa Envio</p>
                       <p className="text-2xl font-bold text-accent-green">{captacaoTotals?.sendRate ?? 0}%</p>
                     </div>
                   </div>
                   {captacaoTotals && captacaoTotals.leads > 0 && (
-                    <p className="mt-3 text-xs text-text-gray">{captacaoTotals.whatsappSent} contatos feitos de {captacaoTotals.leads} leads</p>
+                    <p className="mt-3 text-xs text-text-gray">{captacaoTotals.whatsappSent} mensagens enviadas de {captacaoTotals.leads} leads captados</p>
                   )}
                   {captacaoByChannel.length > 0 && (
                     <div className="mt-4 space-y-2">
-                      <p className="text-xs font-medium text-text-gray uppercase tracking-wide">De onde vieram</p>
+                      <p className="text-xs font-medium text-text-gray uppercase tracking-wide">Por canal de origem</p>
                       <div className="space-y-1.5">
                         {captacaoByChannel.map((ch) => {
                           const total = captacaoTotals?.leads || 1
                           const pct = Math.round((ch.total / total) * 100)
-                          const labelMap: Record<string, string> = { meta_lead: "Instagram / Facebook", whatsapp_direct: "WhatsApp", organic: "Orgânico", outros: "Outros" }
+                          const labelMap: Record<string, string> = { meta_lead: "Meta Ads", whatsapp_direct: "WhatsApp Direto", organic: "Orgânico", outros: "Outros" }
                           return (
                             <div key={ch.channel} className="flex items-center gap-3 text-xs">
                               <span className="w-28 shrink-0 text-text-gray">{labelMap[ch.channel] ?? ch.channel}</span>
@@ -1235,6 +1314,25 @@ export default function DashboardPage() {
                 </CardContent>
               </Card>
 
+              {/* Error monitoring */}
+              <Card className="genial-card genial-elevate border-red-500/20 bg-red-500/5">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium text-red-400">Monitoramento de Erros</CardTitle>
+                  <AlertTriangle className="h-5 w-5 text-red-400" />
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-end justify-between">
+                    <div>
+                      <div className="text-3xl font-bold text-red-400">{data?.errorPercent?.toFixed?.(1) ?? "0.0"}%</div>
+                      <div className="text-xs text-red-400/70">Taxa de erro global</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xl font-bold text-pure-white">{data?.errorCount ?? 0}</div>
+                      <div className="text-xs text-text-gray">Mensagens com falha</div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
             </>
           )}
         </TabsContent>
@@ -1330,7 +1428,7 @@ export default function DashboardPage() {
             {[
               { label: "Total de Leads", value: captData?.totals.leads ?? 0, icon: Users, color: "text-foreground", hint: "no período selecionado" },
               { label: "Meta Lead Ads", value: captData?.totals.meta ?? 0, icon: Instagram, color: "text-accent-blue", hint: "Facebook / Instagram" },
-              { label: "WhatsApp", value: captData?.totals.whatsapp ?? 0, icon: MessageCircle, color: "text-accent-green", hint: "entrada orgânica" },
+              { label: "WhatsApp Direto", value: captData?.totals.whatsapp ?? 0, icon: MessageCircle, color: "text-accent-green", hint: "entrada orgânica" },
               { label: "Mensagens Enviadas", value: captData?.totals.whatsappSent ?? 0, icon: Send, color: "text-accent-green", hint: `${captData?.totals.sendRate ?? 0}% taxa de envio` },
             ].map((m) => {
               const Icon = m.icon
