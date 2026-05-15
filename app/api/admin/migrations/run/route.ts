@@ -121,11 +121,11 @@ export async function POST(req: NextRequest) {
     try {
         // 1. Verificar autenticação (header especial para segurança)
         const authHeader = req.headers.get('x-admin-key');
-        const adminKey = process.env.ADMIN_MIGRATION_KEY || 'super-secret-migration-key';
+        const adminKey = process.env.ADMIN_MIGRATION_KEY;
 
-        if (authHeader !== adminKey) {
+        if (!adminKey || authHeader !== adminKey) {
             return NextResponse.json(
-                { error: 'Não autorizado. Forneça x-admin-key válido.' },
+                { error: 'Não autorizado. Forneça x-admin-key válido e configure ADMIN_MIGRATION_KEY.' },
                 { status: 401 }
             );
         }
