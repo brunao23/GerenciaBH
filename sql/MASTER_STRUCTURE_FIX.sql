@@ -328,6 +328,8 @@ BEGIN
       observacoes TEXT,
       observacao_marcacao TEXT,
       google_event_id TEXT,
+      google_event_link TEXT,
+      google_meet_link TEXT,
       session_id TEXT,
       numero TEXT,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),

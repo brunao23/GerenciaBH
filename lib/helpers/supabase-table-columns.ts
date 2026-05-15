@@ -45,6 +45,8 @@ function getProbeColumnsForTable(tableName: string): string[] {
       "observacoes",
       "observacao_marcacao",
       "google_event_id",
+      "google_event_link",
+      "google_meet_link",
       "editado_manual",
       "editado_por",
       "editado_por_id",

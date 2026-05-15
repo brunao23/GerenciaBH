@@ -46,42 +46,56 @@ function normalizePrivateKey(input: string): string {
 }
 
 async function fetchAccessToken(config: GoogleCalendarAuthConfig): Promise<string> {
+  let oauthFailure: Error | null = null
+
   if ((config.authMode || "service_account") === "oauth_user") {
     if (!config.oauthClientId || !config.oauthClientSecret || !config.oauthRefreshToken) {
-      throw new Error("Google OAuth config missing (client_id/client_secret/refresh_token)")
+      oauthFailure = new Error("Google OAuth config missing (client_id/client_secret/refresh_token)")
+    } else {
+      try {
+        const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: new URLSearchParams({
+            client_id: config.oauthClientId,
+            client_secret: config.oauthClientSecret,
+            refresh_token: config.oauthRefreshToken,
+            grant_type: "refresh_token",
+          }),
+        })
+
+        const tokenText = await tokenRes.text()
+        let tokenJson: any = null
+        try {
+          tokenJson = tokenText ? JSON.parse(tokenText) : null
+        } catch {
+          tokenJson = null
+        }
+
+        if (!tokenRes.ok) {
+          const errorMessage = tokenJson?.error_description || tokenJson?.error || tokenText
+          throw new Error(`Google token error: ${errorMessage}`)
+        }
+
+        const accessToken = String(tokenJson?.access_token || "").trim()
+        if (!accessToken) {
+          throw new Error("Google token error: access_token missing")
+        }
+        return accessToken
+      } catch (error: any) {
+        oauthFailure = error instanceof Error
+          ? error
+          : new Error(String(error?.message || "Google OAuth token error"))
+      }
     }
 
-    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({
-        client_id: config.oauthClientId,
-        client_secret: config.oauthClientSecret,
-        refresh_token: config.oauthRefreshToken,
-        grant_type: "refresh_token",
-      }),
-    })
-
-    const tokenText = await tokenRes.text()
-    let tokenJson: any = null
-    try {
-      tokenJson = tokenText ? JSON.parse(tokenText) : null
-    } catch {
-      tokenJson = null
+    if (!config.serviceAccountEmail || !config.serviceAccountPrivateKey) {
+      throw oauthFailure
     }
 
-    if (!tokenRes.ok) {
-      const errorMessage = tokenJson?.error_description || tokenJson?.error || tokenText
-      throw new Error(`Google token error: ${errorMessage}`)
-    }
-
-    const accessToken = String(tokenJson?.access_token || "").trim()
-    if (!accessToken) {
-      throw new Error("Google token error: access_token missing")
-    }
-    return accessToken
+    console.warn("[GoogleCalendarService] OAuth token failed; trying service_account fallback:", oauthFailure.message)
   }
 
   if (!config.serviceAccountEmail || !config.serviceAccountPrivateKey) {
