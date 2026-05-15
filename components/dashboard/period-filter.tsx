@@ -33,8 +33,8 @@ export function PeriodFilter({
     loading,
 }: PeriodFilterProps) {
     return (
-        <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm text-text-gray font-medium mr-2">Periodo:</span>
+        <div className="flex w-full min-w-0 max-w-full flex-wrap items-center gap-2 sm:w-auto">
+            <span className="text-sm text-text-gray font-medium mr-2">Mostrar:</span>
             {periods.map((period) => {
                 const Icon = period.icon
                 const isActive = value === period.value
