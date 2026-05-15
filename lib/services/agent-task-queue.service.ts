@@ -34,6 +34,43 @@ export interface EnqueueReminderInput {
   metadata?: Record<string, any>
 }
 
+export interface AgentTaskQueueHealth {
+  ok: boolean
+  generatedAt: string
+  thresholds: {
+    maxPendingLagSeconds: number
+    staleProcessingMinutes: number
+    errorWindowHours: number
+  }
+  totals: {
+    pendingDue: number
+    pendingFuture: number
+    processing: number
+    staleProcessing: number
+    recentErrors: number
+    recentlyDone: number
+  }
+  oldestDueTask: null | {
+    tenant: string
+    taskType: string
+    runAt: string
+    lagSeconds: number
+    attempts: number
+    reminderType?: string
+    reminderKind?: string
+  }
+  recentErrors: Array<{
+    tenant: string
+    taskType: string
+    updatedAt: string
+    attempts: number
+    lastError: string
+    reminderType?: string
+    reminderKind?: string
+  }>
+  risks: string[]
+}
+
 export interface EnqueueFollowupSequenceInput {
   tenant: string
   sessionId: string
@@ -1938,6 +1975,123 @@ export class AgentTaskQueueService {
       return Array.isArray(data) && data.length > 0
     } catch {
       return false
+    }
+  }
+
+  async getQueueHealth(options?: {
+    maxPendingLagSeconds?: number
+    staleProcessingMinutes?: number
+    errorWindowHours?: number
+  }): Promise<AgentTaskQueueHealth> {
+    const now = new Date()
+    const nowIso = now.toISOString()
+    const maxPendingLagSeconds = Math.max(60, Math.min(3600, Math.floor(options?.maxPendingLagSeconds || 300)))
+    const staleProcessingMinutes = Math.max(5, Math.min(60, Math.floor(options?.staleProcessingMinutes || 10)))
+    const errorWindowHours = Math.max(1, Math.min(168, Math.floor(options?.errorWindowHours || 24)))
+    const staleCutoffIso = new Date(now.getTime() - staleProcessingMinutes * 60 * 1000).toISOString()
+    const errorSinceIso = new Date(now.getTime() - errorWindowHours * 60 * 60 * 1000).toISOString()
+
+    const countRows = async (buildQuery: (query: any) => any): Promise<number> => {
+      try {
+        const query = buildQuery(this.supabase.from(this.table).select("id", { count: "exact", head: true }))
+        const { count, error } = await query
+        if (error) return 0
+        return Number(count || 0)
+      } catch {
+        return 0
+      }
+    }
+
+    const [
+      pendingDue,
+      pendingFuture,
+      processing,
+      staleProcessing,
+      recentErrorsCount,
+      recentlyDone,
+      oldestDueResponse,
+      recentErrorsResponse,
+    ] = await Promise.all([
+      countRows((query) => query.eq("status", "pending").lte("run_at", nowIso)),
+      countRows((query) => query.eq("status", "pending").gt("run_at", nowIso)),
+      countRows((query) => query.eq("status", "processing")),
+      countRows((query) => query.eq("status", "processing").lt("updated_at", staleCutoffIso)),
+      countRows((query) => query.eq("status", "error").gte("updated_at", errorSinceIso)),
+      countRows((query) => query.eq("status", "done").gte("executed_at", errorSinceIso)),
+      this.supabase
+        .from(this.table)
+        .select("tenant,task_type,run_at,attempts,payload")
+        .eq("status", "pending")
+        .lte("run_at", nowIso)
+        .order("run_at", { ascending: true })
+        .limit(1)
+        .maybeSingle(),
+      this.supabase
+        .from(this.table)
+        .select("tenant,task_type,updated_at,attempts,last_error,payload")
+        .eq("status", "error")
+        .gte("updated_at", errorSinceIso)
+        .order("updated_at", { ascending: false })
+        .limit(10),
+    ])
+
+    const oldestDueRow = oldestDueResponse?.data as any
+    const oldestDuePayload =
+      oldestDueRow?.payload && typeof oldestDueRow.payload === "object" ? oldestDueRow.payload : {}
+    const oldestDueRunAt = String(oldestDueRow?.run_at || "")
+    const oldestDueTime = oldestDueRunAt ? new Date(oldestDueRunAt).getTime() : NaN
+    const oldestDueLagSeconds = Number.isFinite(oldestDueTime)
+      ? Math.max(0, Math.floor((now.getTime() - oldestDueTime) / 1000))
+      : 0
+    const oldestDueTask = oldestDueRow
+      ? {
+          tenant: String(oldestDueRow.tenant || ""),
+          taskType: String(oldestDueRow.task_type || ""),
+          runAt: oldestDueRunAt,
+          lagSeconds: oldestDueLagSeconds,
+          attempts: Number(oldestDueRow.attempts || 0),
+          reminderType: String(oldestDuePayload?.reminder_type || "") || undefined,
+          reminderKind: String(oldestDuePayload?.reminder_kind || "") || undefined,
+        }
+      : null
+
+    const recentErrors = ((recentErrorsResponse as any)?.data || []).map((row: any) => {
+      const payload = row?.payload && typeof row.payload === "object" ? row.payload : {}
+      return {
+        tenant: String(row?.tenant || ""),
+        taskType: String(row?.task_type || ""),
+        updatedAt: String(row?.updated_at || ""),
+        attempts: Number(row?.attempts || 0),
+        lastError: String(row?.last_error || "").slice(0, 160),
+        reminderType: String(payload?.reminder_type || "") || undefined,
+        reminderKind: String(payload?.reminder_kind || "") || undefined,
+      }
+    })
+
+    const risks: string[] = []
+    if (oldestDueLagSeconds > maxPendingLagSeconds) risks.push("pending_lag_above_threshold")
+    if (staleProcessing > 0) risks.push("stale_processing_tasks")
+    if (recentErrorsCount >= 10) risks.push("high_recent_error_count")
+
+    return {
+      ok: risks.length === 0,
+      generatedAt: nowIso,
+      thresholds: {
+        maxPendingLagSeconds,
+        staleProcessingMinutes,
+        errorWindowHours,
+      },
+      totals: {
+        pendingDue,
+        pendingFuture,
+        processing,
+        staleProcessing,
+        recentErrors: recentErrorsCount,
+        recentlyDone,
+      },
+      oldestDueTask,
+      recentErrors,
+      risks,
     }
   }
 
