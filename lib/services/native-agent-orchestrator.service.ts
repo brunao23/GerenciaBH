@@ -66,6 +66,7 @@ type AppointmentResult = {
   appointmentMode?: "presencial" | "online"
   idempotentExistingAppointment?: boolean
   effectiveActionType?: "schedule_appointment" | "edit_appointment"
+  alternativeSlots?: Array<{ date: string; time: string }>
   error?: string
 }
 
@@ -99,6 +100,13 @@ type AvailableSlotsResult = {
     is_weekend: boolean
   }>
   holidays_in_range?: Array<{ date: string; date_br: string; name: string }>
+}
+
+type SlotAvailabilityGuardResult = {
+  ok: boolean
+  error?: string
+  alternativeSlots?: Array<{ date: string; time: string }>
+  idempotentExistingAppointment?: boolean
 }
 
 type EditAppointmentResult = {
@@ -2963,6 +2971,9 @@ function coerceSchedulingDateToCurrentContext(params: {
   const isoDate = normalizeDateToIso(rawDate)
   if (!isoDate) return rawDate
 
+  const hasExplicitYear =
+    /^\d{4}-\d{1,2}-\d{1,2}$/.test(rawDate) ||
+    /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(rawDate)
   const normalizedTime = normalizeTimeToHHmm(params.timeValue) || "00:00"
   const parsed = parseDateTimeParts(isoDate, normalizedTime)
   if (!parsed) return isoDate
@@ -2977,6 +2988,10 @@ function coerceSchedulingDateToCurrentContext(params: {
   }
 
   if (parsed.year > nowLocal.year) {
+    return formatDateFromParts(parsed)
+  }
+
+  if (hasExplicitYear) {
     return formatDateFromParts(parsed)
   }
 
@@ -5255,6 +5270,95 @@ export class NativeAgentOrchestratorService {
     }
   }
 
+  private async validateRequestedSlotAvailability(params: {
+    tenant: string
+    phone: string
+    sessionId: string
+    config: NativeAgentConfig
+    action: AgentActionPlan
+  }): Promise<SlotAvailabilityGuardResult> {
+    const date = normalizeDateToIso(params.action.date)
+    const time = normalizeTimeToHHmm(params.action.time)
+    if (!date || !time) {
+      return { ok: false, error: "invalid_date_or_time" }
+    }
+
+    const tables = getTablesForTenant(params.tenant)
+    const columns = await getTableColumns(this.supabase as any, tables.agendamentos)
+    const mappedColumns = this.resolveAgendamentosColumns(columns)
+
+    if (mappedColumns.dateColumn && mappedColumns.timeColumn) {
+      const dateVariants = Array.from(new Set([date, toBrDateFromIso(date)]))
+      const sameDayResult = await this.supabase
+        .from(tables.agendamentos)
+        .select("*")
+        .in(mappedColumns.dateColumn, dateVariants)
+        .limit(2000)
+
+      if (!sameDayResult.error && Array.isArray(sameDayResult.data)) {
+        const normalizedPhone = normalizePhoneNumber(params.phone)
+        const normalizedSession = normalizeSessionId(params.sessionId)
+        const sameLeadSameSlot = sameDayResult.data.some((row: any) => {
+          const rowDate = normalizeDateToIso(row?.[mappedColumns.dateColumn!])
+          if (rowDate !== date) return false
+
+          const rowStatus = mappedColumns.statusColumn ? row?.[mappedColumns.statusColumn] : row?.status
+          if (isCancelledAppointmentStatus(rowStatus)) return false
+
+          const rowTime = normalizeTimeToHHmm(row?.[mappedColumns.timeColumn!])
+          if (rowTime !== time) return false
+
+          const phoneMatches =
+            mappedColumns.phoneColumns.length > 0 &&
+            mappedColumns.phoneColumns.some(
+              (column) => normalizePhoneNumber(String(row?.[column] || "")) === normalizedPhone,
+            )
+          const sessionMatches =
+            mappedColumns.sessionColumns.length > 0 &&
+            mappedColumns.sessionColumns.some(
+              (column) => normalizeSessionId(String(row?.[column] || "")) === normalizedSession,
+            )
+          return phoneMatches || sessionMatches
+        })
+
+        if (sameLeadSameSlot) {
+          return { ok: true, idempotentExistingAppointment: true }
+        }
+      }
+    }
+
+    const availability = await this.getAvailableSlots({
+      tenant: params.tenant,
+      config: params.config,
+      action: {
+        type: "get_available_slots",
+        date_from: date,
+        date_to: date,
+        max_slots: 1000,
+      },
+    })
+
+    if (!availability.ok) {
+      return {
+        ok: false,
+        error: availability.error || "slot_validation_failed",
+        alternativeSlots: Array.isArray(availability.slots) ? availability.slots.slice(0, 12) : [],
+      }
+    }
+
+    const slots = Array.isArray(availability.slots) ? availability.slots : []
+    const requestedSlotIsAvailable = slots.some((slot) => slot.date === date && slot.time === time)
+    if (!requestedSlotIsAvailable) {
+      return {
+        ok: false,
+        error: "time_slot_unavailable",
+        alternativeSlots: slots.slice(0, 12),
+      }
+    }
+
+    return { ok: true }
+  }
+
   private createGoogleCalendarService(config: NativeAgentConfig): GoogleCalendarService {
     return new GoogleCalendarService({
       calendarId: config.googleCalendarId || "primary",
@@ -6487,7 +6591,7 @@ export class NativeAgentOrchestratorService {
         ? `- JANELA DE AGENDAMENTO DESTA UNIDADE: ${maxWindowDays} dias no futuro (configurado pelo admin). Ao chamar get_available_slots use SEMPRE date_from=${todayIso} e date_to=${searchWindowEndIso}. NUNCA ultrapasse ${searchWindowEndIso} â€” slots alem dessa data nÃ£o Ã©xistem por configuracao.`
         : `- Ao chamar get_available_slots, use date_from=${todayIso} e date_to=${searchWindowEndIso} como busca inicial (sem limite configurado, usando janela padrao de ${searchWindowDays} dias).`,
       "- NUNCA sugira um horario e depois diga que esta fora do expediente. Isso e PROIBIDO. Consulte os slots ANTES de falar.",
-      "- [REGRA CRITICA DE HORARIO ESPECIFICO] Se o lead pedir um horario ESPECIFICO (ex: '17:40', '18h30', 'e possivel as 17:40?') que nao aparece na lista de slots retornada por get_available_slots: (1) NAO diga imediatamente que nao esta disponivel; (2) tente agendar DIRETAMENTE via schedule_appointment com o horario exato pedido; (3) SOMENTE se schedule_appointment retornar erro real (outside_business_hours, time_slot_unavailable, google_calendar_conflict) e que voce informa que aquele horario nao esta disponivel e sugere alternativas. A lista de get_available_slots e um guia de opcoes — o sistema aceita qualquer horario valido dentro do expediente.",
+      "- [REGRA CRITICA DE HORARIO ESPECIFICO] Se o lead pedir um horario ESPECIFICO (ex: '17:40', '18h30', 'e possivel as 17:40?'), primeiro chame get_available_slots para a data. Se o horario aparecer nos slots, pode oferecer/confirmar. Se nao aparecer, NUNCA confirme; se o lead insistir ou confirmar esse horario, chame schedule_appointment e confie SOMENTE no retorno da ferramenta. A confirmacao ao lead so pode acontecer com schedule_appointment ok=true. Se a ferramenta negar, ofereca alternativeSlots ou proximos slots reais.",
       "- Se o horario estiver ocupado, diga 'Esse horario ja esta ocupado' e sugira o proximo disponivel.",
       "- Quando o lead confirmar data e hora, acione schedule_appointment.",
       "- Se o lead pedir remarcacao, reagendamento, mudanca de dia/horario OU avisar que nao podera comparecer, acione SEMPRE edit_appointment para atualizar o horario.",
@@ -7244,18 +7348,37 @@ export class NativeAgentOrchestratorService {
         action.customer_email = resolvedEmail
       }
 
+      let preflightAlternativeSlots: Array<{ date: string; time: string }> = []
       const result = await this.withAppointmentSlotLock({
         tenant: params.tenant,
         config: params.config,
         action,
-        run: () => this.createAppointment({
-          tenant: params.tenant,
-          phone: params.phone,
-          sessionId: params.sessionId,
-          contactName: params.contactName,
-          config: params.config,
-          action,
-        }),
+        run: async () => {
+          const slotGuard = await this.validateRequestedSlotAvailability({
+            tenant: params.tenant,
+            phone: params.phone,
+            sessionId: params.sessionId,
+            config: params.config,
+            action,
+          })
+          if (!slotGuard.ok) {
+            preflightAlternativeSlots = slotGuard.alternativeSlots || []
+            return {
+              ok: false,
+              error: slotGuard.error || "time_slot_unavailable",
+              alternativeSlots: preflightAlternativeSlots,
+            } as AppointmentResult
+          }
+
+          return this.createAppointment({
+            tenant: params.tenant,
+            phone: params.phone,
+            sessionId: params.sessionId,
+            contactName: params.contactName,
+            config: params.config,
+            action,
+          })
+        },
       })
 
       const scheduleOk = result.ok
@@ -7264,6 +7387,12 @@ export class NativeAgentOrchestratorService {
       let recoverySlots: Array<{ date: string; time: string }> = []
       let recoveryDateFrom: string | undefined
       let recoveryDateTo: string | undefined
+
+      if (!scheduleOk && Array.isArray(result.alternativeSlots) && result.alternativeSlots.length > 0) {
+        recoverySlots = result.alternativeSlots
+        recoveryDateFrom = action.date
+        recoveryDateTo = action.date
+      }
 
       if (!scheduleOk && SCHEDULE_NON_ERROR_CONFLICT_ERRORS.has(scheduleError)) {
         const timezone = params.config.timezone || "America/Sao_Paulo"
@@ -7291,7 +7420,7 @@ export class NativeAgentOrchestratorService {
           },
         })
 
-        if (recovery.ok && Array.isArray(recovery.slots)) {
+        if (recoverySlots.length === 0 && recovery.ok && Array.isArray(recovery.slots)) {
           recoverySlots = recovery.slots
           recoveryDateFrom = recovery.searched_date_from
           recoveryDateTo = recovery.searched_date_to
@@ -8060,15 +8189,21 @@ export class NativeAgentOrchestratorService {
             const evStartMin = evStartParts.hour * 60 + evStartParts.minute
             const evEndMinRaw = evEndParts.hour * 60 + evEndParts.minute
 
-            const bucket = googleEventRanges.get(evDateIso) || []
-            const endsOnSameDay = evDateIso === evEndDateIso
-            bucket.push({
-              start: evStartMin,
-              end: endsOnSameDay
-                ? (evEndMinRaw > evStartMin ? evEndMinRaw : evStartMin + 1)
-                : 24 * 60,
-            })
-            googleEventRanges.set(evDateIso, bucket)
+            let cursor = { ...evStartParts, hour: 0, minute: 0, second: 0 }
+            const endDay = { ...evEndParts, hour: 0, minute: 0, second: 0 }
+            while (toComparableMs(cursor) <= toComparableMs(endDay)) {
+              const cursorDateIso = formatDateFromParts(cursor)
+              const rangeStart = cursorDateIso === evDateIso ? evStartMin : 0
+              const rangeEnd = cursorDateIso === evEndDateIso ? evEndMinRaw : 24 * 60
+
+              if (rangeEnd > rangeStart) {
+                const bucket = googleEventRanges.get(cursorDateIso) || []
+                bucket.push({ start: rangeStart, end: rangeEnd })
+                googleEventRanges.set(cursorDateIso, bucket)
+              }
+
+              cursor = addMinutesToParts(cursor, 24 * 60)
+            }
           }
         } catch (gcalErr: any) {
           console.warn(`[getAvailableSlots] Google Calendar fetch failed (blocking): ${gcalErr?.message}`)
@@ -8322,7 +8457,7 @@ export class NativeAgentOrchestratorService {
         type: "get_available_slots",
         date_from: date,
         date_to: date,
-        max_slots: 120,
+        max_slots: 1000,
       },
     })
     if (!availability.ok) {
