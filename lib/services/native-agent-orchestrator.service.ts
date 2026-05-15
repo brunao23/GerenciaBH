@@ -1346,6 +1346,62 @@ function stripToolInvocationLeaks(text: string): string {
     .trim()
 }
 
+function parseStrictJsonObject(raw: string): Record<string, any> | null {
+  let text = String(raw || "").trim()
+  if (!text) return null
+
+  const fenced = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i)
+  if (fenced) text = String(fenced[1] || "").trim()
+
+  if (!text.startsWith("{") || !text.endsWith("}")) return null
+
+  try {
+    const parsed = JSON.parse(text)
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null
+    return parsed as Record<string, any>
+  } catch {
+    return null
+  }
+}
+
+function isInternalDecisionJsonObject(value: Record<string, any> | null): boolean {
+  if (!value) return false
+  const keys = Object.keys(value).map((key) => key.toLowerCase())
+  const hasReplyKey = keys.includes("reply")
+  const hasDecisionKey =
+    keys.includes("actions") ||
+    keys.includes("handoff") ||
+    keys.includes("toolcalls") ||
+    keys.includes("executions")
+  const hasToolKey =
+    keys.includes("tool_name") ||
+    keys.includes("tool_args") ||
+    keys.includes("tool_response") ||
+    keys.includes("function_call") ||
+    keys.includes("action")
+  return (hasReplyKey && hasDecisionKey) || hasToolKey
+}
+
+function unwrapInternalDecisionJsonPayload(raw: string): string | null {
+  const parsed = parseStrictJsonObject(raw)
+  if (!isInternalDecisionJsonObject(parsed)) return null
+  const reply = parsed && Object.prototype.hasOwnProperty.call(parsed, "reply")
+    ? String(parsed.reply ?? "").trim()
+    : ""
+  return reply
+}
+
+function looksLikeInternalDecisionPayload(raw: string): boolean {
+  const text = String(raw || "").trim()
+  if (!text) return false
+  if (isInternalDecisionJsonObject(parseStrictJsonObject(text))) return true
+  return (
+    /^\s*\{[\s\S]*\}\s*$/.test(text) &&
+    /"reply"\s*:/i.test(text) &&
+    (/"actions"\s*:/i.test(text) || /"handoff"\s*:/i.test(text))
+  )
+}
+
 function extractInlineHandoffToolCall(text: string): GeminiToolCall | null {
   const raw = String(text || "")
   if (!raw) return null
@@ -1416,6 +1472,11 @@ function applyAssistantOutputPolicy(
   if (!text) return ""
 
   let normalized = repairMojibakeDeep(text)
+  const unwrappedInternalJson = unwrapInternalDecisionJsonPayload(normalized)
+  if (unwrappedInternalJson !== null) {
+    normalized = unwrappedInternalJson
+    if (!normalized) return ""
+  }
   normalized = stripInternalTags(normalized)
   normalized = stripReactionMarkers(normalized)
   normalized = stripMarkdownFormatting(normalized)
@@ -1454,7 +1515,7 @@ function applyAssistantOutputPolicy(
 
   const finalText = deduped.join("\n\n").trim()
   if (finalText) return finalText
-  return "Posso te ajudar por aqui. Me conta como você quer seguir."
+  return ""
 }
 
 function normalizeDelaySeconds(value: number | undefined, fallback = 0): number {
@@ -3914,8 +3975,25 @@ export class NativeAgentOrchestratorService {
         }
       }
 
+      const unwrappedDecisionReply = unwrapInternalDecisionJsonPayload(String(decision?.reply || ""))
+      if (unwrappedDecisionReply !== null) {
+        decision.reply = unwrappedDecisionReply
+        await this
+          .persistDebugStatus({
+            chat,
+            sessionId,
+            content: "internal_json_reply_blocked",
+            details: {
+              debug_event: "internal_json_reply_blocked",
+              debug_severity: "error",
+              source: input.source || "unknown",
+              lead_preview: String(effectiveLeadMessage || content || "").slice(0, 180),
+            },
+          })
+          .catch(() => {})
+      }
       // Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬ Semantic Cache: store Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬Ã¢"Ã¢â€šÂ¬
-      if (cacheEnabled && decision?.reply) {
+      if (cacheEnabled && decision?.reply && !looksLikeInternalDecisionPayload(String(decision.reply || ""))) {
         try {
           const hasToolCalls = (decision.toolCalls?.length || 0) > 0
           const cacheCheck = this.semanticCache.shouldCache({
@@ -4543,6 +4621,23 @@ export class NativeAgentOrchestratorService {
       const normalizedBlock = normalizeComparableMessage(block)
       if (!normalizedBlock) {
         skippedBlocks += 1
+        continue
+      }
+
+      if (looksLikeInternalDecisionPayload(block)) {
+        skippedBlocks += 1
+        await this
+          .persistDebugStatus({
+            chat,
+            sessionId,
+            content: "internal_json_block_send_suppressed",
+            details: {
+              debug_event: "internal_json_block_send_suppressed",
+              debug_severity: "critical",
+              block_preview: String(block || "").slice(0, 240),
+            },
+          })
+          .catch(() => {})
         continue
       }
 
