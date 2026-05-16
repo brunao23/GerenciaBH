@@ -194,9 +194,100 @@ function stripInternalContextTags(text: string): string {
     .trim()
 }
 
+function preserveInitialCase(source: string, replacement: string): string {
+  if (!source) return replacement
+  if (source === source.toUpperCase()) return replacement.toUpperCase()
+  if (/^[A-ZÁÀÂÃÉÊÍÓÔÕÚÇ]/.test(source)) {
+    return `${replacement.charAt(0).toUpperCase()}${replacement.slice(1)}`
+  }
+  return replacement
+}
+
+function replaceWordWithAccent(text: string, word: string, replacement: string): string {
+  return text.replace(new RegExp(`\\b${word}\\b`, "gi"), (match) => preserveInitialCase(match, replacement))
+}
+
+function repairFollowupEncodingArtifacts(input: string): string {
+  const replacements: Array<[RegExp, string]> = [
+    [/vocÃª/g, "você"],
+    [/VocÃª/g, "Você"],
+    [/vocÃªs/g, "vocês"],
+    [/nÃ£o/g, "não"],
+    [/NÃ£o/g, "Não"],
+    [/estÃ¡/g, "está"],
+    [/EstÃ¡/g, "Está"],
+    [/Ã©/g, "é"],
+    [/Ã‰/g, "É"],
+    [/Ã¡/g, "á"],
+    [/Ã£/g, "ã"],
+    [/Ã§/g, "ç"],
+    [/Ã³/g, "ó"],
+    [/Ãº/g, "ú"],
+    [/Ãª/g, "ê"],
+    [/Ã­/g, "í"],
+    [/Ã´/g, "ô"],
+  ]
+
+  let output = String(input || "")
+  for (const [pattern, replacement] of replacements) {
+    output = output.replace(pattern, replacement)
+  }
+  return output
+}
+
+function polishPortugueseFollowupText(input: string): string {
+  let text = repairFollowupEncodingArtifacts(String(input || ""))
+    .replace(/\s+/g, " ")
+    .trim()
+
+  if (!text) return ""
+
+  const wholeWordReplacements: Array<[string, string]> = [
+    ["voce", "você"],
+    ["voces", "vocês"],
+    ["nao", "não"],
+    ["tambem", "também"],
+    ["proximo", "próximo"],
+    ["proximos", "próximos"],
+    ["proxima", "próxima"],
+    ["proximas", "próximas"],
+    ["sequencia", "sequência"],
+    ["disponivel", "disponível"],
+    ["duvida", "dúvida"],
+    ["duvidas", "dúvidas"],
+    ["ultima", "última"],
+    ["ultimas", "últimas"],
+    ["opcao", "opção"],
+    ["opcoes", "opções"],
+    ["pratica", "prática"],
+    ["transparencia", "transparência"],
+    ["friccao", "fricção"],
+    ["atencao", "atenção"],
+    ["pressao", "pressão"],
+    ["decisao", "decisão"],
+  ]
+  for (const [word, replacement] of wholeWordReplacements) {
+    text = replaceWordWithAccent(text, word, replacement)
+  }
+
+  return text
+    .replace(/\be so\b/gi, (match) => preserveInitialCase(match, "é só"))
+    .replace(/\be minha\b/gi, (match) => preserveInitialCase(match, "é minha"))
+    .replace(/\be meu\b/gi, (match) => preserveInitialCase(match, "é meu"))
+    .replace(/\bessa e\b/gi, (match) => preserveInitialCase(match, "essa é"))
+    .replace(/\besse e\b/gi, (match) => preserveInitialCase(match, "esse é"))
+    .replace(/\bisso e\b/gi, (match) => preserveInitialCase(match, "isso é"))
+    .replace(/\batendimento esta\b/gi, (match) => preserveInitialCase(match, "atendimento está"))
+    .replace(/\bmensagem esta\b/gi, (match) => preserveInitialCase(match, "mensagem está"))
+    .replace(/\bcontinuo disponível\b/gi, (match) => preserveInitialCase(match, "continuo disponível"))
+    .replace(/\bsigo disponível\b/gi, (match) => preserveInitialCase(match, "sigo disponível"))
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
 function sanitizeFollowupText(input: string, max = 220): string {
   const stripped = stripInternalContextTags(String(input || ""))
-  return excerpt(stripped.replace(/\r/g, " ").replace(/\n+/g, " "), max)
+  return excerpt(polishPortugueseFollowupText(stripped.replace(/\r/g, " ").replace(/\n+/g, " ")), max)
 }
 
 function hasForbiddenIdentityDisclosure(message: string): boolean {
@@ -1413,6 +1504,7 @@ export class AgentTaskQueueService {
       "REGRAS ABSOLUTAS:",
       "1. Gere APENAS o texto da mensagem, sem aspas, sem JSON, sem explicacao.",
       "2. Maximo 250 caracteres. Curto e direto.",
+      "2b. Portugues do Brasil com ortografia e acentuacao corretas. NUNCA entregue texto sem acentos quando a palavra exigir acento.",
       "3. NUNCA use frases genericas: 'retomando de onde paramos', 'passando para confirmar', 'voltando aqui', 'sigo por aqui para concluirmos', 'te envio agora', 'posso te passar', 'vou te mandar', 'vou enviar', 'preparei para voce'.",
       "3b. NUNCA use saudacoes baseadas no horario do dia: 'Bom dia', 'Boa tarde', 'Boa noite'. A mensagem e pre-gerada e pode ser entregue em horario diferente da geracao.",
       "[LEI INVIOLAVEL] PROIBIDO ABSOLUTO - LEMBRETE DE AGENDAMENTO: Este follow-up serve EXCLUSIVAMENTE para reengajar leads que nao responderam. NUNCA escreva sobre agendamentos ja feitos, horarios marcados, lembretes de consulta/visita/aula, confirmacao de presenca, 'amanha voce tem', 'seu agendamento', 'nao esqueca', 'confirme sua presenca', 'horario confirmado', 'agendamento marcado' ou qualquer variacao. Se o assunto da conversa era sobre marcar horario, foque no INTERESSE DO LEAD, nao no agendamento em si.",
@@ -1462,6 +1554,7 @@ export class AgentTaskQueueService {
       const decision = await llm.decideNextTurn({
         systemPrompt: [
           "Voce gera mensagens de follow-up curtas e contextuais para WhatsApp comercial em pt-BR.",
+          "ORTOGRAFIA OBRIGATORIA: use acentuacao correta em portugues do Brasil. Nunca escreva 'voce', 'nao', 'proximo', 'sequencia', 'duvida', 'disponivel', 'ultima' sem acento quando a palavra pedir acento.",
           "Cada mensagem deve ser unica, natural e conectada ao assunto REAL da conversa - nunca invente temas.",
           "Voce NUNCA inventa informacoes. Se nao sabe o assunto, foque no atendimento em aberto de forma generica.",
           "REGRA CRITICA DE PAPEL: voce representa o CONSULTOR HUMANO da unidade. Fale sempre em primeira pessoa como consultor. Quem vende, envia materiais, documentos, propostas ou realiza acoes fisicas e o consultor/equipe da unidade - nunca prometa essas acoes de forma autonoma.",

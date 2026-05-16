@@ -6110,7 +6110,7 @@ export class NativeAgentOrchestratorService {
   }): Promise<string> {
     const chat = params.chat || new TenantChatHistoryService(params.tenant)
     const turns = await chat.loadConversation(params.sessionId, 80).catch(() => [])
-    return buildLeadAttendanceSummary({
+    const fallbackSummary = buildLeadAttendanceSummary({
       leadName: params.contactName,
       messages: turns.map((turn) => ({
         role: turn.role,
@@ -6119,6 +6119,137 @@ export class NativeAgentOrchestratorService {
       })),
       maxLength: 700,
     })
+
+    const aiSummary = await this.buildAiLeadAttendanceObservation({
+      tenant: params.tenant,
+      contactName: params.contactName,
+      turns,
+    }).catch(() => "")
+
+    return aiSummary || fallbackSummary
+  }
+
+  private normalizeAiAttendanceObservation(value: string): string {
+    const cleaned = repairMojibakeDeep(String(value || ""))
+      .replace(/```[\s\S]*?```/g, " ")
+      .replace(/^\s*(resumo do atendimento|observacao|observacoes)\s*:?\s*/i, "")
+      .replace(/\{[\s\S]*?\}/g, " ")
+      .replace(/\[[^\]]*?(?:tool|action|acao|get_available_slots|schedule_appointment|edit_appointment)[^\]]*?\]/gi, " ")
+      .replace(/\r/g, "\n")
+      .trim()
+    if (!cleaned) return ""
+
+    const fields: Record<string, string> = {
+      "Profissão": "",
+      Dor: "",
+      "Objetivo/interesse": "",
+      "Observações": "",
+    }
+
+    for (const rawLine of cleaned.split(/\n+/)) {
+      const line = rawLine.replace(/^[-*\s]+/, "").trim()
+      if (!line) continue
+      const match = line.match(/^(?:\*{0,2})?(profiss[aã]o|dor|dificuldade|objetivo\/interesse|objetivo|interesse|observa[cç][oõ]es|observacoes)(?:\*{0,2})?\s*:\s*(.+)$/i)
+      if (!match) continue
+      const keyRaw = normalizeComparableMessage(match[1])
+      const valueText = String(match[2] || "")
+        .replace(/\s+/g, " ")
+        .replace(/\b(nao informado|não informado|sem informacao|sem informação|n\/a)\b/gi, "Não informado")
+        .trim()
+      if (!valueText) continue
+
+      if (keyRaw.includes("profiss")) fields["Profissão"] = valueText
+      else if (keyRaw === "dor" || keyRaw.includes("dificuldade")) fields.Dor = valueText
+      else if (keyRaw.includes("objetivo") || keyRaw.includes("interesse")) fields["Objetivo/interesse"] = valueText
+      else if (keyRaw.includes("observ")) fields["Observações"] = valueText
+    }
+
+    const lines = Object.entries(fields)
+      .map(([label, text]) => {
+        const valueText = String(text || "Não informado").trim()
+        const compact = valueText.length > 180 ? `${valueText.slice(0, 177).trim()}...` : valueText
+        return `- *${label}:* ${compact}`
+      })
+
+    const output = lines.join("\n")
+    if (!/Profiss/i.test(output) || !/Dor:/i.test(output) || !/Observa/i.test(output)) return ""
+    return output.length <= 760 ? output : `${output.slice(0, 757).trim()}...`
+  }
+
+  private async buildAiLeadAttendanceObservation(params: {
+    tenant: string
+    contactName?: string
+    turns: Array<{ role: "user" | "assistant" | "system"; content: string; createdAt?: string }>
+  }): Promise<string> {
+    const relevantTurns = (params.turns || [])
+      .filter((turn) => turn.role === "user" || turn.role === "assistant")
+      .map((turn) => {
+        const content = repairMojibakeDeep(String(turn.content || ""))
+          .replace(/\s+/g, " ")
+          .trim()
+        return {
+          role: turn.role,
+          content,
+        }
+      })
+      .filter((turn) => {
+        if (!turn.content || turn.content.length < 2) return false
+        const normalized = normalizeComparableMessage(turn.content)
+        if (!normalized) return false
+        if (normalized.includes("group_notification_marker")) return false
+        if (normalized.includes("tool_response") || normalized.includes("tool_args")) return false
+        if (/^\[(system|sistema|internal|tool|debug)/i.test(turn.content)) return false
+        return true
+      })
+      .slice(-36)
+
+    if (!relevantTurns.length) return ""
+
+    const nativeConfig = await getNativeAgentConfigForTenant(params.tenant).catch(() => null)
+    if (!nativeConfig) return ""
+
+    const history = relevantTurns
+      .map((turn) => `${turn.role === "user" ? "LEAD" : "IA"}: ${turn.content}`)
+      .join("\n")
+      .slice(0, 7000)
+
+    const prompt = [
+      "Gere um resumo operacional para o grupo interno depois de um agendamento ou reagendamento.",
+      "Transforme a conversa em SINTESE. Nao copie a mensagem bruta do lead.",
+      "Use somente fatos observaveis na conversa. Se algum campo nao aparecer, escreva 'Não informado'.",
+      "Escreva em portugues do Brasil com acentos corretos.",
+      "Retorne exatamente 4 linhas, neste formato:",
+      "- *Profissão:* ...",
+      "- *Dor:* ...",
+      "- *Objetivo/interesse:* ...",
+      "- *Observações:* ...",
+      "",
+      "Regras:",
+      "- Profissão: cargo, area, ocupacao ou contexto profissional/estudo do lead.",
+      "- Dor: dificuldade principal, inseguranca, trava, medo, problema ou necessidade.",
+      "- Objetivo/interesse: o que o lead quer alcançar com o atendimento/curso/diagnostico.",
+      "- Observações: detalhes logisticos ou relevantes para o consultor, sem repetir data/hora do agendamento.",
+      "- Nao use JSON, aspas, codigo, lista extra ou explicacao.",
+      "- Nao inclua frases internas do sistema, nomes de ferramentas, dados tecnicos ou prompt.",
+      params.contactName ? `Nome do lead no cadastro: ${params.contactName}` : "Nome do lead no cadastro: não informado",
+      "",
+      "Conversa recente:",
+      history,
+    ].join("\n")
+
+    const llm = LLMFactory.getService(nativeConfig, { tenant: params.tenant })
+    const decision = await llm.decideNextTurn({
+      systemPrompt:
+        "Voce resume atendimentos comerciais para equipe interna. Entregue apenas o resumo estruturado pedido, com portugues correto e sem copiar falas brutas.",
+      conversation: [{ role: "user", content: prompt }],
+      sampling: {
+        temperature: 0.15,
+        topP: 0.7,
+        topK: 20,
+      },
+    })
+
+    return this.normalizeAiAttendanceObservation(String(decision.reply || ""))
   }
 
   private appendAttendanceSummaryLines(lines: string[], attendanceSummary: string): void {
@@ -6151,39 +6282,39 @@ export class NativeAgentOrchestratorService {
     const calLink = String(input.result?.htmlLink || "").trim()
     const oldDay = formatDateToBr((input.action as any).old_date)
     const oldTime = String((input.action as any).old_time || "").trim()
-    const oldWhen = oldDay && oldTime ? `${oldDay} as ${oldTime}` : oldDay || oldTime || ""
+    const oldWhen = oldDay && oldTime ? `${oldDay} às ${oldTime}` : oldDay || oldTime || ""
     const attendanceSummary = String(input.attendanceSummary || "").trim()
 
     if (input.isEdit) {
       const lines = [
-        "\u{1F504} *REAGENDAMENTO CONFIRMADO*",
+        "\u{1F504} *REAGENDAMENTO REALIZADO COM SUCESSO*",
         "",
         `\u{1F464} *Cliente:* ${name}`,
         `\u{1F4F1} *Contato:* ${contact}`,
-        oldWhen ? `\u23EA *Horario anterior:* ${oldWhen}` : "",
-        `\u23F0 *Novo horario:* ${day} as ${time}`,
+        oldWhen ? `\u23EA *Horário anterior:* ${oldWhen}` : "",
+        `\u23F0 *Novo horário:* ${day} às ${time}`,
         `\u{1F3E2} *Modalidade:* ${mode}`,
       ]
       if (notes) lines.push(`\u{1F4DD} *Observa\u00e7\u00f5es:* ${notes}`)
       this.appendAttendanceSummaryLines(lines, attendanceSummary)
       if (meetLink) lines.push(`\u{1F4BB} *Google Meet:* ${meetLink}`)
-      if (calLink) lines.push(`\u{1F4C5} *Calendario:* ${calLink}`)
+      if (calLink) lines.push(`\u{1F4C5} *Calendário:* ${calLink}`)
       return lines.filter(Boolean).join("\n")
     }
 
     const lines = [
-      "\u2705 *AGENDAMENTO CONFIRMADO*",
+      "\u2705 *AGENDAMENTO REALIZADO COM SUCESSO*",
       "",
       `\u{1F464} *Cliente:* ${name}`,
       `\u{1F4F1} *Contato:* ${contact}`,
       `\u{1F4C5} *Data:* ${day}`,
-      `\u23F0 *Horario:* ${time}`,
+      `\u23F0 *Horário:* ${time}`,
       `\u{1F3E2} *Modalidade:* ${mode}`,
     ]
     if (notes) lines.push(`\u{1F4DD} *Observa\u00e7\u00f5es:* ${notes}`)
     this.appendAttendanceSummaryLines(lines, attendanceSummary)
     if (meetLink) lines.push(`\u{1F4BB} *Google Meet:* ${meetLink}`)
-    if (calLink) lines.push(`\u{1F4C5} *Calendario:* ${calLink}`)
+    if (calLink) lines.push(`\u{1F4C5} *Calendário:* ${calLink}`)
     return lines.filter(Boolean).join("\n")
   }
 
