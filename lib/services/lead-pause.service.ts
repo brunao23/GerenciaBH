@@ -1,5 +1,6 @@
 import { getTablesForTenant } from "@/lib/helpers/tenant"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
+import { buildBrazilianPhoneVariants } from "@/lib/helpers/phone-normalization"
 import { normalizePhoneNumber } from "@/lib/services/tenant-chat-history.service"
 
 type SupabaseLike = ReturnType<typeof createBiaSupabaseServerClient>
@@ -30,18 +31,7 @@ function isTruthyPause(value: any): boolean {
 }
 
 function buildPhoneVariants(phone: string): string[] {
-  const normalized = normalizePhoneNumber(phone)
-  if (!normalized) return []
-
-  return Array.from(
-    new Set(
-      [
-        normalized,
-        normalized.startsWith("55") ? normalized.slice(2) : "",
-        !normalized.startsWith("55") ? `55${normalized}` : "",
-      ].filter(Boolean),
-    ),
-  )
+  return buildBrazilianPhoneVariants(phone)
 }
 
 export function isManualPauseReason(reason: string): boolean {

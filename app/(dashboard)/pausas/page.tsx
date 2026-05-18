@@ -2,7 +2,7 @@
 
 export const dynamic = "force-dynamic"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -26,6 +26,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { useTenant } from "@/lib/contexts/TenantContext"
+import { normalizeBrazilianWhatsappPhone } from "@/lib/helpers/phone-normalization"
 import {
   Dialog,
   DialogContent,
@@ -77,11 +78,11 @@ export default function PausasPage() {
     pausar: true,
     vaga: true,
     agendamento: false,
+    paused_until: null,
+    pause_reason: "manual_human_panel",
   }
-  const autoPromptTimerRef = useRef<number | null>(null)
-  const lastPromptedNumberRef = useRef("")
 
-  // Estado para Modal de Confirmação Individual
+  // Estado para modal de confirmação individual
   const [confirmPausaOpen, setConfirmPausaOpen] = useState(false)
 
   // Estados para Pausa em Massa
@@ -91,15 +92,8 @@ export default function PausasPage() {
   const [importProgress, setImportProgress] = useState(0)
   const [importStats, setImportStats] = useState<{ total: number, processed: number, success: number, errors: number } | null>(null)
 
-  // Helper para garantir prefixo 55
-  const ensureBRPrefix = (num: string) => {
-    const clean = num.replace(/\D/g, '')
-    // Se tiver 10 ou 11 dígitos (DDD + numero), adiciona 55
-    if (clean.length === 10 || clean.length === 11) {
-      return `55${clean}`
-    }
-    return clean
-  }
+  const novoNumeroPreview = useMemo(() => normalizeBrazilianWhatsappPhone(novoNumero), [novoNumero])
+  const canSubmitNovoNumero = novoNumeroPreview.valid
 
   // Carregar pausas existentes
   const carregarPausas = async () => {
@@ -125,17 +119,14 @@ export default function PausasPage() {
     }
   }
 
-  // Preparar Adição (Abre Modal)
+  // Preparar adição
   const handlePreAddPausa = () => {
-    if (!novoNumero.trim()) {
-      toast.error("Digite um número válido")
+    if (!novoNumeroPreview.valid) {
+      toast.error(novoNumeroPreview.error || "Digite um número válido")
       return
     }
-    const formatted = ensureBRPrefix(novoNumero)
-    setNovoNumero(formatted)
+    setNovoNumero(novoNumeroPreview.normalized)
     setConfirmPausaOpen(true)
-    // Reseta configs para o padrão seguro inicial se quiser
-    // setNovaPausa({ pausar: true, vaga: true, agendamento: false })
   }
 
   // Confirmar e Adicionar Pausa
@@ -148,7 +139,7 @@ export default function PausasPage() {
           "x-tenant-prefix": tenant?.prefix || ""
         },
         body: JSON.stringify({
-          numero: novoNumero.trim(),
+          numero: novoNumeroPreview.valid ? novoNumeroPreview.normalized : novoNumero.trim(),
           ...defaultPausePayload,
         }),
       })
@@ -234,11 +225,20 @@ export default function PausasPage() {
     setIsImporting(true)
     setImportProgress(0)
 
-    // Normalizar lista: quebrar por linhas, remover vazios, limpar caracteres E ADICIONAR 55
+    // Normalizar lista: aceita texto, CSV, Excel, wa.me e corrige DDI 55 duplicado.
     const rawLines = importText.split(/[\n,;]+/)
+    const invalidLines: string[] = []
     const cleanNumbers = rawLines
-      .map(l => ensureBRPrefix(l)) // Aplica formatação automática
-      .filter(n => n.length >= 8)
+      .map((line) => {
+        const parsed = normalizeBrazilianWhatsappPhone(line)
+        if (!String(line || "").trim()) return ""
+        if (!parsed.valid) {
+          invalidLines.push(String(line).trim())
+          return ""
+        }
+        return parsed.normalized
+      })
+      .filter(Boolean)
 
     const uniqueNumbers = Array.from(new Set(cleanNumbers))
     const total = uniqueNumbers.length
@@ -299,7 +299,10 @@ export default function PausasPage() {
     }
 
     setIsImporting(false)
-    toast.success(`Processamento concluído! ${successCount} salvos.`)
+    if (invalidLines.length > 0) {
+      toast.warning(`${invalidLines.length} linha(s) foram ignoradas por telefone inválido.`)
+    }
+    toast.success(`Processamento concluído! ${successCount} número(s) pausados.`)
     setImportText("")
     carregarPausas()
 
@@ -311,39 +314,6 @@ export default function PausasPage() {
   useEffect(() => {
     carregarPausas()
   }, [tenant])
-
-  useEffect(() => {
-    if (confirmPausaOpen) return
-    if (!novoNumero.trim()) {
-      if (autoPromptTimerRef.current) {
-        window.clearTimeout(autoPromptTimerRef.current)
-        autoPromptTimerRef.current = null
-      }
-      lastPromptedNumberRef.current = ""
-      return
-    }
-
-    if (autoPromptTimerRef.current) {
-      window.clearTimeout(autoPromptTimerRef.current)
-    }
-
-    autoPromptTimerRef.current = window.setTimeout(() => {
-      const formatted = ensureBRPrefix(novoNumero)
-      const digits = formatted.replace(/\D/g, "")
-      if (digits.length < 8) return
-      if (lastPromptedNumberRef.current === digits) return
-      lastPromptedNumberRef.current = digits
-      setNovoNumero(formatted)
-      setConfirmPausaOpen(true)
-    }, 600)
-
-    return () => {
-      if (autoPromptTimerRef.current) {
-        window.clearTimeout(autoPromptTimerRef.current)
-        autoPromptTimerRef.current = null
-      }
-    }
-  }, [confirmPausaOpen, novoNumero])
 
   const statusCounts = useMemo(() => {
     const paused = pausas.filter((p) => p.pausar).length
@@ -371,8 +341,8 @@ export default function PausasPage() {
     <div className="flex-1 space-y-6 p-6">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-[var(--pure-white)]">Pausas da Automação ({tenant?.name || '...'})</h1>
-          <p className="text-[var(--text-gray)]">Gerencie quando pausar a automação da IA para números específicos</p>
+          <h1 className="text-3xl font-bold tracking-tight text-[var(--pure-white)]">Pausas da automação ({tenant?.name || '...'})</h1>
+          <p className="text-[var(--text-gray)]">Pause a IA de forma definitiva para leads específicos e evite retomadas indevidas.</p>
         </div>
 
         {/* Botao de Pausa em Massa */}
@@ -390,15 +360,15 @@ export default function PausasPage() {
                 Pausa em Massa
               </DialogTitle>
               <DialogDescription className="text-gray-400">
-                Cole uma lista de numeros para pausar automaticamente todos eles.
-                O sistema adicionará o prefixo 55 se ausente e removerá duplicatas.
+                Cole uma lista de números para pausar automaticamente todos eles.
+                O sistema adiciona o DDI 55 quando faltar, corrige 5555 duplicado e remove duplicatas.
               </DialogDescription>
             </DialogHeader>
 
             <div className="grid gap-6 py-4">
-              {/* Área de Texto */}
+              {/* Área de texto */}
               <div className="space-y-2">
-                <Label>Lista de Números (Excel, CSV, Texto)</Label>
+                <Label>Lista de números (Excel, CSV, texto)</Label>
                 <Textarea
                   placeholder={"27999999999\n5527988888888\n..."}
                   className="h-48 bg-background border-border font-mono text-sm"
@@ -428,7 +398,7 @@ export default function PausasPage() {
                   {importStats.errors > 0 ? <AlertCircle className="h-4 w-4 text-red-500" /> : <CheckCircle2 className="h-4 w-4 text-green-500" />}
                   <AlertTitle>{importStats.errors > 0 ? 'Atenção' : 'Sucesso!'}</AlertTitle>
                   <AlertDescription>
-                    {importStats.success} números importados com sucesso. {importStats.errors} falhas.
+                    {importStats.success} números pausados com sucesso. {importStats.errors} falhas.
                   </AlertDescription>
                 </Alert>
               )}
@@ -448,7 +418,7 @@ export default function PausasPage() {
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Processando...
                   </>
                 ) : (
-                  'Pausar numeros'
+                  'Pausar números'
                 )}
               </Button>
             </DialogFooter>
@@ -462,17 +432,21 @@ export default function PausasPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-xl">
               <Pause className="w-5 h-5 text-green-500" />
-              Confirmar numero
+              Confirmar pausa definitiva
             </DialogTitle>
             <DialogDescription className="text-gray-400">
-              Confira se o numero esta correto. Ao confirmar, a automacao sera pausada imediatamente.
+              Confira o número normalizado. Ao confirmar, a IA fica bloqueada para esse lead até alguém remover a pausa.
             </DialogDescription>
           </DialogHeader>
 
           <div className="py-6">
-            <div className="rounded-lg border border-border bg-secondary px-4 py-3 text-center">
-              <p className="text-xs text-gray-500 mb-1">Numero para pausar</p>
-              <p className="text-lg font-mono font-bold text-white">{novoNumero}</p>
+            <div className="rounded-2xl border border-green-500/30 bg-green-500/10 px-4 py-4 text-center">
+              <p className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-green-300">Número para pausar</p>
+              <p className="text-2xl font-mono font-bold text-white">{novoNumeroPreview.display || novoNumeroPreview.normalized || novoNumero}</p>
+              {novoNumeroPreview.correctedDuplicateCountryCode && (
+                <p className="mt-2 text-xs text-green-200">Corrigi automaticamente o DDI 55 duplicado.</p>
+              )}
+              <p className="mt-3 text-xs text-gray-400">Salvo como {novoNumeroPreview.normalized}</p>
             </div>
           </div>
 
@@ -493,35 +467,49 @@ export default function PausasPage() {
         <CardHeader>
           <CardTitle className="text-[var(--pure-white)] flex items-center gap-2">
             <Plus className="h-5 w-5 text-[var(--accent-green)]" />
-            Adicionar Nova Pausa (Individual)
+            Pausar lead agora
           </CardTitle>
           <CardDescription className="text-[var(--text-gray)]">
-            Digite o numero para pausar automaticamente
+            Cole o telefone do WhatsApp. A normalização corrige DDD, DDI 55 e duplicações como 5555.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex gap-4 items-end">
-            <div className="space-y-2 flex-1">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+            <div className="space-y-3">
               <Label htmlFor="numero" className="text-[var(--pure-white)]">
-                Número de Telefone (DDD + Número)
+                Número de telefone do lead
               </Label>
               <Input
                 id="numero"
-                placeholder="Ex: 11999999999 (o sistema adiciona o 55)"
+                placeholder="Ex: 11999999999, 5511999999999 ou wa.me/5511999999999"
                 value={novoNumero}
                 onChange={(e) => setNovoNumero(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') handlePreAddPausa();
                 }}
-                className="bg-[var(--secondary-black)] border-[var(--border-gray)] text-[var(--pure-white)]"
+                inputMode="tel"
+                className="h-14 rounded-2xl bg-[var(--secondary-black)] border-[var(--border-gray)] px-5 text-lg font-mono text-[var(--pure-white)]"
               />
+              <div className="min-h-6">
+                {!novoNumero.trim() ? (
+                  <p className="text-xs text-[var(--text-gray)]">Aceita número com máscara, link wa.me ou número colado do WhatsApp.</p>
+                ) : canSubmitNovoNumero ? (
+                  <p className="text-sm text-green-400">
+                    Será pausado como <span className="font-mono font-semibold">{novoNumeroPreview.display}</span>
+                    {novoNumeroPreview.correctedDuplicateCountryCode ? " (DDI duplicado corrigido)" : ""}
+                  </p>
+                ) : (
+                  <p className="text-sm text-red-400">{novoNumeroPreview.error}</p>
+                )}
+              </div>
             </div>
             <Button
               onClick={handlePreAddPausa}
-              className="bg-[var(--accent-green)] hover:bg-green-500 text-[var(--primary-black)] font-semibold mb-[2px]"
+              disabled={!canSubmitNovoNumero}
+              className="h-14 rounded-2xl bg-[var(--accent-green)] px-8 text-[var(--primary-black)] font-semibold hover:bg-green-500 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Plus className="h-4 w-4 mr-2" />
-              Pausar
+              Pausar definitivamente
             </Button>
           </div>
         </CardContent>

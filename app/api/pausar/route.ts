@@ -1,80 +1,43 @@
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { type NextRequest, NextResponse } from "next/server"
 import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
+import {
+  buildBrazilianPhoneVariants,
+  normalizeBrazilianWhatsappPhone,
+  looksLikeNonPhoneSessionIdentifier,
+} from "@/lib/helpers/phone-normalization"
 import { AgentTaskQueueService } from "@/lib/services/agent-task-queue.service"
 import { isManualPauseReason } from "@/lib/services/lead-pause.service"
 
 /**
- * Normaliza número de telefone removendo caracteres não numéricos
+ * Normaliza numero de telefone removendo caracteres nao numericos
  */
 function normalizePhoneNumber(numero: string): string {
-  if (!numero || typeof numero !== 'string') return ''
-  // Remove sufixos de ID (ex: 5511999999999@c.us -> 5511999999999) antes de limpar
-  const idPrefix = numero.split('@')[0]
-  return idPrefix.replace(/\D/g, '')
+  return normalizeBrazilianWhatsappPhone(numero).normalized
 }
 
 /**
- * Gera variações possíveis do número para compatibilidade (com/sem 55)
+ * Gera variacoes possiveis do numero para compatibilidade (com/sem 55)
  */
 function getPhoneVariants(numero: string): string[] {
-  const normalized = normalizePhoneNumber(numero)
-  const variants = new Set<string>()
-
-  if (normalized) {
-    variants.add(normalized)
-  }
-
-  if ((normalized.length === 10 || normalized.length === 11) && !normalized.startsWith('55')) {
-    variants.add(`55${normalized}`)
-  }
-
-  if ((normalized.length === 12 || normalized.length === 13) && normalized.startsWith('55')) {
-    variants.add(normalized.slice(2))
-  }
-
-  return Array.from(variants)
+  return buildBrazilianPhoneVariants(numero)
 }
 
 /**
- * Valida número de telefone
+ * Valida numero de telefone
  */
 function looksLikeSessionIdentifier(rawValue: string): boolean {
-  const raw = String(rawValue || "").trim().toLowerCase()
-  if (!raw) return false
-
-  if (
-    raw.startsWith("ig_") ||
-    raw.startsWith("igcomment_") ||
-    raw.startsWith("ig_comment_") ||
-    raw.startsWith("group_") ||
-    raw.startsWith("session_")
-  ) {
-    return true
-  }
-
-  if (raw.includes("@g.us")) return true
-  if (raw.includes("@") && !/@(s\.whatsapp\.net|c\.us)$/i.test(raw)) return true
-
-  const prefix = raw.split("@")[0] || ""
-  if (/[a-z]/i.test(prefix)) return true
-
-  return false
+  return looksLikeNonPhoneSessionIdentifier(rawValue)
 }
 
 function validatePhoneNumber(numero: string): { valid: boolean; error?: string } {
   if (looksLikeSessionIdentifier(numero)) {
-    return { valid: false, error: "Informe o numero do lead. session_id nao e aceito para pausa." }
+    return { valid: false, error: "Informe o número de WhatsApp do lead. session_id, Instagram, grupo ou e-mail não é aceito para pausa." }
   }
 
-  const normalized = normalizePhoneNumber(numero)
-
-  if (!normalized || normalized.length < 8) {
-    return { valid: false, error: 'Número deve conter pelo menos 8 dígitos' }
-  }
-
-  if (normalized.length > 15) {
-    return { valid: false, error: 'Número muito longo (máximo 15 dígitos)' }
+  const parsed = normalizeBrazilianWhatsappPhone(numero)
+  if (!parsed.valid) {
+    return { valid: false, error: parsed.error || "Número inválido" }
   }
 
   return { valid: true }
@@ -103,7 +66,7 @@ function isExpiredPause(row: any): boolean {
   return Number.isFinite(until.getTime()) && until.getTime() <= Date.now()
 }
 
-// GET - Listar todos os registros de pausa ou buscar por número específico
+// GET - Listar todos os registros de pausa ou buscar por numero especifico
 export async function GET(request: NextRequest) {
   try {
     const { tables } = await getTenantFromRequest()
@@ -132,7 +95,7 @@ export async function GET(request: NextRequest) {
       } else {
         query = query.eq("numero", normalized)
       }
-      console.log(`[Pausar API GET] Buscando pausa para número: ${normalized}`)
+      console.log(`[Pausar API GET] Buscando pausa para numero: ${normalized}`)
     }
 
     const { data, error } = await query.order("created_at", { ascending: false })
@@ -145,7 +108,7 @@ export async function GET(request: NextRequest) {
       }, { status: 500 })
     }
 
-    // Se buscar por número específico e não encontrar, retorna valores padrão
+    // Se buscar por numero especifico e nao encontrar, retorna valores padrao
     if (numero && (!data || data.length === 0)) {
       return NextResponse.json({
         success: true,
@@ -197,11 +160,11 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { numero, pausar, vaga, agendamento, paused_until, pause_reason } = body
 
-    // Validação do número
+    // Validacao do numero
     if (!numero || typeof numero !== 'string') {
       return NextResponse.json({
         success: false,
-        error: "Número é obrigatório e deve ser uma string"
+        error: "Numero e obrigatorio e deve ser uma string"
       }, { status: 400 })
     }
 
@@ -218,27 +181,19 @@ export async function POST(request: NextRequest) {
     const supabase = createBiaSupabaseServerClient()
 
     const variants = getPhoneVariants(numero)
-    let targetNumero = normalizedNumero
+    const targetNumero = normalizedNumero
+    const duplicateVariants = variants.filter((variant) => variant && variant !== targetNumero)
 
-    if (variants.length > 1) {
-      const { data: existing, error: existingError } = await supabase
-        .from(pausarTable)
-        .select("numero")
-        .in("numero", variants)
-        .limit(1)
-
-      if (!existingError && existing && existing.length > 0) {
-        targetNumero = existing[0].numero
-      }
-    }
-
-    const { data: existingRow } = await supabase
+    const { data: existingRows } = await supabase
       .from(pausarTable)
       .select("numero, pausar, vaga, agendamento, pause_reason")
-      .eq("numero", targetNumero)
-      .maybeSingle()
+      .in("numero", variants)
+      .order("updated_at", { ascending: false })
+      .limit(1)
 
-    // Quando flags não vierem no payload, preserva valor existente.
+    const existingRow = Array.isArray(existingRows) ? existingRows[0] : null
+
+    // Quando flags nao vierem no payload, preserva valor existente.
     // Para novos registros: vaga=true e agendamento=false.
     const pausarBool = parseBooleanInput(pausar, existingRow?.pausar ?? false)
     const vagaBool = parseBooleanInput(vaga, existingRow?.vaga ?? true)
@@ -263,7 +218,7 @@ export async function POST(request: NextRequest) {
     if (paused_until !== undefined) {
       payload.paused_until = paused_until // Pode ser null ou data ISO string
     } else if (hasPausarField && pausarBool) {
-      // Pausa acionada pelo botão "Pausado" deve ser permanente.
+      // Pausa acionada pelo botao "Pausado" deve ser permanente.
       // Sem isso, um paused_until antigo/vencido fica no registro e a IA volta a responder.
       payload.paused_until = null
     }
@@ -311,7 +266,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (error) {
-      console.error("[Pausar API POST] Erro na operação upsert:", {
+      console.error("[Pausar API POST] Erro na operacao upsert:", {
         message: error.message,
         code: error.code,
         details: error.details,
@@ -325,15 +280,30 @@ export async function POST(request: NextRequest) {
       }, { status: 500 })
     }
 
+    if (duplicateVariants.length > 0) {
+      try {
+        const cleanup = await supabase
+          .from(pausarTable)
+          .delete()
+          .in("numero", duplicateVariants)
+          .neq("numero", targetNumero)
+        if (cleanup.error) {
+          console.warn("[Pausar API POST] Falha ao limpar variantes antigas:", cleanup.error.message)
+        }
+      } catch (cleanupError: any) {
+        console.warn("[Pausar API POST] Falha ao limpar variantes antigas:", cleanupError?.message)
+      }
+    }
+
     console.log(`[Pausar API POST] Registro salvo com sucesso para ${targetNumero}`)
 
     // CANCELAMENTO IMEDIATO DE FOLLOWUPS PENDENTES
     // Quando o humano pausa um lead via painel, todos os followups agendados
-    // são cancelados imediatamente — sem depender do ciclo do cron.
+    // sao cancelados imediatamente - sem depender do ciclo do cron.
     if (pausarBool) {
       try {
         const taskQueue = new AgentTaskQueueService()
-        // Tenta recuperar sessionIds do histórico de chat para cancelamento preciso
+        // Tenta recuperar sessionIds do historico de chat para cancelamento preciso
         let sessionIds: string[] = []
         try {
           const { data: chatRows } = await supabase
@@ -350,9 +320,9 @@ export async function POST(request: NextRequest) {
             )
           )
         } catch {
-          // sessionIds fica vazio — cancelamento será feito só por número
+          // sessionIds fica vazio - cancelamento sera feito so por numero
         }
-        // Cancela via número + primeiro sessionId (cobertura máxima)
+        // Cancela via numero + primeiro sessionId (cobertura maxima)
         await taskQueue.cancelPendingFollowups({
           tenant,
           sessionId: sessionIds[0] || targetNumero,
@@ -360,7 +330,7 @@ export async function POST(request: NextRequest) {
         }).catch((err: any) =>
           console.warn("[Pausar API POST] cancelPendingFollowups error:", err?.message)
         )
-        // Se tiver múltiplos sessionIds, cancela todos
+        // Se tiver multiplos sessionIds, cancela todos
         for (const sid of sessionIds.slice(1)) {
           await taskQueue.cancelPendingFollowups({
             tenant,
@@ -368,9 +338,9 @@ export async function POST(request: NextRequest) {
             phone: targetNumero,
           }).catch(() => {})
         }
-        console.log(`[Pausar API POST] Followups pendentes cancelados para ${targetNumero} (${sessionIds.length} sessões)`)
+        console.log(`[Pausar API POST] Followups pendentes cancelados para ${targetNumero} (${sessionIds.length} sessoes)`)
       } catch (cancelErr: any) {
-        // Não bloqueia a resposta — pausa já foi salva no banco
+        // Nao bloqueia a resposta - pausa ja foi salva no banco
         console.warn("[Pausar API POST] Erro ao cancelar followups:", cancelErr?.message)
       }
     }
@@ -403,7 +373,7 @@ export async function PUT(request: NextRequest) {
     if (!numero || typeof numero !== 'string') {
       return NextResponse.json({
         success: false,
-        error: "Número é obrigatório"
+        error: "Numero e obrigatorio"
       }, { status: 400 })
     }
 
@@ -420,19 +390,17 @@ export async function PUT(request: NextRequest) {
     const supabase = createBiaSupabaseServerClient()
 
     const variants = getPhoneVariants(numero)
-    let targetNumero = normalizedNumero
+    const targetNumero = normalizedNumero
+    const duplicateVariants = variants.filter((variant) => variant && variant !== targetNumero)
 
-    if (variants.length > 1) {
-      const { data: existing, error: existingError } = await supabase
-        .from(pausarTable)
-        .select("numero")
-        .in("numero", variants)
-        .limit(1)
+    const { data: existingRows } = await supabase
+      .from(pausarTable)
+      .select("numero, pausar, vaga, agendamento, pause_reason, paused_until")
+      .in("numero", variants)
+      .order("updated_at", { ascending: false })
+      .limit(1)
 
-      if (!existingError && existing && existing.length > 0) {
-        targetNumero = existing[0].numero
-      }
-    }
+    const existingRow = Array.isArray(existingRows) ? existingRows[0] : null
 
     const nowIso = new Date().toISOString()
     const pauseReasonValue =
@@ -440,6 +408,10 @@ export async function PUT(request: NextRequest) {
         ? pause_reason.trim().slice(0, 180)
         : ""
     const updateData: any = {
+      numero: targetNumero,
+      pausar: existingRow?.pausar ?? false,
+      vaga: existingRow?.vaga ?? true,
+      agendamento: existingRow?.agendamento ?? false,
       updated_at: nowIso,
     }
 
@@ -449,8 +421,10 @@ export async function PUT(request: NextRequest) {
       if (updateData.pausar) {
         updateData.pausado_em = nowIso
         updateData.pause_reason = pauseReasonValue || "manual_human_panel"
+        updateData.paused_until = null
       } else {
         updateData.pause_reason = null
+        updateData.paused_until = null
       }
     }
     if (pausar === undefined && pauseReasonValue) {
@@ -470,8 +444,7 @@ export async function PUT(request: NextRequest) {
 
     let { data, error } = await supabase
       .from(pausarTable)
-      .update(updateData)
-      .eq("numero", targetNumero)
+      .upsert(updateData, { onConflict: "numero", ignoreDuplicates: false })
       .select()
       .single()
 
@@ -487,8 +460,7 @@ export async function PUT(request: NextRequest) {
       delete updateData.pause_reason
       const retry = await supabase
         .from(pausarTable)
-        .update(updateData)
-        .eq("numero", targetNumero)
+        .upsert(updateData, { onConflict: "numero", ignoreDuplicates: false })
         .select()
         .single()
       data = retry.data
@@ -507,8 +479,23 @@ export async function PUT(request: NextRequest) {
     if (!data) {
       return NextResponse.json({
         success: false,
-        error: "Registro não encontrado"
+        error: "Registro nao encontrado"
       }, { status: 404 })
+    }
+
+    if (duplicateVariants.length > 0) {
+      try {
+        const cleanup = await supabase
+          .from(pausarTable)
+          .delete()
+          .in("numero", duplicateVariants)
+          .neq("numero", targetNumero)
+        if (cleanup.error) {
+          console.warn("[Pausar API PUT] Falha ao limpar variantes antigas:", cleanup.error.message)
+        }
+      } catch (cleanupError: any) {
+        console.warn("[Pausar API PUT] Falha ao limpar variantes antigas:", cleanupError?.message)
+      }
     }
 
     console.log(`[Pausar API PUT] Registro atualizado com sucesso para ${targetNumero}`)

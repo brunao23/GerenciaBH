@@ -1,6 +1,7 @@
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { normalizeTenant } from "@/lib/helpers/normalize-tenant"
 import { resolveChatHistoriesTable } from "@/lib/helpers/resolve-chat-table"
+import { extractPhoneDigits, normalizeBrazilianWhatsappPhone } from "@/lib/helpers/phone-normalization"
 
 export type ChatRole = "user" | "assistant" | "system"
 
@@ -29,7 +30,10 @@ function toIso(value: any): string {
 }
 
 export function normalizePhoneNumber(input: string): string {
-  const clean = String(input || "").replace(/\D/g, "")
+  const parsed = normalizeBrazilianWhatsappPhone(input)
+  if (parsed.normalized) return parsed.normalized
+
+  const clean = extractPhoneDigits(input)
   if (!clean) return ""
   return clean.startsWith("55") ? clean : `55${clean}`
 }

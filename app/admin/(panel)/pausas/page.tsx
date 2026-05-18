@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { toast } from "sonner"
 import {
   PauseCircle,
@@ -43,8 +43,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-
-// ─── Tipos ────────────────────────────────────────────────────────────────────
+import { normalizeBrazilianWhatsappPhone } from "@/lib/helpers/phone-normalization"
 
 interface PauseEntry {
   id: number
@@ -61,8 +60,6 @@ interface Unit {
   is_active: boolean
 }
 
-// ─── Componente principal ─────────────────────────────────────────────────────
-
 export default function PausasAdminPage() {
   const [units, setUnits] = useState<Unit[]>([])
   const [selectedTenant, setSelectedTenant] = useState<string>("")
@@ -78,8 +75,7 @@ export default function PausasAdminPage() {
 
   // Dialog de remoção
   const [deleteTarget, setDeleteTarget] = useState<PauseEntry | null>(null)
-
-  // ─── Load unidades ───────────────────────────────────────────────────────────
+  const newNumeroPreview = useMemo(() => normalizeBrazilianWhatsappPhone(newNumero), [newNumero])
 
   useEffect(() => {
     async function fetchUnits() {
@@ -98,8 +94,6 @@ export default function PausasAdminPage() {
     }
     fetchUnits()
   }, [])
-
-  // ─── Load pausas do tenant selecionado ──────────────────────────────────────
 
   const fetchPauses = useCallback(async () => {
     if (!selectedTenant) return
@@ -120,8 +114,6 @@ export default function PausasAdminPage() {
   useEffect(() => {
     if (selectedTenant) fetchPauses()
   }, [selectedTenant, fetchPauses])
-
-  // ─── Toggle pausar/despausar ─────────────────────────────────────────────────
 
   async function handleToggle(entry: PauseEntry) {
     const newState = !entry.pausar
@@ -147,12 +139,9 @@ export default function PausasAdminPage() {
     }
   }
 
-  // ─── Adicionar número ────────────────────────────────────────────────────────
-
   async function handleAdd() {
-    const clean = newNumero.replace(/\D/g, "").trim()
-    if (!clean || clean.length < 10) {
-      toast.error("Número inválido. Use DDI+DDD+número (ex: 5531999999999)")
+    if (!newNumeroPreview.valid) {
+      toast.error(newNumeroPreview.error || "Número inválido")
       return
     }
     setAdding(true)
@@ -160,11 +149,11 @@ export default function PausasAdminPage() {
       const res = await fetch("/api/admin/pausas", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tenant: selectedTenant, numero: clean }),
+        body: JSON.stringify({ tenant: selectedTenant, numero: newNumeroPreview.normalized }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || "Erro ao adicionar")
-      toast.success(`${clean} adicionado como pausado`)
+      toast.success(`${newNumeroPreview.display || newNumeroPreview.normalized} pausado`)
       setAddOpen(false)
       setNewNumero("")
       fetchPauses()
@@ -174,8 +163,6 @@ export default function PausasAdminPage() {
       setAdding(false)
     }
   }
-
-  // ─── Remover número ──────────────────────────────────────────────────────────
 
   async function handleDelete() {
     if (!deleteTarget) return
@@ -196,16 +183,12 @@ export default function PausasAdminPage() {
     }
   }
 
-  // ─── Filtro por busca ────────────────────────────────────────────────────────
-
   const filtered = pauses.filter((p) =>
     p.numero.includes(search.replace(/\D/g, ""))
   )
 
   const pausedCount = pauses.filter((p) => p.pausar).length
   const activeTenantName = units.find((u) => u.prefix === selectedTenant)?.name || selectedTenant
-
-  // ─── UI ──────────────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
@@ -249,7 +232,7 @@ export default function PausasAdminPage() {
             >
               {loadingUnits ? (
                 <span className="text-muted-foreground text-sm flex items-center gap-2">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> Carregando…
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> Carregando...
                 </span>
               ) : (
                 <SelectValue placeholder="Selecionar unidade" />
@@ -270,7 +253,7 @@ export default function PausasAdminPage() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
           <Input
             id="input-search-pausa"
-            placeholder="Buscar por número…"
+            placeholder="Buscar por número..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9 h-10 bg-card"
@@ -325,7 +308,7 @@ export default function PausasAdminPage() {
         {loading ? (
           <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
             <Loader2 className="w-8 h-8 animate-spin text-primary/60" />
-            <span className="text-sm">Carregando pausas…</span>
+            <span className="text-sm">Carregando pausas...</span>
           </div>
         ) : !selectedTenant ? (
           <div className="flex flex-col items-center justify-center py-16 gap-2 text-muted-foreground">
@@ -420,34 +403,42 @@ export default function PausasAdminPage() {
 
       {/* Dialog: adicionar número */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <PauseCircle className="w-5 h-5 text-primary" />
-              Adicionar número pausado
+              Adicionar pausa definitiva
             </DialogTitle>
             <DialogDescription>
-              Digite o número no formato internacional (DDI + DDD + número). O número será imediatamente pausado na unidade <strong>{activeTenantName}</strong>.
+              Cole o número do lead. O sistema aceita máscara, link wa.me e corrige DDI 55 duplicado antes de pausar a unidade <strong>{activeTenantName}</strong>.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-3 py-2">
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <label htmlFor="input-novo-numero" className="text-sm font-medium text-foreground">
                 Número de telefone
               </label>
               <Input
                 id="input-novo-numero"
-                placeholder="Ex: 5531999999999"
+                placeholder="Ex: 11999999999, 5511999999999 ou wa.me/5511999999999"
                 value={newNumero}
                 onChange={(e) => setNewNumero(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-                className="font-mono"
+                inputMode="tel"
+                className="h-12 font-mono text-base"
                 autoFocus
               />
-              <p className="text-xs text-muted-foreground">
-                55 (Brasil) + DDD + número — sem espaços ou traços
-              </p>
+              {!newNumero.trim() ? (
+                <p className="text-xs text-muted-foreground">Aceita DDD + número, DDI completo ou link do WhatsApp.</p>
+              ) : newNumeroPreview.valid ? (
+                <p className="text-sm text-emerald-600 dark:text-emerald-400">
+                  Será pausado como <span className="font-mono font-semibold">{newNumeroPreview.display}</span>
+                  {newNumeroPreview.correctedDuplicateCountryCode ? " (DDI duplicado corrigido)" : ""}
+                </p>
+              ) : (
+                <p className="text-sm text-destructive">{newNumeroPreview.error}</p>
+              )}
             </div>
           </div>
 
@@ -455,7 +446,7 @@ export default function PausasAdminPage() {
             <Button variant="outline" onClick={() => { setAddOpen(false); setNewNumero("") }} id="btn-cancel-add">
               Cancelar
             </Button>
-            <Button onClick={handleAdd} disabled={adding || !newNumero.trim()} id="btn-confirm-add">
+            <Button onClick={handleAdd} disabled={adding || !newNumeroPreview.valid} id="btn-confirm-add">
               {adding ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <PauseCircle className="w-4 h-4 mr-2" />}
               Pausar número
             </Button>
