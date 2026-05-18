@@ -555,6 +555,95 @@ function leadSelectedSingleSchedulingPeriod(value: string): "manha" | "tarde" | 
   return periods.length === 1 ? periods[0].key : null
 }
 
+function latestLeadMessageIsSchedulingQuestionOrInfoRequest(value: string): boolean {
+  const text = normalizeComparableMessage(value)
+  if (!text) return false
+
+  if (String(value || "").includes("?")) return true
+
+  return (
+    /\b(presencial|online|on\s*line|on-line|ead)\s+ou\s+(presencial|online|on\s*line|on-line|ead)\b/.test(text) ||
+    /\b(qual|quais|como|onde|quando|quanto|porque|por que|que horas|a que horas)\b/.test(text) ||
+    /\b(valor|valores|preco|precos|mensalidade|investimento|duracao|dura|tempo|endereco|localizacao|referencia|funciona|modalidade)\b/.test(text)
+  )
+}
+
+function recentAssistantRequestedSchedulingEmail(rows: any[] | undefined): boolean {
+  const ordered = Array.isArray(rows) ? [...rows].reverse() : []
+  for (const row of ordered.slice(0, 8)) {
+    const message = row?.message || row || {}
+    const role = String(message?.role || row?.role || "").trim().toLowerCase()
+    if (role !== "assistant") continue
+    const content = String(message?.content || row?.content || "")
+    const text = normalizeComparableMessage(content)
+    if (!text) continue
+    if (
+      /\b(email|e-mail)\b/.test(text) &&
+      /\b(reservad[ao]|formalizar|confirmacao|confirmar|agendamento|horario|agenda)\b/.test(text)
+    ) {
+      return true
+    }
+  }
+  return false
+}
+
+function recentAssistantAskedSchedulingMode(rows: any[] | undefined): boolean {
+  const ordered = Array.isArray(rows) ? [...rows].reverse() : []
+  for (const row of ordered.slice(0, 8)) {
+    const message = row?.message || row || {}
+    const role = String(message?.role || row?.role || "").trim().toLowerCase()
+    if (role !== "assistant") continue
+    const text = normalizeComparableMessage(String(message?.content || row?.content || ""))
+    if (!text) continue
+    if (
+      /\b(presencial|online|on\s*line|on-line|ead|modalidade)\b/.test(text) &&
+      /\b(ou|qual|prefere|melhor)\b/.test(text)
+    ) {
+      return true
+    }
+  }
+  return false
+}
+
+function leadExplicitlyConfirmsSchedulingMutation(
+  rawMessage: string,
+  rows: any[] | undefined,
+): boolean {
+  const text = normalizeComparableMessage(rawMessage)
+  if (!text) return false
+  if (latestLeadMessageIsSchedulingQuestionOrInfoRequest(rawMessage)) return false
+
+  const hasRecentOffer = hasRecentAssistantOfferedSchedule(rows)
+  const hasEmail = Boolean(extractEmailCandidate(rawMessage))
+  if (hasEmail && hasRecentOffer && recentAssistantRequestedSchedulingEmail(rows)) {
+    return true
+  }
+
+  const timeCandidate = extractSchedulingTimeCandidate(rawMessage)
+  if (timeCandidate && text.length <= 90) {
+    return true
+  }
+
+  const answeredModeOnly = /^(presencial|online|on\s*line|on-line|ead|virtual)$/i.test(text)
+  if (answeredModeOnly && recentAssistantAskedSchedulingMode(rows) && findRecentSchedulingTimeCandidate(rows, "")) {
+    return true
+  }
+
+  if (
+    hasRecentOffer &&
+    text.length <= 120 &&
+    /\b(pode ser|confirmo|confirmado|confirmar|fechado|combinado|ok|certo|sim|isso|esse|essa|prefiro|escolho|fico com|vou de|pode agendar|pode marcar|marca|marcar|agenda|agendar|reserva|reservar)\b/.test(text)
+  ) {
+    return true
+  }
+
+  return /\b(agendar|marcar|reservar|confirmar)\b/.test(text) &&
+    (
+      /\b(hoje|amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo|dia\s+\d{1,2})\b/.test(text) ||
+      Boolean(timeCandidate)
+    )
+}
+
 function stripRepeatedPeriodChoiceQuestion(responseText: string, selectedPeriod: "manha" | "tarde" | "noite"): string {
   let text = String(responseText || "").trim()
   if (!text) return text
@@ -3341,6 +3430,7 @@ const EMAIL_REGEX = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi
 const SCHEDULE_GUARDRAIL_ERRORS = new Set([
   "email_required_for_scheduling",
   "email_required_for_online_meet",
+  "schedule_requires_explicit_lead_confirmation",
 ])
 const SCHEDULE_NON_ERROR_CONFLICT_ERRORS = new Set([
   "google_calendar_conflict",
@@ -3793,7 +3883,7 @@ export class NativeAgentOrchestratorService {
       // 3) Send WhatsApp notification to configured group targets (if any)
       const groupTargets = normalizeNotificationTargets(config.toolNotificationTargets)
       if (config.notifyOnHumanHandoff && groupTargets.length) {
-        const notifMsg = `*Lead pausado automaticamente*\n\nContato: ${leadLabel} (${phone})\nMotivo: ${label}\nMensagem: "${content.slice(0, 200)}"\n\nO lead foi pausado e nenhum follow-up sera enviado. Verifique no painel.`
+        const notifMsg = `*Lead pausado automaticamente*\n\nContato: ${leadLabel} (${phone})\nMotivo: ${label}\nMensagem: "${content.slice(0, 200)}"\n\nA automacao foi pausada e nenhum follow-up sera enviado. Verifique no painel.`
         await this
           .sendToolNotifications(tenant, groupTargets, notifMsg, {
             anchorSessionId: sessionId,
@@ -3816,18 +3906,14 @@ export class NativeAgentOrchestratorService {
           .catch(() => {})
       }
 
-      // Envia mensagem de compreensao ao lead antes de pausar
-      // JAMAIS dispensar o lead â€” sempre demonstrar respeito e deixar porta aberta
-      let comprehensionMessage = ""
-      if (negativeIntent.category === "opt_out") {
-        comprehensionMessage = "Entendo e respeito sua decisao. Se precisar de algo no futuro, estaremos aqui para ajudar. Desejo tudo de bom!"
-      } else if (negativeIntent.category === "dissatisfaction") {
-        comprehensionMessage = "Lamento muito que tenha tido essa experiencia. Sua opiniao e muito importante para nos. Se quiser, posso conectar voce com um responsavel para resolver essa situacao da melhor forma."
-      } else if (negativeIntent.category === "travel_later") {
-        comprehensionMessage = "Perfeito, combinado. Aproveite sua viagem com tranquilidade. Vou pausar seu atendimento por enquanto e, quando voce retornar, e so me chamar que retomamos na hora."
-      } else if (negativeIntent.category === "will_contact_later") {
-        comprehensionMessage = "Combinado. Vou pausar seu atendimento para nao te incomodar. Quando quiser retomar, e so chamar por aqui."
-      }
+      // Mensagem ao lead passa pela IA para evitar respostas bruscas ou sem acento.
+      const comprehensionMessage = await this.buildAutoPauseAcknowledgement({
+        tenant,
+        config,
+        category: negativeIntent.category,
+        leadMessage: content,
+        contactName: contactFirstName || undefined,
+      })
       // bot_message nao recebe resposta (e mensagem automatica, nÃ£o tem humano)
 
       if (comprehensionMessage && phone) {
@@ -3847,6 +3933,7 @@ export class NativeAgentOrchestratorService {
           source: "native-agent",
           additional: {
             auto_comprehension: true,
+            ai_generated_pause_ack: true,
             category: negativeIntent.category,
           },
         }).catch(() => {})
@@ -5740,13 +5827,13 @@ export class NativeAgentOrchestratorService {
       timezone,
       selectedTime,
     )
+    const leadConfirmedSchedulingMutation = leadExplicitlyConfirmsSchedulingMutation(
+      leadMessage,
+      params.conversationRows,
+    )
     const shouldSchedule =
       Boolean(selectedTime) &&
-      (
-        claimsConfirmed ||
-        Boolean(leadEmail) ||
-        hasRecentAssistantOfferedSchedule(params.conversationRows)
-      )
+      leadConfirmedSchedulingMutation
 
     if (shouldSchedule && selectedTime) {
       const scheduleArgs: Record<string, any> = {
@@ -6099,6 +6186,104 @@ export class NativeAgentOrchestratorService {
       sent: dispatch.sent,
       failed: dispatch.failed,
       failures: dispatch.failures,
+    }
+  }
+
+  private fallbackAutoPauseAcknowledgement(category: NegativeIntentResult["category"]): string {
+    switch (category) {
+      case "opt_out":
+        return "Entendo e respeito. Nao vou insistir por aqui. Se precisar no futuro, ficamos a disposicao."
+      case "dissatisfaction":
+        return "Sinto muito pela experiencia. Vou deixar registrado para a equipe acompanhar com atencao."
+      case "travel_later":
+        return "Combinado. Boa viagem e fique a vontade para me chamar quando retornar."
+      case "will_contact_later":
+        return "Combinado. Fico a disposicao por aqui. Quando quiser retomar, e so me chamar."
+      default:
+        return ""
+    }
+  }
+
+  private cleanAutoPauseAcknowledgement(value: string, fallback: string): string {
+    let text = repairMojibakeDeep(String(value || ""))
+      .replace(/```[\s\S]*?```/g, " ")
+      .replace(/\{[\s\S]*?\}/g, " ")
+      .replace(/\[[^\]]*?\]/g, " ")
+      .replace(/^["'`]+|["'`]+$/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+
+    if (!text || text.length < 8) return fallback
+    if (/[{}\[\]]/.test(text)) return fallback
+
+    text = text
+      .replace(/\bnao\b/gi, "não")
+      .replace(/\bvoce\b/gi, "você")
+      .replace(/\bdecisao\b/gi, "decisão")
+      .replace(/\bso\b/gi, "só")
+      .replace(/\bdisposicao\b/gi, "disposição")
+      .replace(/\ba disposição\b/gi, "à disposição")
+      .replace(/\be só\b/gi, "é só")
+      .replace(/\bexperiencia\b/gi, "experiência")
+      .replace(/\batencao\b/gi, "atenção")
+      .replace(/\ba vontade\b/gi, "à vontade")
+      .trim()
+
+    if (text.length > 260) {
+      text = `${text.slice(0, 257).trim()}...`
+    }
+    return text || fallback
+  }
+
+  private async buildAutoPauseAcknowledgement(params: {
+    tenant: string
+    config: NativeAgentConfig
+    category: NegativeIntentResult["category"]
+    leadMessage: string
+    contactName?: string | null
+  }): Promise<string> {
+    if (params.category === "bot_message") return ""
+
+    const fallback = this.cleanAutoPauseAcknowledgement(
+      this.fallbackAutoPauseAcknowledgement(params.category),
+      "",
+    )
+    if (!fallback) return ""
+
+    const prompt = [
+      "Gere a resposta final para enviar ao lead no WhatsApp.",
+      "A mensagem do lead indica que a automacao sera pausada por seguranca operacional, mas o texto para o lead deve ser natural, humano e sem termos tecnicos.",
+      "",
+      `Categoria interna: ${params.category || "desconhecida"}`,
+      params.contactName ? `Nome do lead: ${params.contactName}` : "Nome do lead: nao informado",
+      `Mensagem do lead: ${String(params.leadMessage || "").slice(0, 700)}`,
+      "",
+      "Regras obrigatorias:",
+      "- Responda em portugues do Brasil, com acentos corretos.",
+      "- Nao use JSON, markdown, aspas, lista, explicacao ou texto tecnico.",
+      "- Nao fale em sistema, automacao, prompt, ferramenta, fila ou follow-up.",
+      "- Para 'will_contact_later' ou 'travel_later', nao diga que vai pausar atendimento; apenas acolha e deixe a porta aberta.",
+      "- Para opt-out, respeite sem insistir.",
+      "- Para insatisfacao, seja breve, respeitoso e encaminhe o cuidado para a equipe sem prometer algo inexistente.",
+      "- Maximo de 220 caracteres.",
+    ].join("\n")
+
+    try {
+      const llm = LLMFactory.getService(params.config, { tenant: params.tenant })
+      const decision = await llm.decideNextTurn({
+        systemPrompt:
+          "Voce escreve respostas curtas, naturais e corretas em portugues do Brasil para leads no WhatsApp. Retorne somente a mensagem final.",
+        conversation: [{ role: "user", content: prompt }],
+        sampling: {
+          temperature: 0.2,
+          topP: 0.7,
+          topK: 20,
+        },
+      })
+      return this.cleanAutoPauseAcknowledgement(String(decision.reply || ""), fallback)
+    } catch (error) {
+      console.warn("[native-agent][auto-pause] failed to build AI acknowledgement:", error)
+      return fallback
     }
   }
 
@@ -6875,7 +7060,10 @@ export class NativeAgentOrchestratorService {
       "- NUNCA sugira um horario e depois diga que esta fora do expediente. Isso e PROIBIDO. Consulte os slots ANTES de falar.",
       "- [REGRA CRITICA DE HORARIO ESPECIFICO] Se o lead pedir um horario ESPECIFICO (ex: '17:40', '18h30', 'e possivel as 17:40?'), primeiro chame get_available_slots para a data. Se o horario aparecer nos slots, pode oferecer/confirmar. Se nao aparecer, NUNCA confirme; se o lead insistir ou confirmar esse horario, chame schedule_appointment e confie SOMENTE no retorno da ferramenta. A confirmacao ao lead so pode acontecer com schedule_appointment ok=true. Se a ferramenta negar, ofereca alternativeSlots ou proximos slots reais.",
       "- Se o horario estiver ocupado, diga 'Esse horario ja esta ocupado' e sugira o proximo disponivel.",
-      "- Quando o lead confirmar data e hora, acione schedule_appointment.",
+      "- Quando o lead confirmar data e hora de forma explicita, acione schedule_appointment.",
+      "- [LEI DA CONFIRMACAO EXPLICITA] schedule_appointment SO pode ser chamado quando a ULTIMA mensagem do lead confirmar claramente o horario/data escolhido, informar email apos voce pedir para formalizar uma opcao ja escolhida, ou responder a modalidade apos ja ter escolhido horario. Pergunta, duvida ou pedido de informacao NAO e confirmacao.",
+      "- [PERGUNTA NAO AGENDA] Se a ultima mensagem do lead for pergunta como 'Presencial ou on-line?', 'qual valor?', 'quanto tempo dura?', 'onde fica?', 'como funciona?' ou qualquer duvida parecida, responda a pergunta primeiro e NAO agende ainda. Depois peca confirmacao objetiva do horario escolhido.",
+      "- [PROMPT BASE ANTES DA AGENDA] Se o lead ainda esta respondendo a descoberta/qualificacao do Prompt Base, continue o fluxo do Prompt Base. Nao transforme resposta de dor, profissao, objetivo ou contexto em agendamento.",
       "- Se o lead pedir remarcacao, reagendamento, mudanca de dia/horario OU avisar que nao podera comparecer, acione SEMPRE edit_appointment para atualizar o horario.",
       "- Use cancel_appointment somente em cancelamento definitivo e explicito. Se houver chance de manter o lead, priorize reagendar imediatamente.",
       "- Se a tool de agendamento retornar erro, explique o motivo ao lead e proponha proximo horario valido.",
@@ -7628,6 +7816,27 @@ export class NativeAgentOrchestratorService {
       })
       if (resolvedEmail) {
         action.customer_email = resolvedEmail
+      }
+
+      const recentConversationRows = await params.chat
+        .loadConversation(params.sessionId, 16)
+        .catch(() => [])
+      const leadConfirmedSchedulingMutation = leadExplicitlyConfirmsSchedulingMutation(
+        String(params.leadMessageContext || ""),
+        recentConversationRows,
+      )
+      if (!leadConfirmedSchedulingMutation) {
+        return {
+          ok: false,
+          action,
+          error: "schedule_requires_explicit_lead_confirmation",
+          response: {
+            ok: false,
+            error: "schedule_requires_explicit_lead_confirmation",
+            instruction:
+              "Nao agende ainda. A ultima mensagem do lead nao confirmou data e horario de forma explicita; responda a pergunta atual e peca confirmacao clara do horario antes de chamar schedule_appointment.",
+          },
+        }
       }
 
       let preflightAlternativeSlots: Array<{ date: string; time: string }> = []
