@@ -23,6 +23,7 @@ export interface TenantBusinessHours {
     endHour: number        // 0-23
     endMinute: number      // 0-59
     businessDays: number[] // 0=Dom, 1=Seg...6=Sab
+    timezone?: string
 }
 
 /**
@@ -42,7 +43,8 @@ function parseTime(hhmm: string): { hour: number; minute: number } {
 export function parseTenantBusinessHours(
     startStr?: string,
     endStr?: string,
-    days?: number[]
+    days?: number[],
+    timezone?: string
 ): TenantBusinessHours {
     const start = parseTime(startStr || '07:00')
     const end = parseTime(endStr || '23:00')
@@ -73,13 +75,14 @@ export function parseTenantBusinessHours(
         endHour: normalizedEndHour,
         endMinute: normalizedEndMinute,
         businessDays: (days && days.length > 0) ? days : DEFAULT_BUSINESS_DAYS,
+        timezone: String(timezone || SAO_PAULO_TZ).trim() || SAO_PAULO_TZ,
     }
 }
 
 /**
  * Retorna os componentes de data/hora de "agora" em São Paulo
  */
-export function getNowInSaoPaulo(): {
+function getNowInTimezone(timezone = SAO_PAULO_TZ): {
     year: number
     month: number
     day: number
@@ -91,7 +94,7 @@ export function getNowInSaoPaulo(): {
     const now = new Date()
 
     const parts = new Intl.DateTimeFormat('en-US', {
-        timeZone: SAO_PAULO_TZ,
+        timeZone: timezone || SAO_PAULO_TZ,
         year: 'numeric',
         month: '2-digit',
         day: '2-digit',
@@ -115,6 +118,18 @@ export function getNowInSaoPaulo(): {
     }
 }
 
+export function getNowInSaoPaulo(): {
+    year: number
+    month: number
+    day: number
+    hour: number
+    minute: number
+    dayOfWeek: number
+    date: Date
+} {
+    return getNowInTimezone(SAO_PAULO_TZ)
+}
+
 /**
  * Retorna a hora atual em São Paulo (0-23)
  */
@@ -134,9 +149,10 @@ export function isWithinBusinessHours(tenantHours?: TenantBusinessHours): boolea
         endHour: DEFAULT_BUSINESS_END,
         endMinute: 0,
         businessDays: DEFAULT_BUSINESS_DAYS,
+        timezone: SAO_PAULO_TZ,
     }
 
-    const now = getNowInSaoPaulo()
+    const now = getNowInTimezone(bh.timezone || SAO_PAULO_TZ)
 
     // Verificar dia da semana
     if (!bh.businessDays.includes(now.dayOfWeek)) {
@@ -166,11 +182,13 @@ export function adjustToBusinessHours(
         endHour: DEFAULT_BUSINESS_END,
         endMinute: 0,
         businessDays: DEFAULT_BUSINESS_DAYS,
+        timezone: SAO_PAULO_TZ,
     }
 
     // Decompõe a data agendada no fuso de São Paulo
+    const timezone = bh.timezone || SAO_PAULO_TZ
     const parts = new Intl.DateTimeFormat('en-US', {
-        timeZone: SAO_PAULO_TZ,
+        timeZone: timezone,
         year: 'numeric',
         month: '2-digit',
         day: '2-digit',
@@ -223,7 +241,7 @@ export function adjustToBusinessHours(
         const candidate = new Date(scheduledDate.getTime() + i * 24 * 60 * 60 * 1000)
 
         const candParts = new Intl.DateTimeFormat('en-US', {
-            timeZone: SAO_PAULO_TZ,
+            timeZone: timezone,
             weekday: 'short',
         }).formatToParts(candidate)
 
@@ -277,13 +295,14 @@ export function getBusinessHoursDebugInfo(tenantHours?: TenantBusinessHours): {
     businessDays: number[]
     timezone: string
 } {
-    const now = getNowInSaoPaulo()
+    const now = getNowInTimezone(tenantHours?.timezone || SAO_PAULO_TZ)
     const bh = tenantHours || {
         startHour: DEFAULT_BUSINESS_START,
         startMinute: 0,
         endHour: DEFAULT_BUSINESS_END,
         endMinute: 0,
         businessDays: DEFAULT_BUSINESS_DAYS,
+        timezone: SAO_PAULO_TZ,
     }
 
     return {
@@ -294,6 +313,6 @@ export function getBusinessHoursDebugInfo(tenantHours?: TenantBusinessHours): {
         businessStart: `${String(bh.startHour).padStart(2, '0')}:${String(bh.startMinute).padStart(2, '0')}`,
         businessEnd: `${String(bh.endHour).padStart(2, '0')}:${String(bh.endMinute).padStart(2, '0')}`,
         businessDays: bh.businessDays,
-        timezone: SAO_PAULO_TZ,
+        timezone: bh.timezone || SAO_PAULO_TZ,
     }
 }

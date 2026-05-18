@@ -10270,6 +10270,7 @@ export class NativeAgentOrchestratorService {
       tenantCfg?.followupBusinessStart,
       tenantCfg?.followupBusinessEnd,
       effectiveFollowupDays,
+      tenantCfg?.timezone,
     )
     const runAt = adjustToBusinessHours(new Date(Date.now() + minutes * 60 * 1000), bh).toISOString()
 
@@ -10755,7 +10756,9 @@ export class NativeAgentOrchestratorService {
           console.warn("[native-agent] webhook pos-agendamento falhou:", err)
         }),
       )
-    } else if (params.config.postScheduleAutomationEnabled) {
+    }
+
+    if (params.config.postScheduleAutomationEnabled) {
       const delayMinutes = Math.max(0, Number(params.config.postScheduleDelayMinutes ?? 2))
       const runAt = new Date(Date.now() + delayMinutes * 60 * 1000).toISOString()
       const messageText = this.buildPostScheduleMessageTemplate(

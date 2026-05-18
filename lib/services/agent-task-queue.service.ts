@@ -1222,6 +1222,10 @@ export class AgentTaskQueueService {
       reminderMediaUrl?: string
       reminderCaption?: string
       reminderDocumentFileName?: string
+      postScheduleMessageMode: TaskMessageMode
+      postScheduleMediaUrl?: string
+      postScheduleCaption?: string
+      postScheduleDocumentFileName?: string
       remindersEnabled: boolean
       promptBase?: string
       conversationTone: NativeAgentConfig["conversationTone"]
@@ -1251,6 +1255,10 @@ export class AgentTaskQueueService {
     reminderMediaUrl?: string
     reminderCaption?: string
     reminderDocumentFileName?: string
+    postScheduleMessageMode: TaskMessageMode
+    postScheduleMediaUrl?: string
+    postScheduleCaption?: string
+    postScheduleDocumentFileName?: string
     remindersEnabled: boolean
     promptBase?: string
     conversationTone: NativeAgentConfig["conversationTone"]
@@ -1281,6 +1289,10 @@ export class AgentTaskQueueService {
         reminderMediaUrl: cached.reminderMediaUrl,
         reminderCaption: cached.reminderCaption,
         reminderDocumentFileName: cached.reminderDocumentFileName,
+        postScheduleMessageMode: cached.postScheduleMessageMode,
+        postScheduleMediaUrl: cached.postScheduleMediaUrl,
+        postScheduleCaption: cached.postScheduleCaption,
+        postScheduleDocumentFileName: cached.postScheduleDocumentFileName,
         remindersEnabled: cached.remindersEnabled,
         promptBase: cached.promptBase,
         conversationTone: cached.conversationTone,
@@ -1297,6 +1309,7 @@ export class AgentTaskQueueService {
       config?.followupBusinessStart,
       config?.followupBusinessEnd,
       effectiveFollowupDays,
+      config?.timezone,
     )
     const normalizedNotificationTargets = normalizeGroupNotificationTargets(
       Array.isArray(config?.toolNotificationTargets)
@@ -1337,6 +1350,10 @@ export class AgentTaskQueueService {
       reminderMediaUrl: String(config?.reminderMediaUrl || "").trim() || undefined,
       reminderCaption: String(config?.reminderCaption || "").trim() || undefined,
       reminderDocumentFileName: String(config?.reminderDocumentFileName || "").trim() || undefined,
+      postScheduleMessageMode: toTaskMessageMode(config?.postScheduleMessageMode, "text"),
+      postScheduleMediaUrl: String(config?.postScheduleMediaUrl || "").trim() || undefined,
+      postScheduleCaption: String(config?.postScheduleCaption || "").trim() || undefined,
+      postScheduleDocumentFileName: String(config?.postScheduleDocumentFileName || "").trim() || undefined,
       remindersEnabled: config?.remindersEnabled !== false,
       promptBase: String(config?.promptBase || "").trim() || undefined,
       conversationTone: config?.conversationTone || "consultivo",
@@ -2484,22 +2501,33 @@ export class AgentTaskQueueService {
     payload: Record<string, any>
     runtimeConfig: Awaited<ReturnType<AgentTaskQueueService["loadFollowupRuntimeConfig"]>>
   }): Promise<{ success: boolean; error?: string }> {
-    const source = input.taskType === "followup" ? "native-agent-followup" : "native-agent-reminder"
+    const source =
+      input.taskType === "followup"
+        ? "native-agent-followup"
+        : input.taskType === "post_schedule"
+          ? "native-agent-post-schedule"
+          : "native-agent-reminder"
     const fromConfigMode =
       input.taskType === "followup"
         ? input.runtimeConfig.followupMessageMode
-        : input.runtimeConfig.reminderMessageMode
+        : input.taskType === "post_schedule"
+          ? input.runtimeConfig.postScheduleMessageMode
+          : input.runtimeConfig.reminderMessageMode
     const mode = toTaskMessageMode(input.payload?.message_mode, fromConfigMode)
 
     const fromConfigMediaUrl =
       input.taskType === "followup"
         ? input.runtimeConfig.followupMediaUrl
-        : input.runtimeConfig.reminderMediaUrl
+        : input.taskType === "post_schedule"
+          ? input.runtimeConfig.postScheduleMediaUrl
+          : input.runtimeConfig.reminderMediaUrl
     const mediaUrl = String(input.payload?.media_url || fromConfigMediaUrl || "").trim()
     const fromConfigCaption =
       input.taskType === "followup"
         ? input.runtimeConfig.followupCaption
-        : input.runtimeConfig.reminderCaption
+        : input.taskType === "post_schedule"
+          ? input.runtimeConfig.postScheduleCaption
+          : input.runtimeConfig.reminderCaption
     const isOfficialReminderCaption =
       input.taskType === "reminder" &&
       OFFICIAL_REMINDER_TYPES.includes(
@@ -2514,7 +2542,9 @@ export class AgentTaskQueueService {
     const fromConfigFileName =
       input.taskType === "followup"
         ? input.runtimeConfig.followupDocumentFileName
-        : input.runtimeConfig.reminderDocumentFileName
+        : input.taskType === "post_schedule"
+          ? input.runtimeConfig.postScheduleDocumentFileName
+          : input.runtimeConfig.reminderDocumentFileName
     const fileName = String(input.payload?.file_name || fromConfigFileName || "").trim()
 
     if (mode === "text" || !mediaUrl) {
@@ -2941,11 +2971,17 @@ export class AgentTaskQueueService {
           }
         }
 
+        const reminderBusinessDays = loadedReminderConfig
+          ? (loadedReminderConfig.businessDays || [])
+              .map((value) => Number(value))
+              .filter((value) => Number.isInteger(value) && value >= 1 && value <= 6)
+          : []
         const reminderBusinessHours = loadedReminderConfig
           ? parseTenantBusinessHours(
               loadedReminderConfig.businessStart,
               loadedReminderConfig.businessEnd,
-              loadedReminderConfig.businessDays,
+              reminderBusinessDays.length ? reminderBusinessDays : undefined,
+              loadedReminderConfig.timezone,
             )
           : runtimeConfig?.businessHours
 
@@ -3244,12 +3280,13 @@ export class AgentTaskQueueService {
         message = message.replace(/[\p{Extended_Pictographic}\p{Emoji_Presentation}]/gu, "").replace(/\s{2,}/g, " ").trim()
       }
 
+      const dispatchTaskType = isPostScheduleReminder ? "post_schedule" : taskType
       const send = await this.dispatchTaskMessage({
         tenant,
         phone,
         sessionId,
         message,
-        taskType,
+        taskType: dispatchTaskType,
         payload,
         runtimeConfig,
       })

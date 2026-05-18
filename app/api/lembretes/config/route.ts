@@ -46,7 +46,9 @@ export async function PATCH(req: Request) {
       businessStart: validateTime(body.businessStart) || current.businessStart,
       businessEnd: validateTime(body.businessEnd) || current.businessEnd,
       businessDays: Array.isArray(body.businessDays)
-        ? body.businessDays.filter((d: any) => typeof d === "number" && d >= 0 && d <= 6)
+        ? body.businessDays
+            .map((d: any) => Number(d))
+            .filter((d: number) => Number.isInteger(d) && d >= 1 && d <= 6)
         : current.businessDays,
       timezone:
         typeof body.timezone === "string" && body.timezone.trim().length > 0
