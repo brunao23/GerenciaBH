@@ -320,6 +320,26 @@ function normalizeComparableMessage(value: string): string {
     .trim()
 }
 
+function compactComparableMessage(value: string): string {
+  return normalizeComparableMessage(value)
+    .replace(/[^a-z0-9@\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function isGreetingOnlyLeadMessage(value: string): boolean {
+  const text = compactComparableMessage(value)
+  if (!text || text.length > 70) return false
+
+  return (
+    /^(oi+|ola+|opa|e ai|salve|bom dia|boa tarde|boa noite|boa|bom)$/.test(text) ||
+    /^(oi+|ola+|opa|e ai)\s+(bom dia|boa tarde|boa noite)$/.test(text) ||
+    /^(bom dia|boa tarde|boa noite)\s+(tudo bem|td bem|como vai|como voce esta)$/.test(text) ||
+    /^(oi+|ola+|opa|e ai)\s+(tudo bem|td bem|como vai|como voce esta)$/.test(text) ||
+    /^(tudo bem|td bem|tudo certo|como vai)$/.test(text)
+  )
+}
+
 function buildInboundMediaContext(input: HandleInboundMessageInput): string {
   if (!input.hasMedia) return ""
   const mediaType = String(input.mediaType || "").toLowerCase()
@@ -488,7 +508,10 @@ function enforcePromptBaseDiscoveryBeforeScheduling(params: {
 }): { responseText: string; blocked: boolean } {
   const responseText = String(params.responseText || "").trim()
   if (!responseText) return { responseText, blocked: false }
-  if (!leadIsAnsweringPromptBaseDiscovery(params.leadMessage, params.conversationRows)) {
+  const shouldKeepPromptBaseFlow =
+    leadIsAnsweringPromptBaseDiscovery(params.leadMessage, params.conversationRows) ||
+    latestLeadMessageIsGenericNonSchedulingReply(params.leadMessage, params.conversationRows)
+  if (!shouldKeepPromptBaseFlow) {
     return { responseText, blocked: false }
   }
   if (!responseMentionsAvailabilityOrSpecificSlots(responseText)) {
@@ -542,6 +565,7 @@ function leadAskedNightOrPeriodHours(value: string): boolean {
 function leadSelectedSingleSchedulingPeriod(value: string): "manha" | "tarde" | "noite" | null {
   const text = normalizeComparableMessage(value)
   if (!text || text.length > 60) return null
+  if (isGreetingOnlyLeadMessage(value)) return null
   const hasQuestion = /\?|\b(que horas|qual horario|quais horarios|quanto|valor|onde|como)\b/.test(text)
   if (hasQuestion) return null
   if (/\b(trabalho|trabalhar|estudo|estudar|curso|atuo|rotina)\b/.test(text)) return null
@@ -566,6 +590,56 @@ function latestLeadMessageIsSchedulingQuestionOrInfoRequest(value: string): bool
     /\b(qual|quais|como|onde|quando|quanto|porque|por que|que horas|a que horas)\b/.test(text) ||
     /\b(valor|valores|preco|precos|mensalidade|investimento|duracao|dura|tempo|endereco|localizacao|referencia|funciona|modalidade)\b/.test(text)
   )
+}
+
+function latestLeadMessageIsGenericNonSchedulingReply(
+  value: string,
+  conversationRows?: any[],
+): boolean {
+  const compact = compactComparableMessage(value)
+  if (!compact) return false
+  if (isGreetingOnlyLeadMessage(value)) return true
+
+  if (latestLeadMessageIsSchedulingQuestionOrInfoRequest(value)) return false
+  if (leadExplicitlyRequestsScheduling(value)) return false
+  if (extractEmailCandidate(value)) return false
+  if (extractSchedulingTimeCandidate(value)) return false
+  if (/\b(hoje|amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo|dia\s+\d{1,2})\b/.test(compact)) {
+    return false
+  }
+  if (leadSelectedSingleSchedulingPeriod(value)) return false
+
+  const hasRecentScheduleOffer = hasRecentAssistantOfferedSchedule(conversationRows)
+  const hasRecentSchedulingInvite = recentAssistantInvitedScheduling(conversationRows)
+  const shortConfirmation =
+    /^(sim|s|ok|okay|certo|ta|ta bom|t[aá] bom|beleza|blz|show|perfeito|combinado|pode ser|isso|isso mesmo|confirmo|fechado)$/.test(
+      compact,
+    )
+  if (shortConfirmation && (hasRecentScheduleOffer || hasRecentSchedulingInvite)) return false
+
+  return (
+    shortConfirmation ||
+    /^(nao|n|nao obrigada|obrigado|obrigada|valeu|entendi|aham|uhum|hum|hmm)$/.test(compact)
+  )
+}
+
+function recentAssistantInvitedScheduling(rows: any[] | undefined): boolean {
+  const ordered = Array.isArray(rows) ? [...rows].reverse() : []
+  for (const row of ordered.slice(0, 6)) {
+    const message = row?.message || row || {}
+    const role = String(message?.role || row?.role || "").trim().toLowerCase()
+    if (role !== "assistant") continue
+    const text = normalizeComparableMessage(String(message?.content || row?.content || ""))
+    if (!text) continue
+    if (
+      /\b(manha|tarde|noite)\b.{0,80}\b(funciona|prefere|melhor)\b/.test(text) ||
+      /\b(quer|podemos|vamos|posso|gostaria|topa)\b.{0,100}\b(agendar|marcar|diagnostico|avaliacao|consultoria)\b/.test(text) ||
+      /\b(agendar|marcar|reservar)\b.{0,100}\?/.test(text)
+    ) {
+      return true
+    }
+  }
+  return false
 }
 
 function recentAssistantRequestedSchedulingEmail(rows: any[] | undefined): boolean {
@@ -1109,6 +1183,7 @@ function hasAppointmentMutationExecution(executions: GeminiToolExecution[] | und
 function detectsAvailabilityLookupIntent(rawMessage: string): boolean {
   const text = normalizeComparableMessage(rawMessage)
   if (!text) return false
+  if (isGreetingOnlyLeadMessage(rawMessage)) return false
   if (detectsSchedulingIntent(rawMessage)) return true
   if (leadSelectedSingleSchedulingPeriod(rawMessage)) return true
 
@@ -4087,6 +4162,28 @@ export class NativeAgentOrchestratorService {
       effectiveLeadMessage || content,
       conversationRows,
     )
+    const latestLeadGenericNonSchedulingReply = latestLeadMessageIsGenericNonSchedulingReply(
+      effectiveLeadMessage || content,
+      conversationRows,
+    )
+    const promptBaseSchedulingToolBlockReason = promptBaseDiscoveryAnswerInProgress
+      ? "prompt_base_discovery_step_not_ready"
+      : latestLeadGenericNonSchedulingReply
+        ? "prompt_base_generic_reply_not_scheduling_intent"
+        : ""
+    const blockSchedulingToolForPromptBase = (): Promise<GeminiToolHandlerResult> =>
+      Promise.resolve({
+        ok: false,
+        action: { type: "none" as AgentActionPlan["type"] },
+        response: {
+          ok: false,
+          error: promptBaseSchedulingToolBlockReason || "prompt_base_flow_not_ready",
+          guidance: latestLeadGenericNonSchedulingReply
+            ? "The latest lead message is only a greeting or short generic reply. Do not use scheduling tools; answer naturally and continue the prompt base funnel/discovery step."
+            : "Continue the prompt base discovery/qualification step before using scheduling tools.",
+        },
+        error: promptBaseSchedulingToolBlockReason || "prompt_base_flow_not_ready",
+      } satisfies GeminiToolHandlerResult)
     const assistantMessagesCount = conversationRows.filter((turn) => turn.role === "assistant").length
     const userMessagesCount = conversationRows.filter((turn) => turn.role === "user").length
 
@@ -4315,17 +4412,8 @@ export class NativeAgentOrchestratorService {
           functionDeclarations: this.buildFunctionDeclarations(config, { source: input.source }),
           onToolCall: (toolCall) => {
             const toolName = String(toolCall?.name || "").trim().toLowerCase()
-            if (promptBaseDiscoveryAnswerInProgress && SCHEDULING_TOOL_TYPES.has(toolName)) {
-              return Promise.resolve({
-                ok: false,
-                action: { type: "none" as AgentActionPlan["type"] },
-                response: {
-                  ok: false,
-                  error: "prompt_base_discovery_step_not_ready",
-                  guidance: "Continue the prompt base discovery/qualification step before using scheduling tools.",
-                },
-                error: "prompt_base_discovery_step_not_ready",
-              } satisfies GeminiToolHandlerResult)
+            if (promptBaseSchedulingToolBlockReason && SCHEDULING_TOOL_TYPES.has(toolName)) {
+              return blockSchedulingToolForPromptBase()
             }
             return this.executeToolCall({
               toolCall,
@@ -4369,17 +4457,8 @@ export class NativeAgentOrchestratorService {
                 functionDeclarations: this.buildFunctionDeclarations(config, { source: input.source }),
                 onToolCall: (toolCall) => {
                   const toolName = String(toolCall?.name || "").trim().toLowerCase()
-                  if (promptBaseDiscoveryAnswerInProgress && SCHEDULING_TOOL_TYPES.has(toolName)) {
-                    return Promise.resolve({
-                      ok: false,
-                      action: { type: "none" as AgentActionPlan["type"] },
-                      response: {
-                        ok: false,
-                        error: "prompt_base_discovery_step_not_ready",
-                        guidance: "Continue the prompt base discovery/qualification step before using scheduling tools.",
-                      },
-                      error: "prompt_base_discovery_step_not_ready",
-                    } satisfies GeminiToolHandlerResult)
+                  if (promptBaseSchedulingToolBlockReason && SCHEDULING_TOOL_TYPES.has(toolName)) {
+                    return blockSchedulingToolForPromptBase()
                   }
                   return this.executeToolCall({
                     toolCall,
@@ -4592,17 +4671,8 @@ export class NativeAgentOrchestratorService {
             functionDeclarations: this.buildFunctionDeclarations(config, { source: input.source }),
             onToolCall: (toolCall) => {
               const toolName = String(toolCall?.name || "").trim().toLowerCase()
-              if (promptBaseDiscoveryAnswerInProgress && SCHEDULING_TOOL_TYPES.has(toolName)) {
-                return Promise.resolve({
-                  ok: false,
-                  action: { type: "none" as AgentActionPlan["type"] },
-                  response: {
-                    ok: false,
-                    error: "prompt_base_discovery_step_not_ready",
-                    guidance: "Continue the prompt base discovery/qualification step before using scheduling tools.",
-                  },
-                  error: "prompt_base_discovery_step_not_ready",
-                } satisfies GeminiToolHandlerResult)
+              if (promptBaseSchedulingToolBlockReason && SCHEDULING_TOOL_TYPES.has(toolName)) {
+                return blockSchedulingToolForPromptBase()
               }
               return this.executeToolCall({
                 toolCall,
@@ -4933,6 +5003,7 @@ export class NativeAgentOrchestratorService {
           details: {
             debug_event: "prompt_base_discovery_schedule_blocked",
             debug_severity: "warning",
+            block_reason: promptBaseSchedulingToolBlockReason || "prompt_base_response_guard",
             lead_preview: String(effectiveLeadMessage || content || "").slice(0, 180),
             blocked_reply_preview: String(decision.reply || "").slice(0, 240),
           },
@@ -7043,6 +7114,7 @@ export class NativeAgentOrchestratorService {
     const schedulingAndFlowBlock = ([
       "REGRAS CRITICAS DE AGENDAMENTO (PRECISAO OBRIGATORIA):",
       "- [NAO PULAR ETAPAS] As regras de agenda so podem ser usadas quando o Prompt Base ja chegou na etapa de agendamento OU quando o lead pedir/confirmar horario, data, vaga, agenda ou disponibilidade. Se o lead estiver respondendo pergunta de descoberta/qualificacao, continue o Prompt Base e NAO ofereca datas.",
+      "- [SAUDACAO NAO E AGENDA] Se a ultima mensagem do lead for apenas saudacao ou retorno generico curto (ex.: 'oi', 'ola', 'bom dia', 'boa tarde', 'boa noite', 'tudo bem', 'ok', 'sim') e nao houver confirmacao clara de data/horario, responda naturalmente e continue o Prompt Base. NAO consulte agenda e NAO ofereca horarios.",
       "- [OBRIGATORIO] ANTES de qualquer resposta que mencione datas, dias, horarios, disponibilidade ou 'quando', voce DEVE chamar get_available_slots. SEM EXCECAO.",
       "- [PROIBIDO] NUNCA mencione datas, dias da semana, turnos (manha/tarde/noite) ou horarios sem ANTES chamar get_available_slots e usar os resultados reais da ferramenta.",
       "- [PROIBIDO] NUNCA use seu conhecimento de treinamento para responder sobre disponibilidade. Datas do seu treinamento estao ERRADAS. Use SOMENTE o retorno de get_available_slots.",
