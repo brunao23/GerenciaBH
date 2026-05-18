@@ -281,6 +281,7 @@ function firstName(name?: string): string | null {
 
   // Texto sem acentos para checar padrÃµes invÃ¡lidos
   const flat = cleanNoTilde.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, "")
+  if (isSuspiciousLeadNameToken(cleanNoTilde)) return null
 
   // Rejeitar risadas e onomatopeias (kkk, hahaha, rsrs)
   const laughRegex = /^(k+)(a|k|s)*$|^(h?a+h+)(a|h|s)*$|^(h?e+h+)(e|h|s)*$|^(rs)+s*$/i
@@ -295,10 +296,12 @@ function firstName(name?: string): string | null {
   // Quebra CamelCase: "GabriellaMoraes" -> "Gabriella Moraes"
   const expanded = cleanNoTilde.replace(/([a-z\u00C0-\u017E])([A-Z\u0178-\u024F])/g, "$1 $2")
   const parts = expanded.split(" ").map((p) => p.trim()).filter(Boolean)
+  if (parts.length === 1 && flat.length >= 12) return null
 
   for (const part of parts) {
     const partFlat = part.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
     if (blocked.has(partFlat)) continue
+    if (isSuspiciousLeadNameToken(part)) continue
     if (!/[a-zA-Z\u00C0-\u024F]/.test(part)) continue
     if (part.length < 2) continue
     // Rejeitar palavras sem vogal
@@ -993,6 +996,10 @@ function detectNegativeLeadIntent(rawMessage: string): NegativeIntentResult {
     /\b(retorno|falo|chamo|procuro)\s+(depois|mais\s+tarde|quando\s+puder)/,
     /\bmais\s+(pra|para)\s+frente\s+(eu\s+)?(vejo|falo|chamo|procuro|retorno)/,
     /\bdepois\s+eu\s+(te\s+)?(ligo|chamo|procuro|falo)/,
+    /\b(ainda\s+nao|agora\s+nao)\b.{0,50}\b(aguardar|esperar|espera|um\s+pouco)\b/,
+    /\b(aguarda|aguarde|espera|espere|vamos\s+aguardar|pode\s+aguardar|vou\s+aguardar)\s+(um\s+pouco|mais\s+um\s+pouco|so\s+um\s+pouco|mais)\b/,
+    /\bme\s+(da|de)\s+(um\s+)?tempo\b/,
+    /\bpreciso\s+(pensar|ver|avaliar)\b.{0,60}\b(depois|mais\s+tarde|retorno|te\s+chamo|entro\s+em\s+contato)\b/,
   ]
 
   for (const pattern of willContactPatterns) {
@@ -2653,6 +2660,43 @@ function normalizeNameForCompare(value: string): string {
     .replace(/[\u0300-\u036f]/g, "")
 }
 
+function compactLeadNameToken(value: string): string {
+  return normalizeNameForCompare(value).replace(/[^a-z0-9]/g, "")
+}
+
+function isSuspiciousLeadNameToken(value: string): boolean {
+  const compact = compactLeadNameToken(value)
+  if (!compact) return true
+
+  const invalidExactTokens = new Set([
+    "bobs",
+    "bot",
+    "demo",
+    "teste",
+    "test",
+    "lead",
+    "cliente",
+    "usuario",
+    "user",
+    "unknown",
+    "undefined",
+    "null",
+    "semnome",
+    "whatsapp",
+    "zap",
+    "vendas",
+    "comercial",
+  ])
+  if (invalidExactTokens.has(compact)) return true
+
+  const suspiciousFragments = ["bobs", "demo", "teste", "testlead", "leadtest", "clientelead"]
+  if (suspiciousFragments.some((fragment) => compact.includes(fragment))) return true
+  if (/^(?:nome|lead|cliente|user|usuario)\d+$/.test(compact)) return true
+  if (/^\d+$/.test(compact)) return true
+
+  return false
+}
+
 function isNonPersonContactDisplayName(contactName?: string | null): boolean {
   const raw = String(contactName || "")
     .normalize("NFKC")
@@ -2671,6 +2715,7 @@ function isNonPersonContactDisplayName(contactName?: string | null): boolean {
   if (!normalized) return true
 
   const compact = normalized.replace(/\s+/g, "")
+  if (isSuspiciousLeadNameToken(normalized)) return true
   const laughRegex = /^(k+)(a|k|s)*$|^(h?a+h+)(a|h|s)*$|^(h?e+h+)(e|h|s)*$|^(rs)+s*$/i
   if (laughRegex.test(compact)) return true
   if (!/[aeiouy]/.test(compact)) return true
@@ -2679,6 +2724,7 @@ function isNonPersonContactDisplayName(contactName?: string | null): boolean {
   const words = normalized.split(/\s+/).filter(Boolean)
   const firstWord = words[0] || ""
   if (!firstWord || firstWord.length <= 2) return true
+  if (words.length === 1 && compact.length >= 12) return true
 
   const nonNameWords = new Set([
     "de", "da", "do", "das", "dos", "e",
@@ -2713,6 +2759,7 @@ function sanitizeSafeVocativeName(contactName?: string | null): string | null {
   if (!base) return null
   const flat = normalizeNameForCompare(base)
   if (!flat || flat.length <= 2) return null
+  if (isSuspiciousLeadNameToken(base)) return null
   if (/(.)\1{2,}/.test(flat)) return null
   if (/(inho|inha|zinho|zinha|ete|eta|ito|ita)$/.test(flat)) return null
   return base
@@ -2759,6 +2806,61 @@ function fixGreetingTemporalAndVocative(
 
   const replaced = content.replace(openingPattern, correctedPrefix)
   return replaced.trim()
+}
+
+function stripUnsafeLeadNameVocatives(text: string, contactName?: string | null): string {
+  const content = String(text || "").trim()
+  if (!content) return ""
+
+  const safeName = sanitizeSafeVocativeName(contactName)
+  const safeNorm = safeName ? normalizeNameForCompare(safeName) : ""
+  const token = "[A-ZÀ-ÖØ-Þ][\\p{L}'-]{2,30}"
+
+  const isAllowed = (candidate: string): boolean => {
+    const safeCandidate = sanitizeSafeVocativeName(candidate)
+    if (!safeCandidate || !safeNorm) return false
+    return normalizeNameForCompare(safeCandidate) === safeNorm
+  }
+
+  const replaceNameOnly = (candidate: string, punctuation = ""): string => {
+    if (isAllowed(candidate)) return `${candidate}${punctuation}`
+    return safeName ? `${safeName}${punctuation}` : punctuation
+  }
+
+  let next = content
+
+  next = next.replace(
+    new RegExp(
+      `^(Compreendo|Entendo|Certo|Combinado|Perfeito|Ok|Tudo bem|Faz sentido|Sem problema|Sem problemas),\\s+(${token})([.!?,])?\\s*`,
+      "iu",
+    ),
+    (match, opener: string, candidate: string, punctuation: string) => {
+      if (isAllowed(candidate)) return match
+      return `${opener}${punctuation || "."} `
+    },
+  )
+
+  next = next.replace(
+    new RegExp(`^(${token})([!,.])\\s+`, "u"),
+    (match, candidate: string, punctuation: string) => {
+      const candidateNorm = normalizeNameForCompare(candidate)
+      if (["compreendo", "entendo", "certo", "combinado", "perfeito", "ok"].includes(candidateNorm)) {
+        return match
+      }
+      if (isAllowed(candidate)) return match
+      return safeName ? `${safeName}${punctuation} ` : ""
+    },
+  )
+
+  next = next.replace(
+    new RegExp(`,\\s+(${token})(?=\\s*[.!?])`, "gu"),
+    (match, candidate: string) => {
+      if (isAllowed(candidate)) return match
+      return safeName ? `, ${replaceNameOnly(candidate)}` : ""
+    },
+  )
+
+  return normalizeSentenceFlowPtBr(next)
 }
 
 function parseTimeRangeToMinutes(input: string): { start: number; end: number } | null {
@@ -4993,6 +5095,7 @@ export class NativeAgentOrchestratorService {
     }
 
     responseText = fixGreetingTemporalAndVocative(responseText, config, resolvedContactName)
+    responseText = stripUnsafeLeadNameVocatives(responseText, resolvedContactName)
     responseText = applyTemporalPeriodGuard(responseText, config)
     responseText = enforceSchedulingResponseWeekdayConsistency(
       responseText,
@@ -5019,6 +5122,7 @@ export class NativeAgentOrchestratorService {
         allowEmojis: config.moderateEmojiEnabled !== false,
         allowLanguageVices: false,
       })
+      responseText = stripUnsafeLeadNameVocatives(responseText, resolvedContactName)
       await this
         .persistDebugStatus({
           chat,
@@ -5051,7 +5155,10 @@ export class NativeAgentOrchestratorService {
         allowLanguageVices: false,
       })
       responseText = applyTemporalPeriodGuard(
-        fixGreetingTemporalAndVocative(sanitizedFallback, config, resolvedContactName),
+        stripUnsafeLeadNameVocatives(
+          fixGreetingTemporalAndVocative(sanitizedFallback, config, resolvedContactName),
+          resolvedContactName,
+        ),
         config,
       )
       responseText = enforceExplicitDateCalendarConsistency(
@@ -6423,7 +6530,10 @@ export class NativeAgentOrchestratorService {
           topK: 20,
         },
       })
-      return this.cleanAutoPauseAcknowledgement(String(decision.reply || ""), fallback, { stripGreeting: true })
+      return stripUnsafeLeadNameVocatives(
+        this.cleanAutoPauseAcknowledgement(String(decision.reply || ""), fallback, { stripGreeting: true }),
+        params.contactName,
+      )
     } catch (error) {
       console.warn("[native-agent][auto-pause] failed to build AI acknowledgement:", error)
       return fallback
