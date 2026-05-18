@@ -4010,6 +4010,8 @@ export class NativeAgentOrchestratorService {
         category: negativeIntent.category,
         leadMessage: content,
         contactName: contactFirstName || undefined,
+        sessionId,
+        chat,
       })
       // bot_message nao recebe resposta (e mensagem automatica, nÃ£o tem humano)
 
@@ -6288,7 +6290,7 @@ export class NativeAgentOrchestratorService {
       case "dissatisfaction":
         return "Sinto muito pela experiencia. Vou deixar registrado para a equipe acompanhar com atencao."
       case "travel_later":
-        return "Combinado. Boa viagem e fique a vontade para me chamar quando retornar."
+        return "Combinado. Boa viagem e fique a vontade para me chamar quando quiser retomar."
       case "will_contact_later":
         return "Combinado. Fico a disposicao por aqui. Quando quiser retomar, e so me chamar."
       default:
@@ -6296,7 +6298,34 @@ export class NativeAgentOrchestratorService {
     }
   }
 
-  private cleanAutoPauseAcknowledgement(value: string, fallback: string): string {
+  private stripConversationRestartGreeting(value: string): string {
+    const original = String(value || "").trim()
+    if (!original) return ""
+    const stripped = original
+      .replace(/^(?:oi+|ola|ol[aá]|oie|bom dia|boa tarde|boa noite)[,\s!]+(?:[A-ZÀ-Ÿ][A-Za-zÀ-ÿ]{1,24})?[,\s!.]+/i, "")
+      .replace(/^(?:oi+|ola|ol[aá]|oie)[,\s!]+/i, "")
+      .trim()
+    return stripped.length >= 8 ? stripped : original
+  }
+
+  private formatConversationContextForAutoPause(turns: Array<{ role: string; content: string; createdAt?: string }>): string {
+    const relevant = (Array.isArray(turns) ? turns : [])
+      .filter((turn) => turn.role === "user" || turn.role === "assistant")
+      .map((turn) => ({
+        role: turn.role === "assistant" ? "IA" : "Lead",
+        content: repairMojibakeDeep(String(turn.content || "")).replace(/\s+/g, " ").trim(),
+      }))
+      .filter((turn) => turn.content && !looksLikeInternalDecisionPayload(turn.content))
+      .slice(-10)
+
+    if (!relevant.length) return ""
+    return relevant
+      .map((turn) => `${turn.role}: ${turn.content.slice(0, 260)}`)
+      .join("\n")
+      .slice(0, 1800)
+  }
+
+  private cleanAutoPauseAcknowledgement(value: string, fallback: string, options?: { stripGreeting?: boolean }): string {
     let text = repairMojibakeDeep(String(value || ""))
       .replace(/```[\s\S]*?```/g, " ")
       .replace(/\{[\s\S]*?\}/g, " ")
@@ -6321,6 +6350,15 @@ export class NativeAgentOrchestratorService {
       .replace(/\ba vontade\b/gi, "à vontade")
       .trim()
 
+    if (options?.stripGreeting) {
+      text = this.stripConversationRestartGreeting(text)
+      text = text
+        .replace(/\bque bom que voc[eê] est[aá] viajando[!.]?\s*/i, "")
+        .replace(/\baproveite bastante[!.]?\s*/i, "Boa viagem. ")
+        .replace(/\s+/g, " ")
+        .trim()
+    }
+
     if (text.length > 260) {
       text = `${text.slice(0, 257).trim()}...`
     }
@@ -6333,27 +6371,40 @@ export class NativeAgentOrchestratorService {
     category: NegativeIntentResult["category"]
     leadMessage: string
     contactName?: string | null
+    sessionId?: string
+    chat?: TenantChatHistoryService
   }): Promise<string> {
     if (params.category === "bot_message") return ""
 
     const fallback = this.cleanAutoPauseAcknowledgement(
       this.fallbackAutoPauseAcknowledgement(params.category),
       "",
+      { stripGreeting: true },
     )
     if (!fallback) return ""
+    const conversationTurns = params.sessionId
+      ? await (params.chat || new TenantChatHistoryService(params.tenant))
+        .loadConversation(params.sessionId, 18)
+        .catch(() => [])
+      : []
+    const recentContext = this.formatConversationContextForAutoPause(conversationTurns)
 
     const prompt = [
       "Gere a resposta final para enviar ao lead no WhatsApp.",
-      "A mensagem do lead indica que a automacao sera pausada por seguranca operacional, mas o texto para o lead deve ser natural, humano e sem termos tecnicos.",
+      "A mensagem do lead indica que a automacao sera pausada por seguranca operacional, mas o texto para o lead deve ser natural, humano, contextual e sem termos tecnicos.",
       "",
       `Categoria interna: ${params.category || "desconhecida"}`,
       params.contactName ? `Nome do lead: ${params.contactName}` : "Nome do lead: nao informado",
       `Mensagem do lead: ${String(params.leadMessage || "").slice(0, 700)}`,
+      recentContext ? `Historico recente da conversa:\n${recentContext}` : "",
       "",
       "Regras obrigatorias:",
       "- Responda em portugues do Brasil, com acentos corretos.",
       "- Nao use JSON, markdown, aspas, lista, explicacao ou texto tecnico.",
       "- Nao fale em sistema, automacao, prompt, ferramenta, fila ou follow-up.",
+      "- Leia o historico recente e responda como continuidade da conversa, nao como uma nova abordagem.",
+      "- Nao comece com 'Oi', 'Ola', 'Bom dia', 'Boa tarde' ou saudacao parecida quando ja existe conversa recente.",
+      "- Nao elogie viagem de forma estranha. Se o lead disse que esta em viagem, responda com naturalidade e deixe aberto para retomar depois.",
       "- Para 'will_contact_later' ou 'travel_later', nao diga que vai pausar atendimento; apenas acolha e deixe a porta aberta.",
       "- Para opt-out, respeite sem insistir.",
       "- Para insatisfacao, seja breve, respeitoso e encaminhe o cuidado para a equipe sem prometer algo inexistente.",
@@ -6372,7 +6423,7 @@ export class NativeAgentOrchestratorService {
           topK: 20,
         },
       })
-      return this.cleanAutoPauseAcknowledgement(String(decision.reply || ""), fallback)
+      return this.cleanAutoPauseAcknowledgement(String(decision.reply || ""), fallback, { stripGreeting: true })
     } catch (error) {
       console.warn("[native-agent][auto-pause] failed to build AI acknowledgement:", error)
       return fallback
