@@ -40,6 +40,7 @@ import { useEffect, useState } from "react"
 
 const adminItems = [
     { title: "Unidades", url: "/admin/units", icon: Server },
+    { title: "Prompt Studio IA", url: "/admin/prompt-studio", icon: Bot },
     { title: "Resultados / Leads", url: "/admin/leads", icon: BarChart },
     { title: "Gerar Relatórios", url: "/admin/reports", icon: FileText },
     { title: "Custos IA", url: "/admin/costs", icon: Coins },
