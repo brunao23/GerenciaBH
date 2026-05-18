@@ -12,7 +12,7 @@ import { notifyAdminUpdate } from "@/lib/services/tenant-notifications"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
-export const maxDuration = 120
+export const maxDuration = 60
 
 async function requireAdmin() {
   const cookieStore = await cookies()
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}))
     const tenant = normalizeTenant(body?.tenant)
     const instruction = String(body?.instruction || "").trim()
-    const maxMessages = Number(body?.maxMessages || 260)
+    const maxMessages = Number(body?.maxMessages || 180)
 
     if (!tenant) return jsonError("Unidade invalida", 400)
     if (!instruction) return jsonError("Informe o pedido para os multiagentes", 400)

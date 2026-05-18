@@ -97,6 +97,8 @@ const DEFAULT_REVIEW: PromptStudioReview = {
   risks: [],
 }
 
+const PROMPT_STUDIO_LLM_TIMEOUT_MS = 42000
+
 const PromptStudioAnnotation = Annotation.Root({
   tenant: Annotation<string>(),
   unitName: Annotation<string>(),
@@ -172,7 +174,7 @@ function normalizeRole(message: any): "user" | "assistant" | "system" {
 }
 
 function extractMessageContent(message: any): string {
-  return clip(message?.content || message?.text || message?.body || message?.caption || "", 900)
+  return clip(message?.content || message?.text || message?.body || message?.caption || "", 500)
 }
 
 function extractPossiblePhone(value: any): string {
@@ -225,8 +227,8 @@ function getRowDate(row: any): string {
 function buildTranscript(rows: Array<{ role: "user" | "assistant"; content: string; createdAt?: string }>, maxChars = 3600): string {
   const relevant = rows
     .filter((row) => row.content)
-    .slice(-18)
-    .map((row) => `${row.role === "assistant" ? "IA" : "Lead"}: ${clip(row.content, 450)}`)
+    .slice(-10)
+    .map((row) => `${row.role === "assistant" ? "IA" : "Lead"}: ${clip(row.content, 260)}`)
     .join("\n")
 
   return relevant.length <= maxChars ? relevant : relevant.slice(-maxChars)
@@ -276,6 +278,20 @@ function buildFallbackPrompt(state: PromptStudioState): string {
   ].join("\n")
 }
 
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error(`${label}_timeout_${timeoutMs}ms`)), timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timeout) clearTimeout(timeout)
+  }
+}
+
 async function callPromptStudioLlm(
   config: NativeAgentConfig,
   tenant: string,
@@ -284,16 +300,20 @@ async function callPromptStudioLlm(
 ): Promise<string> {
   const llm = LLMFactory.getService(config, { tenant })
   const conversation: GeminiConversationMessage[] = [{ role: "user", content: userPrompt }]
-  const decision = await llm.decideNextTurn({
-    systemPrompt,
-    conversation,
-    nowIso: nowIso(),
-    sampling: {
-      temperature: 0.25,
-      topP: 0.85,
-      topK: 40,
-    },
-  })
+  const decision = await withTimeout(
+    llm.decideNextTurn({
+      systemPrompt,
+      conversation,
+      nowIso: nowIso(),
+      sampling: {
+        temperature: 0.25,
+        topP: 0.85,
+        topK: 40,
+      },
+    }),
+    PROMPT_STUDIO_LLM_TIMEOUT_MS,
+    "prompt_studio_llm",
+  )
   return String(decision?.reply || "").trim()
 }
 
@@ -312,7 +332,7 @@ async function loadRecentConversationSamples(tenant: string, maxMessages: number
   const supabase = createBiaSupabaseServerClient()
   const chatService = new TenantChatHistoryService(tenant)
   const table = await chatService.getChatTableName()
-  const limit = Math.max(60, Math.min(800, maxMessages))
+  const limit = Math.max(40, Math.min(260, maxMessages))
 
   const { data, error } = await supabase
     .from(table)
@@ -359,13 +379,13 @@ async function loadRecentConversationSamples(tenant: string, maxMessages: number
         phone,
         messageCount: rows.length,
         lastAt: last?.createdAt,
-        transcript: buildTranscript(rows),
+        transcript: buildTranscript(rows, 1800),
         scheduled: false,
       }
     })
     .filter((sample) => sample.transcript)
     .sort((a, b) => String(b.lastAt || "").localeCompare(String(a.lastAt || "")))
-    .slice(0, 40)
+    .slice(0, 28)
 
   return {
     samples,
@@ -380,11 +400,11 @@ async function loadScheduledRecords(tenant: string) {
     .from(tables.agendamentos)
     .select("*")
     .order("created_at", { ascending: false })
-    .limit(120)
+    .limit(60)
 
   if (!error && Array.isArray(data)) return data
 
-  const fallback = await supabase.from(tables.agendamentos).select("*").limit(120)
+  const fallback = await supabase.from(tables.agendamentos).select("*").limit(60)
   if (fallback.error || !Array.isArray(fallback.data)) return []
   return [...fallback.data].sort((a, b) => getRowDate(b).localeCompare(getRowDate(a)))
 }
@@ -725,18 +745,173 @@ async function reviewPromptNode(state: PromptStudioState): Promise<Partial<Promp
   }
 }
 
+async function synthesizePromptNode(state: PromptStudioState): Promise<Partial<PromptStudioState>> {
+  if (!state.config) throw new Error("Configuracao do agente nao encontrada")
+
+  const conversationBlock = state.samples
+    .slice(0, 10)
+    .map((sample, index) => [
+      `CONVERSA ${index + 1}`,
+      `Lead: ${sample.leadName || "sem nome"} | Telefone: ${sample.phone || sample.sessionId} | Agendou: ${sample.scheduled ? "sim" : "nao"}`,
+      sample.transcript,
+    ].join("\n"))
+    .join("\n\n---\n\n")
+
+  const scheduledBlock = state.scheduledSamples
+    .slice(0, 6)
+    .map((sample, index) => [
+      `CONVERSA COM AGENDAMENTO ${index + 1}`,
+      `Lead: ${sample.leadName || "sem nome"} | Telefone: ${sample.phone || sample.sessionId}`,
+      sample.transcript,
+    ].join("\n"))
+    .join("\n\n---\n\n")
+
+  let raw = ""
+  let llmWarning = ""
+  try {
+    raw = await callPromptStudioLlm(
+      state.config,
+      state.tenant,
+      [
+        "Voce e um time multiagente de otimizacao de prompts para atendimento educacional por WhatsApp.",
+        "Simule quatro especialistas: analista de objecoes, minerador de conversas vencedoras, arquiteto de prompt e revisor de aderencia.",
+        "Trabalhe com o historico fornecido sem inventar fatos. Retorne somente JSON valido.",
+      ].join("\n"),
+      [
+        `Unidade: ${state.unitName} (${state.tenant})`,
+        `Pedido do admin: ${state.instruction}`,
+        "",
+        "Retorne JSON com exatamente estas chaves:",
+        "executiveSummary: string;",
+        "objections: string[];",
+        "winningPatterns: string[];",
+        "promptRisks: string[];",
+        "recommendations: string[];",
+        "proposedPrompt: string com o prompt base final completo e pronto para colar;",
+        "review: { score: number, verdict: string, checklist: string[], risks: string[] }.",
+        "",
+        "Regras obrigatorias para proposedPrompt:",
+        "- Preservar a identidade e regras da unidade.",
+        "- Respeitar promptbase e funil sem pular etapas.",
+        "- Responder duvidas diretas com contexto antes de continuar o funil.",
+        "- Para agenda: obrigar uso de ferramentas oficiais antes de oferecer, confirmar, reagendar ou cancelar horario.",
+        "- Nao inventar horarios, datas, dia da semana, feriados, modalidade, preco, endereco ou disponibilidade.",
+        "- Se o lead disser que nao quer, esta viajando, quer falar depois ou pedir retorno, tratar com naturalidade e orientar pausa/follow-up sem insistir.",
+        "- PT-BR correto, com acentuacao, humano, consultivo, curto quando for conversa com lead.",
+        "- Nunca vazar JSON, parametros internos, tool calls, nomes de ferramentas ou raciocinio interno para o lead.",
+        "",
+        `Prompt atual:\n${clip(state.currentPrompt, 3500) || "(sem prompt base configurado)"}`,
+        "",
+        `Conversas recentes:\n${conversationBlock || "(sem historico suficiente)"}`,
+        "",
+        `Conversas ligadas a agendamento:\n${scheduledBlock || "(sem amostra clara no recorte)"}`,
+      ].join("\n"),
+    )
+  } catch (error: any) {
+    llmWarning = clip(error?.message || "LLM indisponivel", 220)
+  }
+
+  const parsed = extractJsonObject(raw)
+  const analysis = parsed
+    ? normalizeAnalysis(parsed)
+    : {
+      executiveSummary: "O historico foi lido, mas a consolidacao por LLM nao retornou JSON valido dentro do tempo seguro.",
+      objections: [
+        "Preco, horarios, modalidade e disponibilidade precisam ser respondidos antes de avancar o funil.",
+        "Pedidos para falar depois, falta de interesse ou viagem precisam gerar pausa/follow-up sem insistencia.",
+      ],
+      winningPatterns: state.scheduledSamples.length
+        ? [
+          "Conversas que convertem respondem a pergunta do lead primeiro e depois conduzem para diagnostico.",
+          "Confirmacao de agenda exige escolha clara de horario, modalidade e dados necessarios.",
+        ]
+        : [
+          "Sem amostra suficiente de conversas vinculadas a agendamento no recorte lido; manter consulta obrigatoria da agenda.",
+        ],
+      promptRisks: [
+        "Pular etapas do funil quando o lead responde com uma dor curta.",
+        "Oferecer ou confirmar horario sem consulta de agenda.",
+      ],
+      recommendations: [
+        "Reforcar resposta a objecoes antes de pedir horario ou email.",
+        "Reforcar uso das ferramentas de agenda em toda oferta, confirmacao e reagendamento.",
+      ],
+    }
+
+  if (!analysis.executiveSummary) {
+    analysis.executiveSummary = "Analise consolidada do prompt atual, historico recente, objecoes e conversas com agendamento."
+  }
+
+  let proposedPrompt = clip(parsed?.proposedPrompt || parsed?.prompt || "", 18000)
+  if (!proposedPrompt && raw.length > 300 && !parsed) {
+    proposedPrompt = raw
+  }
+  if (proposedPrompt.length < 300) {
+    proposedPrompt = buildFallbackPrompt({ ...state, analysis })
+  }
+
+  const review = parsed?.review
+    ? normalizeReview(parsed.review)
+    : {
+      score: llmWarning ? 70 : 78,
+      verdict: llmWarning
+        ? "Fallback aplicado por limite de tempo. Revise manualmente antes de aplicar."
+        : "Rascunho gerado, mas a revisao estruturada nao veio completa. Revise manualmente antes de aplicar.",
+      checklist: [
+        "Mantem funil sem pular etapas.",
+        "Reforca consulta oficial de agenda.",
+        "Inclui resposta a objecoes e perguntas diretas.",
+        "Bloqueia vazamento de JSON, ferramentas e raciocinio interno.",
+      ],
+      risks: llmWarning ? ["A geracao principal excedeu o tempo seguro e usou fallback."] : [],
+    }
+
+  const status: PromptStudioStepStatus = llmWarning ? "warning" : "done"
+  const warningDetail = llmWarning ? `Fallback aplicado: ${llmWarning}` : ""
+
+  return {
+    analysis,
+    proposedPrompt,
+    review,
+    steps: [
+      step(
+        "objections",
+        "Analista de objeções",
+        "Objeções e atritos mapeados",
+        status,
+        warningDetail || `${analysis.objections.length} objeções consolidadas em uma chamada otimizada.`,
+      ),
+      step(
+        "winners",
+        "Minerador de conversas vencedoras",
+        "Padrões de conversão extraídos",
+        status,
+        warningDetail || `${analysis.winningPatterns.length} padrões aproveitáveis encontrados.`,
+      ),
+      step(
+        "rewrite",
+        "Arquiteto de prompt",
+        "Prompt remodelado",
+        status,
+        warningDetail || `${proposedPrompt.length} caracteres gerados para revisão do admin.`,
+      ),
+      step(
+        "review",
+        "Revisor de aderência",
+        "Revisão concluída",
+        review.score > 0 && review.score < 70 ? "warning" : status,
+        warningDetail || (review.score ? `Nota ${review.score}/100. ${review.verdict}` : review.verdict),
+      ),
+    ],
+  }
+}
+
 const promptStudioGraph = new StateGraph(PromptStudioAnnotation)
   .addNode("loadContext", loadContextNode)
-  .addNode("analyzeObjections", analyzeObjectionsNode)
-  .addNode("mineWinners", mineWinnersNode)
-  .addNode("rewritePrompt", rewritePromptNode)
-  .addNode("reviewPrompt", reviewPromptNode)
+  .addNode("synthesizePrompt", synthesizePromptNode)
   .addEdge(START, "loadContext")
-  .addEdge("loadContext", "analyzeObjections")
-  .addEdge("analyzeObjections", "mineWinners")
-  .addEdge("mineWinners", "rewritePrompt")
-  .addEdge("rewritePrompt", "reviewPrompt")
-  .addEdge("reviewPrompt", END)
+  .addEdge("loadContext", "synthesizePrompt")
+  .addEdge("synthesizePrompt", END)
   .compile()
 
 export async function runAdminPromptStudio(input: PromptStudioRunInput): Promise<PromptStudioResult> {
@@ -745,7 +920,7 @@ export async function runAdminPromptStudio(input: PromptStudioRunInput): Promise
   if (!tenant) throw new Error("Tenant invalido")
   if (!instruction) throw new Error("Descreva o que deseja melhorar no prompt")
 
-  const maxMessages = Math.max(80, Math.min(800, Number(input.maxMessages || 260)))
+  const maxMessages = Math.max(60, Math.min(260, Number(input.maxMessages || 180)))
   const initialState: PromptStudioState = {
     tenant,
     unitName: "",

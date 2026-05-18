@@ -220,7 +220,7 @@ export default function AdminPromptStudioPage() {
         body: JSON.stringify({
           tenant: selectedTenant,
           instruction: text,
-          maxMessages: 320,
+          maxMessages: 180,
         }),
       })
       const json = await res.json()
