@@ -375,6 +375,21 @@ function buildFollowupNuanceProfile(messages: string[]): FollowupNuanceProfile {
     "entro em contato depois",
     "depois eu chamo",
     "depois eu falo",
+    "aguardar um pouco",
+    "aguarda um pouco",
+    "espera um pouco",
+    "esperar um pouco",
+    "me da um tempo",
+    "me de um tempo",
+    "mais tarde eu vejo",
+    "me chama depois",
+    "chama depois",
+    "entra em contato depois",
+    "procura depois",
+    "me procura depois",
+    "retorna depois",
+    "ainda nao aguardar",
+    "ainda nao espera",
     "mais pra frente",
     "stop",
   ]
@@ -685,6 +700,46 @@ function extractTrustedLeadNameFromHistory(
   }
 
   return ""
+}
+
+function sameNormalizedName(a?: string, b?: string): boolean {
+  const left = normalizeComparableText(a || "")
+  const right = normalizeComparableText(b || "")
+  return Boolean(left && right && left === right)
+}
+
+function capitalizeSentenceStart(input: string): string {
+  const text = String(input || "").trim()
+  if (!text) return ""
+  return text.replace(/^([\p{Ll}])/u, (match) => match.toLocaleUpperCase("pt-BR"))
+}
+
+function stripUntrustedFollowupVocative(message: string, trustedLeadName?: string): string {
+  let text = sanitizeFollowupText(message, 280)
+  if (!text) return ""
+
+  const trusted = normalizeLeadName(trustedLeadName)
+  const nameToken = String.raw`[\p{Lu}][\p{L}]{1,30}`
+  const nameGroup = String.raw`(${nameToken}(?:\s+${nameToken}){0,2})`
+  const greetingName = new RegExp(String.raw`^(Oi|Ola|Ol[aá])\s+${nameGroup}([,!])?\s*`, "u")
+  const directName = new RegExp(String.raw`^(?:Dr\.?|Dra\.?|Sr\.?|Sra\.?)?\s*${nameGroup}[,!]\s*`, "u")
+
+  const replaceGreeting = (match: string, greeting: string, candidate: string): string => {
+    if (trusted && sameNormalizedName(candidate, trusted)) return match
+    return `${greeting}, `
+  }
+
+  text = text.replace(greetingName, replaceGreeting)
+
+  const directMatch = text.match(directName)
+  if (directMatch?.[1]) {
+    const candidate = directMatch[1]
+    if (!trusted || !sameNormalizedName(candidate, trusted)) {
+      text = text.slice(directMatch[0].length)
+    }
+  }
+
+  return capitalizeSentenceStart(text.replace(/\s+/g, " ").replace(/^,\s*/, "").trim())
 }
 
 /**
@@ -1464,18 +1519,23 @@ export class AgentTaskQueueService {
     const nativeConfig = await getNativeAgentConfigForTenant(input.tenant).catch(() => null)
     if (!nativeConfig) return null
 
-    const recentHistory = input.history.slice(-24)
+    const leadName = normalizeLeadName(input.leadName)
+    const recentHistory = input.history.slice(-24).map((entry) => ({
+      ...entry,
+      content:
+        entry.role === "assistant"
+          ? stripUntrustedFollowupVocative(entry.content, leadName)
+          : sanitizeFollowupText(entry.content, 280),
+    }))
     const historyLines = recentHistory
       .map((entry) => `${entry.role === "assistant" ? "IA" : "LEAD"}: ${entry.content}`)
       .join("\n")
 
-    const previousAssistantMessages = input.history
+    const previousAssistantMessages = recentHistory
       .filter((entry) => entry.role === "assistant")
       .map((entry) => entry.content)
       // Ampliado de 8 para 16 para cobrir histórico maior e evitar repetição
       .slice(-16)
-
-    const leadName = normalizeLeadName(input.leadName)
 
     // Detectar intencao/topico dominante das ultimas mensagens do lead
     // Filtra mensagens de baixo sinal ("ok", "obrigada", emojis soltos, etc)
@@ -1536,6 +1596,7 @@ export class AgentTaskQueueService {
       "9. NUNCA pergunte o nome do lead. Se nao tem nome, siga sem nome. Isso NAO e relevante para follow-up.",
       "10. JAMAIS abrevie, encurte ou crie apelidos do nome do lead. Use SEMPRE o nome EXATO como informado. Proibido: Cah (Camila), Fer (Fernanda), Gabi (Gabriela), Rafa (Rafael), Lu (Lucas). Se o nome parecer apelido (ex: Caaah, Feer), use 'voce'.",
       "11. NUNCA diga que voce e IA, sistema, assistente virtual, chatbot ou robo.",
+      "11b. Se o nome do lead NAO foi confirmado pelo proprio lead, ignore nomes que aparecerem em mensagens anteriores da IA. Eles podem estar errados. Nao copie vocativos do historico.",
       `12. ${genderConstraint}`,
       `13. Siga o tom do agente configurado no tenant: ${toneSummary}.`,
       runtime.promptBase
@@ -1583,6 +1644,7 @@ export class AgentTaskQueueService {
           "NUNCA confunda seu papel (IA assistente) com o lead (cliente).",
           "NUNCA use o nome do lead como se fosse o seu.",
           "NUNCA pergunte o nome do lead em um follow-up. Se o nome nao esta disponivel, NUNCA invente nomes ou titulos. Nao use NADA, apenas inicie a mensagem.",
+          "NUNCA copie nome usado em mensagem anterior da IA quando esse nome nao foi confirmado pelo proprio lead. Nome no historico da IA pode ser erro.",
           "JAMAIS abrevie ou encurte o nome do lead. Use sempre o nome EXATO como informado, sem criar apelidos (ex: Cah, Fer, Gabi, Rafa, Lu sao proibidos).",
           "NUNCA diga que e IA, sistema, assistente virtual, chatbot ou robo.",
           "NUNCA use saudacoes baseadas no horario: 'Bom dia', 'Boa tarde', 'Boa noite'. A mensagem pode chegar ao lead em horario diferente da criacao.",
@@ -1600,7 +1662,10 @@ export class AgentTaskQueueService {
           topK: runtime.followupSamplingTopK,
         },
       })
-      const candidate = ensureFollowupActionability(sanitizeFollowupText(String(decision.reply || ""), 280), input.step)
+      const candidate = ensureFollowupActionability(
+        stripUntrustedFollowupVocative(String(decision.reply || ""), leadName),
+        input.step,
+      )
       if (!candidate) return null
       if (hasForbiddenIdentityDisclosure(candidate)) return null
       if (hasGenderConcordanceMismatch(candidate, runtime.agentGrammaticalGender)) return null
@@ -1638,6 +1703,8 @@ export class AgentTaskQueueService {
       const trustedLeadName = extractTrustedLeadNameFromHistory(cleaned)
       // Regra global: follow-up so usa nome se o proprio lead confirmou no historico.
       const leadNameForFollowup = trustedLeadName || ""
+      const finalizeFollowupText = (text: string): string =>
+        ensureFollowupActionability(stripUntrustedFollowupVocative(text, leadNameForFollowup), step)
       const userSignalMessages = cleaned
         .filter((entry) => entry.role === "user")
         .map((entry) => entry.content)
@@ -1658,7 +1725,7 @@ export class AgentTaskQueueService {
           lastAgentMessage: payloadAgent,
           nuanceProfile,
         })
-        return ensureFollowupActionability(sanitizeFollowupText(fallback, 280), step)
+        return finalizeFollowupText(fallback)
       }
 
       let lastUserIndex = -1
@@ -1693,7 +1760,7 @@ export class AgentTaskQueueService {
         })),
       })
       if (aiMessage) {
-        const candidate = ensureFollowupActionability(sanitizeFollowupText(aiMessage, 280), step)
+        const candidate = finalizeFollowupText(aiMessage)
         if (!isLikelyInternalTaskInstructionMessage(candidate) && !hasForbiddenIdentityDisclosure(candidate)) {
           return candidate
         }
@@ -1708,7 +1775,7 @@ export class AgentTaskQueueService {
         lastAgentMessage,
         nuanceProfile,
       })
-      const fallbackSanitized = ensureFollowupActionability(sanitizeFollowupText(fallback, 280), step)
+      const fallbackSanitized = finalizeFollowupText(fallback)
       const previousAssistantMessages = cleaned
         .filter((entry) => entry.role === "assistant")
         .map((entry) => entry.content)
@@ -1728,15 +1795,14 @@ export class AgentTaskQueueService {
       const emergency = step <= 3
         ? `${greet}, seu atendimento esta em aberto aqui. Me avisa se posso dar sequencia?`
         : `${greet}, vou encerrar seu atendimento em breve. Qualquer coisa, e so me chamar.`
-      const emergencySanitized = ensureFollowupActionability(sanitizeFollowupText(emergency, 280), step)
+      const emergencySanitized = finalizeFollowupText(emergency)
       if (!hasForbiddenIdentityDisclosure(emergencySanitized)) {
         return emergencySanitized
       }
-      return ensureFollowupActionability(
-        sanitizeFollowupText(`${greet}, seu atendimento ficou em aberto. Se quiser, seguimos por aqui.`, 280),
-        step,
-      )
+      return finalizeFollowupText(`${greet}, seu atendimento ficou em aberto. Se quiser, seguimos por aqui.`)
     } catch {
+      const finalizeFollowupText = (text: string): string =>
+        ensureFollowupActionability(stripUntrustedFollowupVocative(text, ""), step)
       const fallback = buildRuntimeContextualFollowupMessage({
         step,
         totalSteps,
@@ -1744,15 +1810,12 @@ export class AgentTaskQueueService {
         lastUserMessage: payloadUser,
         lastAgentMessage: payloadAgent,
       })
-      const fallbackSanitized = ensureFollowupActionability(sanitizeFollowupText(fallback, 280), step)
+      const fallbackSanitized = finalizeFollowupText(fallback)
       if (!hasForbiddenIdentityDisclosure(fallbackSanitized)) {
         return fallbackSanitized
       }
       const greet = buildGreeting("")
-      return ensureFollowupActionability(
-        sanitizeFollowupText(`${greet}, se fizer sentido, seguimos seu atendimento por aqui.`, 280),
-        step,
-      )
+      return finalizeFollowupText(`${greet}, se fizer sentido, seguimos seu atendimento por aqui.`)
     }
   }
 
