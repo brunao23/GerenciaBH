@@ -1812,13 +1812,13 @@ export class AgentTaskQueueService {
         phone_number: phone,
         task_type: "followup",
         payload: {
-          message: buildContextualFollowupMessage({
+          message: sanitizeFollowupText(buildContextualFollowupMessage({
             step: index + 1,
             totalSteps: intervals.length,
             leadName: input.leadName,
             lastUserMessage: input.lastUserMessage,
             lastAgentMessage: input.lastAgentMessage,
-          }),
+          }), 280),
           followup_step: index + 1,
           followup_total_steps: intervals.length,
           followup_minutes: minutes,

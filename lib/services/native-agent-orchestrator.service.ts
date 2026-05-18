@@ -5109,7 +5109,7 @@ export class NativeAgentOrchestratorService {
           .catch(() => {})
       }
 
-      if (config.followupEnabled && !hasSuccessfulHandoffAction && !hasSuccessfulSchedulingAction && !isFromMeTrigger) {
+      if (config.followupEnabled && !hasSuccessfulHandoffAction && !hasSuccessfulSchedulingAction) {
         const followupLeadContext = sanitizeLeadContextForFollowup(
           effectiveLeadMessage || content,
         )
@@ -5392,8 +5392,7 @@ export class NativeAgentOrchestratorService {
     if (
       config.followupEnabled &&
       !hasSuccessfulHandoffAction &&
-      !hasSuccessfulSchedulingAction &&
-      !isFromMeTrigger
+      !hasSuccessfulSchedulingAction
     ) {
       const followupLeadContext = sanitizeLeadContextForFollowup(
         effectiveLeadMessage || content,

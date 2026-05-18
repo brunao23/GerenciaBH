@@ -3306,6 +3306,81 @@ function canTriggerNativeAgent(event: ZapiMessageEvent, sessionId: string): bool
   )
 }
 
+const WEBHOOK_MIN_FOLLOWUP_INTERVAL_MINUTES = 10
+
+function resolveWebhookFollowupIntervals(config: NativeAgentConfig): number[] | undefined {
+  const normalize = (values: any[] | undefined): number[] =>
+    Array.from(
+      new Set(
+        (Array.isArray(values) ? values : [])
+          .map((value) => Number(value))
+          .filter((value) => Number.isFinite(value))
+          .map((value) => Math.floor(value))
+          .filter((value) => value >= WEBHOOK_MIN_FOLLOWUP_INTERVAL_MINUTES && value <= 60 * 24 * 30),
+      ),
+    ).sort((a, b) => a - b)
+
+  if (Array.isArray(config.followupPlan) && config.followupPlan.length > 0) {
+    return normalize(
+      config.followupPlan
+        .filter((entry: any) => entry?.enabled !== false)
+        .map((entry: any) => entry?.minutes),
+    )
+  }
+
+  const configured = normalize(config.followupIntervalsMinutes as any)
+  return configured.length > 0 ? configured : undefined
+}
+
+function isManualOutboundFollowupCandidate(event: ZapiMessageEvent): boolean {
+  if (event.callbackType !== "received") return false
+  if (event.fromMe !== true || event.fromApi === true || event.isGroup) return false
+  if (event.isReaction) return false
+  const content = buildContent(event)
+  const normalized = normalizeComparableText(content)
+  if (!normalized) return false
+  if (normalized.includes("mensagem apagada")) return false
+  if (normalized.includes("deliverycallback") || normalized.includes("messagestatuscallback")) return false
+  return true
+}
+
+async function enqueueManualOutboundFollowup(params: {
+  tenant: string
+  config: NativeAgentConfig
+  event: ZapiMessageEvent
+  sessionId: string
+  phone: string
+}): Promise<{ ok: boolean; count?: number; reason?: string; error?: string }> {
+  if (params.config.followupEnabled === false) {
+    return { ok: true, count: 0, reason: "followup_disabled" }
+  }
+  if (!isManualOutboundFollowupCandidate(params.event)) {
+    return { ok: true, count: 0, reason: "not_manual_outbound_followup_candidate" }
+  }
+
+  const tenant = normalizeTenant(params.tenant)
+  const phone = normalizeLikelyWhatsappPhone(params.phone || params.sessionId)
+  const sessionId = normalizeSessionId(phone || params.sessionId)
+  if (!tenant || !phone || !sessionId) {
+    return { ok: false, count: 0, reason: "invalid_manual_followup_target" }
+  }
+
+  const intervalsMinutes = resolveWebhookFollowupIntervals(params.config)
+  if (Array.isArray(intervalsMinutes) && intervalsMinutes.length === 0) {
+    return { ok: true, count: 0, reason: "followup_plan_without_active_intervals" }
+  }
+
+  const lastAgentMessage = buildContent(params.event)
+  return new AgentTaskQueueService().enqueueFollowupSequence({
+    tenant,
+    sessionId,
+    phone,
+    lastUserMessage: "",
+    lastAgentMessage,
+    intervalsMinutes,
+  })
+}
+
 function resolveReplyTarget(params: {
   event: ZapiMessageEvent
   routing: ConversationRouting
@@ -3931,6 +4006,8 @@ export async function POST(req: NextRequest) {
       })
     }
 
+    let manualOutboundFollowup: { ok: boolean; count?: number; reason?: string; error?: string } | null = null
+
     if (event.callbackType === "received" && event.fromMe !== true) {
       const phoneForFollowupCancel = canonicalPhone
       const sessionForFollowupCancel = canonicalSessionId
@@ -3995,6 +4072,26 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    if (
+      event.callbackType === "received" &&
+      event.fromMe === true &&
+      event.fromApi !== true &&
+      !shouldTriggerFromExternalStarter
+    ) {
+      manualOutboundFollowup = await enqueueManualOutboundFollowup({
+        tenant,
+        config,
+        event,
+        sessionId: canonicalSessionId,
+        phone: canonicalPhone || canonicalSessionId,
+      }).catch((error: any) => ({
+        ok: false,
+        count: 0,
+        reason: "manual_outbound_followup_enqueue_failed",
+        error: String(error?.message || error || "unknown"),
+      }))
+    }
+
     const taskInsightPromise = processConversationTaskIntelligence({
       tenant,
       config,
@@ -4022,6 +4119,7 @@ export async function POST(req: NextRequest) {
         reason: "callback_without_ai_response",
         resolvedBy: routing.resolvedBy,
         externalStarterBlockedReason: event.metadata.externalStarterBlockedReason || null,
+        manualOutboundFollowup,
         taskInsight,
       })
     }
