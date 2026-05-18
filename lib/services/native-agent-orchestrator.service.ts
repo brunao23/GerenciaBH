@@ -327,8 +327,30 @@ function compactComparableMessage(value: string): string {
     .trim()
 }
 
+function compactGreetingComparableMessage(value: string): string {
+  const tokens = compactComparableMessage(value).split(" ").filter(Boolean)
+  const merged: string[] = []
+  for (let i = 0; i < tokens.length; i += 1) {
+    if (tokens[i] === "ol" && tokens[i + 1] === "a") {
+      merged.push("ola")
+      i += 1
+      continue
+    }
+    if (tokens[i] === "ol") {
+      merged.push("ola")
+      continue
+    }
+    merged.push(tokens[i])
+  }
+
+  return merged
+    .filter((token, index, list) => index === 0 || token !== list[index - 1])
+    .join(" ")
+    .trim()
+}
+
 function isGreetingOnlyLeadMessage(value: string): boolean {
-  const text = compactComparableMessage(value)
+  const text = compactGreetingComparableMessage(value)
   if (!text || text.length > 70) return false
 
   return (
@@ -7114,7 +7136,7 @@ export class NativeAgentOrchestratorService {
     const schedulingAndFlowBlock = ([
       "REGRAS CRITICAS DE AGENDAMENTO (PRECISAO OBRIGATORIA):",
       "- [NAO PULAR ETAPAS] As regras de agenda so podem ser usadas quando o Prompt Base ja chegou na etapa de agendamento OU quando o lead pedir/confirmar horario, data, vaga, agenda ou disponibilidade. Se o lead estiver respondendo pergunta de descoberta/qualificacao, continue o Prompt Base e NAO ofereca datas.",
-      "- [SAUDACAO NAO E AGENDA] Se a ultima mensagem do lead for apenas saudacao ou retorno generico curto (ex.: 'oi', 'ola', 'bom dia', 'boa tarde', 'boa noite', 'tudo bem', 'ok', 'sim') e nao houver confirmacao clara de data/horario, responda naturalmente e continue o Prompt Base. NAO consulte agenda e NAO ofereca horarios.",
+      "- [SAUDACAO NAO E AGENDA] Se a ultima mensagem do lead for apenas saudacao ou retorno generico curto (ex.: 'oi', 'ola', 'bom dia', 'boa tarde', 'boa noite', 'ola boa tarde', mesmo com erro de digitacao/repeticao como 'ol,a boa boa tarde', 'tudo bem', 'ok', 'sim') e nao houver confirmacao clara de data/horario, responda naturalmente e continue o Prompt Base. NAO consulte agenda e NAO ofereca horarios.",
       "- [OBRIGATORIO] ANTES de qualquer resposta que mencione datas, dias, horarios, disponibilidade ou 'quando', voce DEVE chamar get_available_slots. SEM EXCECAO.",
       "- [PROIBIDO] NUNCA mencione datas, dias da semana, turnos (manha/tarde/noite) ou horarios sem ANTES chamar get_available_slots e usar os resultados reais da ferramenta.",
       "- [PROIBIDO] NUNCA use seu conhecimento de treinamento para responder sobre disponibilidade. Datas do seu treinamento estao ERRADAS. Use SOMENTE o retorno de get_available_slots.",
