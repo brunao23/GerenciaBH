@@ -56,6 +56,7 @@ import {
 } from "@/lib/helpers/business-hours"
 import { RedisService } from "@/lib/services/redis.service"
 import { buildLeadAttendanceSummary } from "@/lib/helpers/lead-attendance-summary"
+import { DiscordSystemLogService } from "@/lib/services/discord-system-log.service"
 
 type AppointmentResult = {
   ok: boolean
@@ -4081,6 +4082,7 @@ export class NativeAgentOrchestratorService {
   private readonly semanticCache = new SemanticCacheService()
   private readonly groupNotifier = new GroupNotificationDispatcherService()
   private readonly usageCost = new LlmUsageCostService()
+  private readonly discordLogs = new DiscordSystemLogService()
 
   async handleInboundMessage(input: HandleInboundMessageInput): Promise<HandleInboundMessageResult> {
     const tenant = normalizeTenant(input.tenant)
@@ -7620,6 +7622,18 @@ export class NativeAgentOrchestratorService {
       source: "native-agent",
       additional: params.details || {},
     })
+
+    void this.discordLogs
+      .notify({
+        name: params.content,
+        event: params.details?.debug_event || params.content,
+        severity: params.details?.debug_severity,
+        tenant: params.details?.tenant,
+        sessionId: params.sessionId,
+        source: "native-agent",
+        details: params.details || {},
+      })
+      .catch(() => {})
   }
 
   private async trySendAudioReply(params: {

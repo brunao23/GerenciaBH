@@ -1,3 +1,5 @@
+import { notifyDiscordSystemLog } from "@/lib/services/discord-system-log.service"
+
 const ERROR_WEBHOOK_URL = "https://webhook.iagoflow.com/webhook/ERRO"
 
 export async function sendErrorWebhook(payload: Record<string, unknown>): Promise<void> {
@@ -20,10 +22,28 @@ export async function sendErrorWebhook(payload: Record<string, unknown>): Promis
     ;(body as any).message_preview = null
   }
 
-  await fetch(ERROR_WEBHOOK_URL, {
+  const legacyWebhookRequest = fetch(ERROR_WEBHOOK_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(8000),
   })
+
+  const discordRequest = notifyDiscordSystemLog({
+    name: String(body.event || "error_webhook"),
+    event: String(body.event || "error_webhook"),
+    severity: "error",
+    tenant: typeof body.tenant === "string" ? body.tenant : null,
+    sessionId:
+      typeof (body as any)?.lead?.session_id === "string"
+        ? (body as any).lead.session_id
+        : typeof (body as any)?.lead?.phone === "string"
+          ? (body as any).lead.phone
+          : null,
+    source: "error-webhook",
+    details: body,
+  })
+
+  const [legacyResult] = await Promise.allSettled([legacyWebhookRequest, discordRequest])
+  if (legacyResult.status === "rejected") throw legacyResult.reason
 }
