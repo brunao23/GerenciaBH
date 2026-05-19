@@ -167,7 +167,7 @@ function isLangGraphWhatsAppPilotEnabled(params: {
   const source = String(params.source || "").toLowerCase()
   if (source.includes("instagram")) return false
 
-  const tenants = parseTenantCsv(process.env.LANGGRAPH_WHATSAPP_AGENT_TENANTS, ["vox_sete_lagoas"])
+  const tenants = parseTenantCsv(process.env.LANGGRAPH_WHATSAPP_AGENT_TENANTS, ["vox_sete_lagoas", "vox_maceio"])
   return tenants.has(normalizeTenant(params.tenant))
 }
 
