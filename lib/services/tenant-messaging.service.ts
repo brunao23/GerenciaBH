@@ -16,6 +16,7 @@ import {
   normalizeSessionId,
   TenantChatHistoryService,
 } from "./tenant-chat-history.service"
+import { normalizeBrazilianWhatsappPhone } from "@/lib/helpers/phone-normalization"
 
 export interface SendTenantTextInput {
   tenant: string
@@ -256,9 +257,103 @@ export class TenantMessagingService {
       target.startsWith("ig-comment:") ||
       target.startsWith("group_") ||
       target.includes("@g.us") ||
-      target.includes("@lid") ||
       target.endsWith("-group")
     )
+  }
+
+  private normalizePauseGuardPhone(value?: string): string {
+    const parsed = normalizeBrazilianWhatsappPhone(value || "")
+    return parsed.valid ? parsed.normalized : ""
+  }
+
+  private normalizeLidTarget(value?: string): string {
+    const raw = String(value || "").trim().toLowerCase()
+    if (!raw) return ""
+    if (raw.includes("@lid")) {
+      const base = raw.split("@")[0].replace(/\D/g, "")
+      return base ? `${base}@lid` : ""
+    }
+    if (raw.startsWith("lid_")) {
+      const base = raw.slice(4).replace(/\D/g, "")
+      return base ? `${base}@lid` : ""
+    }
+    return ""
+  }
+
+  private extractPauseGuardPhoneFromHistoryRow(row: any): string {
+    const message = row?.message && typeof row.message === "object" ? row.message : {}
+    const raw = message?.raw && typeof message.raw === "object" ? message.raw : {}
+    const rawData = raw?.data && typeof raw.data === "object" ? raw.data : {}
+    const candidates = [
+      row?.session_id,
+      message?.phone,
+      message?.participantPhone,
+      message?.senderPhone,
+      message?.numero,
+      raw?.phone,
+      rawData?.phone,
+      raw?.from,
+      rawData?.from,
+      raw?.senderPhone,
+      rawData?.senderPhone,
+      raw?.message?.from,
+      rawData?.message?.from,
+      raw?.message?.key?.remoteJid,
+      rawData?.message?.key?.remoteJid,
+    ]
+
+    for (const candidate of candidates) {
+      const phone = this.normalizePauseGuardPhone(String(candidate || ""))
+      if (phone) return phone
+    }
+    return ""
+  }
+
+  private async resolvePauseGuardPhone(input: {
+    tenant: string
+    phone: string
+    sessionId?: string
+  }): Promise<string> {
+    const directPhone =
+      this.normalizePauseGuardPhone(input.phone) ||
+      this.normalizePauseGuardPhone(input.sessionId)
+    if (directPhone) return directPhone
+
+    const lid = this.normalizeLidTarget(input.phone) || this.normalizeLidTarget(input.sessionId)
+    if (!lid) return ""
+
+    try {
+      const chat = new TenantChatHistoryService(input.tenant)
+      const table = await chat.getChatTableName()
+      const supabase = createBiaSupabaseServerClient()
+      const sessionCandidate = normalizeSessionId(lid)
+      const queries = [
+        supabase
+          .from(table)
+          .select("session_id, message, created_at")
+          .eq("message->>chat_lid", lid)
+          .order("created_at", { ascending: false })
+          .limit(30),
+        supabase
+          .from(table)
+          .select("session_id, message, created_at")
+          .eq("session_id", sessionCandidate)
+          .order("created_at", { ascending: false })
+          .limit(30),
+      ]
+
+      for (const query of queries) {
+        const { data } = await query
+        for (const row of Array.isArray(data) ? data : []) {
+          const phone = this.extractPauseGuardPhoneFromHistoryRow(row)
+          if (phone) return phone
+        }
+      }
+    } catch {
+      return ""
+    }
+
+    return ""
   }
 
   private async blockAutomatedOutboundWhenPaused(input: {
@@ -268,12 +363,13 @@ export class TenantMessagingService {
     source?: string
   }): Promise<SendTenantTextResult | null> {
     if (this.isManualOutboundSource(input.source)) return null
-    if (this.isPauseExemptAutomationSource(input.source)) return null
     if (this.shouldSkipPauseGateForRecipient(input.phone)) return null
 
-    const lookupPhone =
-      normalizePhoneNumber(input.phone) ||
-      normalizePhoneNumber(String(input.sessionId || ""))
+    const lookupPhone = await this.resolvePauseGuardPhone({
+      tenant: input.tenant,
+      phone: input.phone,
+      sessionId: input.sessionId,
+    })
     if (!lookupPhone) return null
 
     const pauseState = await getLeadPauseState({
@@ -283,6 +379,7 @@ export class TenantMessagingService {
     })
 
     if (!pauseState.paused) return null
+    if (this.isPauseExemptAutomationSource(input.source) && !pauseState.isManual) return null
 
     console.warn(
       `[TenantMessaging][PauseGuard] Envio automatizado bloqueado por pausa ativa: tenant=${input.tenant} phone=${lookupPhone} source=${input.source || "unknown"} reason=${pauseState.pauseReason || "paused"}`,

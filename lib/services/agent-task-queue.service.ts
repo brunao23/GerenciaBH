@@ -19,7 +19,7 @@ import {
 } from "@/lib/services/reminder-scheduler.service"
 import { buildFollowupWeekdayConstraint, resolveEffectiveFollowupBusinessDays } from "@/lib/helpers/effective-followup-days"
 import { LLMFactory } from "@/lib/services/llm-factory"
-import { getLeadPauseState } from "@/lib/services/lead-pause.service"
+import { getLeadPauseState, type LeadPauseState } from "@/lib/services/lead-pause.service"
 import { normalizePhoneNumber, normalizeSessionId, TenantChatHistoryService } from "./tenant-chat-history.service"
 import { TenantMessagingService } from "./tenant-messaging.service"
 import { GroupNotificationDispatcherService } from "./group-notification-dispatcher.service"
@@ -2273,15 +2273,27 @@ export class AgentTaskQueueService {
   }
 
   public async isLeadPaused(tenant: string, phone: string): Promise<boolean> {
+    const pauseState = await this.getLeadPauseStateForQueue(tenant, phone)
+    return pauseState.paused
+  }
+
+  private async getLeadPauseStateForQueue(tenant: string, phone: string): Promise<LeadPauseState> {
     try {
-      const pauseState = await getLeadPauseState({
+      return await getLeadPauseState({
         tenant,
         phone,
         supabase: this.supabase,
+        failClosedOnError: true,
       })
-      return pauseState.paused
     } catch {
-      return false
+      return {
+        paused: true,
+        matchedNumber: phone,
+        pauseReason: "pause_lookup_error",
+        pausedUntil: null,
+        isManual: true,
+        sourceRow: null,
+      }
     }
   }
 
@@ -3373,17 +3385,18 @@ export class AgentTaskQueueService {
 
       // post_schedule tasks fluem normalmente para dispatchTaskMessage
 
-      const [paused, terminal] = await Promise.all([
-        this.isLeadPaused(tenant, phone),
+      const [pauseState, terminal] = await Promise.all([
+        this.getLeadPauseStateForQueue(tenant, phone),
         this.isLeadTerminal(tenant, sessionId, phone),
       ])
+      const paused = pauseState.paused
 
       // REGRA ABSOLUTA DE PAUSA:
       // Leads pausados NÃƒO recebem NENHUMA interaÃ§Ã£o da IA, exceto:
       //   1. isOfficialReminder  Ã¢â€ â€™ lembretes de pÃ³s-agendamento (3days, 1day, 4hours)
       //   2. isPostScheduleReminder Ã¢â€ â€™ mensagem automÃ¡tica de pÃ³s-agendamento
       // Qualquer outro tipo (followup, disparo, reengagement, welcome, etc.) Ã© BLOQUEADO.
-      const isExemptFromPause = isOfficialReminder || isPostScheduleReminder
+      const isExemptFromPause = (isOfficialReminder || isPostScheduleReminder) && !pauseState.isManual
       const shouldCancelAsPaused = paused && !isExemptFromPause
       const shouldCancelAsTerminal = terminal && !isExemptFromPause
 

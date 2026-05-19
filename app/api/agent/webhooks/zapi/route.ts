@@ -160,6 +160,14 @@ function normalizeLikelyWhatsappPhone(value: any): string {
   return ""
 }
 
+function firstLikelyWhatsappPhone(...values: any[]): string {
+  for (const value of values) {
+    const phone = normalizeLikelyWhatsappPhone(value)
+    if (phone) return phone
+  }
+  return ""
+}
+
 function normalizeChatLid(value: any): string {
   const raw = String(value ?? "").trim()
   if (!raw) return ""
@@ -3359,7 +3367,7 @@ async function enqueueManualOutboundFollowup(params: {
   }
 
   const tenant = normalizeTenant(params.tenant)
-  const phone = normalizeLikelyWhatsappPhone(params.phone || params.sessionId)
+  const phone = firstLikelyWhatsappPhone(params.phone, params.sessionId)
   const sessionId = normalizeSessionId(phone || params.sessionId)
   if (!tenant || !phone || !sessionId) {
     return { ok: false, count: 0, reason: "invalid_manual_followup_target" }
@@ -4006,6 +4014,35 @@ export async function POST(req: NextRequest) {
       })
     }
 
+    if (
+      event.callbackType === "received" &&
+      event.fromMe === true &&
+      event.fromApi !== true &&
+      canonicalPhone &&
+      !shouldTriggerFromExternalStarter
+    ) {
+      await pauseAiForLead(tenant, canonicalPhone, {
+        reason: "human_manual_pause",
+      })
+      await new AgentTaskQueueService()
+        .cancelPendingFollowups({
+          tenant,
+          sessionId: canonicalSessionId,
+          phone: canonicalPhone,
+        })
+        .catch(() => { })
+
+      return NextResponse.json({
+        received: true,
+        ignored: true,
+        reason: "human_manual_message_paused_ai",
+        tenant,
+        persisted,
+        canonicalSessionId,
+        canonicalPhone,
+      })
+    }
+
     let manualOutboundFollowup: { ok: boolean; count?: number; reason?: string; error?: string } | null = null
 
     if (event.callbackType === "received" && event.fromMe !== true) {
@@ -4025,8 +4062,13 @@ export async function POST(req: NextRequest) {
     // Se o lead estiver pausado, interrompemos TUDO aqui:
     // nenhuma notificação de grupo, nenhum processamento de tarefa, nenhuma IA.
     // =========================================================================
-    const earlyPauseLookupPhone = normalizeLikelyWhatsappPhone(
-      canonicalPhone || canonicalSessionId || routing.phone || event.phone,
+    const earlyPauseLookupPhone = firstLikelyWhatsappPhone(
+      canonicalPhone,
+      routing.phone,
+      event.phone,
+      canonicalSessionId,
+      event.sessionId,
+      event.participantPhone,
     )
     if (earlyPauseLookupPhone && event.callbackType === "received") {
       const earlyPauseState = await getLeadPauseState({
@@ -4204,8 +4246,14 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const pauseLookupPhone = normalizeLikelyWhatsappPhone(
-      replyPhone || canonicalPhone || canonicalSessionId || routing.phone || event.phone,
+    const pauseLookupPhone = firstLikelyWhatsappPhone(
+      replyPhone,
+      canonicalPhone,
+      routing.phone,
+      event.phone,
+      canonicalSessionId,
+      event.sessionId,
+      event.participantPhone,
     )
     const pauseState = pauseLookupPhone
       ? await getLeadPauseState({ tenant, phone: pauseLookupPhone, failClosedOnError: true })
@@ -4266,8 +4314,14 @@ export async function POST(req: NextRequest) {
       await sleep(inboundBufferSeconds * 1000)
     }
 
-    const postBufferPauseLookupPhone = normalizeLikelyWhatsappPhone(
-      replyPhone || canonicalPhone || canonicalSessionId || routing.phone || event.phone,
+    const postBufferPauseLookupPhone = firstLikelyWhatsappPhone(
+      replyPhone,
+      canonicalPhone,
+      routing.phone,
+      event.phone,
+      canonicalSessionId,
+      event.sessionId,
+      event.participantPhone,
     )
     if (postBufferPauseLookupPhone) {
       const postBufferPauseState = await getLeadPauseState({
@@ -4379,8 +4433,14 @@ export async function POST(req: NextRequest) {
       }
 
       try {
-        const preOrchestratorPauseLookupPhone = normalizeLikelyWhatsappPhone(
-          replyPhone || canonicalPhone || sessionForInbound || routing.phone || event.phone,
+        const preOrchestratorPauseLookupPhone = firstLikelyWhatsappPhone(
+          replyPhone,
+          canonicalPhone,
+          routing.phone,
+          event.phone,
+          sessionForInbound,
+          event.sessionId,
+          event.participantPhone,
         )
         if (preOrchestratorPauseLookupPhone) {
           const preOrchestratorPauseState = await getLeadPauseState({
@@ -4441,8 +4501,14 @@ export async function POST(req: NextRequest) {
       } catch (orchestratorError: any) {
         console.error(`[Webhook][Background] Orquestrador falhou para ${sessionForInbound}:`, orchestratorError)
         try {
-          const fallbackPauseLookupPhone = normalizeLikelyWhatsappPhone(
-            replyPhone || canonicalPhone || sessionForInbound || routing.phone || event.phone,
+          const fallbackPauseLookupPhone = firstLikelyWhatsappPhone(
+            replyPhone,
+            canonicalPhone,
+            routing.phone,
+            event.phone,
+            sessionForInbound,
+            event.sessionId,
+            event.participantPhone,
           )
           if (fallbackPauseLookupPhone) {
             const fallbackPauseState = await getLeadPauseState({
