@@ -862,6 +862,15 @@ function recentAssistantRequestedSchedulingEmail(rows: any[] | undefined): boole
   return false
 }
 
+function responseRequestsSchedulingEmail(responseText: string): boolean {
+  const text = normalizeComparableMessage(responseText)
+  if (!text) return false
+  return (
+    /\b(email|e-mail)\b/.test(text) &&
+    /\b(formalizar|confirmacao|confirmar|reservar|reservado|agendamento|agenda|horario)\b/.test(text)
+  )
+}
+
 function recentAssistantAskedSchedulingMode(rows: any[] | undefined): boolean {
   const ordered = Array.isArray(rows) ? [...rows].reverse() : []
   for (const row of ordered.slice(0, 8)) {
@@ -1425,6 +1434,17 @@ function extractSchedulingTimeCandidate(rawMessage: string): string | undefined 
   }
 
   const normalized = normalizeComparableMessage(raw)
+  const normalizedExplicit =
+    normalized.match(/\b(?:as|a)\s*([01]?\d|2[0-3])(?:\s*(?:h|:)\s*([0-5]\d))?\b/) ||
+    normalized.match(/\b([01]?\d|2[0-3])\s*(?:h|hora|horas)\b/)
+  if (normalizedExplicit && normalized.length <= 140) {
+    const hour = Number(normalizedExplicit[1])
+    const minute = normalizedExplicit[2] !== undefined ? Number(normalizedExplicit[2]) : 0
+    if (Number.isInteger(hour) && Number.isInteger(minute)) {
+      return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`
+    }
+  }
+
   const numericOnly = normalized.match(/^([01]?\d|2[0-3])$/)
   if (numericOnly && raw.length <= 8) {
     return `${String(Number(numericOnly[1])).padStart(2, "0")}:00`
@@ -6571,8 +6591,20 @@ export class NativeAgentOrchestratorService {
     const needsLookup =
       detectsAvailabilityLookupIntent(leadMessage) ||
       responseMentionsAvailabilityOrSpecificSlots(responseText)
+    const leadConfirmedSchedulingMutation = leadExplicitlyConfirmsSchedulingMutation(
+      leadMessage,
+      params.conversationRows,
+    )
 
     if (claimsConfirmed ? hasAppointmentMutationExecution(params.existingExecutions) : hasSchedulingToolExecution(params.existingExecutions)) {
+      return null
+    }
+
+    if (
+      !claimsConfirmed &&
+      leadConfirmedSchedulingMutation &&
+      responseRequestsSchedulingEmail(responseText)
+    ) {
       return null
     }
 
@@ -6633,13 +6665,13 @@ export class NativeAgentOrchestratorService {
       timezone,
       selectedTime,
     )
-    const leadConfirmedSchedulingMutation = leadExplicitlyConfirmsSchedulingMutation(
-      leadMessage,
-      params.conversationRows,
-    )
     const shouldSchedule =
       Boolean(selectedTime) &&
       leadConfirmedSchedulingMutation
+
+    if (!claimsConfirmed && leadConfirmedSchedulingMutation && !selectedTime) {
+      return null
+    }
 
     if (shouldSchedule && selectedTime) {
       const scheduleArgs: Record<string, any> = {
