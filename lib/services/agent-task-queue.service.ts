@@ -329,6 +329,34 @@ function normalizeComparableText(input: string): string {
     .trim()
 }
 
+function isExpectedTaskCancellationReason(reason: string | undefined): boolean {
+  const text = normalizeComparableText(reason || "")
+  if (!text) return false
+  const expectedSignals = [
+    "cancelled terminal status",
+    "cancelled paused",
+    "cancelled paused before dispatch",
+    "cancelled user replied",
+    "cancelled user replied before dispatch",
+    "cancelled recent assistant message",
+    "cancelled recent assistant before dispatch",
+    "cancelled duplicate recent",
+    "cancelled duplicate before dispatch",
+    "cancelled lead has active appointment",
+    "cancelled step already sent",
+    "cancelled explicit opt out signal",
+    "cancelled followup disabled",
+    "cancelled followup interval disabled",
+    "cancelled followup interval below minimum",
+    "cancelled interval disabled",
+    "cancelled interval below minimum",
+    "cancelled interval not active",
+    "cancelled kind mismatch",
+    "cancelled config",
+  ]
+  return expectedSignals.some((signal) => text.includes(signal))
+}
+
 function includesAnyTerm(text: string, terms: string[]): boolean {
   return terms.some((term) => text.includes(term))
 }
@@ -2940,9 +2968,14 @@ export class AgentTaskQueueService {
     message?: string
     error?: string
   }): Promise<void> {
+    if (input.kind === "cancelled" && isExpectedTaskCancellationReason(input.reason)) {
+      return
+    }
+
     await sendErrorWebhook({
       event: input.kind === "cancelled" ? "followup_cancelled" : "followup_failed",
       timestamp: new Date().toISOString(),
+      severity: input.kind === "failed" ? "error" : "warning",
       tenant: input.tenant,
       lead: {
         phone: input.phone,

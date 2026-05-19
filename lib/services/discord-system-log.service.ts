@@ -63,6 +63,7 @@ function getAlertLevels(): Set<string> {
 function shouldAlert(input: DiscordSystemLogInput): boolean {
   const severity = normalizeSeverity(input.severity || input.details?.debug_severity)
   if (getAlertLevels().has(severity)) return true
+  if (severity === "debug" || severity === "info" || severity === "success") return false
 
   const haystack = [
     input.name,

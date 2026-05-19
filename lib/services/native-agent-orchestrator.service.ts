@@ -694,8 +694,56 @@ function lastAssistantAskedDiscoveryQuestion(
 function leadExplicitlyRequestsScheduling(rawMessage: string): boolean {
   const text = normalizeComparableMessage(rawMessage)
   if (!text) return false
+  if (leadMentionsPersonalScheduleWithoutAsking(rawMessage)) return false
+  if (leadAsksOnlyBusinessHoursOrCorrectsSchedule(rawMessage)) return false
   if (detectsSchedulingIntent(rawMessage)) return true
-  return /\b(agenda|agendar|agendamento|marcar|reservar|horario|horarios|vaga|vagas|disponivel|disponibilidade|que horas|qual horario|quais horarios|tem horario|tem vaga|quando voce tem|quando tem)\b/.test(text)
+  return /\b(agendar|agendamento|marcar|reservar|horario|horarios|vaga|vagas|disponivel|disponibilidade|que horas|qual horario|quais horarios|tem horario|tem vaga|quando voce tem|quando tem)\b/.test(text)
+}
+
+function leadMentionsPersonalScheduleWithoutAsking(rawMessage: string): boolean {
+  const text = normalizeComparableMessage(rawMessage)
+  if (!text) return false
+
+  const hasPersonalScheduleContext =
+    /\b(minha agenda|minha rotina|meu horario|meus horarios|encaixar na minha agenda|encaixar na rotina|trabalho|trabalhar|trabalhando|estudo|estudar|faculdade|ferias|folga|plantao|plantao|compromisso|viajo|viagem|so posso|nao posso|nao consigo|consigo apenas|vou trabalhar|trabalho ate|estudo a noite)\b/.test(text)
+  if (!hasPersonalScheduleContext) return false
+
+  const explicitScheduleSelection =
+    (/\b(pode ser|confirmo|confirmar|confirma|fechado|fecha|prefiro|fico com|fica bom|fica otimo|quero esse|quero essa)\b/.test(text) ||
+      (/\b(so posso|consigo)\b/.test(text) && Boolean(extractSchedulingTimeCandidate(rawMessage)))) &&
+    (extractSchedulingTimeCandidate(rawMessage) ||
+      /\b(hoje|amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo|dia\s+\d{1,2})\b/.test(text))
+  if (explicitScheduleSelection) return false
+
+  const asksForAvailability =
+    /\b(tem|teria|possui|consegue|pode|poderia|qual|quais|quando|me passa|me manda|verifica|validar|consultar|consulta)\b.{0,90}\b(horario|horarios|vaga|vagas|agenda|disponibilidade|disponivel)\b/.test(text)
+  return !asksForAvailability
+}
+
+function leadAsksOnlyBusinessHoursOrCorrectsSchedule(rawMessage: string): boolean {
+  const text = normalizeComparableMessage(rawMessage)
+  if (!text) return false
+
+  const explicitScheduleSelection =
+    (/\b(pode ser|confirmo|confirmar|confirma|fechado|fecha|prefiro|fico com|fica bom|fica otimo|quero esse|quero essa)\b/.test(text) ||
+      (/\b(so posso|consigo)\b/.test(text) && Boolean(extractSchedulingTimeCandidate(rawMessage)))) &&
+    (extractSchedulingTimeCandidate(rawMessage) ||
+      /\b(hoje|amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo|dia\s+\d{1,2})\b/.test(text))
+  if (explicitScheduleSelection) return false
+
+  const asksModeOnly =
+    /\b(online|on line|on-line|presencial|modalidade|a distancia|remoto|remota)\b/.test(text) &&
+    /\b(pode|poderia|seria|e|eh|funciona|alinhamento|diagnostico|atendimento|consulta)\b/.test(text)
+  const asksPeriodLimitOrDuration =
+    /\b(ate que horas|vai ate que horas|vai de|dura|duracao|quanto tempo|quantas horas|periodo da manha|periodo da tarde|periodo da noite)\b/.test(text)
+  const hasBusinessHoursTerm =
+    /\b(horario de atendimento|horarios de atendimento|expediente|abre|fecha|domingo a domingo|segunda a sexta|fim de semana|final de semana|sabado|domingo|funcionamento)\b/.test(text) ||
+    /\b(horario|horarios)\b.{0,60}\b(funciona|funcionam|atende|atendem|atendimento|expediente|abre|fecha)\b/.test(text)
+  const asksOrCorrectsHours =
+    hasBusinessHoursTerm &&
+    /\b(voces|voce|unidade|colocaram|disseram|falou|informaram|nao funciona|funciona|atende|atendem|qual|quais|como)\b/.test(text)
+
+  return asksModeOnly || asksPeriodLimitOrDuration || asksOrCorrectsHours
 }
 
 function leadAsksCourseValueOrMethodInfo(rawMessage: string): boolean {
@@ -1500,8 +1548,8 @@ function detectsSchedulingIntent(rawMessage: string): boolean {
   const strongPatterns = [
     /\b(quero|vou|gostaria\s+de|preciso)\s+(agendar|marcar|reservar|confirmar)\b/,
     /\b(agendar|marcar|reservar)\s+(para|pra|no|na|amanha|hoje|semana)\b/,
-    /\bpode\s+(agendar|marcar|ser)\b/,
-    /\bpode\s+ser\b/,
+    /\bpode\s+(agendar|marcar)\b/,
+    /\bpode\s+ser\b.{0,60}\b(as\s+\d{1,2}|a\s+\d{1,2}|[01]?\d[:h]|hoje|amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo|dia\s+\d{1,2})\b/,
     /\b(prefiro|escolho|quero)\s+(essa|este?|aquele?|o\s+dia|a\s+data|amanha|segunda|terca|quarta|quinta|sexta|sabado)\b/,
     /\b(fico\s+com|vou\s+de|fico\s+para?|fica\s+bom|fica\s+otimo|fica\s+perfeito)\b/,
     /\bconfirm(o|ado|ar)\b/,
@@ -1554,19 +1602,22 @@ function detectsAvailabilityLookupIntent(rawMessage: string): boolean {
   const text = normalizeComparableMessage(rawMessage)
   if (!text) return false
   if (isGreetingOnlyLeadMessage(rawMessage)) return false
+  if (leadMentionsPersonalScheduleWithoutAsking(rawMessage)) return false
+  if (leadAsksOnlyBusinessHoursOrCorrectsSchedule(rawMessage)) return false
   if (leadAskedCourseOrMethodInfoBeforeScheduling(rawMessage)) return false
   if (detectsSchedulingIntent(rawMessage)) return true
   if (leadSelectedSingleSchedulingPeriod(rawMessage)) return true
 
   if (
-    /\b(horario|horarios|hora|horas|vaga|vagas|agenda|agendar|marcar|reservar|disponivel|disponibilidade|tem vaga|que horas|qual horario|quais horarios)\b/.test(text)
+    /\b(agendar|marcar|reservar|tem vaga|tem horario|que horas|qual horario|quais horarios|horarios disponiveis|disponibilidade|quando voce tem|quando tem)\b/.test(text)
   ) {
     return true
   }
 
   if (
     text.length <= 90 &&
-    /\b(hoje|amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo|manha|tarde|noite|noturno)\b/.test(text)
+    extractSchedulingTimeCandidate(rawMessage) &&
+    /\b(hoje|amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo|manha|tarde|noite|noturno|pode|prefiro|quero|confirmo)\b/.test(text)
   ) {
     return true
   }
@@ -6447,6 +6498,26 @@ export class NativeAgentOrchestratorService {
     return SCHEDULE_GUARDRAIL_ERRORS.has(errorCode) || SCHEDULE_NON_ERROR_CONFLICT_ERRORS.has(errorCode)
   }
 
+  private isExpectedToolPolicyBlock(execution: GeminiToolExecution): boolean {
+    const actionType = String(execution.response?.action_type || execution.action?.type || "none")
+      .trim()
+      .toLowerCase()
+    if (actionType !== "none") return false
+
+    const payload = JSON.stringify({
+      error: execution.error,
+      responseError: execution.response?.error,
+      blockReason: execution.response?.block_reason,
+      guidance: execution.response?.guidance,
+    }).toLowerCase()
+
+    return (
+      payload.includes("prompt_base_") ||
+      payload.includes("langgraph_v2_tool_policy_blocked") ||
+      payload.includes("default_promptbase_first_no_schedule_tools")
+    )
+  }
+
   private async resolveLeadEmailFromContext(params: {
     providedEmail?: string
     chat: TenantChatHistoryService
@@ -6771,6 +6842,15 @@ export class NativeAgentOrchestratorService {
     const responseText = String(params.responseText || "").trim()
     const timezone = params.config.timezone || "America/Sao_Paulo"
     const claimsConfirmed = responseClaimsAppointmentConfirmed(responseText)
+
+    if (
+      !claimsConfirmed &&
+      (leadMentionsPersonalScheduleWithoutAsking(leadMessage) ||
+        leadAsksOnlyBusinessHoursOrCorrectsSchedule(leadMessage))
+    ) {
+      return null
+    }
+
     const promptBaseSchedulingBlockReason = resolvePromptBaseSchedulingToolBlockReason(
       leadMessage,
       params.conversationRows,
@@ -6965,8 +7045,9 @@ export class NativeAgentOrchestratorService {
           execution.response?.idempotentExistingAppointment,
       )
       const isGuardrail = this.isScheduleGuardrailExecution(execution)
-      const event = `tool_${actionType}_${execution.ok ? "ok" : isGuardrail ? "guardrail" : "error"}`
-      const severity = execution.ok ? "info" : isGuardrail ? "warning" : "error"
+      const isExpectedPolicyBlock = this.isExpectedToolPolicyBlock(execution)
+      const event = `tool_${actionType}_${execution.ok ? "ok" : isGuardrail ? "guardrail" : isExpectedPolicyBlock ? "blocked" : "error"}`
+      const severity = execution.ok ? "info" : isGuardrail ? "warning" : isExpectedPolicyBlock ? "info" : "error"
 
       await this
         .persistDebugStatus({
@@ -7964,24 +8045,31 @@ export class NativeAgentOrchestratorService {
     content: string
     details?: Record<string, any>
   }): Promise<void> {
+    const tenant =
+      String(params.details?.tenant || (params.chat as any)?.tenant || "")
+        .trim() || null
+    const details = tenant && !params.details?.tenant
+      ? { ...(params.details || {}), tenant }
+      : params.details || {}
+
     await params.chat.persistMessage({
       sessionId: params.sessionId,
       role: "system",
       type: "status",
       content: params.content,
       source: "native-agent",
-      additional: params.details || {},
+      additional: details,
     })
 
     void this.discordLogs
       .notify({
         name: params.content,
-        event: params.details?.debug_event || params.content,
-        severity: params.details?.debug_severity,
-        tenant: params.details?.tenant,
+        event: details?.debug_event || params.content,
+        severity: details?.debug_severity,
+        tenant,
         sessionId: params.sessionId,
         source: "native-agent",
-        details: params.details || {},
+        details,
       })
       .catch(() => {})
   }

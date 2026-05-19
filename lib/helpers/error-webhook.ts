@@ -5,6 +5,13 @@ const ERROR_WEBHOOK_URL = "https://webhook.iagoflow.com/webhook/ERRO"
 export async function sendErrorWebhook(payload: Record<string, unknown>): Promise<void> {
   const event = String((payload as any)?.event || "").trim().toLowerCase()
   const body: Record<string, unknown> = { ...payload }
+  const severity = String(
+    (body as any).severity ||
+      (body as any).debug_severity ||
+      (event.includes("cancelled") ? "info" : "error"),
+  )
+    .trim()
+    .toLowerCase()
 
   // Hard guard: never leak follow-up message content on cancelled events.
   if (event.startsWith("followup_cancelled")) {
@@ -32,7 +39,7 @@ export async function sendErrorWebhook(payload: Record<string, unknown>): Promis
   const discordRequest = notifyDiscordSystemLog({
     name: String(body.event || "error_webhook"),
     event: String(body.event || "error_webhook"),
-    severity: "error",
+    severity,
     tenant: typeof body.tenant === "string" ? body.tenant : null,
     sessionId:
       typeof (body as any)?.lead?.session_id === "string"
