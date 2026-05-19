@@ -171,6 +171,21 @@ function isLangGraphWhatsAppPilotEnabled(params: {
   return tenants.has(normalizeTenant(params.tenant))
 }
 
+function resolveLangGraphWhatsAppPilotMode(params: {
+  tenant: string
+  source?: string
+}): "disabled" | "v1" | "v2" {
+  if (!isLangGraphWhatsAppPilotEnabled(params)) return "disabled"
+
+  const version = String(process.env.LANGGRAPH_WHATSAPP_AGENT_VERSION || "").trim().toLowerCase()
+  if (version === "v1" || version === "legacy") return "v1"
+  if (version === "v2") return "v2"
+
+  return parseEnvBooleanWithDefault(process.env.LANGGRAPH_WHATSAPP_AGENT_V2_ENABLED, true)
+    ? "v2"
+    : "v1"
+}
+
 function hasVertexProjectConfigured(): boolean {
   return Boolean(
     process.env.VERTEX_PROJECT_ID ||
@@ -1477,6 +1492,158 @@ function hasRecentAssistantOfferedSchedule(rows: any[] | undefined): boolean {
     if (responseMentionsAvailabilityOrSpecificSlots(content)) return true
   }
   return false
+}
+
+type LangGraphWhatsAppStage =
+  | "promptbase_discovery"
+  | "course_info"
+  | "value_question"
+  | "schedule_availability"
+  | "schedule_confirmation"
+  | "schedule_change"
+  | "pause_or_handoff"
+  | "general"
+
+type LangGraphWhatsAppToolPolicy = {
+  stage: LangGraphWhatsAppStage
+  intent: string
+  allowedToolNames: string[]
+  blockedToolNames: string[]
+  schedulingBlocked: boolean
+  allowAvailabilityLookup: boolean
+  allowSchedulingMutation: boolean
+  blockReason?: string
+  graphNotes: string[]
+}
+
+function buildLangGraphWhatsAppV2ToolPolicy(params: {
+  leadMessage: string
+  conversationRows: Array<{ role: "user" | "assistant" | "system"; content: string }> | any[] | undefined
+  qualification: QualificationState
+  functionDeclarations: GeminiFunctionDeclaration[]
+  promptBaseSchedulingToolBlockReason?: string
+}): LangGraphWhatsAppToolPolicy {
+  const leadMessage = String(params.leadMessage || "")
+  const text = normalizeComparableMessage(leadMessage)
+  const allToolNames = params.functionDeclarations
+    .map((tool) => String(tool?.name || "").trim().toLowerCase())
+    .filter(Boolean)
+  const uniqueToolNames = Array.from(new Set(allToolNames))
+  const nonSchedulingTools = uniqueToolNames.filter((name) => !SCHEDULING_TOOL_TYPES.has(name as AgentActionPlan["type"]))
+  const notes: string[] = []
+
+  const blockScheduling = (
+    stage: LangGraphWhatsAppStage,
+    intent: string,
+    reason: string,
+  ): LangGraphWhatsAppToolPolicy => {
+    notes.push(reason)
+    return {
+      stage,
+      intent,
+      allowedToolNames: nonSchedulingTools,
+      blockedToolNames: uniqueToolNames.filter((name) => !nonSchedulingTools.includes(name)),
+      schedulingBlocked: true,
+      allowAvailabilityLookup: false,
+      allowSchedulingMutation: false,
+      blockReason: reason,
+      graphNotes: notes,
+    }
+  }
+
+  if (params.promptBaseSchedulingToolBlockReason) {
+    return blockScheduling(
+      "promptbase_discovery",
+      "promptbase_flow_not_ready",
+      params.promptBaseSchedulingToolBlockReason,
+    )
+  }
+
+  if (leadAskedCourseOrMethodInfoBeforeScheduling(leadMessage)) {
+    return blockScheduling("course_info", "course_or_method_question", "lead_asked_course_info_before_schedule")
+  }
+
+  if (leadExplicitlyAskedValue(leadMessage) && !params.qualification.qualified) {
+    return blockScheduling("value_question", "value_question_before_qualification", "value_requires_promptbase_context_first")
+  }
+
+  const explicitSchedulingMutation = leadExplicitlyConfirmsSchedulingMutation(leadMessage, params.conversationRows)
+  const asksCancelOrReschedule = /\b(cancelar|desmarcar|reagendar|remarcar|trocar|mudar|alterar)\b/.test(text)
+  if (explicitSchedulingMutation || asksCancelOrReschedule) {
+    return {
+      stage: asksCancelOrReschedule ? "schedule_change" : "schedule_confirmation",
+      intent: asksCancelOrReschedule ? "change_or_cancel_schedule" : "confirm_schedule",
+      allowedToolNames: uniqueToolNames,
+      blockedToolNames: [],
+      schedulingBlocked: false,
+      allowAvailabilityLookup: true,
+      allowSchedulingMutation: true,
+      graphNotes: ["explicit_schedule_mutation_allowed"],
+    }
+  }
+
+  if (detectsAvailabilityLookupIntent(leadMessage) || leadExplicitlyRequestsScheduling(leadMessage)) {
+    const allowed = uniqueToolNames.filter(
+      (name) => !SCHEDULING_TOOL_TYPES.has(name as AgentActionPlan["type"]) || name === "get_available_slots",
+    )
+    return {
+      stage: "schedule_availability",
+      intent: "lookup_available_slots",
+      allowedToolNames: allowed,
+      blockedToolNames: uniqueToolNames.filter((name) => !allowed.includes(name)),
+      schedulingBlocked: false,
+      allowAvailabilityLookup: true,
+      allowSchedulingMutation: false,
+      graphNotes: ["availability_lookup_allowed_without_booking_mutation"],
+    }
+  }
+
+  if (detectNegativeLeadIntent(leadMessage).detected) {
+    return {
+      stage: "pause_or_handoff",
+      intent: "negative_or_pause_signal",
+      allowedToolNames: nonSchedulingTools,
+      blockedToolNames: uniqueToolNames.filter((name) => !nonSchedulingTools.includes(name)),
+      schedulingBlocked: true,
+      allowAvailabilityLookup: false,
+      allowSchedulingMutation: false,
+      blockReason: "negative_or_pause_signal_blocks_schedule_tools",
+      graphNotes: ["pause_or_handoff_path"],
+    }
+  }
+
+  return {
+    stage: "general",
+    intent: "promptbase_general_response",
+    allowedToolNames: nonSchedulingTools,
+    blockedToolNames: uniqueToolNames.filter((name) => !nonSchedulingTools.includes(name)),
+    schedulingBlocked: true,
+    allowAvailabilityLookup: false,
+    allowSchedulingMutation: false,
+    blockReason: "default_promptbase_first_no_schedule_tools",
+    graphNotes: ["promptbase_first_default"],
+  }
+}
+
+function appendLangGraphV2PolicyToPrompt(systemPrompt: string, policy: LangGraphWhatsAppToolPolicy): string {
+  const allowed = policy.allowedToolNames.length ? policy.allowedToolNames.join(", ") : "nenhuma"
+  const blocked = policy.blockedToolNames.length ? policy.blockedToolNames.join(", ") : "nenhuma"
+  return [
+    systemPrompt,
+    "",
+    "LANGGRAPH V2 - POLITICA DE ORQUESTRACAO:",
+    "O Prompt Base da unidade continua sendo a autoridade principal do atendimento.",
+    `Etapa detectada: ${policy.stage}.`,
+    `Intencao detectada: ${policy.intent}.`,
+    `Ferramentas permitidas neste turno: ${allowed}.`,
+    `Ferramentas bloqueadas neste turno: ${blocked}.`,
+    policy.schedulingBlocked
+      ? "Nao chame ferramenta de agenda neste turno. Responda pelo Prompt Base e pelo contexto da conversa."
+      : policy.allowSchedulingMutation
+        ? "Voce pode executar mutacao de agenda somente se o lead confirmou claramente data/horario/modalidade conforme o contexto."
+        : "Voce pode consultar disponibilidade, mas nao pode confirmar/agendar/remarcar/cancelar sem confirmacao clara do lead.",
+    "Nunca pule etapas do Prompt Base. Nunca retorne JSON visivel. Nunca confirme agendamento sem tool executada com sucesso.",
+  ].join("\n")
 }
 
 function periodMatchesSlot(timeValue: any, period: "manha" | "tarde" | "noite"): boolean {
@@ -4501,10 +4668,11 @@ export class NativeAgentOrchestratorService {
     // â”€â”€ Parallel: Learning Prompt + Semantic Cache Embedding â”€â”€â”€â”€â”€â”€â”€â”€
     let cacheHit: CacheHitResult | null = null
     let cacheEmbedding: number[] | null = null
-    const useLangGraphWhatsAppPilot = isLangGraphWhatsAppPilotEnabled({
+    const langGraphWhatsAppPilotMode = resolveLangGraphWhatsAppPilotMode({
       tenant,
       source: input.source,
     })
+    const useLangGraphWhatsAppPilot = langGraphWhatsAppPilotMode !== "disabled"
     const cacheEnabled =
       !useLangGraphWhatsAppPilot &&
       isSemanticCacheRuntimeEnabled() &&
@@ -4684,6 +4852,8 @@ export class NativeAgentOrchestratorService {
     let langGraphPilotAttempted = false
     let langGraphPilotDecisionUsed = false
     let langGraphPilotFallbackReason = ""
+    let langGraphPilotGraph = ""
+    let langGraphPilotMetadata: Record<string, any> = {}
     let agentResponseRuntimeOverride = ""
     let decision
     if (cacheHit) {
@@ -4701,17 +4871,40 @@ export class NativeAgentOrchestratorService {
         if (useLangGraphWhatsAppPilot) {
           langGraphPilotAttempted = true
           try {
-            decision = await this.runLangGraphWhatsAppPilot({
-              tenant,
-              sessionId,
-              chat,
-              llm,
-              systemPrompt: basePrompt,
-              conversation,
-              sampling: llmSampling,
-              functionDeclarations,
-              onToolCall: onToolCallForDecision,
-            })
+            if (langGraphWhatsAppPilotMode === "v2") {
+              const graphResult = await this.runLangGraphWhatsAppPilotV2({
+                tenant,
+                sessionId,
+                chat,
+                llm,
+                systemPrompt: basePrompt,
+                conversation,
+                sampling: llmSampling,
+                functionDeclarations,
+                onToolCall: onToolCallForDecision,
+                leadMessage: effectiveLeadMessage || content,
+                conversationRows,
+                qualificationState,
+                promptBaseSchedulingToolBlockReason,
+              })
+              decision = graphResult.decision
+              langGraphPilotGraph = graphResult.metadata.graph || "promptbase_tool_policy_graph"
+              langGraphPilotMetadata = graphResult.metadata
+            } else {
+              decision = await this.runLangGraphWhatsAppPilot({
+                tenant,
+                sessionId,
+                chat,
+                llm,
+                systemPrompt: basePrompt,
+                conversation,
+                sampling: llmSampling,
+                functionDeclarations,
+                onToolCall: onToolCallForDecision,
+              })
+              langGraphPilotGraph = "single_agent_with_tools"
+              langGraphPilotMetadata = { graph: "single_agent_with_tools", graph_version: "v1" }
+            }
             langGraphPilotDecisionUsed = true
           } catch (langGraphError: any) {
             langGraphPilotFallbackReason = String(langGraphError?.message || langGraphError || "langgraph_pilot_failed")
@@ -5165,12 +5358,18 @@ export class NativeAgentOrchestratorService {
         agent_runtime: responseRuntime,
         agent_response_runtime: responseRuntime,
         agent_decision_runtime: langGraphPilotDecisionUsed ? "langgraph" : "native-agent",
-        agent_graph: langGraphPilotDecisionUsed ? "single_agent_with_tools" : null,
+        agent_graph: langGraphPilotDecisionUsed ? (langGraphPilotGraph || "single_agent_with_tools") : null,
         langgraph_pilot_attempted: true,
         langgraph_pilot_used: langGraphPilotDecisionUsed && !agentResponseRuntimeOverride,
         langgraph_pilot_fallback_reason: langGraphPilotFallbackReason || null,
         langgraph_tool_calls: Array.isArray(decision.toolCalls) ? decision.toolCalls.length : 0,
         langgraph_executions: Array.isArray(decision.executions) ? decision.executions.length : 0,
+        langgraph_version: langGraphPilotMetadata.graph_version || langGraphWhatsAppPilotMode,
+        langgraph_stage: langGraphPilotMetadata.stage || null,
+        langgraph_intent: langGraphPilotMetadata.intent || null,
+        langgraph_node_path: langGraphPilotMetadata.node_path || [],
+        langgraph_allowed_tools: langGraphPilotMetadata.allowed_tools || [],
+        langgraph_blocked_tools: langGraphPilotMetadata.blocked_tools || [],
       }
     }
     const hasSuccessfulPresentialSchedulingAction =
@@ -7071,6 +7270,233 @@ export class NativeAgentOrchestratorService {
       "",
       "\u26A0\uFE0F _A automacao foi pausada. Responda o quanto antes._",
     ].join("\n")
+  }
+
+  private async runLangGraphWhatsAppPilotV2(params: {
+    tenant: string
+    sessionId: string
+    chat: TenantChatHistoryService
+    llm: LLMService
+    systemPrompt: string
+    conversation: GeminiConversationMessage[]
+    sampling: Record<string, any>
+    functionDeclarations: GeminiFunctionDeclaration[]
+    onToolCall: (toolCall: GeminiToolCall) => Promise<GeminiToolHandlerResult>
+    leadMessage: string
+    conversationRows: Array<{ role: "user" | "assistant" | "system"; content: string }> | any[]
+    qualificationState: QualificationState
+    promptBaseSchedulingToolBlockReason?: string
+  }): Promise<{ decision: GeminiToolDecision; metadata: Record<string, any> }> {
+    const graphName = "promptbase_tool_policy_graph"
+    const initialPolicy = buildLangGraphWhatsAppV2ToolPolicy({
+      leadMessage: params.leadMessage,
+      conversationRows: params.conversationRows,
+      qualification: params.qualificationState,
+      functionDeclarations: params.functionDeclarations,
+      promptBaseSchedulingToolBlockReason: params.promptBaseSchedulingToolBlockReason,
+    })
+
+    const State = Annotation.Root({
+      conversation: Annotation<GeminiConversationMessage[]>({
+        value: (_current, update) => update,
+        default: () => [],
+      }),
+      policy: Annotation<LangGraphWhatsAppToolPolicy | null>({
+        value: (_current, update) => update,
+        default: () => null,
+      }),
+      decision: Annotation<GeminiToolDecision | null>({
+        value: (_current, update) => update,
+        default: () => null,
+      }),
+      validationFlags: Annotation<string[]>({
+        value: (current, update) => [...(current || []), ...(update || [])],
+        default: () => [],
+      }),
+      nodePath: Annotation<string[]>({
+        value: (current, update) => [...(current || []), ...(update || [])],
+        default: () => [],
+      }),
+      error: Annotation<string>({
+        value: (_current, update) => update,
+        default: () => "",
+      }),
+    })
+
+    await this
+      .persistDebugStatus({
+        chat: params.chat,
+        sessionId: params.sessionId,
+        content: "langgraph_whatsapp_v2_started",
+        details: {
+          debug_event: "langgraph_whatsapp_v2_started",
+          debug_severity: "info",
+          tenant: params.tenant,
+          graph: graphName,
+          graph_version: "v2",
+          stage: initialPolicy.stage,
+          intent: initialPolicy.intent,
+          allowed_tools: initialPolicy.allowedToolNames,
+          blocked_tools: initialPolicy.blockedToolNames,
+          block_reason: initialPolicy.blockReason || null,
+        },
+      })
+      .catch(() => {})
+
+    const workflow = new StateGraph(State)
+      .addNode("load_context", async () => ({
+        policy: initialPolicy,
+        nodePath: ["load_context"],
+      }))
+      .addNode("tool_policy", async (state: any) => {
+        const policy = (state.policy || initialPolicy) as LangGraphWhatsAppToolPolicy
+        return {
+          policy,
+          nodePath: ["tool_policy"],
+        }
+      })
+      .addNode("promptbase_agent", async (state: any) => {
+        const policy = (state.policy || initialPolicy) as LangGraphWhatsAppToolPolicy
+        const allowedNames = new Set(policy.allowedToolNames.map((name) => name.toLowerCase()))
+        const allowedDeclarations = params.functionDeclarations.filter((tool) =>
+          allowedNames.has(String(tool?.name || "").trim().toLowerCase()),
+        )
+        const systemPrompt = appendLangGraphV2PolicyToPrompt(params.systemPrompt, policy)
+
+        try {
+          const decision = await params.llm.decideNextTurnWithTools({
+            systemPrompt,
+            conversation: Array.isArray(state.conversation) ? state.conversation : params.conversation,
+            sampling: params.sampling,
+            functionDeclarations: allowedDeclarations,
+            onToolCall: async (toolCall) => {
+              const toolName = String(toolCall?.name || "").trim().toLowerCase()
+              if (!allowedNames.has(toolName)) {
+                return {
+                  ok: false,
+                  error: "langgraph_v2_tool_policy_blocked",
+                  response: {
+                    ok: false,
+                    error: "langgraph_v2_tool_policy_blocked",
+                    tool: toolName,
+                    stage: policy.stage,
+                    intent: policy.intent,
+                    block_reason: policy.blockReason || "tool_not_allowed_in_current_stage",
+                  },
+                  action: { type: "none" },
+                }
+              }
+              return params.onToolCall(toolCall)
+            },
+            maxSteps: policy.allowSchedulingMutation ? 5 : 3,
+          })
+
+          return {
+            decision,
+            nodePath: ["promptbase_agent"],
+          }
+        } catch (error: any) {
+          return {
+            decision: null,
+            error: String(error?.message || error || "langgraph_v2_agent_failed"),
+            nodePath: ["promptbase_agent"],
+          }
+        }
+      })
+      .addNode("final_validator", async (state: any) => {
+        const policy = (state.policy || initialPolicy) as LangGraphWhatsAppToolPolicy
+        const decision = state.decision as GeminiToolDecision | null
+        if (!decision) {
+          return {
+            error: String(state.error || "langgraph_v2_agent_empty_decision"),
+            nodePath: ["final_validator"],
+          }
+        }
+
+        if (!Array.isArray(decision.toolCalls)) decision.toolCalls = []
+        if (!Array.isArray(decision.executions)) decision.executions = []
+        if (!Array.isArray(decision.actions)) decision.actions = [{ type: "none" }]
+
+        const validationFlags: string[] = []
+        const blockedToolUse = decision.toolCalls.some(
+          (toolCall) => !policy.allowedToolNames.includes(String(toolCall?.name || "").trim().toLowerCase()),
+        )
+        if (blockedToolUse) {
+          validationFlags.push("blocked_tool_call_detected")
+        }
+
+        if (policy.schedulingBlocked && responseMentionsAvailabilityOrSpecificSlots(String(decision.reply || ""))) {
+          decision.reply = buildPromptBaseDiscoveryContinuationReply(params.qualificationState)
+          decision.executions = decision.executions.filter((execution) => !hasSchedulingToolExecution([execution]))
+          decision.actions = decision.executions.length
+            ? decision.executions.map((execution) => execution.action)
+            : [{ type: "none" }]
+          validationFlags.push("schedule_reply_repaired_by_tool_policy")
+        }
+
+        return {
+          decision,
+          validationFlags,
+          nodePath: ["final_validator"],
+        }
+      })
+      .addEdge(START, "load_context")
+      .addEdge("load_context", "tool_policy")
+      .addEdge("tool_policy", "promptbase_agent")
+      .addEdge("promptbase_agent", "final_validator")
+      .addEdge("final_validator", END)
+      .compile()
+
+    const result = await (workflow as any).invoke(
+      {
+        conversation: params.conversation,
+        policy: initialPolicy,
+      },
+      {
+        configurable: {
+          thread_id: `whatsapp:${params.tenant}:${params.sessionId}:v2`,
+        },
+      },
+    )
+
+    const decision = result?.decision as GeminiToolDecision | null
+    if (!decision) {
+      throw new Error(String(result?.error || "langgraph_v2_empty_decision"))
+    }
+
+    const metadata = {
+      graph: graphName,
+      graph_version: "v2",
+      stage: initialPolicy.stage,
+      intent: initialPolicy.intent,
+      allowed_tools: initialPolicy.allowedToolNames,
+      blocked_tools: initialPolicy.blockedToolNames,
+      block_reason: initialPolicy.blockReason || null,
+      node_path: Array.isArray(result?.nodePath) ? result.nodePath : [],
+      validation_flags: Array.isArray(result?.validationFlags) ? result.validationFlags : [],
+    }
+
+    await this
+      .persistDebugStatus({
+        chat: params.chat,
+        sessionId: params.sessionId,
+        content: "langgraph_whatsapp_v2_completed",
+        details: {
+          debug_event: "langgraph_whatsapp_v2_completed",
+          debug_severity: "info",
+          tenant: params.tenant,
+          ...metadata,
+          tool_calls: Array.isArray(decision.toolCalls) ? decision.toolCalls.length : 0,
+          executions: Array.isArray(decision.executions) ? decision.executions.length : 0,
+          has_reply: Boolean(String(decision.reply || "").trim()),
+        },
+      })
+      .catch(() => {})
+
+    return {
+      decision,
+      metadata,
+    }
   }
 
   private async runLangGraphWhatsAppPilot(params: {
