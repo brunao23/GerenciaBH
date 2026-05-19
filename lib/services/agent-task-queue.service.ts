@@ -184,6 +184,18 @@ function excerpt(input: string, max = 140): string {
   return `${text.slice(0, max - 1)}...`
 }
 
+function sanitizeTaskNotificationPreview(input: string, max = 180): string {
+  return sanitizeFollowupText(input, max)
+    .replace(/\b(Ol[aá]|Oi),?\s+voc[eê]\b[!,]?/i, (match, greeting) =>
+      String(greeting || "Olá").toLocaleLowerCase("pt-BR").startsWith("oi") ? "Oi!" : "Olá!",
+    )
+    .replace(/\s+,/g, ",")
+    .replace(/,\s*!/g, "!")
+    .replace(/\s+([!?.;:])/g, "$1")
+    .replace(/\s{2,}/g, " ")
+    .trim()
+}
+
 function stripInternalContextTags(text: string): string {
   return String(text || "")
     .replace(/^\s*\[HUMANO[_\s]?EQUIPE\]\s*/gi, "")
@@ -2727,7 +2739,7 @@ export class AgentTaskQueueService {
       config,
       reminderType: reminderTypeRaw,
       appointment: {
-        nome_aluno: leadName || "voce",
+        nome_aluno: leadName || "",
         dia: appointmentDate,
         horario: appointmentTime,
         observacoes,
@@ -2905,8 +2917,9 @@ export class AgentTaskQueueService {
     }
 
     const stage = input.step && input.totalSteps ? `${input.step}/${input.totalSteps}` : "n/a"
+    const isReminderNotification = input.taskType === "official_reminder" || input.taskType === "reminder"
     const lineMessage = input.message
-      ? `\u{1F4AC} *Mensagem:* ${sanitizeFollowupText(input.message, 180)}`
+      ? `\u{1F4AC} *${isReminderNotification ? "Prévia enviada" : "Mensagem"}:* ${sanitizeTaskNotificationPreview(input.message, isReminderNotification ? 220 : 180)}`
       : ""
 
     let header = "\u{1F7E1} *NOTIFICACAO ENVIADA*"

@@ -4196,40 +4196,15 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    // Detect @lid-only contact (no resolvable WhatsApp phone)
+    // @lid is a valid reply target in Z-API. Do not alert the client group just
+    // because there is no phone; only phone-based gates should treat it as unknown.
     const isLidOnlyContact = /@lid$/i.test(replyPhone) && !canonicalPhone
     if (isLidOnlyContact) {
-      const groupTargets = normalizeNotificationGroupTargets(config.toolNotificationTargets)
-      if (groupTargets.length > 0) {
-        const leadName = extractLeadDisplayName(event)
-        const channelLabel = event.channelSource
-          ? event.channelSource.charAt(0).toUpperCase() + event.channelSource.slice(1)
-          : "Instagram/Meta"
-        const notificationMsg = [
-          `📱 *Contato @lid sem telefone identificável*`,
-          `Unidade: ${tenant}`,
-          `Canal: ${channelLabel}`,
-          `LID: ${event.chatLid || replyPhone}`,
-          `Nome: ${leadName}`,
-          `Mensagem: "${String(event.text || "[mídia]").slice(0, 200)}"`,
-          `⚠️ Não foi possível resolver o número de telefone. O sistema tentará responder via @lid, mas atenção manual pode ser necessária.`,
-        ].join("\n")
-        await new GroupNotificationDispatcherService()
-          .dispatch({
-            tenant,
-            anchorSessionId: canonicalSessionId,
-            source: "lid-contact-no-phone",
-            message: notificationMsg,
-            targets: groupTargets,
-            dedupeKey: `lid_no_phone:${canonicalSessionId}`,
-            dedupeWindowSeconds: 300,
-          })
-          .catch(() => { })
-      }
+      event.metadata.isLidOnlyContact = true
+      event.metadata.replyTargetKind = "lid"
       console.log(
-        `[zapi-webhook] ⚠️ @lid contact sem telefone: tenant=${tenant} lid=${event.chatLid || replyPhone} canal=${event.channelSource || "?"} session=${canonicalSessionId}`,
+        `[zapi-webhook] @lid reply target sem telefone resolvido: tenant=${tenant} lid=${event.chatLid || replyPhone} canal=${event.channelSource || "?"} session=${canonicalSessionId}`,
       )
-      // Continua o fluxo — AI tenta responder via @lid (safety behavior)
     }
 
     if (config?.testModeEnabled === true && canonicalPhone) {

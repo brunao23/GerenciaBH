@@ -556,20 +556,38 @@ function adjustToBusinessHours(
 }
 
 function sanitizePersonName(raw: string): string {
-  // Remove emojis e símbolos Unicode antes de qualquer validação
   const cleaned = String(raw || "")
     .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}\p{Symbol}\p{So}]/gu, "")
-    .replace(/[^a-zA-ZÀ-ɏ'\- ]/g, "")
+    .replace(/[^\p{L}'\- ]/gu, "")
+    .replace(/^[~\s]+/, "")
+    .replace(/\s+/g, " ")
     .trim()
   if (!cleaned) return ""
+
   const candidate = cleaned.split(" ")[0].trim()
-  // Rejeitar se não tiver pelo menos 2 letras reais
-  if (!/[a-zA-ZÀ-ɏ]{2,}/.test(candidate)) return ""
-  // Rejeitar se não tiver vogal
-  if (!/[aeiouáéíóúâêîôûàãõy]/i.test(candidate)) return ""
-  // Rejeitar se ainda tiver caracteres não-letra
-  if (/[^a-zA-ZÀ-ɏ'-]/.test(candidate)) return ""
-  return candidate.slice(0, 1).toUpperCase() + candidate.slice(1).toLowerCase()
+  const flatCandidate = candidate.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+  const blocked = new Set([
+    "voce",
+    "vc",
+    "lead",
+    "cliente",
+    "contato",
+    "aluno",
+    "usuario",
+    "whatsapp",
+    "instagram",
+    "facebook",
+    "nao",
+    "sim",
+  ])
+
+  if (blocked.has(flatCandidate)) return ""
+  if (!/^\p{L}[\p{L}'-]*$/u.test(candidate)) return ""
+  if (candidate.length < 2) return ""
+  if (!/[aeiouy]/i.test(flatCandidate)) return ""
+  if (/(.)\1{2,}/i.test(flatCandidate)) return ""
+
+  return candidate.slice(0, 1).toLocaleUpperCase("pt-BR") + candidate.slice(1).toLocaleLowerCase("pt-BR")
 }
 
 export function renderReminderTemplate(
@@ -578,33 +596,38 @@ export function renderReminderTemplate(
   appointmentDate: Date,
   timezone: string,
 ): string {
-  const nomeRaw = appointment.nome_aluno || ""
-  const primeiroNome = sanitizePersonName(nomeRaw) || "voce"
+  const nomeRaw = String(appointment.nome_aluno || "").replace(/\s+/g, " ").trim()
+  const primeiroNome = sanitizePersonName(nomeRaw)
+  const hasLeadName = Boolean(primeiroNome)
   const appointmentDateInfo = getDateInfoInTimezone(appointmentDate, timezone)
   const diaSemana = DIAS_SEMANA[appointmentDateInfo?.dayOfWeek ?? appointmentDate.getDay()] || ""
   const dataBr = formatAppointmentDateBr(appointmentDate, timezone) || String(appointment.dia || "")
   const horario = formatAppointmentTimeHHmm(appointmentDate, timezone) || String(appointment.horario || "").slice(0, 5)
-  const hasLeadName = primeiroNome !== "voce"
   const saudacaoOlaTudoBem = hasLeadName
-    ? `Ola, ${primeiroNome}! Tudo bem? 😊`
-    : "Ola! Tudo bem? 😊"
+    ? `Ol\u00e1, ${primeiroNome}! Tudo bem? \u{1F60A}`
+    : "Ol\u00e1! Tudo bem? \u{1F60A}"
   const saudacaoOiTudoBem = hasLeadName
-    ? `Oi, ${primeiroNome}! Tudo bem? 👋`
-    : "Oi! Tudo bem? 👋"
+    ? `Oi, ${primeiroNome}! Tudo bem? \u{1F44B}`
+    : "Oi! Tudo bem? \u{1F44B}"
   const saudacaoReforcoHoje = hasLeadName
-    ? `Ola novamente, ${primeiroNome}!`
-    : "Ola novamente!"
+    ? `Ol\u00e1 novamente, ${primeiroNome}!`
+    : "Ol\u00e1 novamente!"
 
   return template
     .replace(/\{saudacao_ola_tudo_bem\}/gi, saudacaoOlaTudoBem)
     .replace(/\{saudacao_oi_tudo_bem\}/gi, saudacaoOiTudoBem)
     .replace(/\{saudacao_reforco_hoje\}/gi, saudacaoReforcoHoje)
-    .replace(/\{nome\}/gi, primeiroNome)
-    .replace(/\{nome_completo\}/gi, hasLeadName ? nomeRaw : "voce")
+    .replace(/\{nome\}/gi, hasLeadName ? primeiroNome : "")
+    .replace(/\{nome_completo\}/gi, hasLeadName ? nomeRaw : "")
     .replace(/\{data\}/gi, dataBr)
     .replace(/\{horario\}/gi, horario)
     .replace(/\{dia_semana\}/gi, diaSemana)
     .replace(/\{servico\}/gi, appointment.observacoes || "atendimento")
+    .replace(/\s+,/g, ",")
+    .replace(/,\s*!/g, "!")
+    .replace(/,\s*\?/g, "?")
+    .replace(/\s+([!?.;:])/g, "$1")
+    .replace(/[ \t]{2,}/g, " ")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim()
