@@ -1087,6 +1087,33 @@ function toIsoFromNowRespectingBusinessHours(minutes: number, businessHours?: Te
   return adjustToBusinessHours(raw, businessHours).toISOString()
 }
 
+function buildFollowupRunAtSequence(intervals: number[], businessHours?: TenantBusinessHours): string[] {
+  const scheduled: string[] = []
+  let previousRunAtMs = 0
+  let previousInterval = 0
+
+  for (const minutes of intervals) {
+    let planned = adjustToBusinessHours(new Date(Date.now() + minutes * 60 * 1000), businessHours)
+
+    if (previousRunAtMs > 0) {
+      const intervalGap = Math.max(
+        MIN_FOLLOWUP_INTERVAL_MINUTES,
+        Math.floor(minutes - previousInterval),
+      )
+      const nextAllowedAt = new Date(previousRunAtMs + intervalGap * 60 * 1000)
+      if (planned.getTime() < nextAllowedAt.getTime()) {
+        planned = adjustToBusinessHours(nextAllowedAt, businessHours)
+      }
+    }
+
+    previousRunAtMs = planned.getTime()
+    previousInterval = minutes
+    scheduled.push(planned.toISOString())
+  }
+
+  return scheduled
+}
+
 const DAY_NAMES_PT = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sab"]
 
 function formatBusinessHoursForPrompt(bh?: TenantBusinessHours): string {
@@ -1958,6 +1985,8 @@ export class AgentTaskQueueService {
 
       await this.cancelPendingFollowups({ tenant, sessionId, phone })
 
+      const runAtSequence = buildFollowupRunAtSequence(intervals, runtimeConfig.businessHours)
+
       const rows = intervals.map((minutes, index) => ({
         tenant,
         session_id: sessionId,
@@ -1980,7 +2009,7 @@ export class AgentTaskQueueService {
           last_user_message: excerpt(input.lastUserMessage || "", 320) || null,
           last_agent_message: excerpt(input.lastAgentMessage || "", 320) || null,
         },
-        run_at: toIsoFromNowRespectingBusinessHours(minutes, runtimeConfig.businessHours),
+        run_at: runAtSequence[index] || toIsoFromNowRespectingBusinessHours(minutes, runtimeConfig.businessHours),
         status: "pending",
       }))
 

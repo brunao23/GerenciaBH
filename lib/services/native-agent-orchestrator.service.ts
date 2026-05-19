@@ -520,6 +520,166 @@ function responseAsksAreaAndPainTogether(value: string): boolean {
   return asksArea && asksPain
 }
 
+function getConversationRowRole(row: any): string {
+  const message = row?.message || row || {}
+  return String(message?.role || row?.role || "").trim().toLowerCase()
+}
+
+function getConversationRowContent(row: any): string {
+  const message = row?.message || row || {}
+  return String(message?.content || row?.content || "").trim()
+}
+
+function responseAsksDiscoveryQuestion(value: string): boolean {
+  const raw = String(value || "")
+  const text = normalizeComparableMessage(raw)
+  if (!text) return false
+  if (responseAsksAreaAndPainTogether(raw)) return true
+
+  const asks =
+    raw.includes("?") ||
+    /\b(me conta|me fale|me diz|qual|quais|conte um pouco|fala um pouco)\b/.test(text)
+  if (!asks) return false
+
+  return (
+    /\b(area de atuacao|sua area de atuacao|qual e sua area|qual sua area|profissao|em que voce trabalha|com o que voce trabalha)\b/.test(text) ||
+    /\b(principal desafio|qual desafio|desafio de comunicacao|problema.*(comunicacao|oratoria)|desafio.*(comunicacao|oratoria)|objetivo.*(comunicacao|oratoria)|o que voce quer resolver|quer desenvolver)\b/.test(text) ||
+    /\b(como esse desafio aparece|como isso aparece|me conta.*(desafio|contexto|rotina|comunicacao|oratoria))\b/.test(text)
+  )
+}
+
+function leadComplainsQuestionAlreadyAnswered(value: string): boolean {
+  const text = normalizeComparableMessage(value)
+  if (!text) return false
+  return (
+    /\b(ja|j[aá])\s+(respondi|falei|expliquei|disse)\b/.test(text) ||
+    /\b(respondi|falei|expliquei|disse)\s+(acima|antes|isso)\b/.test(text) ||
+    /\b(essa pergunta|isso)\s+(eu\s+)?(ja\s+)?(respondi|falei)\b/.test(text) ||
+    /\b(acima|em cima)\b/.test(text) && /\b(pergunta|resposta|respondi|falei)\b/.test(text)
+  )
+}
+
+function leadMentionsStrictAvailabilityConstraint(value: string): boolean {
+  const text = normalizeComparableMessage(value)
+  if (!text) return false
+
+  const strictConstraint =
+    /\b(so|somente|apenas)\s+(posso|consigo|tenho disponibilidade|teria disponibilidade)\b.{0,140}\b(ferias|final de semana|finais de semana|fim de semana|sabado|domingo)\b/.test(text) ||
+    /\b(ferias|final de semana|finais de semana|fim de semana|sabado|domingo)\b.{0,120}\b(so|somente|apenas)\b/.test(text)
+
+  const routineConstraint =
+    /\b(moro no interior|interior|trabalho durante o dia|durante o dia trabalho|sou professor|professor da faculdade|dou aula|a noite sou professor)\b/.test(text) &&
+    /\b(ferias|final de semana|finais de semana|fim de semana|sabado|domingo|so posso|so consigo)\b/.test(text)
+
+  return strictConstraint || routineConstraint
+}
+
+function recentLeadContextMentionsAvailabilityConstraint(
+  rows: Array<{ role: "user" | "assistant" | "system"; content: string }> | any[] | undefined,
+  latestLeadMessage?: string,
+): boolean {
+  const messages: string[] = []
+  const latest = String(latestLeadMessage || "").trim()
+  if (latest) messages.push(latest)
+
+  const ordered = Array.isArray(rows) ? [...rows].reverse() : []
+  for (const row of ordered) {
+    if (messages.length >= 12) break
+    if (getConversationRowRole(row) !== "user") continue
+    const content = getConversationRowContent(row)
+    if (content) messages.push(content)
+  }
+
+  return messages.some(leadMentionsStrictAvailabilityConstraint)
+}
+
+function responseAsksAvailabilityAlreadyAnswered(value: string): boolean {
+  const text = normalizeComparableMessage(value)
+  if (!text) return false
+  return (
+    /\bqual dia util\b/.test(text) ||
+    /\bqual dia da semana\b/.test(text) ||
+    /\bqual dia\b.{0,80}\b(tranquilo|funciona|melhor|disponibilidade)\b/.test(text) ||
+    /\b(manha|tarde|noite)\b.{0,80}\b(funciona|prefere|melhor)\b/.test(text) ||
+    /\b(prefere|funciona melhor)\b.{0,80}\b(manha|tarde|noite)\b/.test(text)
+  )
+}
+
+function buildAlreadyAnsweredRecoveryReply(params: {
+  leadName?: string | null
+  hasAvailabilityConstraint: boolean
+  qualification: QualificationState
+}): string {
+  const name = sanitizeSafeVocativeName(params.leadName)
+  const prefix = name ? `${name}, ` : ""
+
+  if (params.hasAvailabilityConstraint) {
+    return `${prefix}você tem razão, já tinha explicado sua rotina. Para não te fazer repetir: faz mais sentido validar uma data de férias ou um fim de semana. Me envie uma data específica que funcione para você e eu confiro a agenda com precisão.`
+  }
+
+  if (params.qualification.qualified) {
+    return `${prefix}você tem razão, já tinha respondido. Vou seguir pelo que você contou: sua área e seu desafio de comunicação já estão claros. Quer que eu te explique o próximo passo ou prefere tirar uma dúvida específica primeiro?`
+  }
+
+  return `${prefix}você tem razão, vou seguir pelo que você já contou e não vou te fazer repetir. Qual ponto você quer que eu esclareça agora?`
+}
+
+function buildAvailabilityConstraintRecoveryReply(leadName?: string | null): string {
+  const name = sanitizeSafeVocativeName(leadName)
+  const prefix = name ? `${name}, ` : ""
+  return `${prefix}entendi sua rotina. Como você comentou que só consegue nas férias ou em finais de semana, o melhor é validar uma data específica que funcione para você. Me envie essa data e eu confiro a agenda com precisão.`
+}
+
+function repairAnsweredContextLoopResponse(params: {
+  responseText: string
+  leadMessage: string
+  conversationRows: Array<{ role: "user" | "assistant" | "system"; content: string }> | any[] | undefined
+  qualification: QualificationState
+  leadName?: string | null
+}): { responseText: string; repaired: boolean; reason?: string } {
+  const responseText = String(params.responseText || "").trim()
+  if (!responseText) return { responseText, repaired: false }
+
+  const hasAvailabilityConstraint = recentLeadContextMentionsAvailabilityConstraint(
+    params.conversationRows,
+    params.leadMessage,
+  )
+
+  if (leadComplainsQuestionAlreadyAnswered(params.leadMessage)) {
+    return {
+      responseText: buildAlreadyAnsweredRecoveryReply({
+        leadName: params.leadName,
+        hasAvailabilityConstraint,
+        qualification: params.qualification,
+      }),
+      repaired: true,
+      reason: "lead_said_already_answered",
+    }
+  }
+
+  if (hasAvailabilityConstraint && responseAsksAvailabilityAlreadyAnswered(responseText)) {
+    return {
+      responseText: buildAvailabilityConstraintRecoveryReply(params.leadName),
+      repaired: true,
+      reason: "availability_constraint_already_answered",
+    }
+  }
+
+  if (params.qualification.qualified && responseAsksDiscoveryQuestion(responseText)) {
+    return {
+      responseText: buildAlreadyAnsweredRecoveryReply({
+        leadName: params.leadName,
+        hasAvailabilityConstraint,
+        qualification: params.qualification,
+      }),
+      repaired: true,
+      reason: "qualified_discovery_loop",
+    }
+  }
+
+  return { responseText, repaired: false }
+}
+
 function lastAssistantAskedDiscoveryQuestion(
   conversationRows: Array<{ role: "user" | "assistant" | "system"; content: string }>,
 ): boolean {
@@ -528,13 +688,7 @@ function lastAssistantAskedDiscoveryQuestion(
     .find((row) => row.role === "assistant" && String(row.content || "").trim())
   const text = normalizeComparableMessage(String(lastAssistant?.content || ""))
   if (!text) return false
-  if (responseAsksAreaAndPainTogether(text)) return true
-
-  return (
-    /\b(area de atuacao|sua area de atuacao|qual e sua area|qual sua area|profissao|em que voce trabalha|com o que voce trabalha)\b/.test(text) ||
-    /\b(principal desafio|qual desafio|desafio de comunicacao|problema.*(comunicacao|oratoria)|desafio.*(comunicacao|oratoria)|objetivo.*(comunicacao|oratoria)|o que voce quer resolver|quer desenvolver)\b/.test(text) ||
-    /\b(me conta|me fale|me diz).{0,90}\b(area|desafio|contexto|objetivo|comunicacao|oratoria)\b/.test(text)
-  )
+  return responseAsksDiscoveryQuestion(text)
 }
 
 function leadExplicitlyRequestsScheduling(rawMessage: string): boolean {
@@ -1061,11 +1215,13 @@ function suppressAnsweredDiscoveryLoop(
   const text = String(responseText || "").trim()
   if (!text) return text
   if (!qualification.qualified) return text
-  if (!responseAsksAreaAndPainTogether(text)) return text
+  if (!responseAsksDiscoveryQuestion(text)) return text
 
-  const stripped = stripCombinedQualificationSegments(text)
-  if (stripped) return stripped
-  return "Perfeito, entendi seu contexto. Podemos seguir para o próximo passo?"
+  const stripped = responseAsksAreaAndPainTogether(text)
+    ? stripCombinedQualificationSegments(text)
+    : ""
+  if (stripped && !responseAsksDiscoveryQuestion(stripped)) return stripped
+  return "Perfeito, entendi seu contexto. Podemos seguir para o proximo passo?"
 }
 
 function normalizeRecipientForMessaging(input: {
@@ -5751,6 +5907,37 @@ export class NativeAgentOrchestratorService {
             repaired_by_prompt_base: repairedByPromptBase,
             lead_preview: String(effectiveLeadMessage || content || "").slice(0, 180),
             blocked_reply_preview: String(decision.reply || "").slice(0, 240),
+          },
+        })
+        .catch(() => {})
+    }
+    const answeredContextRepair = repairAnsweredContextLoopResponse({
+      responseText,
+      leadMessage: String(effectiveLeadMessage || content || ""),
+      conversationRows,
+      qualification: qualificationState,
+      leadName: resolvedContactName,
+    })
+    if (answeredContextRepair.repaired) {
+      responseText = applyAssistantOutputPolicy(answeredContextRepair.responseText, {
+        allowEmojis: config.moderateEmojiEnabled !== false,
+        allowLanguageVices: false,
+      })
+      responseText = fixGreetingTemporalAndVocative(responseText, config, resolvedContactName)
+      responseText = stripUnsafeLeadNameVocatives(responseText, resolvedContactName)
+      responseText = enforceBusinessHoursClaimConsistency(responseText, config)
+      await this
+        .persistDebugStatus({
+          chat,
+          sessionId,
+          content: "answered_context_loop_repaired",
+          details: {
+            debug_event: "answered_context_loop_repaired",
+            debug_severity: "warning",
+            repair_reason: answeredContextRepair.reason || null,
+            lead_preview: String(effectiveLeadMessage || content || "").slice(0, 180),
+            original_reply_preview: String(decision.reply || "").slice(0, 240),
+            repaired_reply_preview: String(responseText || "").slice(0, 240),
           },
         })
         .catch(() => {})
