@@ -11965,6 +11965,16 @@ export class NativeAgentOrchestratorService {
         params.appointmentData,
       )
       const mode = params.config.postScheduleMessageMode || "text"
+      const postScheduleKey = [
+        "post_schedule",
+        params.tenant,
+        params.appointmentData?.appointmentId || params.sessionId || params.phone,
+        params.appointmentData?.date || "",
+        params.appointmentData?.time || "",
+      ]
+        .map((part) => String(part || "").trim().replace(/\s+/g, "_").toLowerCase())
+        .filter(Boolean)
+        .join(":")
 
       postScheduleTasks.push(
         this.taskQueue
@@ -11974,8 +11984,10 @@ export class NativeAgentOrchestratorService {
             phone: params.phone,
             message: messageText,
             runAt,
+            idempotencyKey: postScheduleKey,
             metadata: {
               source: "native_agent_post_schedule",
+              post_schedule_key: postScheduleKey,
               message_mode: mode,
               media_url: String(params.config.postScheduleMediaUrl || "").trim(),
               caption: captionText,

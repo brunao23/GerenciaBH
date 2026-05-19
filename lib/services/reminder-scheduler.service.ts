@@ -9,6 +9,7 @@
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { resolveTenantRegistryPrefix } from "@/lib/helpers/tenant-resolution"
 import { getNativeAgentConfigForTenant } from "@/lib/helpers/native-agent-config"
+import { getTablesForTenant } from "@/lib/helpers/tenant"
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -648,7 +649,7 @@ export async function scheduleRemindersForTenant(
     const nativeAgentConfig = await getNativeAgentConfigForTenant(tenant).catch(() => null)
     const nativeRemindersEnabled = nativeAgentConfig?.remindersEnabled !== false
     const supabase = createBiaSupabaseServerClient()
-    const agendamentosTable = `${tenant}_agendamentos`
+    const agendamentosTable = getTablesForTenant(tenant).agendamentos
     const taskQueueTable = "agent_task_queue"
 
     // Force mode: cancel pending official reminders to resync templates/timing from current config

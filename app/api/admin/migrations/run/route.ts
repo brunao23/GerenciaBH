@@ -25,6 +25,7 @@ const MIGRATIONS = {
     'pause-state-columns': 'supabase/migrations/20260505_pause_state_columns.sql',
     'llm-usage-events': 'supabase/migrations/20260502_llm_usage_events.sql',
     'agent-task-queue-reminder-idempotency': 'supabase/migrations/20260515_agent_task_queue_reminder_idempotency.sql',
+    'agent-task-queue-generic-reminder-idempotency': 'supabase/migrations/20260519_agent_task_queue_reminder_idempotency_key.sql',
     'agent-task-queue-health-indexes': 'supabase/migrations/20260515_agent_task_queue_health_indexes.sql',
     'lead-internal-items': 'supabase/migrations/20260515_lead_internal_items.sql',
     'agendamentos-google-calendar-sync-columns': 'supabase/migrations/20260515_agendamentos_google_calendar_sync_columns.sql',

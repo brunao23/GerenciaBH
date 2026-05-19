@@ -32,6 +32,7 @@ export interface EnqueueReminderInput {
   phone: string
   message: string
   runAt: string
+  idempotencyKey?: string
   metadata?: Record<string, any>
 }
 
@@ -1922,15 +1923,40 @@ export class AgentTaskQueueService {
     try {
       const tenant = normalizeTenant(input.tenant)
       if (!tenant) return { ok: false, error: "Invalid tenant" }
+      const sessionId = normalizeSessionId(input.sessionId)
+      const phone = normalizePhoneNumber(input.phone)
+      if (!sessionId || !phone) return { ok: false, error: "Invalid session/phone" }
+
+      const runAtMs = new Date(String(input.runAt || "")).getTime()
+      if (!Number.isFinite(runAtMs)) return { ok: false, error: "Invalid runAt" }
+
+      const idempotencyKey = String(input.idempotencyKey || input.metadata?.idempotency_key || "").trim()
+      if (idempotencyKey) {
+        const { data: existing, error: existingError } = await this.supabase
+          .from(this.table)
+          .select("id")
+          .eq("tenant", tenant)
+          .eq("task_type", "reminder")
+          .in("status", ["pending", "processing"])
+          .filter("payload->>idempotency_key", "eq", idempotencyKey)
+          .order("run_at", { ascending: true })
+          .limit(1)
+          .maybeSingle()
+
+        if (!existingError && existing?.id) {
+          return { ok: true, id: existing.id }
+        }
+      }
 
       const payload = {
         tenant,
-        session_id: normalizeSessionId(input.sessionId),
-        phone_number: normalizePhoneNumber(input.phone),
+        session_id: sessionId,
+        phone_number: phone,
         task_type: "reminder",
         payload: {
           message: String(input.message || "").trim(),
           ...(input.metadata || {}),
+          ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
         },
         run_at: input.runAt,
         status: "pending",
@@ -1938,6 +1964,21 @@ export class AgentTaskQueueService {
 
       const { data, error } = await this.supabase.from(this.table).insert(payload).select("id").single()
       if (error) {
+        const code = String((error as any)?.code || "")
+        const message = String(error.message || "")
+        if (idempotencyKey && (code === "23505" || message.toLowerCase().includes("duplicate key"))) {
+          const { data: existing } = await this.supabase
+            .from(this.table)
+            .select("id")
+            .eq("tenant", tenant)
+            .eq("task_type", "reminder")
+            .in("status", ["pending", "processing"])
+            .filter("payload->>idempotency_key", "eq", idempotencyKey)
+            .order("run_at", { ascending: true })
+            .limit(1)
+            .maybeSingle()
+          if (existing?.id) return { ok: true, id: existing.id }
+        }
         if (isMissingTableError(error)) {
           return { ok: false, error: "agent_task_queue table missing. Run migration." }
         }
@@ -3001,11 +3042,32 @@ export class AgentTaskQueueService {
         runtimeConfig = await this.loadFollowupRuntimeConfig(tenant)
         const followupLeadKey = buildFollowupLeadProcessingKey({ tenant, sessionId, phone })
         if (processedFollowupLeadKeys.has(followupLeadKey)) {
-          const deferredMinutes = clampMinutes(Number(payload?.followup_minutes || 15))
-          const deferredRunAt = toIsoFromNowRespectingBusinessHours(
-            deferredMinutes,
+          const configuredDelayMinutes = Math.floor(Number(payload?.followup_minutes || 0))
+          const createdAtMs = new Date(String(task.created_at || "")).getTime()
+          const minimumNextAttemptMs = Date.now() + MIN_FOLLOWUP_INTERVAL_MINUTES * 60 * 1000
+          let nextAllowedAtMs = Number.isFinite(createdAtMs) && configuredDelayMinutes > 0
+            ? createdAtMs + configuredDelayMinutes * 60 * 1000
+            : minimumNextAttemptMs
+
+          const lastCompletedFollowup = await this.getLastCompletedFollowupForLead({ tenant, sessionId, phone })
+          const lastExecutedAtMs = lastCompletedFollowup?.executedAt
+            ? new Date(lastCompletedFollowup.executedAt).getTime()
+            : NaN
+          if (lastCompletedFollowup && Number.isFinite(lastExecutedAtMs)) {
+            const currentMinutes = configuredDelayMinutes || Number(payload?.followup_minutes || 0) || 0
+            const requiredGapMinutes = Math.max(
+              MIN_FOLLOWUP_INTERVAL_MINUTES,
+              currentMinutes > lastCompletedFollowup.minutes
+                ? currentMinutes - lastCompletedFollowup.minutes
+                : MIN_FOLLOWUP_INTERVAL_MINUTES,
+            )
+            nextAllowedAtMs = Math.max(nextAllowedAtMs, lastExecutedAtMs + requiredGapMinutes * 60 * 1000)
+          }
+
+          const deferredRunAt = adjustToBusinessHours(
+            new Date(Math.max(minimumNextAttemptMs, nextAllowedAtMs)),
             runtimeConfig?.businessHours,
-          )
+          ).toISOString()
           result.skipped += 1
           await this.supabase
             .from(this.table)
@@ -3655,17 +3717,17 @@ export class AgentTaskQueueService {
       const attempts = Number(task.attempts || 0) + 1
       const maxAttempts = Number(task.max_attempts || 3)
       const isLastAttempt = attempts >= maxAttempts
+      const failedUpdate: Record<string, any> = {
+        status: isLastAttempt ? "error" : "pending",
+        attempts,
+        last_error: send.error || "send_failed",
+      }
+      if (!isLastAttempt) {
+        failedUpdate.run_at = toIsoFromNowRespectingBusinessHours(15, runtimeConfig?.businessHours)
+      }
       await this.supabase
         .from(this.table)
-        .update({
-          status: isLastAttempt ? "error" : "pending",
-          attempts,
-          // AvanÃ§a run_at para evitar retry imediato no prÃ³ximo ciclo do cron
-          run_at: isLastAttempt
-            ? undefined
-            : toIsoFromNowRespectingBusinessHours(15, runtimeConfig?.businessHours),
-          last_error: send.error || "send_failed",
-        })
+        .update(failedUpdate)
         .eq("id", task.id)
       await this.notifyTouchpoint({
         tenant,
