@@ -1,4 +1,5 @@
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
+import { Annotation, END, START, StateGraph } from "@langchain/langgraph"
 import {
   isSemanticCacheRuntimeEnabled,
   SemanticCacheService,
@@ -144,6 +145,30 @@ function parseEnvBooleanWithDefault(value: string | undefined, fallback: boolean
   const normalized = String(value || "").trim().toLowerCase()
   if (!normalized) return fallback
   return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on"
+}
+
+function parseTenantCsv(value: string | undefined, fallback: string[]): Set<string> {
+  const raw = String(value || "").trim()
+  const source = raw ? raw.split(",") : fallback
+  return new Set(
+    source
+      .map((item) => normalizeTenant(item))
+      .filter(Boolean),
+  )
+}
+
+function isLangGraphWhatsAppPilotEnabled(params: {
+  tenant: string
+  source?: string
+}): boolean {
+  const enabled = parseEnvBooleanWithDefault(process.env.LANGGRAPH_WHATSAPP_AGENT_ENABLED, true)
+  if (!enabled) return false
+
+  const source = String(params.source || "").toLowerCase()
+  if (source.includes("instagram")) return false
+
+  const tenants = parseTenantCsv(process.env.LANGGRAPH_WHATSAPP_AGENT_TENANTS, ["vox_sete_lagoas"])
+  return tenants.has(normalizeTenant(params.tenant))
 }
 
 function hasVertexProjectConfigured(): boolean {
@@ -4476,7 +4501,15 @@ export class NativeAgentOrchestratorService {
     // â”€â”€ Parallel: Learning Prompt + Semantic Cache Embedding â”€â”€â”€â”€â”€â”€â”€â”€
     let cacheHit: CacheHitResult | null = null
     let cacheEmbedding: number[] | null = null
-    const cacheEnabled = isSemanticCacheRuntimeEnabled() && config.semanticCacheEnabled && !!config.geminiApiKey
+    const useLangGraphWhatsAppPilot = isLangGraphWhatsAppPilotEnabled({
+      tenant,
+      source: input.source,
+    })
+    const cacheEnabled =
+      !useLangGraphWhatsAppPilot &&
+      isSemanticCacheRuntimeEnabled() &&
+      config.semanticCacheEnabled &&
+      !!config.geminiApiKey
     const effectiveMessage = effectiveLeadMessage || content
     const shouldGenerateEmbedding = cacheEnabled && effectiveMessage.trim().length > 0
 
@@ -4629,6 +4662,25 @@ export class NativeAgentOrchestratorService {
       }
     }
 
+    const onToolCallForDecision = (toolCall: GeminiToolCall) => {
+      const toolName = String(toolCall?.name || "").trim().toLowerCase()
+      if (promptBaseSchedulingToolBlockReason && SCHEDULING_TOOL_TYPES.has(toolName)) {
+        return blockSchedulingToolForPromptBase()
+      }
+      return this.executeToolCall({
+        toolCall,
+        tenant,
+        phone,
+        sessionId,
+        contactName: resolvedContactName || undefined,
+        config,
+        chat,
+        incomingMessageId: input.messageId,
+        qualificationState,
+        leadMessageContext: effectiveLeadMessage || content,
+      })
+    }
+
     let decision
     if (cacheHit) {
       // Serve from cache â€” zero tokens
@@ -4642,30 +4694,50 @@ export class NativeAgentOrchestratorService {
     } else {
       // Normal AI flow
       try {
-        decision = await llm.decideNextTurnWithTools({
-          systemPrompt: basePrompt,
-          conversation,
-          sampling: llmSampling,
-          functionDeclarations,
-          onToolCall: (toolCall) => {
-            const toolName = String(toolCall?.name || "").trim().toLowerCase()
-            if (promptBaseSchedulingToolBlockReason && SCHEDULING_TOOL_TYPES.has(toolName)) {
-              return blockSchedulingToolForPromptBase()
-            }
-            return this.executeToolCall({
-              toolCall,
+        if (useLangGraphWhatsAppPilot) {
+          try {
+            decision = await this.runLangGraphWhatsAppPilot({
               tenant,
-              phone,
               sessionId,
-              contactName: resolvedContactName || undefined,
-              config,
               chat,
-              incomingMessageId: input.messageId,
-              qualificationState,
-              leadMessageContext: effectiveLeadMessage || content,
+              llm,
+              systemPrompt: basePrompt,
+              conversation,
+              sampling: llmSampling,
+              functionDeclarations,
+              onToolCall: onToolCallForDecision,
             })
-          },
-        })
+          } catch (langGraphError: any) {
+            await this
+              .persistDebugStatus({
+                chat,
+                sessionId,
+                content: "langgraph_whatsapp_pilot_fallback",
+                details: {
+                  debug_event: "langgraph_whatsapp_pilot_fallback",
+                  debug_severity: "warning",
+                  tenant,
+                  error: String(langGraphError?.message || langGraphError || "").slice(0, 500),
+                },
+              })
+              .catch(() => {})
+            decision = await llm.decideNextTurnWithTools({
+              systemPrompt: basePrompt,
+              conversation,
+              sampling: llmSampling,
+              functionDeclarations,
+              onToolCall: onToolCallForDecision,
+            })
+          }
+        } else {
+          decision = await llm.decideNextTurnWithTools({
+            systemPrompt: basePrompt,
+            conversation,
+            sampling: llmSampling,
+            functionDeclarations,
+            onToolCall: onToolCallForDecision,
+          })
+        }
       } catch (toolError) {
         console.error("[native-agent] tool-calling fallback to legacy JSON:", toolError)
         try {
@@ -6969,6 +7041,109 @@ export class NativeAgentOrchestratorService {
       "",
       "\u26A0\uFE0F _A automacao foi pausada. Responda o quanto antes._",
     ].join("\n")
+  }
+
+  private async runLangGraphWhatsAppPilot(params: {
+    tenant: string
+    sessionId: string
+    chat: TenantChatHistoryService
+    llm: LLMService
+    systemPrompt: string
+    conversation: GeminiConversationMessage[]
+    sampling: Record<string, any>
+    functionDeclarations: GeminiFunctionDeclaration[]
+    onToolCall: (toolCall: GeminiToolCall) => Promise<GeminiToolHandlerResult>
+  }): Promise<GeminiToolDecision> {
+    const State = Annotation.Root({
+      conversation: Annotation<GeminiConversationMessage[]>({
+        value: (_current, update) => update,
+        default: () => [],
+      }),
+      decision: Annotation<GeminiToolDecision | null>({
+        value: (_current, update) => update,
+        default: () => null,
+      }),
+      error: Annotation<string>({
+        value: (_current, update) => update,
+        default: () => "",
+      }),
+    })
+
+    await this
+      .persistDebugStatus({
+        chat: params.chat,
+        sessionId: params.sessionId,
+        content: "langgraph_whatsapp_pilot_started",
+        details: {
+          debug_event: "langgraph_whatsapp_pilot_started",
+          debug_severity: "info",
+          tenant: params.tenant,
+          graph: "single_agent_with_tools",
+          tools: params.functionDeclarations.map((tool) => tool.name).filter(Boolean),
+        },
+      })
+      .catch(() => {})
+
+    const workflow = new StateGraph(State)
+      .addNode("agent_with_tools", async (state: any) => {
+        try {
+          const decision = await params.llm.decideNextTurnWithTools({
+            systemPrompt: params.systemPrompt,
+            conversation: Array.isArray(state.conversation) ? state.conversation : params.conversation,
+            sampling: params.sampling,
+            functionDeclarations: params.functionDeclarations,
+            onToolCall: params.onToolCall,
+            maxSteps: 4,
+          })
+
+          return {
+            decision,
+            error: "",
+          }
+        } catch (error: any) {
+          return {
+            decision: null,
+            error: String(error?.message || error || "langgraph_agent_failed"),
+          }
+        }
+      })
+      .addEdge(START, "agent_with_tools")
+      .addEdge("agent_with_tools", END)
+      .compile()
+
+    const result = await (workflow as any).invoke(
+      {
+        conversation: params.conversation,
+      },
+      {
+        configurable: {
+          thread_id: `whatsapp:${params.tenant}:${params.sessionId}`,
+        },
+      },
+    )
+
+    const decision = result?.decision as GeminiToolDecision | null
+    if (!decision) {
+      throw new Error(String(result?.error || "langgraph_agent_empty_decision"))
+    }
+
+    await this
+      .persistDebugStatus({
+        chat: params.chat,
+        sessionId: params.sessionId,
+        content: "langgraph_whatsapp_pilot_completed",
+        details: {
+          debug_event: "langgraph_whatsapp_pilot_completed",
+          debug_severity: "info",
+          tenant: params.tenant,
+          tool_calls: Array.isArray(decision.toolCalls) ? decision.toolCalls.length : 0,
+          executions: Array.isArray(decision.executions) ? decision.executions.length : 0,
+          has_reply: Boolean(String(decision.reply || "").trim()),
+        },
+      })
+      .catch(() => {})
+
+    return decision
   }
 
   private async persistDebugStatus(params: {
