@@ -2793,6 +2793,93 @@ function resolveDailyBusinessWindow(
   return { enabled: true, start, end }
 }
 
+function formatBusinessMinuteForLead(minutes: number): string {
+  const hour = Math.floor(minutes / 60)
+  const minute = minutes % 60
+  return minute === 0 ? `${hour}h` : `${hour}h${String(minute).padStart(2, "0")}`
+}
+
+function formatBusinessDayRange(days: number[]): string {
+  const names: Record<number, string> = {
+    1: "segunda",
+    2: "terça",
+    3: "quarta",
+    4: "quinta",
+    5: "sexta",
+    6: "sábado",
+    7: "domingo",
+  }
+  const sorted = Array.from(new Set(days)).sort((a, b) => a - b)
+  if (sorted.join(",") === "1,2,3,4,5") return "segunda a sexta"
+  if (sorted.join(",") === "1,2,3,4,5,6") return "segunda a sábado"
+  if (sorted.join(",") === "1,2,3,4,5,6,7") return "segunda a domingo"
+  return sorted.map((day) => names[day]).filter(Boolean).join(", ").replace(/, ([^,]*)$/, " e $1")
+}
+
+function buildCalendarBusinessHoursSummary(config: NativeAgentConfig): string {
+  const groups = new Map<string, number[]>()
+  const closedDays: number[] = []
+  for (let day = 1; day <= 7; day += 1) {
+    const window = resolveDailyBusinessWindow(config, day)
+    if (!window.enabled) {
+      closedDays.push(day)
+      continue
+    }
+    const key = `${window.start}-${window.end}`
+    groups.set(key, [...(groups.get(key) || []), day])
+  }
+
+  const parts = Array.from(groups.entries()).map(([key, days]) => {
+    const [start, end] = key.split("-").map(Number)
+    return `${formatBusinessDayRange(days)}, das ${formatBusinessMinuteForLead(start)} às ${formatBusinessMinuteForLead(end)}`
+  })
+
+  const closedWeekend = closedDays.includes(6) && closedDays.includes(7)
+  const closedPart = closedWeekend
+    ? "Sábado e domingo ficam fechados."
+    : closedDays.includes(6)
+      ? "Sábado fica fechado."
+      : closedDays.includes(7)
+        ? "Domingo fica fechado."
+        : ""
+
+  if (!parts.length) return closedPart || "A unidade não possui horários de atendimento configurados."
+  return `Atendemos de ${parts.join("; e ")}.${closedPart ? ` ${closedPart}` : ""}`
+}
+
+function responseClaimsUnsupportedBusinessDays(responseText: string, config: NativeAgentConfig): boolean {
+  const text = normalizeComparableMessage(responseText)
+  if (!text) return false
+
+  const saturdayOpen = resolveDailyBusinessWindow(config, 6).enabled
+  const sundayOpen = resolveDailyBusinessWindow(config, 7).enabled
+  const broadEverydayClaim =
+    /\b(domingo a domingo|segunda a domingo|todos os dias|todos os dias da semana|diariamente|7 dias|sete dias|24\/7)\b/.test(text)
+  if (broadEverydayClaim && (!saturdayOpen || !sundayOpen)) return true
+
+  const claimsSaturdayOpen =
+    /\b(atendemos|funciona|funcionamos|tem atendimento|horario|horarios)\b.{0,90}\bsabado\b/.test(text) &&
+    !/\b(nao|não|sem|fechado|fechados|fechada)\b.{0,50}\bsabado\b/.test(text)
+  if (claimsSaturdayOpen && !saturdayOpen) return true
+
+  const claimsSundayOpen =
+    /\b(atendemos|funciona|funcionamos|tem atendimento|horario|horarios)\b.{0,90}\bdomingo\b/.test(text) &&
+    !/\b(nao|não|sem|fechado|fechados|fechada)\b.{0,50}\bdomingo\b/.test(text)
+  return claimsSundayOpen && !sundayOpen
+}
+
+function enforceBusinessHoursClaimConsistency(responseText: string, config: NativeAgentConfig): string {
+  const text = String(responseText || "").trim()
+  if (!text || !responseClaimsUnsupportedBusinessDays(text, config)) return text
+
+  const summary = buildCalendarBusinessHoursSummary(config)
+  const vocativeMatch = text.match(/^([^.!?\n]{2,40},\s*)/)
+  const vocative = vocativeMatch ? vocativeMatch[1] : ""
+  const questionMatch = text.match(/(?:Qual|Que)\s+[^?]{3,180}\?/i)
+  const question = questionMatch ? ` ${questionMatch[0].trim()}` : ""
+  return `${vocative}${summary}${question}`.replace(/\s+/g, " ").trim()
+}
+
 type TodayPeriodAvailability = {
   morning: boolean
   afternoon: boolean
@@ -5520,6 +5607,7 @@ export class NativeAgentOrchestratorService {
       responseText,
       config.timezone || "America/Sao_Paulo",
     )
+    responseText = enforceBusinessHoursClaimConsistency(responseText, config)
     responseText = enforceExplicitLeadQuestionCoverage(
       responseText,
       effectiveLeadMessage || content,
@@ -5589,6 +5677,7 @@ export class NativeAgentOrchestratorService {
         allowLanguageVices: false,
       })
       responseText = stripUnsafeLeadNameVocatives(responseText, resolvedContactName)
+      responseText = enforceBusinessHoursClaimConsistency(responseText, config)
       await this
         .persistDebugStatus({
           chat,
@@ -5633,6 +5722,7 @@ export class NativeAgentOrchestratorService {
         responseText,
         config.timezone || "America/Sao_Paulo",
       )
+      responseText = enforceBusinessHoursClaimConsistency(responseText, config)
 
       if (responseText) {
         await this
@@ -8220,6 +8310,7 @@ export class NativeAgentOrchestratorService {
       "",
       "HORARIOS DE ATENDIMENTO DESTA UNIDADE (fonte de verdade sobre quais dias e horarios a unidade funciona):",
       dayScheduleRule,
+      "- NUNCA use os dias/horarios de follow-up para responder sobre funcionamento da unidade. Follow-up e apenas janela interna de automacao; atendimento e agenda usam exclusivamente os horarios por dia acima e o retorno de get_available_slots.",
       "",
       "REGRAS INVIOALVEIS SOBRE CONTEXTO TEMPORAL:",
       "- NUNCA use seu conhecimento de treinamento para estimar datas ou dias. Use APENAS os valores acima.",

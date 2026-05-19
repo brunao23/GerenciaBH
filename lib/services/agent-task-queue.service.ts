@@ -24,6 +24,7 @@ import { normalizePhoneNumber, normalizeSessionId, TenantChatHistoryService } fr
 import { TenantMessagingService } from "./tenant-messaging.service"
 import { GroupNotificationDispatcherService } from "./group-notification-dispatcher.service"
 import { sendErrorWebhook } from "@/lib/helpers/error-webhook"
+import { RedisService } from "@/lib/services/redis.service"
 
 export interface EnqueueReminderInput {
   tenant: string
@@ -794,6 +795,17 @@ function normalizeIntervals(input?: number[]): number[] {
   return Array.from(new Set(values)).sort((a, b) => a - b)
 }
 
+function buildFollowupLeadProcessingKey(input: { tenant: string; sessionId?: string; phone?: string }): string {
+  const tenant = normalizeTenant(input.tenant)
+  const phone = input.phone ? normalizePhoneNumber(input.phone) : ""
+  const sessionId = input.sessionId ? normalizeSessionId(input.sessionId) : ""
+  if (phone) {
+    const canonicalPhone = phone.startsWith("55") ? phone : `55${phone}`
+    return `${tenant}:phone:${canonicalPhone}`
+  }
+  return `${tenant}:session:${sessionId || "unknown"}`
+}
+
 function resolveFollowupIntervalsFromConfig(config: NativeAgentConfig): number[] {
   if (Array.isArray(config.followupPlan) && config.followupPlan.length > 0) {
     const fromPlan = config.followupPlan
@@ -1504,6 +1516,66 @@ export class AgentTaskQueueService {
     }
   }
 
+  private async getLastCompletedFollowupForLead(input: {
+    tenant: string
+    sessionId: string
+    phone: string
+  }): Promise<null | { executedAt: string; step: number; minutes: number }> {
+    try {
+      const tenant = normalizeTenant(input.tenant)
+      const sessionId = normalizeSessionId(input.sessionId)
+      const phone = normalizePhoneNumber(input.phone)
+      const phoneVariants = Array.from(
+        new Set([phone, phone.startsWith("55") ? phone.slice(2) : `55${phone}`].filter(Boolean)),
+      )
+
+      const rows: any[] = []
+      if (sessionId) {
+        const bySession = await this.supabase
+          .from(this.table)
+          .select("id, executed_at, payload")
+          .eq("tenant", tenant)
+          .eq("task_type", "followup")
+          .eq("status", "done")
+          .eq("session_id", sessionId)
+          .not("executed_at", "is", null)
+          .order("executed_at", { ascending: false })
+          .limit(3)
+        if (bySession.error && !isMissingTableError(bySession.error)) throw bySession.error
+        rows.push(...(Array.isArray(bySession.data) ? bySession.data : []))
+      }
+
+      if (phoneVariants.length) {
+        const byPhone = await this.supabase
+          .from(this.table)
+          .select("id, executed_at, payload")
+          .eq("tenant", tenant)
+          .eq("task_type", "followup")
+          .eq("status", "done")
+          .in("phone_number", phoneVariants)
+          .not("executed_at", "is", null)
+          .order("executed_at", { ascending: false })
+          .limit(3)
+        if (byPhone.error && !isMissingTableError(byPhone.error)) throw byPhone.error
+        rows.push(...(Array.isArray(byPhone.data) ? byPhone.data : []))
+      }
+
+      const latest = rows
+        .filter((row) => row?.executed_at)
+        .sort((a, b) => new Date(String(b.executed_at)).getTime() - new Date(String(a.executed_at)).getTime())[0]
+      if (!latest) return null
+
+      const payload = latest.payload && typeof latest.payload === "object" ? latest.payload : {}
+      return {
+        executedAt: String(latest.executed_at),
+        step: Number(payload.followup_step || 0) || 0,
+        minutes: Number(payload.followup_minutes || 0) || 0,
+      }
+    } catch {
+      return null
+    }
+  }
+
   private async generateAiRuntimeFollowupMessage(input: {
     tenant: string
     step: number
@@ -1947,7 +2019,7 @@ export class AgentTaskQueueService {
           .update({ status: "cancelled", last_error: "cancelled_by_new_message" })
           .eq("tenant", tenant)
           .eq("task_type", "followup")
-          .eq("status", "pending")
+          .in("status", ["pending", "processing"])
           .eq("session_id", sessionId)
           .select("id")
         if (updateBySession.error && !isMissingTableError(updateBySession.error)) {
@@ -1967,7 +2039,7 @@ export class AgentTaskQueueService {
           .update({ status: "cancelled", last_error: "cancelled_by_new_message" })
           .eq("tenant", tenant)
           .eq("task_type", "followup")
-          .eq("status", "pending")
+          .in("status", ["pending", "processing"])
           .in("phone_number", phoneVariants)
         if (sessionId) {
           query = query.neq("session_id", sessionId)
@@ -2827,6 +2899,14 @@ export class AgentTaskQueueService {
   }> {
     const nowIso = new Date().toISOString()
     const result = { processed: 0, sent: 0, failed: 0, skipped: 0 }
+    const queueLockKey = "lock:agent-task-queue:process-due"
+    const queueLockAcquired = await RedisService.acquireLock(queueLockKey, 240)
+    if (!queueLockAcquired) {
+      result.skipped += 1
+      return result
+    }
+
+    try {
     await this.releaseStaleProcessingTasks()
 
     const { data: tasks, error } = await this.supabase
@@ -2844,7 +2924,7 @@ export class AgentTaskQueueService {
       throw error
     }
 
-    const processedFollowupSessionIds = new Set<string>()
+    const processedFollowupLeadKeys = new Set<string>()
 
     for (const task of tasks || []) {
       const claimed = await this.claimPendingTask(String(task.id || ""))
@@ -2890,7 +2970,8 @@ export class AgentTaskQueueService {
 
       if (taskType === "followup" && tenant && phone && sessionId) {
         runtimeConfig = await this.loadFollowupRuntimeConfig(tenant)
-        if (processedFollowupSessionIds.has(sessionId)) {
+        const followupLeadKey = buildFollowupLeadProcessingKey({ tenant, sessionId, phone })
+        if (processedFollowupLeadKeys.has(followupLeadKey)) {
           const deferredMinutes = clampMinutes(Number(payload?.followup_minutes || 15))
           const deferredRunAt = toIsoFromNowRespectingBusinessHours(
             deferredMinutes,
@@ -2947,7 +3028,70 @@ export class AgentTaskQueueService {
             .eq("id", task.id)
           continue
         }
-        processedFollowupSessionIds.add(sessionId)
+
+        const lastCompletedFollowup = await this.getLastCompletedFollowupForLead({ tenant, sessionId, phone })
+        const lastExecutedAtMs = lastCompletedFollowup?.executedAt
+          ? new Date(lastCompletedFollowup.executedAt).getTime()
+          : NaN
+        const sameSequenceAlreadyStarted =
+          Number.isFinite(lastExecutedAtMs) &&
+          Number.isFinite(createdAtMs) &&
+          lastExecutedAtMs >= createdAtMs
+        if (lastCompletedFollowup && sameSequenceAlreadyStarted) {
+          const currentStep = Number(payload?.followup_step || 0) || 0
+          const currentMinutes = Number(payload?.followup_minutes || 0) || configuredDelayMinutes
+          if (currentStep > 0 && lastCompletedFollowup.step >= currentStep) {
+            result.skipped += 1
+            const reason = "followup_cancelled_step_already_sent"
+            await this.supabase
+              .from(this.table)
+              .update({
+                status: "cancelled",
+                attempts: Number(task.attempts || 0) + 1,
+                last_error: reason,
+              })
+              .eq("id", task.id)
+            await this.notifyTouchpoint({
+              tenant,
+              sessionId,
+              phone,
+              runtimeConfig,
+              kind: "cancelled",
+              taskType: "followup",
+              reason,
+              step: currentStep || undefined,
+              totalSteps: Number(payload?.followup_total_steps || 0) || undefined,
+              taskId: String(task.id || ""),
+            })
+            continue
+          }
+
+          const requiredGapMinutes = Math.max(
+            MIN_FOLLOWUP_INTERVAL_MINUTES,
+            currentMinutes > lastCompletedFollowup.minutes
+              ? currentMinutes - lastCompletedFollowup.minutes
+              : MIN_FOLLOWUP_INTERVAL_MINUTES,
+          )
+          const nextAllowedAtMs = lastExecutedAtMs + requiredGapMinutes * 60 * 1000
+          if (Date.now() + 5_000 < nextAllowedAtMs) {
+            const deferredRunAt = adjustToBusinessHours(
+              new Date(nextAllowedAtMs),
+              runtimeConfig?.businessHours,
+            ).toISOString()
+            result.skipped += 1
+            await this.supabase
+              .from(this.table)
+              .update({
+                status: "pending",
+                run_at: deferredRunAt,
+                last_error: "followup_rescheduled_respecting_previous_step_gap",
+              })
+              .eq("id", task.id)
+            continue
+          }
+        }
+
+        processedFollowupLeadKeys.add(followupLeadKey)
       }
 
       const requiresExplicitMessage = taskType !== "followup" && taskType !== "reminder"
@@ -3365,6 +3509,68 @@ export class AgentTaskQueueService {
         }
       }
 
+      if (taskType === "followup") {
+        const [pausedBeforeDispatch, repliedBeforeDispatch, recentBeforeDispatch, duplicateBeforeDispatch] =
+          await Promise.all([
+            this.isLeadPaused(tenant, phone),
+            this.hasUserReplyAfterTask({
+              tenant,
+              sessionId,
+              taskCreatedAt: String(task.created_at || ""),
+            }),
+            this.hasRecentAssistantFollowupMessage({
+              tenant,
+              sessionId,
+              withinSeconds: 600,
+            }),
+            new TenantChatHistoryService(tenant).hasRecentEquivalentMessage({
+              sessionId,
+              content: message,
+              role: "assistant",
+              fromMe: true,
+              withinSeconds: 60 * 60,
+            }),
+          ])
+
+        if (pausedBeforeDispatch || repliedBeforeDispatch || recentBeforeDispatch || duplicateBeforeDispatch) {
+          result.skipped += 1
+          const reason = pausedBeforeDispatch
+            ? "followup_cancelled_paused_before_dispatch"
+            : repliedBeforeDispatch
+              ? "followup_cancelled_user_replied_before_dispatch"
+              : recentBeforeDispatch
+                ? "followup_cancelled_recent_assistant_before_dispatch"
+                : "followup_cancelled_duplicate_before_dispatch"
+
+          await this.supabase
+            .from(this.table)
+            .update({
+              status: "cancelled",
+              attempts: Number(task.attempts || 0) + 1,
+              last_error: reason,
+            })
+            .eq("id", task.id)
+
+          if (pausedBeforeDispatch || repliedBeforeDispatch) {
+            await this.cancelPendingFollowups({ tenant, sessionId, phone }).catch(() => {})
+          }
+
+          await this.notifyTouchpoint({
+            tenant,
+            sessionId,
+            phone,
+            runtimeConfig,
+            kind: "cancelled",
+            taskType: notificationTaskType,
+            reason,
+            step: Number(payload?.followup_step || 0) || undefined,
+            totalSteps: Number(payload?.followup_total_steps || 0) || undefined,
+            taskId: String(task.id || ""),
+          })
+          continue
+        }
+      }
+
       if (runtimeConfig && !runtimeConfig.moderateEmojiEnabled) {
         message = message.replace(/[\p{Extended_Pictographic}\p{Emoji_Presentation}]/gu, "").replace(/\s{2,}/g, " ").trim()
       }
@@ -3449,6 +3655,9 @@ export class AgentTaskQueueService {
     }
 
     return result
+    } finally {
+      await RedisService.releaseLock(queueLockKey)
+    }
   }
 }
 

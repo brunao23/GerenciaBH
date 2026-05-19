@@ -66,6 +66,58 @@ function isExpiredPause(row: any): boolean {
   return Number.isFinite(until.getTime()) && until.getTime() <= Date.now()
 }
 
+async function cancelFollowupsForPausedLead(input: {
+  supabase: any
+  tenant: string
+  chatHistoriesTable: string
+  targetNumero: string
+  source: "POST" | "PUT"
+}) {
+  const taskQueue = new AgentTaskQueueService()
+  let sessionIds: string[] = []
+  try {
+    const { data: chatRows } = await input.supabase
+      .from(input.chatHistoriesTable)
+      .select("session_id")
+      .or(`session_id.eq.${input.targetNumero},session_id.ilike.%${input.targetNumero}%`)
+      .order("id", { ascending: false })
+      .limit(10)
+    sessionIds = Array.from(
+      new Set(
+        (Array.isArray(chatRows) ? chatRows : [])
+          .map((row: any) => String(row?.session_id || "").trim())
+          .filter(Boolean),
+      ),
+    )
+  } catch {
+    sessionIds = []
+  }
+
+  await taskQueue
+    .cancelPendingFollowups({
+      tenant: input.tenant,
+      sessionId: sessionIds[0] || input.targetNumero,
+      phone: input.targetNumero,
+    })
+    .catch((err: any) =>
+      console.warn(`[Pausar API ${input.source}] cancelPendingFollowups error:`, err?.message),
+    )
+
+  for (const sid of sessionIds.slice(1)) {
+    await taskQueue
+      .cancelPendingFollowups({
+        tenant: input.tenant,
+        sessionId: sid,
+        phone: input.targetNumero,
+      })
+      .catch(() => {})
+  }
+
+  console.log(
+    `[Pausar API ${input.source}] Followups pendentes/processando cancelados para ${input.targetNumero} (${sessionIds.length} sessoes)`,
+  )
+}
+
 // GET - Listar todos os registros de pausa ou buscar por numero especifico
 export async function GET(request: NextRequest) {
   try {
@@ -365,8 +417,8 @@ export async function POST(request: NextRequest) {
 // PUT - Atualizar registro existente
 export async function PUT(request: NextRequest) {
   try {
-    const { tables } = await getTenantFromRequest()
-    const { pausar: pausarTable } = tables
+    const { tables, tenant } = await getTenantFromRequest()
+    const { pausar: pausarTable, chatHistories } = tables
     const body = await request.json()
     const { numero, pausar, vaga, agendamento, paused_until, pause_reason } = body
 
@@ -499,6 +551,20 @@ export async function PUT(request: NextRequest) {
     }
 
     console.log(`[Pausar API PUT] Registro atualizado com sucesso para ${targetNumero}`)
+
+    if (updateData.pausar === true) {
+      try {
+        await cancelFollowupsForPausedLead({
+          supabase,
+          tenant,
+          chatHistoriesTable: chatHistories,
+          targetNumero,
+          source: "PUT",
+        })
+      } catch (cancelErr: any) {
+        console.warn("[Pausar API PUT] Erro ao cancelar followups:", cancelErr?.message)
+      }
+    }
 
     return NextResponse.json({
       success: true,
