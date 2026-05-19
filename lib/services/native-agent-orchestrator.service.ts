@@ -4681,6 +4681,10 @@ export class NativeAgentOrchestratorService {
       })
     }
 
+    let langGraphPilotAttempted = false
+    let langGraphPilotDecisionUsed = false
+    let langGraphPilotFallbackReason = ""
+    let agentResponseRuntimeOverride = ""
     let decision
     if (cacheHit) {
       // Serve from cache â€” zero tokens
@@ -4695,6 +4699,7 @@ export class NativeAgentOrchestratorService {
       // Normal AI flow
       try {
         if (useLangGraphWhatsAppPilot) {
+          langGraphPilotAttempted = true
           try {
             decision = await this.runLangGraphWhatsAppPilot({
               tenant,
@@ -4707,7 +4712,9 @@ export class NativeAgentOrchestratorService {
               functionDeclarations,
               onToolCall: onToolCallForDecision,
             })
+            langGraphPilotDecisionUsed = true
           } catch (langGraphError: any) {
+            langGraphPilotFallbackReason = String(langGraphError?.message || langGraphError || "langgraph_pilot_failed")
             await this
               .persistDebugStatus({
                 chat,
@@ -5026,6 +5033,9 @@ export class NativeAgentOrchestratorService {
           ...recoveredDecision,
           usage: mergeLlmUsageMetrics(decision.usage, recoveredDecision.usage),
         }
+        if (langGraphPilotDecisionUsed) {
+          agentResponseRuntimeOverride = `native-agent-empty-reply-recovery:${llmRecoveryMode}`
+        }
         if (!Array.isArray(decision.executions)) {
           decision.executions = [] as GeminiToolExecution[]
         }
@@ -5148,6 +5158,21 @@ export class NativeAgentOrchestratorService {
     )
     const learningOutcome: "conversion" | "handoff" | "neutral" =
       hasSuccessfulSchedulingAction ? "conversion" : hasSuccessfulHandoffAction ? "handoff" : "neutral"
+    const buildAgentRuntimeMetadata = () => {
+      if (!langGraphPilotAttempted) return {}
+      const responseRuntime = agentResponseRuntimeOverride || (langGraphPilotDecisionUsed ? "langgraph" : "native-agent")
+      return {
+        agent_runtime: responseRuntime,
+        agent_response_runtime: responseRuntime,
+        agent_decision_runtime: langGraphPilotDecisionUsed ? "langgraph" : "native-agent",
+        agent_graph: langGraphPilotDecisionUsed ? "single_agent_with_tools" : null,
+        langgraph_pilot_attempted: true,
+        langgraph_pilot_used: langGraphPilotDecisionUsed && !agentResponseRuntimeOverride,
+        langgraph_pilot_fallback_reason: langGraphPilotFallbackReason || null,
+        langgraph_tool_calls: Array.isArray(decision.toolCalls) ? decision.toolCalls.length : 0,
+        langgraph_executions: Array.isArray(decision.executions) ? decision.executions.length : 0,
+      }
+    }
     const hasSuccessfulPresentialSchedulingAction =
       hasSuccessfulSchedulingAction &&
       decision.executions.some((execution) => {
@@ -5331,6 +5356,9 @@ export class NativeAgentOrchestratorService {
           if (repairedText && !responseMentionsAvailabilityOrSpecificSlots(repairedText)) {
             guardedResponseText = repairedText
             repairedByPromptBase = true
+            if (langGraphPilotDecisionUsed) {
+              agentResponseRuntimeOverride = "native-agent-promptbase-repair"
+            }
             if (repairDecision.usage) {
               ;(decision as any).usage = mergeLlmUsageMetrics((decision as any).usage, repairDecision.usage)
             }
@@ -5518,6 +5546,7 @@ export class NativeAgentOrchestratorService {
       responseText,
       config,
       assistantMessagesCount,
+      additional: buildAgentRuntimeMetadata(),
     })
 
     if (audioAttempt.sent) {
@@ -5700,6 +5729,7 @@ export class NativeAgentOrchestratorService {
         message: block,
         sessionId,
         source: "native-agent",
+        additional: buildAgentRuntimeMetadata(),
         zapiDelayMessageSeconds: config.zapiDelayMessageSeconds,
         zapiDelayTypingSeconds: computeTypingSeconds(block, config.zapiDelayTypingSeconds),
         replyToMessageId: sentBlocks === 0 ? replyToMessageId : undefined,
@@ -7169,6 +7199,7 @@ export class NativeAgentOrchestratorService {
     responseText: string
     config: NativeAgentConfig
     assistantMessagesCount: number
+    additional?: Record<string, any>
   }): Promise<{ sent: boolean; result?: SendTenantAudioResult; reason?: string }> {
     if (!shouldSendAudioByCadence(params.config, params.assistantMessagesCount)) {
       return { sent: false, reason: "audio_cadence_not_met" }
@@ -7220,6 +7251,7 @@ export class NativeAgentOrchestratorService {
       zapiDelayMessageSeconds: params.config.zapiDelayMessageSeconds,
       zapiDelayTypingSeconds: params.config.zapiDelayTypingSeconds,
       historyContent: text,
+      additional: params.additional,
       waveform: params.config.audioWaveformEnabled !== false,
     })
 

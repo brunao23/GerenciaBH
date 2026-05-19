@@ -23,6 +23,7 @@ export interface SendTenantTextInput {
   message: string
   sessionId?: string
   source?: string
+  additional?: Record<string, any>
   zapiDelayMessageSeconds?: number
   zapiDelayTypingSeconds?: number
   persistInHistory?: boolean
@@ -48,6 +49,7 @@ export interface SendTenantAudioInput {
   zapiDelayTypingSeconds?: number
   persistInHistory?: boolean
   historyContent?: string
+  additional?: Record<string, any>
   waveform?: boolean
 }
 
@@ -433,6 +435,7 @@ export class TenantMessagingService {
             instagram_recipient_id: target.mode === "dm" ? target.recipientId : target.recipientId || null,
             instagram_comment_id: target.mode === "comment" ? target.commentId : null,
             reply_to_message_id: input.replyToMessageId || null,
+            ...(input.additional || {}),
           },
         })
       }
@@ -536,6 +539,7 @@ export class TenantMessagingService {
           source: input.source || "native-agent",
           additional: {
             reply_to_message_id: input.replyToMessageId || null,
+            ...(input.additional || {}),
           },
         })
       }
@@ -939,6 +943,7 @@ export class TenantMessagingService {
               ? "url"
               : "base64",
             audio_waveform: input.waveform !== false,
+            ...(input.additional || {}),
           },
         })
       }
