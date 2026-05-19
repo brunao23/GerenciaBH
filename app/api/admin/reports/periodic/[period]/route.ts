@@ -1,11 +1,16 @@
-import { NextResponse } from "next/server"
 import { cookies } from "next/headers"
+import { NextRequest, NextResponse } from "next/server"
 import { verifyToken } from "@/lib/auth/utils"
+import {
+  normalizeOperationalReportPeriod,
+  type OperationalReportPeriod,
+} from "@/lib/services/operational-report.service"
 import { dispatchWeeklyReports } from "@/lib/services/weekly-report-dispatcher"
-import { normalizeOperationalReportPeriod } from "@/lib/services/operational-report.service"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
+
+type RouteContext = { params?: Promise<unknown> | unknown }
 
 function isCronAuthorized(req: Request) {
   const authHeader = req.headers.get("authorization")
@@ -30,7 +35,23 @@ async function isAdminAuthenticated() {
   }
 }
 
-async function run(req: Request) {
+async function resolvePeriod(
+  req: Request,
+  context: RouteContext,
+): Promise<OperationalReportPeriod | null> {
+  const paramsValue: any = context?.params
+  const params = paramsValue && typeof paramsValue.then === "function"
+    ? await paramsValue
+    : paramsValue
+
+  const fromParams = normalizeOperationalReportPeriod(params?.period)
+  if (fromParams) return fromParams
+
+  const fromPath = new URL(req.url).pathname.match(/\/api\/admin\/reports\/periodic\/([^/]+)\/?$/i)?.[1]
+  return normalizeOperationalReportPeriod(fromPath)
+}
+
+async function run(req: NextRequest, context: RouteContext) {
   try {
     const cronAuthorized = isCronAuthorized(req)
     const adminAuthenticated = await isAdminAuthenticated()
@@ -39,10 +60,17 @@ async function run(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    const period = await resolvePeriod(req, context)
+    if (!period || period === "daily") {
+      return NextResponse.json(
+        { error: "Período inválido. Use weekly, biweekly ou monthly." },
+        { status: 400 },
+      )
+    }
+
     const url = new URL(req.url)
     const dryRun = url.searchParams.get("dryRun") === "1" || url.searchParams.get("dryRun") === "true"
     const force = url.searchParams.get("force") === "1" || url.searchParams.get("force") === "true"
-    const period = normalizeOperationalReportPeriod(url.searchParams.get("period")) || "weekly"
 
     const result = await dispatchWeeklyReports({ dryRun, force, period })
 
@@ -57,18 +85,18 @@ async function run(req: Request) {
       units: result.units,
     })
   } catch (error: any) {
-    console.error("[WeeklyReports] erro:", error)
+    console.error("[PeriodicReports] erro:", error)
     return NextResponse.json(
-      { error: error?.message || "Falha ao processar relatorios semanais" },
+      { error: error?.message || "Falha ao processar relatórios periódicos" },
       { status: 500 },
     )
   }
 }
 
-export async function GET(req: Request) {
-  return run(req)
+export async function GET(req: NextRequest, context: { params: Promise<unknown> }) {
+  return run(req, context)
 }
 
-export async function POST(req: Request) {
-  return run(req)
+export async function POST(req: NextRequest, context: { params: Promise<unknown> }) {
+  return run(req, context)
 }

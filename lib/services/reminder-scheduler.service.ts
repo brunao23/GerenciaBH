@@ -29,18 +29,18 @@ export interface ReminderConfig {
 }
 
 const LEGACY_REMINDER_TEMPLATES: ReminderConfig["templates"] = {
-  "3days": "Ola {nome}! Passando para lembrar que seu agendamento esta marcado para {data} as {horario}. Faltam 3 dias! Qualquer duvida, estamos a disposicao.",
-  "1day": "Oi {nome}! Amanha e o dia do seu agendamento as {horario}. Estamos te esperando! Se precisar reagendar, e so avisar.",
-  "4hours": "{nome}, seu agendamento e HOJE as {horario}! Nos vemos em breve. Qualquer imprevisto, nos avise o quanto antes.",
+  "3days": "Olá, {nome}! Passando para lembrar que seu agendamento está marcado para {data}, às {horario}. Faltam 3 dias. Qualquer dúvida, estamos à disposição.",
+  "1day": "Oi, {nome}! Amanhã é o dia do seu agendamento, às {horario}. Estamos te esperando. Se precisar reagendar, é só avisar.",
+  "4hours": "{nome}, seu agendamento é hoje, às {horario}. Nos vemos em breve. Qualquer imprevisto, nos avise o quanto antes.",
 }
 
 const DEFAULT_REMINDER_TEMPLATES: ReminderConfig["templates"] = {
   "3days":
-    "{saudacao_ola_tudo_bem}\n\nPassando para confirmar nosso Diagnostico Estrategico de Comunicacao, que acontecera em {dia_semana}, {data}, as {horario}.\n\nQuero que seja um encontro bem direcionado aos seus objetivos, entao, se possivel, ja va refletindo sobre quais situacoes de comunicacao voce quer evoluir neste momento.\n\nQualquer duvida, estou a disposicao. Te aguardamos!",
+    "{saudacao_ola_tudo_bem}\n\nPassando para confirmar nosso Diagnóstico Estratégico de Comunicação, que acontecerá em {dia_semana}, {data}, às {horario}.\n\nQuero que seja um encontro bem direcionado aos seus objetivos. Se possível, já vá refletindo sobre quais situações de comunicação você quer evoluir neste momento.\n\nQualquer dúvida, estou à disposição. Te aguardamos!",
   "1day":
-    "{saudacao_oi_tudo_bem}\n\nPassando para confirmar nossa consultoria amanha as {horario}.\n\nNosso consultor especialista preparou esse horario exclusivamente para voce e vai te explicar com clareza:\n\n✔️ Como funciona a metodologia Vox\n✔️ Qual formato e mais indicado para o seu perfil e momento atual\n✔️ Dias e horarios disponiveis\n✔️ Investimento e condicoes\n\nSepare 30 minutos para essa conversa, pois sera um atendimento individual e personalizado.\n\nComo a agenda e limitada e trabalhamos com horarios reservados, caso surja qualquer imprevisto, nos avise com antecedencia.\n\nConto com sua presenca amanha!",
+    "{saudacao_oi_tudo_bem}\n\nPassando para confirmar nossa consultoria amanhã, às {horario}.\n\nNosso consultor especialista preparou esse horário exclusivamente para você e vai te explicar com clareza:\n\n- Como funciona a metodologia Vox\n- Qual formato é mais indicado para o seu perfil e momento atual\n- Dias e horários disponíveis\n- Investimento e condições\n\nSepare 30 minutos para essa conversa, pois será um atendimento individual e personalizado.\n\nComo a agenda é limitada e trabalhamos com horários reservados, caso surja qualquer imprevisto, nos avise com antecedência.\n\nConto com sua presença amanhã!",
   "4hours":
-    "{saudacao_reforco_hoje}\n\nPassando para reforcar nossa consultoria hoje as {horario}.\n\nO horario segue reservado exclusivamente para o seu Diagnostico de comunicacao, onde nosso consultor especialista vai te direcionar sobre a metodologia, formatos e investimento.\n\nComo e um atendimento personalizado, peco apenas que nos avise caso surja qualquer imprevisto.\n\nTe espero no horario combinado!",
+    "{saudacao_reforco_hoje}\n\nPassando para reforçar nossa consultoria hoje, às {horario}.\n\nO horário segue reservado exclusivamente para o seu Diagnóstico de Comunicação, onde nosso consultor especialista vai te direcionar sobre metodologia, formatos e investimento.\n\nComo é um atendimento personalizado, peço apenas que nos avise caso surja qualquer imprevisto.\n\nTe espero no horário combinado!",
 }
 
 export const DEFAULT_REMINDER_CONFIG: ReminderConfig = {
@@ -305,7 +305,7 @@ export async function saveReminderConfigForTenant(
 
 // ── Date/time helpers ────────────────────────────────────────────────────
 
-const DIAS_SEMANA = ["Domingo", "Segunda-feira", "Terca-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sabado"]
+const DIAS_SEMANA = ["Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"]
 
 const WEEKDAY_MAP: Record<string, number> = {
   Sun: 0,

@@ -64,6 +64,7 @@ function getProbeColumnsForTable(tableName: string): string[] {
       "vaga",
       "agendamento",
       "pausado_em",
+      "pause_reason",
       "paused_until",
       "despausar_em",
     ]

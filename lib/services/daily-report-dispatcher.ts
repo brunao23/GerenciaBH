@@ -1,6 +1,11 @@
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { resolveChatHistoriesTable } from "@/lib/helpers/resolve-chat-table"
 import { resolveTenantDataPrefix } from "@/lib/helpers/tenant-resolution"
+import {
+  buildOperationalReportMessage,
+  collectOperationalReportMetrics,
+  getOperationalReportRange,
+} from "@/lib/services/operational-report.service"
 import { TenantMessagingService } from "@/lib/services/tenant-messaging.service"
 
 // ---------------------------------------------------------------------------
@@ -120,8 +125,12 @@ function getCurrentHourInTimezone(timezone: string): number {
 }
 
 function getTodayDateKey(timezone: string): string {
+  return getDateKeyInTimezone(new Date(), timezone)
+}
+
+function getDateKeyInTimezone(date: Date, timezone: string): string {
   const formatter = new Intl.DateTimeFormat("en-CA", { timeZone: timezone })
-  return formatter.format(new Date()) // YYYY-MM-DD
+  return formatter.format(date) // YYYY-MM-DD
 }
 
 function formatDateBR(date: Date): string {
@@ -696,9 +705,7 @@ async function wasSentToday(unit: TenantDailyUnit): Promise<boolean> {
   const last = new Date(lastSentAt)
   if (Number.isNaN(last.getTime())) return false
 
-  return getTodayDateKey(unit.timezone) === getTodayDateKey(unit.timezone)
-    ? formatDateBR(last) === formatDateBR(new Date())
-    : false
+  return getDateKeyInTimezone(last, unit.timezone) === getTodayDateKey(unit.timezone)
 }
 
 async function persistDailyReportLastSent(unit: TenantDailyUnit, params: { sent: boolean; error?: string }) {
@@ -778,8 +785,13 @@ export async function dispatchDailyReports(options: DispatchOptions = {}): Promi
         }
       }
 
-      const metrics = await calculateDailyMetrics(unit.tenant)
-      const message = buildDailyMessage(unit.name, metrics)
+      const range = getOperationalReportRange("daily", unit.timezone)
+      const metrics = await collectOperationalReportMetrics({ tenant: unit.tenant, range })
+      const message = buildOperationalReportMessage({
+        unitName: unit.name,
+        range,
+        metrics,
+      })
 
       if (!dryRun) {
         for (const groupId of unit.groups) {

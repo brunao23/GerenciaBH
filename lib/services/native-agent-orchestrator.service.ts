@@ -514,6 +514,75 @@ function leadAskedCourseOrMethodInfoBeforeScheduling(rawMessage: string): boolea
   return asksForExplanation && serviceContext
 }
 
+function previousAssistantDiscussedCoursePeriod(rows: any[] | undefined): boolean {
+  const ordered = Array.isArray(rows) ? [...rows].reverse() : []
+  for (const row of ordered.slice(0, 5)) {
+    const message = row?.message || row || {}
+    const role = String(message?.role || row?.role || "").trim().toLowerCase()
+    if (role !== "assistant") continue
+    const text = normalizeComparableMessage(String(message?.content || row?.content || ""))
+    if (!text) continue
+    const mentionsEducationContext =
+      /\b(aula|aulas|curso|turma|turmas|alunos?|metodologia|programa|programas|diagnostico|atendimento)\b/.test(text)
+    const mentionsPeriod = /\b(manha|tarde|noite|noturno)\b/.test(text)
+    if (mentionsEducationContext && mentionsPeriod) return true
+  }
+  return false
+}
+
+function latestLeadMessageIsWeakPromptBaseContinuation(
+  value: string,
+  conversationRows?: any[],
+): boolean {
+  const text = normalizeComparableMessage(value)
+  const compact = compactComparableMessage(value)
+  if (!text || !compact) return false
+
+  const hasRecentScheduleOffer = hasRecentAssistantOfferedSchedule(conversationRows)
+  const hasRecentSchedulingInvite = recentAssistantInvitedScheduling(conversationRows)
+  if (hasRecentScheduleOffer || hasRecentSchedulingInvite) return false
+
+  if (latestLeadMessageIsSchedulingQuestionOrInfoRequest(value)) return false
+  if (leadExplicitlyRequestsScheduling(value)) return false
+  if (extractEmailCandidate(value)) return false
+  if (extractSchedulingTimeCandidate(value)) return false
+
+  const exactWeakReplies = new Set([
+    "pronto",
+    "serio",
+    "seria",
+    "entendi",
+    "certo",
+    "ok",
+    "beleza",
+    "show",
+    "sim",
+    "pode",
+    "hum",
+    "hmm",
+    "aham",
+    "uhum",
+    "a noite",
+    "de noite",
+    "noite",
+    "a tarde",
+    "de tarde",
+    "tarde",
+    "de manha",
+    "manha",
+  ])
+  if (exactWeakReplies.has(compact)) return true
+
+  const selectedPeriod = leadSelectedSingleSchedulingPeriod(value)
+  if (selectedPeriod) return true
+
+  const coursePeriodFragment =
+    /\b(eles|elas|aulas?|turmas?|alunos?|curso|atendimento|diagnostico)\b.{0,90}\b(vai|vao|vão|tem|acontece|acontecem|funciona|funcionam|seria|sao|são|e|é)\b.{0,90}\b(manha|tarde|noite|noturno)\b/.test(text) ||
+    (text.length <= 90 && /\b(manha|tarde|noite|noturno)\b/.test(text) && previousAssistantDiscussedCoursePeriod(conversationRows))
+
+  return coursePeriodFragment
+}
+
 function leadIsAnsweringPromptBaseDiscovery(
   rawMessage: string,
   conversationRows: Array<{ role: "user" | "assistant" | "system"; content: string }>,
@@ -540,6 +609,25 @@ function buildPromptBaseDiscoveryContinuationReply(qualification: QualificationS
   return "Entendi. Isso ajuda bastante. Me conta um pouco mais sobre como esse desafio aparece na sua rotina hoje?"
 }
 
+function resolvePromptBaseSchedulingToolBlockReason(
+  leadMessage: string,
+  conversationRows: Array<{ role: "user" | "assistant" | "system"; content: string }> | any[] | undefined,
+): string {
+  if (leadAskedCourseOrMethodInfoBeforeScheduling(leadMessage)) {
+    return "prompt_base_course_info_before_scheduling"
+  }
+  if (leadIsAnsweringPromptBaseDiscovery(leadMessage, (conversationRows || []) as any)) {
+    return "prompt_base_discovery_step_not_ready"
+  }
+  if (latestLeadMessageIsGenericNonSchedulingReply(leadMessage, conversationRows)) {
+    return "prompt_base_generic_reply_not_scheduling_intent"
+  }
+  if (latestLeadMessageIsWeakPromptBaseContinuation(leadMessage, conversationRows)) {
+    return "prompt_base_weak_contextual_reply_not_scheduling_intent"
+  }
+  return ""
+}
+
 function enforcePromptBaseDiscoveryBeforeScheduling(params: {
   responseText: string
   leadMessage: string
@@ -548,14 +636,15 @@ function enforcePromptBaseDiscoveryBeforeScheduling(params: {
 }): { responseText: string; blocked: boolean; reason?: string } {
   const responseText = String(params.responseText || "").trim()
   if (!responseText) return { responseText, blocked: false }
-  const leadAskedCourseInfo = leadAskedCourseOrMethodInfoBeforeScheduling(params.leadMessage)
-  const reason = leadAskedCourseInfo
-    ? "prompt_base_course_info_response_mentions_schedule"
-    : leadIsAnsweringPromptBaseDiscovery(params.leadMessage, params.conversationRows)
-      ? "prompt_base_discovery_answer_response_mentions_schedule"
-      : latestLeadMessageIsGenericNonSchedulingReply(params.leadMessage, params.conversationRows)
-        ? "prompt_base_generic_reply_response_mentions_schedule"
-        : ""
+  const blockReason = resolvePromptBaseSchedulingToolBlockReason(
+    params.leadMessage,
+    params.conversationRows,
+  )
+  const reason = blockReason
+    ? blockReason.replace("_before_scheduling", "_response_mentions_schedule")
+        .replace("_step_not_ready", "_response_mentions_schedule")
+        .replace("_not_scheduling_intent", "_response_mentions_schedule")
+    : ""
   if (!reason) {
     return { responseText, blocked: false }
   }
@@ -4305,24 +4394,10 @@ export class NativeAgentOrchestratorService {
     const effectiveLeadMessage = isFromMeTrigger ? lastLeadMessageFromHistory : content
     const learningUserMessage = effectiveLeadMessage || (isFromMeTrigger ? "[internal_fromme_trigger]" : content)
     const qualificationState = resolveQualificationState(conversationRows, effectiveLeadMessage || content)
-    const promptBaseDiscoveryAnswerInProgress = leadIsAnsweringPromptBaseDiscovery(
+    const promptBaseSchedulingToolBlockReason = resolvePromptBaseSchedulingToolBlockReason(
       effectiveLeadMessage || content,
       conversationRows,
     )
-    const latestLeadGenericNonSchedulingReply = latestLeadMessageIsGenericNonSchedulingReply(
-      effectiveLeadMessage || content,
-      conversationRows,
-    )
-    const latestLeadCourseInfoBeforeScheduling = leadAskedCourseOrMethodInfoBeforeScheduling(
-      effectiveLeadMessage || content,
-    )
-    const promptBaseSchedulingToolBlockReason = latestLeadCourseInfoBeforeScheduling
-      ? "prompt_base_course_info_before_scheduling"
-      : promptBaseDiscoveryAnswerInProgress
-        ? "prompt_base_discovery_step_not_ready"
-        : latestLeadGenericNonSchedulingReply
-          ? "prompt_base_generic_reply_not_scheduling_intent"
-          : ""
     const blockSchedulingToolForPromptBase = (): Promise<GeminiToolHandlerResult> =>
       Promise.resolve({
         ok: false,
@@ -4330,9 +4405,10 @@ export class NativeAgentOrchestratorService {
         response: {
           ok: false,
           error: promptBaseSchedulingToolBlockReason || "prompt_base_flow_not_ready",
-          guidance: latestLeadCourseInfoBeforeScheduling
+          guidance: promptBaseSchedulingToolBlockReason === "prompt_base_course_info_before_scheduling"
             ? "The latest lead message asks about the course, methodology, classes or diagnosis. Do not use scheduling tools; answer the question by following the tenant Prompt Base and continue the current funnel step."
-            : latestLeadGenericNonSchedulingReply
+            : promptBaseSchedulingToolBlockReason === "prompt_base_generic_reply_not_scheduling_intent" ||
+                promptBaseSchedulingToolBlockReason === "prompt_base_weak_contextual_reply_not_scheduling_intent"
               ? "The latest lead message is only a greeting or short generic reply. Do not use scheduling tools; answer naturally and continue the prompt base funnel/discovery step."
               : "Continue the prompt base discovery/qualification step before using scheduling tools.",
         },
@@ -4958,7 +5034,8 @@ export class NativeAgentOrchestratorService {
 
     if (
       !hasAppointmentMutationExecution(decision.executions as GeminiToolExecution[]) &&
-      responseClaimsAppointmentConfirmed(String(decision.reply || ""))
+      responseClaimsAppointmentConfirmed(String(decision.reply || "")) &&
+      !promptBaseSchedulingToolBlockReason
     ) {
       await this
         .persistDebugStatus({
@@ -5156,17 +5233,17 @@ export class NativeAgentOrchestratorService {
       let guardedResponseText = promptBaseDiscoveryGuard.responseText
       let repairedByPromptBase = false
 
-      if (promptBaseDiscoveryGuard.reason === "prompt_base_course_info_response_mentions_schedule") {
+      if (promptBaseDiscoveryGuard.reason) {
         try {
           const repairDecision = await llm.decideNextTurn({
             systemPrompt: [
               basePrompt,
               "",
               "CORRECAO DE FLUXO - PROMPT BASE SOBERANO:",
-              "A ultima mensagem do lead pediu explicacao sobre curso, metodologia, aulas, programa ou diagnostico.",
+              "A ultima mensagem do lead ainda pertence ao fluxo do Prompt Base ou nao confirmou intencao clara de agenda.",
               "Responda usando o Prompt Base da unidade e o historico da conversa.",
               "Nao chame ferramentas, nao mencione agenda, datas, dias, turnos, vagas, disponibilidade nem horarios.",
-              "Nao pule para agendamento. Responda a duvida e continue exatamente a etapa atual do Prompt Base.",
+              "Nao pule para agendamento. Responda a duvida ou continue exatamente a etapa atual do Prompt Base.",
               "Retorne uma resposta natural para o lead, sem linguagem tecnica e sem JSON visivel.",
             ].join("\n"),
             conversation,
@@ -6050,7 +6127,10 @@ export class NativeAgentOrchestratorService {
     const responseText = String(params.responseText || "").trim()
     const timezone = params.config.timezone || "America/Sao_Paulo"
     const claimsConfirmed = responseClaimsAppointmentConfirmed(responseText)
-    const leadAskedCourseInfo = leadAskedCourseOrMethodInfoBeforeScheduling(leadMessage)
+    const promptBaseSchedulingBlockReason = resolvePromptBaseSchedulingToolBlockReason(
+      leadMessage,
+      params.conversationRows,
+    )
     const needsLookup =
       detectsAvailabilityLookupIntent(leadMessage) ||
       responseMentionsAvailabilityOrSpecificSlots(responseText)
@@ -6062,7 +6142,7 @@ export class NativeAgentOrchestratorService {
     if (
       !claimsConfirmed &&
       needsLookup &&
-      (leadIsAnsweringPromptBaseDiscovery(leadMessage, params.conversationRows) || leadAskedCourseInfo) &&
+      Boolean(promptBaseSchedulingBlockReason) &&
       !leadExplicitlyRequestsScheduling(leadMessage)
     ) {
       return null
@@ -7998,6 +8078,29 @@ export class NativeAgentOrchestratorService {
   }): Promise<GeminiToolHandlerResult> {
     const name = String(params.toolCall.name || "").trim().toLowerCase()
     const args = params.toolCall.args || {}
+
+    if (SCHEDULING_TOOL_TYPES.has(name as AgentActionPlan["type"])) {
+      const recentRows = await params.chat
+        .loadConversation(params.sessionId, 16)
+        .catch(() => [] as Array<{ role: "user" | "assistant" | "system"; content: string }>)
+      const blockReason = resolvePromptBaseSchedulingToolBlockReason(
+        String(params.leadMessageContext || ""),
+        recentRows,
+      )
+      if (blockReason) {
+        return {
+          ok: false,
+          action: { type: "none" },
+          error: blockReason,
+          response: {
+            ok: false,
+            error: blockReason,
+            instruction:
+              "Nao use ferramentas de agenda neste turno. A ultima mensagem do lead ainda pertence ao Prompt Base ou nao confirmou agenda; responda com contexto e continue o fluxo do tenant.",
+          },
+        }
+      }
+    }
 
     if (name === "get_current_datetime") {
       const timezone = String(args.timezone || params.config.timezone || "America/Sao_Paulo").trim()
@@ -10769,7 +10872,7 @@ export class NativeAgentOrchestratorService {
       }),
     ])
 
-    await scheduleRemindersForTenant(params.tenant).catch((error) => {
+    await scheduleRemindersForTenant(params.tenant, { force: true }).catch((error) => {
       console.warn("[native-agent] failed to refresh appointment reminders:", error)
     })
 
@@ -10880,6 +10983,11 @@ export class NativeAgentOrchestratorService {
               appointment_time: params.appointmentData?.time,
               appointment_mode: params.appointmentData?.mode,
             },
+          })
+          .then((result) => {
+            if (!result.ok) {
+              console.warn("[native-agent] failed to enqueue post-schedule message:", result.error)
+            }
           })
           .catch((err) => {
             console.warn("[native-agent] failed to enqueue post-schedule message:", err)

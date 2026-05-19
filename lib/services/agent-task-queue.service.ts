@@ -81,7 +81,7 @@ export interface EnqueueFollowupSequenceInput {
   intervalsMinutes?: number[]
 }
 
-const DEFAULT_FOLLOWUP_INTERVALS_MINUTES = [10, 60, 360, 1440, 2880, 4320, 7200]
+const DEFAULT_FOLLOWUP_INTERVALS_MINUTES = [15, 60, 360, 1440, 2880, 4320, 7200]
 const FOLLOWUP_CONFIG_CACHE_TTL_MS = 5_000
 const FOLLOWUP_GROUP_ACTION_TOKEN_PREFIX = "fupctl"
 type TaskMessageMode = "text" | "image" | "video" | "document"
@@ -2906,6 +2906,32 @@ export class AgentTaskQueueService {
             })
             .eq("id", task.id)
           continue
+        }
+
+        const configuredDelayMinutes = Math.floor(Number(payload?.followup_minutes || 0))
+        const createdAtMs = new Date(String(task.created_at || "")).getTime()
+        if (
+          Number.isFinite(createdAtMs) &&
+          Number.isFinite(configuredDelayMinutes) &&
+          configuredDelayMinutes > 0
+        ) {
+          const earliestSendAtMs = createdAtMs + configuredDelayMinutes * 60 * 1000
+          if (Date.now() + 5_000 < earliestSendAtMs) {
+            const deferredRunAt = adjustToBusinessHours(
+              new Date(earliestSendAtMs),
+              runtimeConfig?.businessHours,
+            ).toISOString()
+            result.skipped += 1
+            await this.supabase
+              .from(this.table)
+              .update({
+                status: "pending",
+                run_at: deferredRunAt,
+                last_error: "followup_rescheduled_before_configured_interval",
+              })
+              .eq("id", task.id)
+            continue
+          }
         }
 
         if (!isWithinBusinessHours(runtimeConfig?.businessHours)) {

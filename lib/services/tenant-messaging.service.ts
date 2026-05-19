@@ -228,6 +228,23 @@ export class TenantMessagingService {
     )
   }
 
+  private isPauseExemptAutomationSource(source?: string): boolean {
+    const normalized = String(source || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_]+/g, "-")
+    if (!normalized) return false
+
+    // Leads agendados ficam pausados para a IA nao continuar vendendo.
+    // Mesmo assim, lembretes oficiais e automacao de pos-agendamento precisam sair.
+    return (
+      normalized.includes("native-agent-post-schedule") ||
+      normalized.includes("native-agent-reminder") ||
+      normalized.includes("official-reminder") ||
+      normalized.includes("appointment-reminder")
+    )
+  }
+
   private shouldSkipPauseGateForRecipient(rawTarget: string): boolean {
     const target = String(rawTarget || "").trim().toLowerCase()
     if (!target) return true
@@ -249,6 +266,7 @@ export class TenantMessagingService {
     source?: string
   }): Promise<SendTenantTextResult | null> {
     if (this.isManualOutboundSource(input.source)) return null
+    if (this.isPauseExemptAutomationSource(input.source)) return null
     if (this.shouldSkipPauseGateForRecipient(input.phone)) return null
 
     const lookupPhone =

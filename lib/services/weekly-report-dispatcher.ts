@@ -1,6 +1,14 @@
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { resolveChatHistoriesTable } from "@/lib/helpers/resolve-chat-table"
 import { resolveTenantDataPrefix } from "@/lib/helpers/tenant-resolution"
+import {
+  buildOperationalReportMessage,
+  collectOperationalReportMetrics,
+  getOperationalReportRange,
+  type OperationalReportMetrics,
+  type OperationalReportPeriod,
+} from "@/lib/services/operational-report.service"
+import { TenantMessagingService } from "@/lib/services/tenant-messaging.service"
 
 interface WeeklyReportConfig {
   enabled: boolean
@@ -10,6 +18,7 @@ interface WeeklyReportConfig {
   hour: number
   timezone: string
   lastSentAt?: string
+  lastSentAtByPeriod?: Record<string, string>
 }
 
 interface TenantWeeklyUnit {
@@ -36,6 +45,7 @@ interface WeeklyMetrics {
 interface DispatchOptions {
   dryRun?: boolean
   force?: boolean
+  period?: OperationalReportPeriod
 }
 
 interface DispatchResult {
@@ -45,6 +55,7 @@ interface DispatchResult {
   sentGroups: number
   failedGroups: number
   dryRun: boolean
+  period: OperationalReportPeriod
   units: Array<{
     unit: string
     tenant: string
@@ -53,6 +64,7 @@ interface DispatchResult {
     failed: number
     skipped?: boolean
     metrics: WeeklyMetrics
+    operationalMetrics?: OperationalReportMetrics
     error?: string
   }>
 }
@@ -235,6 +247,7 @@ function getWeeklyReportConfig(metadataRaw: any): WeeklyReportConfig {
     hour: parseHour(raw.hour ?? raw.sendHour ?? raw.time),
     timezone: normalizeTimezone(raw.timezone),
     lastSentAt: String(raw.lastSentAt || "").trim() || undefined,
+    lastSentAtByPeriod: safeObject(raw.lastSentAtByPeriod) as Record<string, string>,
   }
 }
 
@@ -271,6 +284,52 @@ function wasSentThisWeek(lastSentAt: string | undefined, timezone: string): bool
   if (Number.isNaN(last.getTime())) return false
   const now = new Date()
   return getIsoWeekKey(last, timezone) === getIsoWeekKey(now, timezone)
+}
+
+function getLocalDateParts(date: Date, timezone: string): { year: number; month: number; day: number } {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date)
+
+  return {
+    year: Number(parts.find((part) => part.type === "year")?.value || "0"),
+    month: Number(parts.find((part) => part.type === "month")?.value || "0"),
+    day: Number(parts.find((part) => part.type === "day")?.value || "0"),
+  }
+}
+
+function getPeriodKey(date: Date, timezone: string, period: OperationalReportPeriod): string {
+  if (period === "daily") {
+    const { year, month, day } = getLocalDateParts(date, timezone)
+    return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`
+  }
+
+  if (period === "weekly") return getIsoWeekKey(date, timezone)
+
+  const { year, month, day } = getLocalDateParts(date, timezone)
+  if (period === "biweekly") {
+    return `${year}-${String(month).padStart(2, "0")}-Q${day <= 15 ? "1" : "2"}`
+  }
+
+  return `${year}-${String(month).padStart(2, "0")}`
+}
+
+function wasSentForPeriod(
+  config: WeeklyReportConfig,
+  timezone: string,
+  period: OperationalReportPeriod,
+): boolean {
+  const lastSentAt =
+    config.lastSentAtByPeriod?.[period] ||
+    (period === "weekly" ? config.lastSentAt : undefined)
+  if (!lastSentAt) return false
+
+  const last = new Date(lastSentAt)
+  if (Number.isNaN(last.getTime())) return false
+  return getPeriodKey(last, timezone, period) === getPeriodKey(new Date(), timezone, period)
 }
 
 function parseMessageObject(raw: any): Record<string, any> {
@@ -572,6 +631,30 @@ function buildWeeklyMessage(unitName: string, metrics: WeeklyMetrics, notes: str
   ].join("\n")
 }
 
+async function sendGroupMessage(params: {
+  tenant: string
+  groupId: string
+  message: string
+  period: OperationalReportPeriod
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const messaging = new TenantMessagingService()
+    const result = await messaging.sendText({
+      tenant: params.tenant,
+      phone: params.groupId,
+      message: params.message,
+      sessionId: params.groupId,
+      source: `${params.period}-report`,
+      persistInHistory: false,
+    })
+
+    if (result.success) return { ok: true }
+    return { ok: false, error: result.error || "Falha ao enviar mensagem" }
+  } catch (error: any) {
+    return { ok: false, error: error?.message || "Erro ao enviar mensagem" }
+  }
+}
+
 async function loadUnitsWithWeeklyReportEnabled(): Promise<TenantWeeklyUnit[]> {
   const supabase = createBiaSupabaseServerClient()
   const { data, error } = await supabase
@@ -605,11 +688,20 @@ async function loadUnitsWithWeeklyReportEnabled(): Promise<TenantWeeklyUnit[]> {
 async function persistWeeklyReportLastSent(
   unit: TenantWeeklyUnit,
   metrics: WeeklyMetrics,
-  params: { sent: boolean; error?: string },
+  params: {
+    sent: boolean
+    error?: string
+    period: OperationalReportPeriod
+    operationalMetrics?: OperationalReportMetrics
+  },
 ) {
   const supabase = createBiaSupabaseServerClient()
   const metadata = safeObject(unit.metadata)
   const previous = safeObject(metadata.weeklyReport)
+  const lastSentAtByPeriod = {
+    ...safeObject(previous.lastSentAtByPeriod),
+    ...(params.sent ? { [params.period]: new Date().toISOString() } : {}),
+  }
   const weeklyReport = {
     ...previous,
     enabled: unit.config.enabled,
@@ -618,9 +710,12 @@ async function persistWeeklyReportLastSent(
     dayOfWeek: unit.config.dayOfWeek,
     hour: unit.config.hour,
     timezone: unit.config.timezone,
-    lastSentAt: params.sent ? new Date().toISOString() : previous.lastSentAt || null,
+    lastSentAt: params.sent && params.period === "weekly" ? new Date().toISOString() : previous.lastSentAt || null,
+    lastSentAtByPeriod,
     lastAttemptAt: new Date().toISOString(),
+    lastAttemptPeriod: params.period,
     lastMetrics: metrics,
+    lastOperationalMetrics: params.operationalMetrics || null,
     lastError: params.error || null,
   }
 
@@ -633,6 +728,7 @@ async function persistWeeklyReportLastSent(
 export async function dispatchWeeklyReports(options: DispatchOptions = {}): Promise<DispatchResult> {
   const dryRun = Boolean(options.dryRun)
   const force = Boolean(options.force)
+  const period = options.period || "weekly"
   const units = await loadUnitsWithWeeklyReportEnabled()
 
   const result: DispatchResult = {
@@ -642,14 +738,13 @@ export async function dispatchWeeklyReports(options: DispatchOptions = {}): Prom
     sentGroups: 0,
     failedGroups: 0,
     dryRun,
+    period,
     units: [],
   }
 
   if (units.length === 0) {
     return result
   }
-
-  const evolution = dryRun ? null : await getActiveEvolutionConfig()
 
   for (const unit of units) {
     const unitResult: DispatchResult["units"][number] = {
@@ -682,30 +777,46 @@ export async function dispatchWeeklyReports(options: DispatchOptions = {}): Prom
         continue
       }
 
-      if (!dryRun && !force && wasSentThisWeek(unit.config.lastSentAt, unit.config.timezone)) {
+      if (!dryRun && !force && wasSentForPeriod(unit.config, unit.config.timezone, period)) {
         unitResult.skipped = true
-        unitResult.error = "Ignorado: relatorio ja enviado nesta semana."
+        unitResult.error = `Ignorado: relatório ${period} já enviado neste período.`
         result.processedUnits += 1
         result.units.push(unitResult)
         continue
       }
 
-      const metrics = await calculateTenantWeeklyMetrics(unit.tenant)
+      const range = getOperationalReportRange(period, unit.config.timezone)
+      const operationalMetrics = await collectOperationalReportMetrics({ tenant: unit.tenant, range })
+      const metrics: WeeklyMetrics = {
+        leadsAtendidos: operationalMetrics.leadsAtendidos,
+        conversas: operationalMetrics.conversasRealizadas,
+        aiSuccessRate: operationalMetrics.totalAiMessages > 0
+          ? ((operationalMetrics.totalAiMessages - operationalMetrics.aiErrors) / operationalMetrics.totalAiMessages) * 100
+          : 0,
+        aiErrorRate: operationalMetrics.aiErrorRate,
+        conversionRate: operationalMetrics.conversionRate,
+        agendamentos: operationalMetrics.agendamentosRealizados,
+        attendanceCount: operationalMetrics.attendanceCount,
+        noShowCount: operationalMetrics.noShowCount,
+        salesCount: operationalMetrics.salesCount,
+        totalSalesAmount: operationalMetrics.totalSalesAmount,
+      }
       unitResult.metrics = metrics
-      const message = buildWeeklyMessage(unit.name, metrics, unit.config.notes)
+      unitResult.operationalMetrics = operationalMetrics
+      const message = buildOperationalReportMessage({
+        unitName: unit.name,
+        range,
+        metrics: operationalMetrics,
+        notes: unit.config.notes,
+      })
 
       if (!dryRun) {
-        if (!evolution) {
-          throw new Error("Configuracao ativa da Evolution API nao encontrada.")
-        }
-
         for (const groupId of unit.config.groups) {
-          const sendResult = await sendGroupMessageEvolution({
-            apiUrl: evolution.apiUrl,
-            instance: evolution.instance,
-            token: evolution.token,
+          const sendResult = await sendGroupMessage({
+            tenant: unit.tenant,
             groupId,
             message,
+            period,
           })
 
           if (sendResult.ok) {
@@ -721,7 +832,12 @@ export async function dispatchWeeklyReports(options: DispatchOptions = {}): Prom
         await persistWeeklyReportLastSent(unit, metrics, {
           sent: unitResult.sent > 0,
           error: unitResult.error,
+          period,
+          operationalMetrics,
         })
+      } else {
+        console.log(`[OperationalReport][DRY-RUN][${period}] ${unit.name}:\n${message}\n`)
+        unitResult.sent = unit.config.groups.length
       }
     } catch (error: any) {
       unitResult.failed = unit.config.groups.length
