@@ -1034,6 +1034,12 @@ function recentAssistantInvitedScheduling(rows: any[] | undefined): boolean {
     if (role !== "assistant") continue
     const text = normalizeComparableMessage(String(message?.content || row?.content || ""))
     if (!text) continue
+    const asksPeriodPreference =
+      /\b(prefere|qual\s+periodo|qual\s+funciona\s+melhor|funciona\s+melhor|fica\s+melhor|melhor\s+para\s+voce|melhor\s+pra\s+voce)\b.{0,140}\b(manha|tarde|noite|noturno)\b/.test(text) ||
+      /\b(manha|tarde|noite|noturno)\b.{0,140}\b(funciona|prefere|melhor|fica)\b/.test(text)
+    const hasSchedulingContext =
+      /\b(vir|agenda|agendar|marcar|reservar|diagnostico|avaliacao|consultoria|atendimento|horario|presencial|online)\b/.test(text)
+    if (asksPeriodPreference && hasSchedulingContext) return true
     if (
       /\b(manha|tarde|noite)\b.{0,80}\b(funciona|prefere|melhor)\b/.test(text) ||
       /\b(quer|podemos|vamos|posso|gostaria|topa)\b.{0,100}\b(agendar|marcar|diagnostico|avaliacao|consultoria)\b/.test(text) ||
