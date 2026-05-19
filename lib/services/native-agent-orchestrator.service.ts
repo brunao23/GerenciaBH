@@ -172,6 +172,7 @@ function isLangGraphWhatsAppPilotEnabled(params: {
     "vox_sete_lagoas",
     "vox_maceio",
     "vox_sp_berini",
+    "bia_vox",
   ])
   return tenants.has(normalizeTenant(params.tenant))
 }
