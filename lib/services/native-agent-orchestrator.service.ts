@@ -544,19 +544,40 @@ function leadExplicitlyRequestsScheduling(rawMessage: string): boolean {
   return /\b(agenda|agendar|agendamento|marcar|reservar|horario|horarios|vaga|vagas|disponivel|disponibilidade|que horas|qual horario|quais horarios|tem horario|tem vaga|quando voce tem|quando tem)\b/.test(text)
 }
 
-function leadAskedCourseOrMethodInfoBeforeScheduling(rawMessage: string): boolean {
+function leadAsksCourseValueOrMethodInfo(rawMessage: string): boolean {
   const text = normalizeComparableMessage(rawMessage)
   if (!text) return false
-  if (leadExplicitlyRequestsScheduling(rawMessage)) return false
-  if (extractSchedulingTimeCandidate(rawMessage)) return false
-  if (leadSelectedSingleSchedulingPeriod(rawMessage)) return false
 
   const asksForExplanation =
-    /\b(como funciona|como e|como sao|me explica|explica|explicar|queria saber|quero saber|mais informacoes|informacoes|duvida|duvidas)\b/.test(text)
+    /\b(como funciona|como e|como sao|me explica|me explique|me informa|me informe|explica|explicar|queria saber|quero saber|gostaria de saber|mais informacoes|informacoes|tirar duvidas|duvida|duvidas)\b/.test(text)
+  const asksForValue =
+    /\b(valor|valores|preco|precos|quanto custa|quanto e|investimento|mensalidade|pagamento|forma de pagamento|formas de pagamento|condicao de pagamento|condicoes de pagamento|cartao|pix|parcelamento|boleto|parcela|parcelas)\b/.test(text)
+  const asksForContent =
+    /\b(conteudo|conteudos|grade|modulos?|materia|materias|assuntos?|o que aprende|o que e abordado|o que tem|o que inclui|tecnica|tecnicas|metodo|metodologia)\b/.test(text)
   const serviceContext =
     /\b(curso|oratoria|comunicacao|metodologia|aula|aulas|programa|programas|trilha|diagnostico|consultoria)\b/.test(text)
 
-  return asksForExplanation && serviceContext
+  return (asksForExplanation && serviceContext) || asksForValue || asksForContent
+}
+
+function leadRejectsOfferedScheduleAndAsksForInfo(rawMessage: string): boolean {
+  const text = normalizeComparableMessage(rawMessage)
+  if (!text) return false
+  const rejectsSchedule =
+    /\b(nenhuma|nenhum|nenhum desses|nenhuma dessas|esses nao|essas nao|nao)\b.{0,90}\b(opcao|opcoes|horario|horarios|data|datas|encaixa|corresponde|serve|funciona|consigo|posso)\b/.test(text) ||
+    /\b(horario|horarios|data|datas|opcao|opcoes)\b.{0,90}\bnao\b.{0,60}\b(encaixa|corresponde|serve|funciona|consigo|posso)\b/.test(text)
+  return rejectsSchedule && leadAsksCourseValueOrMethodInfo(rawMessage)
+}
+
+function leadAskedCourseOrMethodInfoBeforeScheduling(rawMessage: string): boolean {
+  const text = normalizeComparableMessage(rawMessage)
+  if (!text) return false
+  if (!leadAsksCourseValueOrMethodInfo(rawMessage)) return false
+  if (leadRejectsOfferedScheduleAndAsksForInfo(rawMessage)) return true
+  if (leadExplicitlyRequestsScheduling(rawMessage)) return false
+  if (extractSchedulingTimeCandidate(rawMessage)) return false
+  if (leadSelectedSingleSchedulingPeriod(rawMessage)) return false
+  return true
 }
 
 function previousAssistantDiscussedCoursePeriod(rows: any[] | undefined): boolean {
@@ -1368,6 +1389,7 @@ function detectsAvailabilityLookupIntent(rawMessage: string): boolean {
   const text = normalizeComparableMessage(rawMessage)
   if (!text) return false
   if (isGreetingOnlyLeadMessage(rawMessage)) return false
+  if (leadAskedCourseOrMethodInfoBeforeScheduling(rawMessage)) return false
   if (detectsSchedulingIntent(rawMessage)) return true
   if (leadSelectedSingleSchedulingPeriod(rawMessage)) return true
 
@@ -4500,16 +4522,34 @@ export class NativeAgentOrchestratorService {
           .catch(() => {})
       }
 
+      const suppressLeadAutoPauseAck = negativeIntent.category === "dissatisfaction"
+      if (suppressLeadAutoPauseAck) {
+        await chat.persistMessage({
+          sessionId,
+          role: "system",
+          type: "status",
+          content: "lead_auto_pause_ack_suppressed",
+          additional: {
+            auto_paused: true,
+            category: negativeIntent.category,
+            reason: "dissatisfaction_no_lead_reply",
+          },
+        }).catch(() => {})
+      }
+
       // Mensagem ao lead passa pela IA para evitar respostas bruscas ou sem acento.
-      const comprehensionMessage = await this.buildAutoPauseAcknowledgement({
-        tenant,
-        config,
-        category: negativeIntent.category,
-        leadMessage: content,
-        contactName: contactFirstName || undefined,
-        sessionId,
-        chat,
-      })
+      // Reclamacao explicita nao recebe resposta automatica: so pausa e notifica o time.
+      const comprehensionMessage = suppressLeadAutoPauseAck
+        ? ""
+        : await this.buildAutoPauseAcknowledgement({
+            tenant,
+            config,
+            category: negativeIntent.category,
+            leadMessage: content,
+            contactName: contactFirstName || undefined,
+            sessionId,
+            chat,
+          })
       // bot_message nao recebe resposta (e mensagem automatica, nÃ£o tem humano)
 
       if (comprehensionMessage && phone) {
@@ -6540,7 +6580,8 @@ export class NativeAgentOrchestratorService {
       !claimsConfirmed &&
       needsLookup &&
       Boolean(promptBaseSchedulingBlockReason) &&
-      !leadExplicitlyRequestsScheduling(leadMessage)
+      (promptBaseSchedulingBlockReason === "prompt_base_course_info_before_scheduling" ||
+        !leadExplicitlyRequestsScheduling(leadMessage))
     ) {
       return null
     }
