@@ -22,7 +22,8 @@ import {
   FileText,
   AlertCircle,
   CheckCircle2,
-  Loader2
+  Loader2,
+  ShieldCheck
 } from "lucide-react"
 import { toast } from "sonner"
 import { useTenant } from "@/lib/contexts/TenantContext"
@@ -47,6 +48,12 @@ interface PausaRecord {
   vaga: boolean
   agendamento: boolean
   pausado_em?: string | null
+  pause_reason?: string | null
+  paused_by_role?: string | null
+  paused_by_name?: string | null
+  paused_by_user_id?: string | null
+  paused_by_unit?: string | null
+  paused_by_source?: string | null
   created_at: string
   updated_at: string
 }
@@ -67,6 +74,50 @@ const formatPauseTime = (iso?: string | null) => {
   }
 }
 
+const formatPauseActor = (pausa: PausaRecord) => {
+  const role = String(pausa.paused_by_role || "").toLowerCase()
+  const source = String(pausa.paused_by_source || "").toLowerCase()
+  const reason = String(pausa.pause_reason || "").toLowerCase()
+  const name = String(pausa.paused_by_name || "").trim()
+
+  const roleLabel =
+    role === "admin"
+      ? "Admin"
+      : role === "unit_user"
+        ? "Usuário da unidade"
+        : role === "system"
+          ? "Sistema"
+          : reason.includes("manual")
+            ? "Humano"
+            : reason.includes("auto") || reason.includes("scheduled")
+              ? "Sistema"
+              : "Não informado"
+
+  const sourceLabel = source.includes("bulk")
+    ? "Pausa em massa"
+    : source.includes("conversation_human_audio")
+      ? "Áudio humano"
+      : source.includes("conversation_human_text")
+        ? "Resposta humana"
+        : source.includes("admin")
+          ? "Painel admin"
+          : source.includes("tenant")
+            ? "Aba Pausas"
+            : source.includes("crm")
+              ? "CRM"
+              : source.includes("followup")
+                ? "Follow-up"
+                : source.includes("native_agent")
+                  ? "Agente"
+                  : ""
+
+  return {
+    roleLabel,
+    name: name && name !== roleLabel ? name : "",
+    sourceLabel,
+  }
+}
+
 export default function PausasPage() {
   const { tenant } = useTenant()
   const [pausas, setPausas] = useState<PausaRecord[]>([])
@@ -80,6 +131,7 @@ export default function PausasPage() {
     agendamento: false,
     paused_until: null,
     pause_reason: "manual_human_panel",
+    pause_source: "tenant_pause_page",
   }
 
   // Estado para modal de confirmação individual
@@ -178,6 +230,13 @@ export default function PausasPage() {
           id,
           numero: pausaAtual.numero,
           ...updates,
+          ...(updates.pausar === true
+            ? {
+              pause_reason: "manual_human_panel",
+              paused_until: null,
+              pause_source: "tenant_pause_page_toggle",
+            }
+            : {}),
         }),
       })
 
@@ -608,6 +667,7 @@ export default function PausasPage() {
             <div className="space-y-4">
               {pausasFiltradas.map((pausa) => {
                 const pauseTime = pausa.pausado_em || pausa.updated_at || pausa.created_at
+                const pauseActor = formatPauseActor(pausa)
                 return (
                   <div
                     key={pausa.id}
@@ -649,6 +709,20 @@ export default function PausasPage() {
                         <div className="flex items-center gap-2 text-xs text-[var(--text-gray)]">
                           <Clock className="h-3 w-3 text-green-400" />
                           Pausado em {formatPauseTime(pauseTime)}
+                        </div>
+                      )}
+                      {pausa.pausar && (
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--text-gray)]">
+                          <ShieldCheck className="h-3 w-3 text-cyan-400" />
+                          <span>
+                            Origem: <span className="text-[var(--pure-white)]">{pauseActor.roleLabel}</span>
+                            {pauseActor.name ? ` (${pauseActor.name})` : ""}
+                          </span>
+                          {pauseActor.sourceLabel && (
+                            <Badge variant="outline" className="border-cyan-500/30 bg-cyan-500/10 text-cyan-300">
+                              {pauseActor.sourceLabel}
+                            </Badge>
+                          )}
                         </div>
                       )}
                     </div>

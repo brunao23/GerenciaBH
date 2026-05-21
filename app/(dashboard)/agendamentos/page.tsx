@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Textarea } from "../../../components/ui/textarea"
 import { Label } from "../../../components/ui/label"
 import { useTenant } from "@/lib/contexts/TenantContext"
+import { cn } from "@/lib/utils"
 
 type Agendamento = {
   id: string | number
@@ -31,6 +32,9 @@ type Agendamento = {
   editado_manual?: boolean
   updated_at?: string
 }
+
+type BusinessEventType = "attendance" | "no_show" | "sale"
+type BusinessEventStatusMap = Record<string, Partial<Record<BusinessEventType, boolean>>>
 
 const ERRO_DATA_HORARIO_REGEX = /erro:\s*data\s*ou\s*hor.?rio\s*vazios/i
 const STATUS_REQUER_DIA_HORARIO = new Set(["agendado", "confirmado"])
@@ -56,12 +60,63 @@ export default function AgendamentosPage() {
   const [savingWithWebhook, setSavingWithWebhook] = useState(false)
   const [savingInlineIds, setSavingInlineIds] = useState<Set<string | number>>(new Set())
   const [busyEvents, setBusyEvents] = useState<Set<string>>(new Set())
+  const [activeBusinessEvents, setActiveBusinessEvents] = useState<BusinessEventStatusMap>({})
   const [saleModal, setSaleModal] = useState<{ open: boolean; row: Agendamento | null }>({ open: false, row: null })
   const [saleForm, setSaleForm] = useState({ amount: "", day: "", month: "", year: "" })
   const [submittingSale, setSubmittingSale] = useState(false)
 
-  const submitQuickEvent = async (r: Agendamento, eventType: "attendance" | "no_show" | "sale") => {
-    if (eventType === "sale") {
+  const businessSessionIdForRow = (r: Agendamento) => {
+    const phone = r.contato?.replace(/\D/g, "") || ""
+    return phone ? `${phone}@c.us` : ""
+  }
+
+  const businessStatusSessionIds = useMemo(
+    () => rows
+      .map(businessSessionIdForRow)
+      .filter(Boolean)
+      .slice(0, 250)
+      .join(","),
+    [rows],
+  )
+
+  useEffect(() => {
+    if (!businessStatusSessionIds) return
+    let cancelled = false
+
+    fetch(`/api/dashboard/business-events?status=1&sessionIds=${encodeURIComponent(businessStatusSessionIds)}`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        if (cancelled || !data?.success) return
+        setActiveBusinessEvents((prev) => ({ ...prev, ...(data.statuses || {}) }))
+      })
+      .catch(() => null)
+
+    return () => {
+      cancelled = true
+    }
+  }, [businessStatusSessionIds])
+
+  const isBusinessEventActive = (r: Agendamento, eventType: BusinessEventType) => {
+    const sessionId = businessSessionIdForRow(r)
+    return Boolean(sessionId && activeBusinessEvents[sessionId]?.[eventType])
+  }
+
+  const setBusinessEventActive = (r: Agendamento, eventType: BusinessEventType, active: boolean) => {
+    const sessionId = businessSessionIdForRow(r)
+    if (!sessionId) return
+
+    setActiveBusinessEvents((prev) => {
+      const current = { ...(prev[sessionId] || {}) }
+      current[eventType] = active
+      if (active && eventType === "attendance") current.no_show = false
+      if (active && eventType === "no_show") current.attendance = false
+      return { ...prev, [sessionId]: current }
+    })
+  }
+
+  const submitQuickEvent = async (r: Agendamento, eventType: BusinessEventType) => {
+    const eventActive = isBusinessEventActive(r, eventType)
+    if (eventType === "sale" && !eventActive) {
       setSaleModal({ open: true, row: r })
       return
     }
@@ -70,20 +125,29 @@ export default function AgendamentosPage() {
     try {
       const phone = r.contato?.replace(/\D/g, "") || ""
       const res = await fetch("/api/dashboard/business-events", {
-        method: "POST",
+        method: eventActive ? "DELETE" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           eventType,
           leadName: r.nome || r.nome_responsavel || r.nome_aluno || undefined,
           phone,
-          sessionId: phone ? `${phone}@c.us` : undefined,
+          sessionId: businessSessionIdForRow(r) || undefined,
         }),
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         throw new Error(data.error || "Falha na requisição")
       }
-      toast.success(eventType === "attendance" ? "Comparecimento registrado!" : "Bolo registrado!")
+      setBusinessEventActive(r, eventType, !eventActive)
+      toast.success(
+        eventActive
+          ? "Marcador removido"
+          : eventType === "attendance"
+            ? "Comparecimento registrado!"
+            : eventType === "no_show"
+              ? "Bolo registrado!"
+              : "Venda registrada!",
+      )
     } catch (err: any) {
       toast.error(`Erro: ${err.message}`)
     } finally {
@@ -120,7 +184,7 @@ export default function AgendamentosPage() {
           eventType: "sale",
           leadName: r.nome || r.nome_responsavel || r.nome_aluno || undefined,
           phone,
-          sessionId: phone ? `${phone}@c.us` : undefined,
+          sessionId: businessSessionIdForRow(r) || undefined,
           saleAmount: amount,
           eventAt,
         }),
@@ -130,6 +194,7 @@ export default function AgendamentosPage() {
         throw new Error(data.error || "Falha na requisição")
       }
       toast.success("Venda registrada!")
+      setBusinessEventActive(r, "sale", true)
       setSaleModal({ open: false, row: null })
       setSaleForm({ amount: "", day: "", month: "", year: "" })
     } catch (err: any) {
@@ -1143,7 +1208,13 @@ export default function AgendamentosPage() {
                               <Button
                                 size="sm"
                                 variant="ghost"
-                                className="h-6 text-[10px] px-1.5 text-emerald-400 hover:bg-emerald-400/10 hover:text-emerald-300"
+                                aria-pressed={isBusinessEventActive(r, "attendance")}
+                                className={cn(
+                                  "h-6 px-1.5 text-[10px] transition-all",
+                                  isBusinessEventActive(r, "attendance")
+                                    ? "bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-400/50 hover:bg-emerald-500/25"
+                                    : "text-emerald-400 hover:bg-emerald-400/10 hover:text-emerald-300",
+                                )}
                                 disabled={busyEvents.has(`${r.id}:attendance`)}
                                 onClick={() => submitQuickEvent(r, "attendance")}
                                 title="Registrar comparecimento"
@@ -1153,7 +1224,13 @@ export default function AgendamentosPage() {
                               <Button
                                 size="sm"
                                 variant="ghost"
-                                className="h-6 text-[10px] px-1.5 text-yellow-400 hover:bg-yellow-400/10 hover:text-yellow-300"
+                                aria-pressed={isBusinessEventActive(r, "no_show")}
+                                className={cn(
+                                  "h-6 px-1.5 text-[10px] transition-all",
+                                  isBusinessEventActive(r, "no_show")
+                                    ? "bg-red-500/20 text-red-300 ring-1 ring-red-400/50 hover:bg-red-500/25"
+                                    : "text-yellow-400 hover:bg-yellow-400/10 hover:text-yellow-300",
+                                )}
                                 disabled={busyEvents.has(`${r.id}:no_show`)}
                                 onClick={() => submitQuickEvent(r, "no_show")}
                                 title="Registrar bolo"
@@ -1163,7 +1240,13 @@ export default function AgendamentosPage() {
                               <Button
                                 size="sm"
                                 variant="ghost"
-                                className="h-6 text-[10px] px-1.5 text-blue-400 hover:bg-blue-400/10 hover:text-blue-300"
+                                aria-pressed={isBusinessEventActive(r, "sale")}
+                                className={cn(
+                                  "h-6 px-1.5 text-[10px] transition-all",
+                                  isBusinessEventActive(r, "sale")
+                                    ? "bg-sky-500/20 text-sky-300 ring-1 ring-sky-400/50 hover:bg-sky-500/25"
+                                    : "text-blue-400 hover:bg-blue-400/10 hover:text-blue-300",
+                                )}
                                 onClick={() => submitQuickEvent(r, "sale")}
                                 title="Registrar venda"
                               >

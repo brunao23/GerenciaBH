@@ -392,6 +392,15 @@ export class TenantMessagingService {
     }
   }
 
+  async checkAutomatedOutboundPauseBlock(input: {
+    tenant: string
+    phone: string
+    sessionId?: string
+    source?: string
+  }): Promise<SendTenantTextResult | null> {
+    return this.blockAutomatedOutboundWhenPaused(input)
+  }
+
   private parseInstagramTarget(value: string): InstagramTarget | null {
     const raw = String(value || "").trim()
     if (!raw) return null

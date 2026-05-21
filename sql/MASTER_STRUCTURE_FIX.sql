@@ -383,6 +383,13 @@ BEGIN
       agendamento BOOLEAN DEFAULT TRUE,
       pausado_em TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
       despausar_em TIMESTAMP WITH TIME ZONE,
+      paused_until TIMESTAMP WITH TIME ZONE,
+      pause_reason TEXT,
+      paused_by_role TEXT,
+      paused_by_name TEXT,
+      paused_by_user_id TEXT,
+      paused_by_unit TEXT,
+      paused_by_source TEXT,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
       updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
     )', v_pausar);

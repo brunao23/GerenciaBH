@@ -1105,7 +1105,7 @@ export default function AgenteIAPage() {
             </div>
           </div>
 
-          {(!config.aiProvider || config.aiProvider === "google") && (
+          {(!config.aiProvider || config.aiProvider === "google" || config.aiProvider === "vertexai") && (
               <div className="grid md:grid-cols-2 gap-4">
                   <div className="space-y-2"><Label>Gemini API Key</Label>
                       <Input type="password" value={config.geminiApiKey || ""} onChange={e => setConfig(p => ({ ...p, geminiApiKey: e.target.value }))} placeholder="AIza..." className="bg-secondary border-border text-foreground font-mono" disabled={loading} />
@@ -1114,6 +1114,8 @@ export default function AgenteIAPage() {
                       <Select value={config.geminiModel || "gemini-2.5-flash"} onValueChange={v => setConfig(p => ({ ...p, geminiModel: v }))} disabled={loading}>
                           <SelectTrigger className="bg-secondary border-border text-foreground"><SelectValue /></SelectTrigger>
                           <SelectContent className="bg-secondary border-border text-foreground">
+                              <SelectItem value="gemini-3.5-flash">Gemini 3.5 Flash</SelectItem>
+                              <SelectItem value="gemini-3.1-flash-lite">Gemini 3.1 Flash-Lite</SelectItem>
                               <SelectItem value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Preview)</SelectItem>
                               <SelectItem value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash-Lite (Preview)</SelectItem>
                               <SelectItem value="gemini-3-flash-preview">Gemini 3 Flash (Preview)</SelectItem>

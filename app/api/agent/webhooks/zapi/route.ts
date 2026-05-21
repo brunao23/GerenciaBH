@@ -717,6 +717,19 @@ async function fetchAudioAsBase64(url: string): Promise<{
 
 const AUDIO_TRANSCRIPTION_EMPTY_MARKER = "[audio_sem_fala_inteligivel]"
 
+function isAudioPlaceholderText(value: any): boolean {
+  const normalized = normalizeComparableText(String(value || ""))
+  if (!normalized) return true
+  return [
+    "audio recebido",
+    "audio recebido sem transcricao",
+    "audio_recebido",
+    "mensagem de voz",
+    "voice message",
+    "audio message",
+  ].some((pattern) => normalized === pattern || normalized.includes(pattern))
+}
+
 function normalizeAudioTranscriptionResult(value: any): string {
   const text = String(value || "").trim()
   if (!text) return ""
@@ -777,13 +790,13 @@ function buildAudioTranscriptionConfigVariants(config: NativeAgentConfig): Nativ
 function resolveAudioTranscriptionModelLabel(config: NativeAgentConfig): string {
   const provider = String(config.aiProvider || "google").trim().toLowerCase()
   if (provider === "vertexai") {
-    return String(process.env.VERTEX_MODEL || config.geminiModel || "gemini-2.5-flash").trim()
+    return String(config.geminiModel || process.env.VERTEX_MODEL || process.env.GEMINI_MODEL || "gemini-3.5-flash").trim()
   }
   if (provider === "openai") return String(config.openaiModel || "gpt-5.4").trim()
   if (provider === "anthropic") return String(config.anthropicModel || "claude-4.7").trim()
   if (provider === "groq") return String(config.groqModel || "llama3-70b-8192").trim()
   if (provider === "openrouter") return String(config.openRouterModel || "google/gemini-2.5-flash").trim()
-  return String(config.geminiModel || "gemini-2.5-flash").trim()
+  return String(config.geminiModel || process.env.GEMINI_MODEL || "gemini-3.5-flash").trim()
 }
 
 async function transcribeAudioForEvent(params: {
@@ -950,7 +963,7 @@ async function analyzeMediaForEvent(params: {
     const text = String(analysis || "").trim()
     if (!text) return { error: "media_analysis_empty" }
     event.metadata.mediaAnalysisProvider = "llm_factory"
-    event.metadata.mediaAnalysisModel = String(process.env.VERTEX_MODEL || config.geminiModel || "gemini-2.5-flash")
+    event.metadata.mediaAnalysisModel = String(config.geminiModel || process.env.VERTEX_MODEL || process.env.GEMINI_MODEL || "gemini-3.5-flash")
     return { text }
   } catch (error: any) {
     return { error: String(error?.message || "media_analysis_failed") }
@@ -3871,7 +3884,11 @@ export async function POST(req: NextRequest) {
       event.metadata.isGifWithoutCaption = true
     }
 
-    if (event.callbackType === "received" && !event.text && event.hasAudio) {
+    if (
+      event.callbackType === "received" &&
+      event.hasAudio &&
+      (!event.text || isAudioPlaceholderText(event.text))
+    ) {
       try {
         const transcription = await transcribeAudioForEvent({ tenant, event, config })
         if (transcription.text) {
@@ -3879,6 +3896,7 @@ export async function POST(req: NextRequest) {
           event.audioTranscription = transcription.text
           event.metadata.audioTranscription = transcription.text
           event.metadata.audioTranscriptionStatus = "ok"
+          event.metadata.audioTranscriptionLength = transcription.text.length
         } else {
           event.audioTranscriptionError = transcription.error || "audio_transcription_unavailable"
           event.metadata.audioTranscriptionStatus = "error"

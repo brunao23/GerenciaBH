@@ -1,12 +1,12 @@
 /**
- * Reverte geminiModel de bia_vox para gemini-3.1-flash-lite
+ * Reverte geminiModel de bia_vox para gemini-3.5-flash
  * Execute: npx dotenv-cli -e .env.local -- npx tsx scripts/revert-bia-vox-model.ts
  */
 
 import { createBiaSupabaseServerClient } from "../lib/supabase/bia-client"
 
 const TENANT = "bia_vox"
-const ORIGINAL_MODEL = "gemini-3.1-flash-lite"
+const ORIGINAL_MODEL = "gemini-3.5-flash"
 
 async function main() {
   const supabase = createBiaSupabaseServerClient()

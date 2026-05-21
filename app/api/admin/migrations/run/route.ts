@@ -23,6 +23,7 @@ const MIGRATIONS = {
     'tabelas-empresa': 'sql/criar_tabelas_por_empresa.sql',
     'semantic-cache-embedding-nullable': 'supabase/migrations/20260428_semantic_cache_embedding_nullable.sql',
     'pause-state-columns': 'supabase/migrations/20260505_pause_state_columns.sql',
+    'pause-actor-columns': 'supabase/migrations/20260520_pause_actor_columns.sql',
     'llm-usage-events': 'supabase/migrations/20260502_llm_usage_events.sql',
     'agent-task-queue-reminder-idempotency': 'supabase/migrations/20260515_agent_task_queue_reminder_idempotency.sql',
     'agent-task-queue-generic-reminder-idempotency': 'supabase/migrations/20260519_agent_task_queue_reminder_idempotency_key.sql',

@@ -1,6 +1,6 @@
 ﻿"use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd"
 import { Badge } from "@/components/ui/badge"
 import { Clock, Phone, Eye, Settings2, Plus, X, PauseCircle, Clock3, Timer, GripVertical, CheckCircle2, UserMinus, DollarSign, Loader2, MessageCircle, Instagram, Users, UserPlus, GraduationCap } from "lucide-react"
@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { useTenant } from "@/lib/contexts/TenantContext"
+import { cn } from "@/lib/utils"
 
 interface CRMCard {
     id: string
@@ -75,6 +76,9 @@ interface KanbanBoardProps {
     initialData: CRMColumn[]
     funnelConfig?: FunnelColumn[]
 }
+
+type BusinessEventType = "attendance" | "no_show" | "sale"
+type BusinessEventStatusMap = Record<string, Partial<Record<BusinessEventType, boolean>>>
 
 const EDUCATION_STAGE_META: Record<string, { title: string; color: string; description: string }> = {
     entrada: {
@@ -177,12 +181,56 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
     const [selectedLead, setSelectedLead] = useState<CRMCard | null>(null)
     const [isModalOpen, setIsModalOpen] = useState(false)
     const [busyEvents, setBusyEvents] = useState<Set<string>>(new Set())
+    const [activeBusinessEvents, setActiveBusinessEvents] = useState<BusinessEventStatusMap>({})
     const [saleModal, setSaleModal] = useState<{ open: boolean; card: CRMCard | null }>({ open: false, card: null })
     const [saleForm, setSaleForm] = useState({ amount: "", day: "", month: "", year: "" })
     const [submittingSale, setSubmittingSale] = useState(false)
 
-    const submitQuickEvent = async (card: CRMCard, eventType: "attendance" | "no_show" | "sale") => {
-        if (eventType === "sale") {
+    const businessStatusSessionIds = useMemo(
+        () => columns
+            .flatMap((column) => column.cards.map((card) => card.numero ? `${card.numero}@c.us` : ""))
+            .filter(Boolean)
+            .slice(0, 250)
+            .join(","),
+        [columns],
+    )
+
+    useEffect(() => {
+        if (!businessStatusSessionIds) return
+        let cancelled = false
+
+        fetch(`/api/dashboard/business-events?status=1&sessionIds=${encodeURIComponent(businessStatusSessionIds)}`)
+            .then((response) => (response.ok ? response.json() : null))
+            .then((data) => {
+                if (cancelled || !data?.success) return
+                setActiveBusinessEvents((prev) => ({ ...prev, ...(data.statuses || {}) }))
+            })
+            .catch(() => null)
+
+        return () => {
+            cancelled = true
+        }
+    }, [businessStatusSessionIds])
+
+    const businessSessionIdForCard = (card: CRMCard) => `${card.numero}@c.us`
+
+    const isBusinessEventActive = (card: CRMCard, eventType: BusinessEventType) =>
+        Boolean(activeBusinessEvents[businessSessionIdForCard(card)]?.[eventType])
+
+    const setBusinessEventActive = (card: CRMCard, eventType: BusinessEventType, active: boolean) => {
+        const sessionId = businessSessionIdForCard(card)
+        setActiveBusinessEvents((prev) => {
+            const current = { ...(prev[sessionId] || {}) }
+            current[eventType] = active
+            if (active && eventType === "attendance") current.no_show = false
+            if (active && eventType === "no_show") current.attendance = false
+            return { ...prev, [sessionId]: current }
+        })
+    }
+
+    const submitQuickEvent = async (card: CRMCard, eventType: BusinessEventType) => {
+        const eventActive = isBusinessEventActive(card, eventType)
+        if (eventType === "sale" && !eventActive) {
             setSaleModal({ open: true, card })
             return
         }
@@ -190,20 +238,29 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
         setBusyEvents((prev) => new Set(prev).add(key))
         try {
             const res = await fetch("/api/dashboard/business-events", {
-                method: "POST",
+                method: eventActive ? "DELETE" : "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     eventType,
                     leadName: card.name,
                     phone: card.numero,
-                    sessionId: `${card.numero}@c.us`,
+                    sessionId: businessSessionIdForCard(card),
                 }),
             })
             if (!res.ok) {
                 const data = await res.json().catch(() => ({}))
                 throw new Error(data.error || "Falha na requisição")
             }
-            toast.success(eventType === "attendance" ? "Comparecimento registrado!" : "Bolo registrado!")
+            setBusinessEventActive(card, eventType, !eventActive)
+            toast.success(
+                eventActive
+                    ? "Marcador removido"
+                    : eventType === "attendance"
+                        ? "Comparecimento registrado!"
+                        : eventType === "no_show"
+                            ? "Bolo registrado!"
+                            : "Venda registrada!",
+            )
         } catch (err: any) {
             toast.error(`Erro: ${err.message}`)
         } finally {
@@ -239,7 +296,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                     eventType: "sale",
                     leadName: card.name,
                     phone: card.numero,
-                    sessionId: `${card.numero}@c.us`,
+                    sessionId: businessSessionIdForCard(card),
                     saleAmount: amount,
                     eventAt,
                 }),
@@ -249,6 +306,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                 throw new Error(data.error || "Falha na requisição")
             }
             toast.success("Venda registrada!")
+            setBusinessEventActive(card, "sale", true)
             setSaleModal({ open: false, card: null })
             setSaleForm({ amount: "", day: "", month: "", year: "" })
         } catch (err: any) {
@@ -259,6 +317,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
     }
 
     const submitStudentFlag = async (card: CRMCard, isStudent: boolean) => {
+        const nextIsStudent: boolean | null = card.isStudent === isStudent ? null : isStudent
         const key = `${card.id}:student:${isStudent ? "yes" : "no"}`
         setBusyEvents((prev) => new Set(prev).add(key))
         try {
@@ -270,7 +329,7 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                 },
                 body: JSON.stringify({
                     leadId: card.id,
-                    isStudent,
+                    isStudent: nextIsStudent,
                 })
             })
 
@@ -282,11 +341,17 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
             setColumns((prev) => prev.map((column) => ({
                 ...column,
                 cards: column.cards.map((currentCard) =>
-                    currentCard.id === card.id ? { ...currentCard, isStudent } : currentCard
+                    currentCard.id === card.id ? { ...currentCard, isStudent: nextIsStudent } : currentCard
                 ),
             })))
-            setSelectedLead((prev) => (prev?.id === card.id ? { ...prev, isStudent } : prev))
-            toast.success(isStudent ? "Marcado como aluno" : "Marcado como não aluno")
+            setSelectedLead((prev) => (prev?.id === card.id ? { ...prev, isStudent: nextIsStudent } : prev))
+            toast.success(
+                nextIsStudent === null
+                    ? "Marcador de aluno removido"
+                    : nextIsStudent
+                        ? "Marcado como aluno"
+                        : "Marcado como não aluno",
+            )
         } catch (err: any) {
             toast.error(`Erro: ${err.message}`)
         } finally {
@@ -884,7 +949,13 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                                                                     <Button
                                                                                         size="sm"
                                                                                         variant="ghost"
-                                                                                        className="h-7 min-w-0 px-1 text-[10px] text-accent-green hover:bg-accent-green/10"
+                                                                                        aria-pressed={isBusinessEventActive(card, "attendance")}
+                                                                                        className={cn(
+                                                                                            "h-7 min-w-0 px-1 text-[10px] transition-all",
+                                                                                            isBusinessEventActive(card, "attendance")
+                                                                                                ? "bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-400/50 hover:bg-emerald-500/25"
+                                                                                                : "text-accent-green hover:bg-accent-green/10",
+                                                                                        )}
                                                                                         disabled={busyEvents.has(`${card.id}:attendance`)}
                                                                                         onClick={() => submitQuickEvent(card, "attendance")}
                                                                                         title="Registrar comparecimento"
@@ -895,7 +966,13 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                                                                     <Button
                                                                                         size="sm"
                                                                                         variant="ghost"
-                                                                                        className="h-7 min-w-0 px-1 text-[10px] text-accent-gold hover:bg-accent-gold/10"
+                                                                                        aria-pressed={isBusinessEventActive(card, "no_show")}
+                                                                                        className={cn(
+                                                                                            "h-7 min-w-0 px-1 text-[10px] transition-all",
+                                                                                            isBusinessEventActive(card, "no_show")
+                                                                                                ? "bg-red-500/20 text-red-300 ring-1 ring-red-400/50 hover:bg-red-500/25"
+                                                                                                : "text-accent-gold hover:bg-accent-gold/10",
+                                                                                        )}
                                                                                         disabled={busyEvents.has(`${card.id}:no_show`)}
                                                                                         onClick={() => submitQuickEvent(card, "no_show")}
                                                                                         title="Registrar bolo"
@@ -906,7 +983,13 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                                                                     <Button
                                                                                         size="sm"
                                                                                         variant="ghost"
-                                                                                        className="h-7 min-w-0 px-1 text-[10px] text-accent-blue hover:bg-accent-blue/10"
+                                                                                        aria-pressed={isBusinessEventActive(card, "sale")}
+                                                                                        className={cn(
+                                                                                            "h-7 min-w-0 px-1 text-[10px] transition-all",
+                                                                                            isBusinessEventActive(card, "sale")
+                                                                                                ? "bg-sky-500/20 text-sky-300 ring-1 ring-sky-400/50 hover:bg-sky-500/25"
+                                                                                                : "text-accent-blue hover:bg-accent-blue/10",
+                                                                                        )}
                                                                                         onClick={() => submitQuickEvent(card, "sale")}
                                                                                         title="Registrar venda"
                                                                                     >
@@ -918,7 +1001,13 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                                                                     <Button
                                                                                         size="sm"
                                                                                         variant="ghost"
-                                                                                        className="h-7 min-w-0 px-1 text-[10px] text-accent-green hover:bg-accent-green/10"
+                                                                                        aria-pressed={card.isStudent === true}
+                                                                                        className={cn(
+                                                                                            "h-7 min-w-0 px-1 text-[10px] transition-all",
+                                                                                            card.isStudent === true
+                                                                                                ? "bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-400/50 hover:bg-emerald-500/25"
+                                                                                                : "text-accent-green hover:bg-accent-green/10",
+                                                                                        )}
                                                                                         disabled={busyEvents.has(`${card.id}:student:yes`)}
                                                                                         onClick={() => submitStudentFlag(card, true)}
                                                                                         title="Marcar como aluno"
@@ -929,7 +1018,13 @@ export function KanbanBoard({ initialData, funnelConfig = [] }: KanbanBoardProps
                                                                                     <Button
                                                                                         size="sm"
                                                                                         variant="ghost"
-                                                                                        className="h-7 min-w-0 px-1 text-[10px] text-accent-gold hover:bg-accent-gold/10"
+                                                                                        aria-pressed={card.isStudent === false}
+                                                                                        className={cn(
+                                                                                            "h-7 min-w-0 px-1 text-[10px] transition-all",
+                                                                                            card.isStudent === false
+                                                                                                ? "bg-red-500/20 text-red-300 ring-1 ring-red-400/50 hover:bg-red-500/25"
+                                                                                                : "text-accent-gold hover:bg-accent-gold/10",
+                                                                                        )}
                                                                                         disabled={busyEvents.has(`${card.id}:student:no`)}
                                                                                         onClick={() => submitStudentFlag(card, false)}
                                                                                         title="Marcar como não aluno"

@@ -5,6 +5,11 @@ import { verifyToken } from "@/lib/auth/utils"
 import { getTablesForTenant } from "@/lib/helpers/tenant"
 import { buildBrazilianPhoneVariants, normalizeBrazilianWhatsappPhone } from "@/lib/helpers/phone-normalization"
 import { AgentTaskQueueService } from "@/lib/services/agent-task-queue.service"
+import {
+  buildPauseActorPayload,
+  isPauseActorColumnError,
+  stripPauseActorPayload,
+} from "@/lib/helpers/pause-actor"
 
 async function verifyAdmin() {
   const cookieStore = await cookies()
@@ -65,7 +70,7 @@ export async function GET(req: NextRequest) {
 
     const { data, error } = await supabase
       .from(tables.pausar)
-      .select("id, numero, pausar, created_at, updated_at")
+      .select("*")
       .order("created_at", { ascending: false })
       .limit(500)
 
@@ -102,6 +107,10 @@ export async function POST(req: NextRequest) {
     const tables = getTablesForTenant(tenant)
     const supabase = createBiaSupabaseServerClient()
     const nowIso = new Date().toISOString()
+    const actorPayload = buildPauseActorPayload({
+      session,
+      source: "admin_pause_panel",
+    })
     const payload: Record<string, any> = {
       numero: parsed.phone,
       pausar: true,
@@ -111,6 +120,7 @@ export async function POST(req: NextRequest) {
       pausado_em: nowIso,
       paused_until: null,
       pause_reason: "manual_human_panel",
+      ...actorPayload,
     }
 
     let { data, error } = await supabase
@@ -123,12 +133,14 @@ export async function POST(req: NextRequest) {
       error &&
       (error.message?.includes("pausado_em") ||
         error.message?.includes("paused_until") ||
-        error.message?.includes("pause_reason"))
+        error.message?.includes("pause_reason") ||
+        isPauseActorColumnError(error))
     ) {
       const fallback = { ...payload }
       delete fallback.pausado_em
       delete fallback.paused_until
       delete fallback.pause_reason
+      stripPauseActorPayload(fallback)
       const retry = await supabase
         .from(tables.pausar)
         .upsert(fallback, { onConflict: "numero", ignoreDuplicates: false })
@@ -178,6 +190,10 @@ export async function PATCH(req: NextRequest) {
     const tables = getTablesForTenant(tenant)
     const supabase = createBiaSupabaseServerClient()
     const nowIso = new Date().toISOString()
+    const actorPayload = buildPauseActorPayload({
+      session,
+      source: "admin_pause_panel",
+    })
     const payload: Record<string, any> = {
       numero: parsed.phone,
       pausar,
@@ -186,7 +202,10 @@ export async function PATCH(req: NextRequest) {
       pause_reason: pausar ? "manual_human_panel" : null,
     }
 
-    if (pausar) payload.pausado_em = nowIso
+    if (pausar) {
+      payload.pausado_em = nowIso
+      Object.assign(payload, actorPayload)
+    }
 
     let { data, error } = await supabase
       .from(tables.pausar)
@@ -198,12 +217,14 @@ export async function PATCH(req: NextRequest) {
       error &&
       (error.message?.includes("pausado_em") ||
         error.message?.includes("paused_until") ||
-        error.message?.includes("pause_reason"))
+        error.message?.includes("pause_reason") ||
+        isPauseActorColumnError(error))
     ) {
       const fallback = { ...payload }
       delete fallback.pausado_em
       delete fallback.paused_until
       delete fallback.pause_reason
+      stripPauseActorPayload(fallback)
       const retry = await supabase
         .from(tables.pausar)
         .upsert(fallback, { onConflict: "numero", ignoreDuplicates: false })

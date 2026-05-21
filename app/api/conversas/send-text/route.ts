@@ -1,10 +1,16 @@
 import { NextResponse } from "next/server"
+import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
 import { resolveTenant } from "@/lib/helpers/resolve-tenant"
 import { getTablesForTenant } from "@/lib/helpers/tenant"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { TenantMessagingService } from "@/lib/services/tenant-messaging.service"
 import { AgentTaskQueueService } from "@/lib/services/agent-task-queue.service"
 import { NativeAgentLearningService } from "@/lib/services/native-agent-learning.service"
+import {
+  buildPauseActorPayload,
+  isPauseActorColumnError,
+  stripPauseActorPayload,
+} from "@/lib/helpers/pause-actor"
 import {
   normalizePhoneNumber,
   normalizeSessionId,
@@ -34,7 +40,35 @@ function extractPhone(number: any, sessionId: any): string {
   return normalizePhoneNumber(rawSession)
 }
 
-async function pauseAiForLead(tenant: string, phone: string, pausedUntil?: string): Promise<boolean> {
+async function resolveTenantAndPauseActor(req: Request) {
+  try {
+    const tenantInfo = await getTenantFromRequest()
+    return {
+      tenant: tenantInfo.tenant,
+      pauseActor: buildPauseActorPayload({
+        session: tenantInfo.session,
+        source: "conversation_human_text",
+      }),
+    }
+  } catch {
+    const tenant = await resolveTenant(req)
+    return {
+      tenant,
+      pauseActor: buildPauseActorPayload({
+        role: "unknown",
+        source: "conversation_human_text",
+        unit: tenant,
+      }),
+    }
+  }
+}
+
+async function pauseAiForLead(
+  tenant: string,
+  phone: string,
+  pausedUntil?: string,
+  pauseActor?: Record<string, string | null>,
+): Promise<boolean> {
   const normalized = normalizePhoneNumber(phone)
   if (!normalized) return false
 
@@ -51,6 +85,7 @@ async function pauseAiForLead(tenant: string, phone: string, pausedUntil?: strin
     pausado_em: nowIso,
     pause_reason: "manual_human_panel",
     paused_until: pausedUntil || null,
+    ...(pauseActor || {}),
   }
 
   let upsert = await supabase
@@ -58,12 +93,19 @@ async function pauseAiForLead(tenant: string, phone: string, pausedUntil?: strin
     .upsert(payload, { onConflict: "numero", ignoreDuplicates: false })
     .select("numero")
 
-  if (upsert.error) {
+  if (
+    upsert.error &&
+    (upsert.error.message?.includes("pausado_em") ||
+      upsert.error.message?.includes("paused_until") ||
+      upsert.error.message?.includes("pause_reason") ||
+      isPauseActorColumnError(upsert.error))
+  ) {
     // Fallback para tenants com tabela legada sem colunas novas
     const fallback = { ...payload }
     delete fallback.pausado_em
     delete fallback.paused_until
     delete fallback.pause_reason
+    stripPauseActorPayload(fallback)
     upsert = await supabase
       .from(pauseTable)
       .upsert(fallback, { onConflict: "numero", ignoreDuplicates: false })
@@ -79,7 +121,8 @@ async function pauseAiForLead(tenant: string, phone: string, pausedUntil?: strin
 
 export async function POST(req: Request) {
   try {
-    const tenant = await resolveTenant(req)
+    const tenantContext = await resolveTenantAndPauseActor(req)
+    const tenant = tenantContext.tenant
     const body = await req.json()
     const message = readText(body?.message)
     const phone = extractPhone(body?.number, body?.sessionId)
@@ -95,7 +138,7 @@ export async function POST(req: Request) {
     }
 
     if (!/^ig:/i.test(phone)) {
-      const paused = await pauseAiForLead(tenant, phone, pausedUntil || undefined)
+      const paused = await pauseAiForLead(tenant, phone, pausedUntil || undefined, tenantContext.pauseActor)
       if (!paused) {
         return NextResponse.json(
           { error: "Nao foi possivel ativar a pausa de seguranca da IA para este lead." },

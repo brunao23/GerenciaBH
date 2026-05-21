@@ -71,7 +71,7 @@ async function main() {
   const model = String(nativeAgent.geminiModel || "").trim()
   console.log("\n=== MODELO GEMINI ===")
   console.log("geminiModel:", model || "(não definido)")
-  const knownBadModels = ["gemini-3.1-flash-lite", "gemini-3.0-flash"]
+  const knownBadModels = ["gemini-3.0-flash"]
   if (knownBadModels.includes(model)) {
     console.log("❌ MODELO INVÁLIDO! Este modelo não existe na API Gemini.")
     console.log("   Use: gemini-2.0-flash ou gemini-2.5-flash")

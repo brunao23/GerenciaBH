@@ -66,6 +66,11 @@ function getProbeColumnsForTable(tableName: string): string[] {
       "pausado_em",
       "pause_reason",
       "paused_until",
+      "paused_by_role",
+      "paused_by_name",
+      "paused_by_user_id",
+      "paused_by_unit",
+      "paused_by_source",
       "despausar_em",
     ]
   }

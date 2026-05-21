@@ -15,9 +15,9 @@ export class GroqService implements LLMService {
     private readonly apiKey: string;
     private readonly model: string;
 
-    constructor(apiKey: string, model = "llama3-70b-8192") {
+    constructor(apiKey: string, model = "llama-3.3-70b-versatile") {
         this.apiKey = String(apiKey || "").trim();
-        this.model = String(model || "").trim() || "llama3-70b-8192";
+        this.model = String(model || "").trim() || "llama-3.3-70b-versatile";
     }
 
     private resolveSamplingValue(value: any, fallback: number, min: number, max: number): number {
@@ -43,7 +43,7 @@ export class GroqService implements LLMService {
 
         return {
             provider: "groq",
-            model: String(data?.model || this.model || "llama3-70b-8192"),
+            model: String(data?.model || this.model || "llama-3.3-70b-versatile"),
             inputTokens,
             outputTokens,
             totalTokens,

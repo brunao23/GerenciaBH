@@ -42,6 +42,11 @@ export interface TenantBusinessEventMetrics {
   totalSalesAmount: number
 }
 
+export type TenantBusinessEventStatusMap = Record<
+  string,
+  Partial<Record<TenantBusinessEventType, boolean>>
+>
+
 function normalizePhone(value: any): string | null {
   const digits = String(value || "").replace(/\D/g, "")
   if (!digits) return null
@@ -120,6 +125,103 @@ export class TenantBusinessEventsService {
     } catch (error: any) {
       console.error("[TenantBusinessEventsService.createEvent] Exceção:", error?.message, error?.code)
       return { ok: false, error: error?.message || "failed_to_create_business_event" }
+    }
+  }
+
+  async deleteEvents(input: {
+    tenant: string
+    eventTypes: TenantBusinessEventType[]
+    sessionId?: string
+    phoneNumber?: string
+  }): Promise<{ ok: boolean; deletedCount: number; error?: string }> {
+    try {
+      const tenant = normalizeTenant(input.tenant)
+      if (!tenant) return { ok: false, deletedCount: 0, error: "invalid_tenant" }
+
+      const eventTypes = Array.from(new Set(input.eventTypes.filter(Boolean)))
+      if (eventTypes.length === 0) return { ok: false, deletedCount: 0, error: "invalid_event_type" }
+
+      const sessionId = normalizeSession(input.sessionId)
+      const phoneNumber = normalizePhone(input.phoneNumber)
+      if (!sessionId && !phoneNumber) {
+        return { ok: false, deletedCount: 0, error: "session_or_phone_required" }
+      }
+
+      let query = this.supabase
+        .from(this.table)
+        .delete()
+        .eq("tenant", tenant)
+        .in("event_type", eventTypes)
+
+      if (sessionId) {
+        query = query.eq("session_id", sessionId)
+      } else if (phoneNumber) {
+        query = query.eq("phone_number", phoneNumber)
+      }
+
+      const { data, error } = await query.select("id")
+      if (error) {
+        if (isMissingTableError(error)) return { ok: true, deletedCount: 0 }
+        return { ok: false, deletedCount: 0, error: error.message }
+      }
+
+      return { ok: true, deletedCount: Array.isArray(data) ? data.length : 0 }
+    } catch (error: any) {
+      return { ok: false, deletedCount: 0, error: error?.message || "failed_to_delete_business_events" }
+    }
+  }
+
+  async getActiveStatuses(input: {
+    tenant: string
+    sessionIds?: string[]
+    phoneNumbers?: string[]
+  }): Promise<{ ok: boolean; statuses: TenantBusinessEventStatusMap; error?: string }> {
+    try {
+      const tenant = normalizeTenant(input.tenant)
+      if (!tenant) return { ok: false, statuses: {}, error: "invalid_tenant" }
+
+      const sessionIds = Array.from(
+        new Set((input.sessionIds || []).map(normalizeSession).filter(Boolean) as string[]),
+      ).slice(0, 250)
+      const phoneNumbers = Array.from(
+        new Set((input.phoneNumbers || []).map(normalizePhone).filter(Boolean) as string[]),
+      ).slice(0, 250)
+
+      if (sessionIds.length === 0 && phoneNumbers.length === 0) {
+        return { ok: true, statuses: {} }
+      }
+
+      let query = this.supabase
+        .from(this.table)
+        .select("session_id, phone_number, event_type, event_at")
+        .eq("tenant", tenant)
+        .order("event_at", { ascending: false })
+        .limit(1500)
+
+      if (sessionIds.length > 0) {
+        query = query.in("session_id", sessionIds)
+      } else {
+        query = query.in("phone_number", phoneNumbers)
+      }
+
+      const { data, error } = await query
+      if (error) {
+        if (isMissingTableError(error)) return { ok: true, statuses: {} }
+        return { ok: false, statuses: {}, error: error.message }
+      }
+
+      const statuses: TenantBusinessEventStatusMap = {}
+      for (const row of data || []) {
+        const key = String((row as any)?.session_id || (row as any)?.phone_number || "").trim()
+        const eventType = String((row as any)?.event_type || "") as TenantBusinessEventType
+        if (!key || !["attendance", "no_show", "sale"].includes(eventType)) continue
+        statuses[key] = statuses[key] || {}
+        statuses[key][eventType] = true
+      }
+
+      return { ok: true, statuses }
+    } catch (error: any) {
+      return { ok: false, statuses: {}, error: error?.message || "failed_to_get_business_event_statuses" }
     }
   }
 

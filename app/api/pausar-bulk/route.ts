@@ -2,6 +2,11 @@ import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { type NextRequest, NextResponse } from "next/server"
 import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
 import { normalizeBrazilianWhatsappPhone } from "@/lib/helpers/phone-normalization"
+import {
+  buildPauseActorPayload,
+  isPauseActorColumnError,
+  stripPauseActorPayload,
+} from "@/lib/helpers/pause-actor"
 
 function normalizePhoneNumber(numero: string): string {
   return normalizeBrazilianWhatsappPhone(numero).normalized
@@ -9,11 +14,11 @@ function normalizePhoneNumber(numero: string): string {
 
 export async function POST(request: NextRequest) {
   try {
-    const { tables } = await getTenantFromRequest()
+    const { tables, session } = await getTenantFromRequest()
     const { pausar: pausarTable } = tables
 
     const body = await request.json()
-    const { numbers, pausar, vaga, agendamento } = body
+    const { numbers, pausar, vaga, agendamento, pause_source } = body
 
     if (!Array.isArray(numbers) || numbers.length === 0) {
       return NextResponse.json(
@@ -27,6 +32,12 @@ export async function POST(request: NextRequest) {
     const validRecords: Record<string, any>[] = []
     const invalidNumbers: Array<{ value: unknown; error: string }> = []
     const seen = new Set<string>()
+    const actorPayload = buildPauseActorPayload({
+      session,
+      source: typeof pause_source === "string" && pause_source.trim()
+        ? pause_source.trim()
+        : "tenant_pause_bulk",
+    })
 
     for (const num of numbers) {
       const parsed = normalizeBrazilianWhatsappPhone(num)
@@ -53,6 +64,7 @@ export async function POST(request: NextRequest) {
         record.pausado_em = nowIso
         record.paused_until = null
         record.pause_reason = "manual_human_panel"
+        Object.assign(record, actorPayload)
       }
 
       validRecords.push(record)
@@ -80,9 +92,12 @@ export async function POST(request: NextRequest) {
       error &&
       (error.message?.includes("pausado_em") ||
         error.message?.includes("paused_until") ||
-        error.message?.includes("pause_reason"))
+        error.message?.includes("pause_reason") ||
+        isPauseActorColumnError(error))
     ) {
-      const retryRecords = validRecords.map(({ pausado_em, paused_until, pause_reason, ...rest }) => rest)
+      const retryRecords = validRecords.map(({ pausado_em, paused_until, pause_reason, ...rest }) =>
+        stripPauseActorPayload(rest),
+      )
       const retry = await supabase
         .from(pausarTable)
         .upsert(retryRecords, { onConflict: "numero", ignoreDuplicates: false })

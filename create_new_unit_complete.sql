@@ -55,6 +55,14 @@ BEGIN
         pausar boolean DEFAULT false,
         vaga boolean DEFAULT true,
         agendamento boolean DEFAULT true,
+        pausado_em timestamp with time zone,
+        paused_until timestamp with time zone,
+        pause_reason text,
+        paused_by_role text,
+        paused_by_name text,
+        paused_by_user_id text,
+        paused_by_unit text,
+        paused_by_source text,
         created_at timestamp with time zone DEFAULT now(),
         updated_at timestamp with time zone DEFAULT now()
     )', unit_prefix);

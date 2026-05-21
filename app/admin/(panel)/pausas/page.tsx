@@ -49,6 +49,12 @@ interface PauseEntry {
   id: number
   numero: string
   pausar: boolean
+  pause_reason?: string | null
+  paused_by_role?: string | null
+  paused_by_name?: string | null
+  paused_by_user_id?: string | null
+  paused_by_unit?: string | null
+  paused_by_source?: string | null
   created_at: string
   updated_at: string
 }
@@ -76,6 +82,46 @@ export default function PausasAdminPage() {
   // Dialog de remoção
   const [deleteTarget, setDeleteTarget] = useState<PauseEntry | null>(null)
   const newNumeroPreview = useMemo(() => normalizeBrazilianWhatsappPhone(newNumero), [newNumero])
+
+  const formatPauseActor = (entry: PauseEntry) => {
+    const role = String(entry.paused_by_role || "").toLowerCase()
+    const source = String(entry.paused_by_source || "").toLowerCase()
+    const reason = String(entry.pause_reason || "").toLowerCase()
+    const name = String(entry.paused_by_name || "").trim()
+
+    const roleLabel =
+      role === "admin"
+        ? "Admin"
+        : role === "unit_user"
+          ? "Unidade"
+          : role === "system"
+            ? "Sistema"
+            : reason.includes("manual")
+              ? "Humano"
+              : reason.includes("auto") || reason.includes("scheduled")
+                ? "Sistema"
+                : "N/A"
+
+    const sourceLabel = source.includes("admin")
+      ? "Painel admin"
+      : source.includes("bulk")
+        ? "Pausa em massa"
+        : source.includes("conversation_human_audio")
+          ? "Áudio humano"
+          : source.includes("conversation_human_text")
+            ? "Resposta humana"
+            : source.includes("tenant")
+              ? "Unidade"
+              : source.includes("crm")
+                ? "CRM"
+                : source.includes("followup")
+                  ? "Follow-up"
+                  : source.includes("native_agent")
+                    ? "Agente"
+                    : ""
+
+    return { roleLabel, sourceLabel, name }
+  }
 
   useEffect(() => {
     async function fetchUnits() {
@@ -297,9 +343,10 @@ export default function PausasAdminPage() {
       {/* Tabela / lista */}
       <div className="rounded-xl border border-border bg-card overflow-hidden">
         {/* Cabeçalho da tabela */}
-        <div className="grid grid-cols-[1fr_120px_120px_80px] items-center gap-4 px-5 py-3 bg-muted/40 border-b border-border">
+        <div className="grid grid-cols-[1fr_120px_150px_120px_80px] items-center gap-4 px-5 py-3 bg-muted/40 border-b border-border">
           <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Número</span>
           <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Status</span>
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Origem</span>
           <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Atualizado</span>
           <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide text-right">Ações</span>
         </div>
@@ -327,10 +374,13 @@ export default function PausasAdminPage() {
           </div>
         ) : (
           <div className="divide-y divide-border">
-            {filtered.map((entry) => (
+            {filtered.map((entry) => {
+              const actor = formatPauseActor(entry)
+
+              return (
               <div
                 key={entry.id}
-                className="grid grid-cols-[1fr_120px_120px_80px] items-center gap-4 px-5 py-3.5 hover:bg-muted/20 transition-colors group"
+                className="grid grid-cols-[1fr_120px_150px_120px_80px] items-center gap-4 px-5 py-3.5 hover:bg-muted/20 transition-colors group"
               >
                 {/* Número */}
                 <div className="flex items-center gap-2.5 min-w-0">
@@ -355,6 +405,19 @@ export default function PausasAdminPage() {
                       Ativo
                     </Badge>
                   )}
+                </div>
+
+                {/* Origem */}
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <Shield className="w-3 h-3 text-cyan-500 shrink-0" />
+                    <span className="text-xs font-medium text-foreground truncate">
+                      {actor.roleLabel}
+                    </span>
+                  </div>
+                  <span className="block text-[11px] text-muted-foreground truncate">
+                    {actor.sourceLabel || actor.name || "Sem auditoria"}
+                  </span>
                 </div>
 
                 {/* Data */}
@@ -396,7 +459,8 @@ export default function PausasAdminPage() {
                   </Button>
                 </div>
               </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>

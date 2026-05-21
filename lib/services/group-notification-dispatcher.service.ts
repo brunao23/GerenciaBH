@@ -54,11 +54,104 @@ function toMarker(input: {
   return `group_notification_marker:${hash}`
 }
 
+function countNotificationMojibakeArtifacts(text: string): number {
+  const matches = String(text || "").match(
+    /(?:\u00C3.|\u00C2|\u00E2[\u0080-\u00FF\u0100-\u024F\u2000-\u20FF]{1,2}|\u00F0[\u0080-\u00FF\u0100-\u024F\u2000-\u20FF]{1,4}|\u00EF[\u0080-\u00FF\u0100-\u024F\u2000-\u20FF]{1,2}|\u00D2\u00A3|\uFFFD)/g
+  )
+  return matches ? matches.length : 0
+}
+
+function tryDecodeNotificationMojibake(value: string): string {
+  const text = String(value || "")
+  if (!text) return ""
+  // Evita corromper emojis/acentos corretos ao tentar decodificar a mensagem inteira.
+  // Casos double-encoded e labels conhecidos sao corrigidos por substituicoes abaixo.
+  if ([...text].some((char) => (char.codePointAt(0) || 0) > 0xff)) return text
+
+  try {
+    let current = text
+    let score = countNotificationMojibakeArtifacts(current)
+    for (let i = 0; i < 4; i += 1) {
+      const candidate = Buffer.from(current, "latin1").toString("utf8")
+      const nextScore = countNotificationMojibakeArtifacts(candidate)
+      if (!candidate || candidate === current || nextScore >= score) break
+      current = candidate
+      score = nextScore
+    }
+    return current
+  } catch {
+    return text
+  }
+}
+
+function repairNotificationMojibake(value: string): string {
+  let text = tryDecodeNotificationMojibake(value)
+
+  const replacements: Array<[RegExp, string]> = [
+    [/\u00C3\u0192\u00C2\u00A1/g, "\u00E1"],
+    [/\u00C3\u0192\u00C2\u00A0/g, "\u00E0"],
+    [/\u00C3\u0192\u00C2\u00A2/g, "\u00E2"],
+    [/\u00C3\u0192\u00C2\u00A3|\u00D2\u00A3/g, "\u00E3"],
+    [/\u00C3\u0192\u00C2\u00A7/g, "\u00E7"],
+    [/\u00C3\u0192\u00C2\u00A9/g, "\u00E9"],
+    [/\u00C3\u0192\u00C2\u00AA/g, "\u00EA"],
+    [/\u00C3\u0192\u00C2\u00AD/g, "\u00ED"],
+    [/\u00C3\u0192\u00C2\u00B3/g, "\u00F3"],
+    [/\u00C3\u0192\u00C2\u00B4/g, "\u00F4"],
+    [/\u00C3\u0192\u00C2\u00B5/g, "\u00F5"],
+    [/\u00C3\u0192\u00C2\u00BA/g, "\u00FA"],
+    [/\u00C3\u0192\u00C2\u0081/g, "\u00C1"],
+    [/\u00C3\u0192\u00C2\u0089/g, "\u00C9"],
+    [/\u00C3\u0192\u00C2\u0093/g, "\u00D3"],
+    [/\u00C3\u0192\u00C2\u0087/g, "\u00C7"],
+    [/\u00C3\u00A1/g, "\u00E1"],
+    [/\u00C3\u00A0/g, "\u00E0"],
+    [/\u00C3\u00A2/g, "\u00E2"],
+    [/\u00C3\u00A3/g, "\u00E3"],
+    [/\u00C3\u00A7/g, "\u00E7"],
+    [/\u00C3\u00A9/g, "\u00E9"],
+    [/\u00C3\u00AA/g, "\u00EA"],
+    [/\u00C3\u00AD/g, "\u00ED"],
+    [/\u00C3\u00B3/g, "\u00F3"],
+    [/\u00C3\u00B4/g, "\u00F4"],
+    [/\u00C3\u00B5/g, "\u00F5"],
+    [/\u00C3\u00BA/g, "\u00FA"],
+    [/\u00EF\u00BF\u00BD\u00C2\u00A0s|\uFFFD\u00A0s|\uFFFDs/g, "\u00E0s"],
+    [/Hor(?:\u00C3\u0192\u00C2\u00A1|\u00C3\u00A1)rio/gi, "Hor\u00E1rio"],
+    [/Calend(?:\u00C3\u0192\u00C2\u00A1|\u00C3\u00A1)rio/gi, "Calend\u00E1rio"],
+    [/Profiss(?:\u00C3\u0192\u00C2\u00A3|\u00C3\u00A3|\u00D2\u00A3)o/gi, "Profiss\u00E3o"],
+    [/Observa(?:\u00C3\u0192\u00C2\u00A7|\u00C3\u00A7)(?:\u00C3\u0192\u00C2\u00B5|\u00C3\u00B5)es/gi, "Observa\u00E7\u00F5es"],
+    [/N(?:\u00C3\u0192\u00C2\u00A3|\u00C3\u00A3|\u00D2\u00A3)o informado/gi, "N\u00E3o informado"],
+  ]
+
+  for (let i = 0; i < 3; i += 1) {
+    const before = text
+    text = tryDecodeNotificationMojibake(text)
+    for (const [pattern, replacement] of replacements) {
+      text = text.replace(pattern, replacement)
+    }
+    if (text === before) break
+  }
+
+  return text
+}
+
+export function sanitizeGroupNotificationMessage(value: string): string {
+  return repairNotificationMojibake(String(value || ""))
+    .replace(/\\r\\n/g, "\n")
+    .replace(/\\n/g, "\n")
+    .replace(/\\t/g, " ")
+    .replace(/\r/g, "")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+}
+
 export class GroupNotificationDispatcherService {
   private readonly messaging = new TenantMessagingService()
 
   async dispatch(input: GroupNotificationDispatchInput): Promise<GroupNotificationDispatchResult> {
-    const message = String(input.message || "").trim()
+    const message = sanitizeGroupNotificationMessage(input.message)
     if (!message) {
       return { sent: 0, skipped: 0, failed: 0, failures: [] }
     }

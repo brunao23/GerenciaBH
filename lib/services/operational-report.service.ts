@@ -418,6 +418,15 @@ function isMissingTableError(error: any): boolean {
   return code === "42P01" || message.includes("does not exist") || message.includes("relation")
 }
 
+function isMissingColumnError(error: any, column?: string): boolean {
+  const message = String(error?.message || "").toLowerCase()
+  const code = String(error?.code || "").toUpperCase()
+  if (code === "42703") return true
+  if (!column) return message.includes("column")
+  const normalizedColumn = String(column).toLowerCase()
+  return message.includes(`column "${normalizedColumn}"`) || message.includes(normalizedColumn)
+}
+
 async function fetchChatRows(supabase: SupabaseClientLike, tenant: string, range: OperationalReportRange) {
   const chatTable = await resolveChatHistoriesTable(supabase as any, tenant)
   const result = await supabase
@@ -490,11 +499,194 @@ async function fetchFollowups(supabase: SupabaseClientLike, tenant: string, star
     unique.set(String(row?.id || `${row?.session_id}-${row?.updated_at}-${row?.executed_at}`), row)
   }
 
-  return Array.from(unique.values())
+  const queueRows = Array.from(unique.values())
+  if (queueRows.length > 0) return queueRows
+
+  const logRows = await fetchFollowupLogs(supabase, tenant, start, end)
+  if (logRows.length > 0) return logRows
+
+  const scheduleRows = await fetchFollowupScheduleRows(supabase, tenant, start, end)
+  if (scheduleRows.length > 0) return scheduleRows
+
+  return fetchLegacyFollowupRows(supabase, tenant, start, end)
+}
+
+function isFollowupDelivered(row: any): boolean {
+  const status = normalizeText(String(row?.delivery_status || row?.status || ""))
+  return !status || status === "delivered" || status === "sent" || status === "ok" || status === "done" || status === "completed"
+}
+
+function isScheduleFollowupCountable(row: any): boolean {
+  const attemptCount = Number(row?.attempt_count || row?.attempts || 0)
+  if (attemptCount > 0) return true
+  return Boolean(row?.sent_at || row?.last_mensager || row?.last_contact)
+}
+
+function isLegacyFollowupCountable(row: any): boolean {
+  const rawStep = row?.etapa ?? row?.stage ?? row?.step
+  if (rawStep === null || rawStep === undefined || rawStep === "") return true
+  const step = Number(rawStep)
+  if (!Number.isFinite(step)) return true
+  return step >= 1
+}
+
+function buildFollowupTableCandidates(tenant: string): string[] {
+  return Array.from(
+    new Set(
+      [
+        `${tenant}_folow_normal`,
+        `${tenant}folow_normal`,
+        `${tenant}_follow_normal`,
+        `${tenant}follow_normal`,
+        `${tenant}_followup`,
+        `${tenant}followup`,
+      ].filter(Boolean),
+    ),
+  )
+}
+
+async function filterRowsByTenantSessions<T extends { session_id?: string }>(
+  supabase: SupabaseClientLike,
+  tenant: string,
+  rows: T[],
+): Promise<T[]> {
+  if (!rows.length) return []
+
+  const sessionIds = Array.from(
+    new Set(rows.map((row) => String(row?.session_id || "").trim()).filter(Boolean)),
+  )
+  if (!sessionIds.length) return []
+
+  const chatTable = await resolveChatHistoriesTable(supabase as any, tenant)
+  const allowed = new Set<string>()
+
+  for (let index = 0; index < sessionIds.length; index += 500) {
+    const chunk = sessionIds.slice(index, index + 500)
+    const result = await supabase.from(chatTable).select("session_id").in("session_id", chunk)
+    if (result.error) {
+      if (!isMissingTableError(result.error)) {
+        console.warn(`[OperationalReport] Erro ao filtrar sessions de follow-up (${tenant}): ${result.error.message}`)
+      }
+      continue
+    }
+
+    for (const row of result.data || []) {
+      const sessionId = String((row as any)?.session_id || "").trim()
+      if (sessionId) allowed.add(sessionId)
+    }
+  }
+
+  return rows.filter((row) => {
+    const sessionId = String(row?.session_id || "").trim()
+    return Boolean(sessionId && allowed.has(sessionId))
+  })
+}
+
+async function fetchFollowupLogs(
+  supabase: SupabaseClientLike,
+  tenant: string,
+  start: Date,
+  end: Date,
+): Promise<any[]> {
+  const selectColumns = "id, session_id, sent_at, created_at, updated_at, attempt_number, delivery_status"
+  const primary = await supabase
+    .from("followup_logs")
+    .select(selectColumns)
+    .gte("sent_at", start.toISOString())
+    .lte("sent_at", end.toISOString())
+    .limit(20000)
+
+  let rows: any[] = []
+  if (!primary.error) {
+    rows = primary.data || []
+  } else if (isMissingColumnError(primary.error, "sent_at")) {
+    const fallback = await supabase
+      .from("followup_logs")
+      .select(selectColumns)
+      .gte("created_at", start.toISOString())
+      .lte("created_at", end.toISOString())
+      .limit(20000)
+    if (!fallback.error) rows = fallback.data || []
+    else if (!isMissingTableError(fallback.error)) {
+      console.warn(`[OperationalReport] Erro ao buscar followup_logs: ${fallback.error.message}`)
+    }
+  } else if (!isMissingTableError(primary.error)) {
+    console.warn(`[OperationalReport] Erro ao buscar followup_logs: ${primary.error.message}`)
+  }
+
+  const delivered = rows.filter((row) => isFollowupDelivered(row))
+  const tenantRows = await filterRowsByTenantSessions(supabase, tenant, delivered)
+  return tenantRows.filter((row) => {
+    const time = getFollowupTime(row)
+    return Boolean(time && time >= start && time <= end)
+  })
+}
+
+async function fetchFollowupScheduleRows(
+  supabase: SupabaseClientLike,
+  tenant: string,
+  start: Date,
+  end: Date,
+): Promise<any[]> {
+  const result = await supabase
+    .from("followup_schedule")
+    .select("id, session_id, phone_number, last_mensager, created_at, updated_at, next_followup_at, attempt_count, is_active")
+    .limit(20000)
+
+  if (result.error) {
+    if (!isMissingTableError(result.error)) {
+      console.warn(`[OperationalReport] Erro ao buscar followup_schedule: ${result.error.message}`)
+    }
+    return []
+  }
+
+  const tenantRows = await filterRowsByTenantSessions(supabase, tenant, result.data || [])
+  return tenantRows.filter((row) => {
+    if (!isScheduleFollowupCountable(row)) return false
+    const time = getFollowupTime(row)
+    return Boolean(time && time >= start && time <= end)
+  })
+}
+
+async function fetchLegacyFollowupRows(
+  supabase: SupabaseClientLike,
+  tenant: string,
+  start: Date,
+  end: Date,
+): Promise<any[]> {
+  for (const table of buildFollowupTableCandidates(tenant)) {
+    const result = await supabase.from(table).select("*").limit(5000)
+    if (result.error) {
+      if (!isMissingTableError(result.error)) {
+        console.warn(`[OperationalReport] Erro ao buscar tabela legacy de follow-up ${table}: ${result.error.message}`)
+      }
+      continue
+    }
+
+    const rows = (result.data || []).filter((row: any) => {
+      if (!isLegacyFollowupCountable(row)) return false
+      const time = getFollowupTime(row)
+      return Boolean(time && time >= start && time <= end)
+    })
+
+    if (rows.length > 0) return rows
+  }
+
+  return []
 }
 
 function getFollowupTime(row: any): Date | null {
-  const candidates = [row?.executed_at, row?.updated_at, row?.created_at]
+  const candidates = [
+    row?.executed_at,
+    row?.sent_at,
+    row?.last_mensager,
+    row?.updated_at,
+    row?.created_at,
+    row?.last_contact,
+    row?.data_criacao,
+    row?.data,
+    row?.next_followup_at,
+  ]
   for (const candidate of candidates) {
     if (!candidate) continue
     const date = new Date(candidate)

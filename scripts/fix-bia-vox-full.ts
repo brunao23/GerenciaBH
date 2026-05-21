@@ -6,8 +6,8 @@
 import { createBiaSupabaseServerClient } from "../lib/supabase/bia-client"
 
 const TENANT = "bia_vox"
-const VALID_MODEL = "gemini-2.0-flash"
-const KNOWN_BAD_MODELS = ["gemini-3.1-flash-lite", "gemini-3.0-flash", "gemini-3.1-flash", "gemini-3.0-flash-lite"]
+const VALID_MODEL = "gemini-3.5-flash"
+const KNOWN_BAD_MODELS = ["gemini-3.0-flash", "gemini-3.0-flash-lite", "gemini-3.1-flash-lite"]
 
 function extractInstanceIdFromZapiUrl(value: string): string {
   const text = String(value || "").trim()

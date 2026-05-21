@@ -191,7 +191,7 @@ export interface NativeAgentConfig {
 export type NativeAgentMessageMode = "text" | "image" | "video" | "document"
 type NativeAIProvider = NonNullable<NativeAgentConfig["aiProvider"]>
 
-const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash"
 const DEFAULT_TIMEZONE = "America/Sao_Paulo"
 const DEFAULT_USE_FIRST_NAME = true
 const DEFAULT_AUTO_LEARNING = true

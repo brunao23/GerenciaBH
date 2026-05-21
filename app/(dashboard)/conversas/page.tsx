@@ -32,6 +32,7 @@ import {
 import { Search, MessageSquare, Phone, User, Clock, AlertCircle, CheckCircle2, PauseCircle, PlayCircle, Calendar, UserMinus, Loader2, Briefcase, Target, Clock3, Sparkles, Zap, Download, ListChecks, XCircle, Send, Trash2, Edit2, DollarSign, Copy, RefreshCcw, GraduationCap, ArrowLeft, FileAudio, Mic, StopCircle, Upload } from "lucide-react"
 import { useTenant } from "@/lib/contexts/TenantContext"
 import { resolveAvatarImageSrc } from "@/lib/helpers/avatar-proxy"
+import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import { LeadWorkspacePanel } from "@/components/crm/lead-workspace-panel"
 
@@ -437,6 +438,9 @@ const dedupeSessionsById = (sessions: ChatSession[]): ChatSession[] => {
 
   return Array.from(byId.values())
 }
+
+type BusinessEventType = "attendance" | "no_show" | "sale"
+type BusinessEventStatusMap = Record<string, Partial<Record<BusinessEventType, boolean>>>
 
 function buildChatMessageKey(message: ChatMessage, fallbackIndex = 0): string {
   const providerId = String(message.provider_message_id || "").trim()
@@ -992,6 +996,7 @@ export default function ConversasPage() {
   const [serverSearching, setServerSearching] = useState(false)
   const [detailLoadingSessionId, setDetailLoadingSessionId] = useState<string | null>(null)
   const [busyEvents, setBusyEvents] = useState<Set<string>>(new Set())
+  const [activeBusinessEvents, setActiveBusinessEvents] = useState<BusinessEventStatusMap>({})
   const [saleModal, setSaleModal] = useState<{ open: boolean; session: ChatSession | null }>({ open: false, session: null })
   const [saleForm, setSaleForm] = useState({ amount: "", day: "", month: "", year: "" })
   const [submittingSale, setSubmittingSale] = useState(false)
@@ -1001,8 +1006,44 @@ export default function ConversasPage() {
   const recordingChunksRef = useRef<BlobPart[]>([])
   const discardRecordingRef = useRef(false)
 
-  const submitQuickEvent = async (session: ChatSession, eventType: "attendance" | "no_show" | "sale") => {
-    if (eventType === "sale") {
+  const businessStatusSessionIds = useMemo(
+    () => sessions.map((session) => session.session_id).filter(Boolean).slice(0, 200).join(","),
+    [sessions],
+  )
+
+  useEffect(() => {
+    if (!businessStatusSessionIds) return
+    let cancelled = false
+
+    fetch(`/api/dashboard/business-events?status=1&sessionIds=${encodeURIComponent(businessStatusSessionIds)}`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        if (cancelled || !data?.success) return
+        setActiveBusinessEvents((prev) => ({ ...prev, ...(data.statuses || {}) }))
+      })
+      .catch(() => null)
+
+    return () => {
+      cancelled = true
+    }
+  }, [businessStatusSessionIds])
+
+  const isBusinessEventActive = (sessionId: string, eventType: BusinessEventType) =>
+    Boolean(activeBusinessEvents[sessionId]?.[eventType])
+
+  const setBusinessEventActive = (sessionId: string, eventType: BusinessEventType, active: boolean) => {
+    setActiveBusinessEvents((prev) => {
+      const current = { ...(prev[sessionId] || {}) }
+      current[eventType] = active
+      if (active && eventType === "attendance") current.no_show = false
+      if (active && eventType === "no_show") current.attendance = false
+      return { ...prev, [sessionId]: current }
+    })
+  }
+
+  const submitQuickEvent = async (session: ChatSession, eventType: BusinessEventType) => {
+    const eventActive = isBusinessEventActive(session.session_id, eventType)
+    if (eventType === "sale" && !eventActive) {
       setSaleModal({ open: true, session })
       return
     }
@@ -1011,7 +1052,7 @@ export default function ConversasPage() {
     try {
       const phone = session.numero || session.session_id
       const res = await fetch("/api/dashboard/business-events", {
-        method: "POST",
+        method: eventActive ? "DELETE" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           eventType,
@@ -1022,9 +1063,18 @@ export default function ConversasPage() {
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
-        throw new Error(data.error || "Falha na requisição")
+        throw new Error(data.error || "Falha na requisiÃ§Ã£o")
       }
-      toast.success(eventType === "attendance" ? "Comparecimento registrado!" : "Bolo registrado!")
+      setBusinessEventActive(session.session_id, eventType, !eventActive)
+      toast.success(
+        eventActive
+          ? "Marcador removido"
+          : eventType === "attendance"
+            ? "Comparecimento registrado!"
+            : eventType === "no_show"
+              ? "Bolo registrado!"
+              : "Venda registrada!",
+      )
     } catch (err: any) {
       toast.error(`Erro: ${err.message}`)
     } finally {
@@ -1068,9 +1118,10 @@ export default function ConversasPage() {
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
-        throw new Error(data.error || "Falha na requisição")
+        throw new Error(data.error || "Falha na requisiÃ§Ã£o")
       }
       toast.success("Venda registrada!")
+      setBusinessEventActive(session.session_id, "sale", true)
       setSaleModal({ open: false, session: null })
       setSaleForm({ amount: "", day: "", month: "", year: "" })
     } catch (err: any) {
@@ -1081,6 +1132,7 @@ export default function ConversasPage() {
   }
 
   const submitStudentFlag = async (session: ChatSession, isStudent: boolean) => {
+    const nextIsStudent: boolean | null = session.isStudent === isStudent ? null : isStudent
     const key = `${session.session_id}:student:${isStudent ? "yes" : "no"}`
     setBusyEvents((prev) => new Set(prev).add(key))
     try {
@@ -1092,7 +1144,7 @@ export default function ConversasPage() {
         },
         body: JSON.stringify({
           leadId: session.session_id,
-          isStudent,
+          isStudent: nextIsStudent,
         }),
       })
 
@@ -1104,11 +1156,17 @@ export default function ConversasPage() {
       setSessions((prev) =>
         prev.map((currentSession) =>
           currentSession.session_id === session.session_id
-            ? { ...currentSession, isStudent }
+            ? { ...currentSession, isStudent: nextIsStudent }
             : currentSession,
         ),
       )
-      toast.success(isStudent ? "Lead marcado como aluno" : "Lead marcado como não aluno")
+      toast.success(
+        nextIsStudent === null
+          ? "Marcador de aluno removido"
+          : nextIsStudent
+            ? "Lead marcado como aluno"
+            : "Lead marcado como não aluno",
+      )
     } catch (err: any) {
       toast.error(`Erro: ${err.message}`)
     } finally {
@@ -1119,8 +1177,7 @@ export default function ConversasPage() {
       })
     }
   }
-
-  // Estados para Seleção Múltipla
+  // Estados para SeleÃ§Ã£o MÃºltipla
   const [isSelectionMode, setIsSelectionMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [bulkDialogOpen, setBulkDialogOpen] = useState(false)
@@ -1401,12 +1458,12 @@ export default function ConversasPage() {
       } else {
         const errorData = await response.json().catch(() => ({}))
         console.warn(`[Conversas] Erro ao buscar status (${response.status}):`, errorData)
-        // Se não encontrar registro, assume que está desativado
+        // Se nÃ£o encontrar registro, assume que estÃ¡ desativado
         setFollowupAIEnabled(false)
       }
     } catch (error) {
       console.error("[Conversas] Erro ao buscar status do follow-up AI:", error)
-      // Em caso de erro, assume que está desativado para não bloquear o botão
+      // Em caso de erro, assume que estÃ¡ desativado para nÃ£o bloquear o botÃ£o
       setFollowupAIEnabled(false)
     }
   }, [])
@@ -1448,7 +1505,7 @@ export default function ConversasPage() {
       }
     } catch (error: any) {
       console.error("[Conversas] Erro ao alternar follow-up AI:", error)
-      alert(`Erro de conexão ao alterar follow-up AI: ${error?.message || 'Erro desconhecido'}`)
+      alert(`Erro de conexÃ£o ao alterar follow-up AI: ${error?.message || 'Erro desconhecido'}`)
     } finally {
       setFollowupAILoading(false)
     }
@@ -1485,7 +1542,7 @@ export default function ConversasPage() {
           alert(`Erro ao alterar status`)
         }
       } catch (error) {
-        alert(`Erro de conexão`)
+        alert(`Erro de conexÃ£o`)
       } finally {
         setPauseLoading(false)
       }
@@ -1556,7 +1613,7 @@ export default function ConversasPage() {
         }),
       )
     } catch (error) {
-      console.error("Erro ao carregar detalhes da sessão:", error)
+      console.error("Erro ao carregar detalhes da sessÃ£o:", error)
     } finally {
       detailRequestsRef.current.delete(sessionId)
       setDetailLoadingSessionId((prev) => (prev === sessionId ? null : prev))
@@ -1810,8 +1867,8 @@ export default function ConversasPage() {
     if (!current || !current.messages) return;
 
     const lines = [];
-    lines.push(`Conversa com: ${current.contact_name || "Lead"} (${current.numero || "Sem número"})`);
-    lines.push(`Data da Exportação: ${new Date().toLocaleString('pt-BR')}`);
+    lines.push(`Conversa com: ${current.contact_name || "Lead"} (${current.numero || "Sem nÃºmero"})`);
+    lines.push(`Data da ExportaÃ§Ã£o: ${new Date().toLocaleString('pt-BR')}`);
     lines.push("--------------------------------------------------");
     lines.push("");
 
@@ -1922,7 +1979,7 @@ export default function ConversasPage() {
     if (sessionsToExport.length === 0) return;
 
     const lines: string[] = [];
-    lines.push("RELATÓRIO DE EXPORTAÇÃO EM MASSA");
+    lines.push("RELATÃ“RIO DE EXPORTAÃ‡ÃƒO EM MASSA");
     lines.push(`Data: ${new Date().toLocaleString('pt-BR')}`);
     lines.push(`Total de conversas: ${sessionsToExport.length}`);
     lines.push("================================================================================");
@@ -1930,8 +1987,8 @@ export default function ConversasPage() {
 
     sessionsToExport.forEach((session, index) => {
       lines.push(`CONVERSA ${index + 1} DE ${sessionsToExport.length}`);
-      lines.push(`Contato: ${session.contact_name || "Lead"} (${session.numero || "Sem número"})`);
-      lines.push(`ID Sessão: ${session.session_id}`);
+      lines.push(`Contato: ${session.contact_name || "Lead"} (${session.numero || "Sem nÃºmero"})`);
+      lines.push(`ID SessÃ£o: ${session.session_id}`);
       lines.push("--------------------------------------------------");
 
       session.messages.forEach(msg => {
@@ -1955,7 +2012,7 @@ export default function ConversasPage() {
     link.click();
     document.body.removeChild(link);
 
-    // Limpar seleção após exportar
+    // Limpar seleÃ§Ã£o apÃ³s exportar
     setSelectedIds([]);
     setIsSelectionMode(false);
     toast.success(`${sessionsToExport.length} conversas exportadas!`);
@@ -2741,7 +2798,7 @@ export default function ConversasPage() {
       className="conversations-whatsapp-shell h-full min-h-0 w-full max-w-full flex flex-col lg:flex-row gap-0 overflow-hidden"
       style={conversationMobileSafeShellStyle}
     >
-      {/* Sidebar - Lista de Sessões */}
+      {/* Sidebar - Lista de SessÃµes */}
       <Card
         className={`genial-card conversation-list-panel w-full max-w-full min-h-0 flex flex-shrink-0 flex-col overflow-hidden rounded-none border border-border bg-card shadow-sm lg:rounded-l-2xl lg:rounded-r-none ${showListOnMobile ? "flex" : "hidden lg:flex"}`}
         style={conversationMobileSafePanelStyle}
@@ -2789,7 +2846,7 @@ export default function ConversasPage() {
                   variant="ghost"
                   size="icon"
                   onClick={() => setIsSelectionMode(true)}
-                  title="Selecionar Múltiplos"
+                  title="Selecionar MÃºltiplos"
                   className="text-text-gray hover:text-foreground"
                 >
                   <ListChecks className="w-5 h-5" />
@@ -2864,7 +2921,7 @@ export default function ConversasPage() {
                 <div className="space-y-4">
                    <h3 className="text-lg font-medium text-pure-white">Novo Contato</h3>
                    <div className="space-y-2">
-                     <Label className="text-pure-white">Número do Contato (com DDI +55)</Label>
+                     <Label className="text-pure-white">NÃºmero do Contato (com DDI +55)</Label>
                      <Input id="newContactPhone" placeholder="Ex: 5531999999999" className="bg-secondary-black border-border-gray text-foreground" />
                    </div>
                    <div className="space-y-2">
@@ -2876,7 +2933,7 @@ export default function ConversasPage() {
                          const phoneInput = document.getElementById("newContactPhone") as HTMLInputElement
                          const nameInput = document.getElementById("newContactName") as HTMLInputElement
                          if (!phoneInput?.value || !nameInput?.value) {
-                            toast.error("Preencha número e nome")
+                            toast.error("Preencha nÃºmero e nome")
                             return
                          }
                          const digits = onlyDigits(phoneInput.value)
@@ -2926,7 +2983,7 @@ export default function ConversasPage() {
               ) : filtered.length === 0 ? (
                 <div className="p-6 text-center text-text-gray">
                   <MessageSquare className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                  <p>{query ? "Nenhuma conversa encontrada" : "Nenhuma conversa disponível"}</p>
+                  <p>{query ? "Nenhuma conversa encontrada" : "Nenhuma conversa disponÃ­vel"}</p>
                 </div>
               ) : (
               <div className="space-y-1 p-2">
@@ -2980,7 +3037,7 @@ export default function ConversasPage() {
                         </div>
                         {session.channel !== "instagram" && (
                           <p className="text-xs text-text-gray truncate mb-1">
-                            {highlightText(session.numero || "Sem número", query)}
+                            {highlightText(session.numero || "Sem nÃºmero", query)}
                           </p>
                         )}
                         {session.channel === "instagram" && (
@@ -3029,7 +3086,7 @@ export default function ConversasPage() {
                               }`}
                             >
                               <GraduationCap className="w-2.5 h-2.5 mr-0.5" />
-                              {session.isStudent ? "Aluno" : "Não aluno"}
+                              {session.isStudent ? "Aluno" : "NÃ£o aluno"}
                             </Badge>
                           )}
                         </div>
@@ -3040,7 +3097,13 @@ export default function ConversasPage() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="h-8 w-8 shrink-0 rounded-full px-0 text-[10px] text-accent-green hover:bg-accent-green/10 2xl:w-auto 2xl:px-2"
+                            aria-pressed={isBusinessEventActive(session.session_id, "attendance")}
+                            className={cn(
+                              "h-8 w-8 shrink-0 rounded-full px-0 text-[10px] transition-all 2xl:w-auto 2xl:px-2",
+                              isBusinessEventActive(session.session_id, "attendance")
+                                ? "bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-400/50 hover:bg-emerald-500/25"
+                                : "text-accent-green hover:bg-accent-green/10",
+                            )}
                             disabled={busyEvents.has(`${session.session_id}:attendance`)}
                             onClick={() => submitQuickEvent(session, "attendance")}
                             title="Registrar comparecimento"
@@ -3050,17 +3113,29 @@ export default function ConversasPage() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="h-8 w-8 shrink-0 rounded-full px-0 text-[10px] text-accent-gold hover:bg-accent-gold/10 2xl:w-auto 2xl:px-2"
+                            aria-pressed={isBusinessEventActive(session.session_id, "no_show")}
+                            className={cn(
+                              "h-8 w-8 shrink-0 rounded-full px-0 text-[10px] transition-all 2xl:w-auto 2xl:px-2",
+                              isBusinessEventActive(session.session_id, "no_show")
+                                ? "bg-red-500/20 text-red-300 ring-1 ring-red-400/50 hover:bg-red-500/25"
+                                : "text-accent-gold hover:bg-accent-gold/10",
+                            )}
                             disabled={busyEvents.has(`${session.session_id}:no_show`)}
                             onClick={() => submitQuickEvent(session, "no_show")}
-                            title="Registrar bolo / não compareceu"
+                            title="Registrar bolo / nÃ£o compareceu"
                           >
                             <UserMinus className="w-3.5 h-3.5 2xl:mr-1" /><span className="hidden 2xl:inline">Bolo</span>
                           </Button>
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="h-8 w-8 shrink-0 rounded-full px-0 text-[10px] text-accent-blue hover:bg-accent-blue/10 2xl:w-auto 2xl:px-2"
+                            aria-pressed={isBusinessEventActive(session.session_id, "sale")}
+                            className={cn(
+                              "h-8 w-8 shrink-0 rounded-full px-0 text-[10px] transition-all 2xl:w-auto 2xl:px-2",
+                              isBusinessEventActive(session.session_id, "sale")
+                                ? "bg-sky-500/20 text-sky-300 ring-1 ring-sky-400/50 hover:bg-sky-500/25"
+                                : "text-accent-blue hover:bg-accent-blue/10",
+                            )}
                             onClick={() => submitQuickEvent(session, "sale")}
                             title="Registrar venda realizada"
                           >
@@ -3069,7 +3144,13 @@ export default function ConversasPage() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="h-8 w-8 shrink-0 rounded-full px-0 text-[10px] text-accent-green hover:bg-accent-green/10 2xl:w-auto 2xl:px-2"
+                            aria-pressed={session.isStudent === true}
+                            className={cn(
+                              "h-8 w-8 shrink-0 rounded-full px-0 text-[10px] transition-all 2xl:w-auto 2xl:px-2",
+                              session.isStudent === true
+                                ? "bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-400/50 hover:bg-emerald-500/25"
+                                : "text-accent-green hover:bg-accent-green/10",
+                            )}
                             disabled={busyEvents.has(`${session.session_id}:student:yes`)}
                             onClick={() => submitStudentFlag(session, true)}
                             title="Marcar como aluno"
@@ -3079,12 +3160,18 @@ export default function ConversasPage() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="h-8 w-8 shrink-0 rounded-full px-0 text-[10px] text-accent-gold hover:bg-accent-gold/10 2xl:w-auto 2xl:px-2"
+                            aria-pressed={session.isStudent === false}
+                            className={cn(
+                              "h-8 w-8 shrink-0 rounded-full px-0 text-[10px] transition-all 2xl:w-auto 2xl:px-2",
+                              session.isStudent === false
+                                ? "bg-red-500/20 text-red-300 ring-1 ring-red-400/50 hover:bg-red-500/25"
+                                : "text-accent-gold hover:bg-accent-gold/10",
+                            )}
                             disabled={busyEvents.has(`${session.session_id}:student:no`)}
                             onClick={() => submitStudentFlag(session, false)}
-                            title="Marcar como não aluno"
+                            title="Marcar como nÃ£o aluno"
                           >
-                            <UserMinus className="w-3.5 h-3.5 2xl:mr-1" /><span className="hidden 2xl:inline">Não aluno</span>
+                            <UserMinus className="w-3.5 h-3.5 2xl:mr-1" /><span className="hidden 2xl:inline">NÃ£o aluno</span>
                           </Button>
                         </div>
                       </div>
@@ -3148,7 +3235,7 @@ export default function ConversasPage() {
                            }`}
                          >
                            <GraduationCap className="w-2.5 h-2.5 mr-1" />
-                           {current.isStudent ? "Aluno" : "Não aluno"}
+                           {current.isStudent ? "Aluno" : "NÃ£o aluno"}
                          </Badge>
                        )}
                         <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0 hover:bg-secondary" onClick={() => {
@@ -3165,9 +3252,9 @@ export default function ConversasPage() {
                           ? inferInstagramHandle(current)
                             ? `@${inferInstagramHandle(current)}`
                             : `IG ${current.session_id.replace(/^ig_/, "")}`
-                          : current.numero || "Sem número"}
+                          : current.numero || "Sem nÃºmero"}
                       </span>
-                      <span className="shrink-0">•</span>
+                      <span className="shrink-0">â€¢</span>
                       <span className="shrink-0">
                         {current.isSummary ? "~" : ""}
                         {current.messages_count ?? current.messages.length} mensagens
@@ -3292,12 +3379,12 @@ export default function ConversasPage() {
             <CardContent className="flex-1 min-h-0 overflow-hidden bg-background/50 p-0">
               <div ref={scrollAreaRef} className="h-full min-h-0 overflow-y-auto overscroll-contain touch-pan-y genial-scrollbar">
                 <div className="p-2.5 sm:p-5 space-y-2.5 sm:space-y-4">
-                  {/* Dados do Formulário */}
+                  {/* Dados do FormulÃ¡rio */}
                   {current.formData && (
                     <div className="bg-card rounded-2xl p-4 mb-4 border border-border shadow-sm">
                       <h4 className="text-sm font-semibold text-pure-white mb-3 flex items-center gap-2">
                         <User className="w-4 h-4 text-accent-green" />
-                        Dados do Formulário
+                        Dados do FormulÃ¡rio
                       </h4>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         {current.formData.nome && (
@@ -3316,7 +3403,7 @@ export default function ConversasPage() {
                           <div>
                             <div className="text-xs text-text-gray mb-1 flex items-center gap-1">
                               <Briefcase className="w-3 h-3" />
-                              Profissão
+                              ProfissÃ£o
                             </div>
                             <div className="text-sm text-pure-white">{current.formData.profissao.replace(/_/g, ' ')}</div>
                           </div>
@@ -3340,7 +3427,7 @@ export default function ConversasPage() {
                           <div>
                             <div className="text-xs text-text-gray mb-1 flex items-center gap-1">
                               <Clock3 className="w-3 h-3" />
-                              Tempo de Decisão
+                              Tempo de DecisÃ£o
                             </div>
                             <div className="text-sm text-pure-white">{current.formData.tempoDecisao.replace(/_/g, ' ')}</div>
                           </div>
@@ -3349,7 +3436,7 @@ export default function ConversasPage() {
                           <div>
                             <div className="text-xs text-text-gray mb-1">Comparecimento</div>
                             <Badge variant="outline" className={current.formData.comparecimento === 'sim' ? 'border-accent-green/30 text-accent-green' : 'border-border text-text-gray'}>
-                              {current.formData.comparecimento === 'sim' ? 'Sim' : 'Não'}
+                              {current.formData.comparecimento === 'sim' ? 'Sim' : 'NÃ£o'}
                             </Badge>
                           </div>
                         )}
@@ -3500,7 +3587,7 @@ export default function ConversasPage() {
                       <span>Audio</span>
                       {pendingAudio && (
                         <span className="truncate text-[11px] font-normal text-text-gray">
-                          {pendingAudio.name} · {formatBytes(pendingAudio.size)}
+                          {pendingAudio.name} Â· {formatBytes(pendingAudio.size)}
                         </span>
                       )}
                     </div>
@@ -3918,7 +4005,7 @@ export default function ConversasPage() {
       <Dialog open={detailLoadingSessionId !== null}>
         <DialogContent className="sm:max-w-md bg-secondary-black border border-border-gray text-foreground flex flex-col items-center justify-center py-10">
           <Loader2 className="h-10 w-10 text-accent-green animate-spin mb-4" />
-          <DialogTitle>Carregando histórico completo...</DialogTitle>
+          <DialogTitle>Carregando histÃ³rico completo...</DialogTitle>
           <DialogDescription className="text-text-gray">
             Isso pode demorar alguns segundos dependendo do tamanho da conversa.
           </DialogDescription>
@@ -3930,7 +4017,7 @@ export default function ConversasPage() {
           <DialogHeader>
             <DialogTitle>Editar Nome do Lead</DialogTitle>
             <DialogDescription className="text-text-gray">
-              Isso atualizará o nome exibido nesta conversa.
+              Isso atualizarÃ¡ o nome exibido nesta conversa.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
@@ -3965,7 +4052,7 @@ export default function ConversasPage() {
                   toast.error("Erro interno ao atualizar")
                 }
              }}>
-                Salvar Alterações
+                Salvar AlteraÃ§Ãµes
              </Button>
           </DialogFooter>
         </DialogContent>
@@ -4018,7 +4105,7 @@ export default function ConversasPage() {
                 />
                 <Input
                   type="number"
-                  placeholder="Mês"
+                  placeholder="MÃªs"
                   min={1}
                   max={12}
                   value={saleForm.month}

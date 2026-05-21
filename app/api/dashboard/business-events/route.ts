@@ -48,6 +48,16 @@ function normalizeEventType(value: any): TenantBusinessEventType | null {
   return null
 }
 
+function parseListParam(searchParams: URLSearchParams, key: string): string[] {
+  const values = searchParams.getAll(key)
+  const joined = values.length > 0 ? values.join(",") : String(searchParams.get(key) || "")
+  return joined
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 250)
+}
+
 function renderTemplate(template: string, data: Record<string, string>): string {
   return String(template || "")
     .replace(/\{\{\s*lead_name\s*\}\}/gi, data.lead_name || "Lead")
@@ -75,9 +85,34 @@ export async function GET(req: Request) {
     const tenantContext = await getTenantFromRequest()
     const tenant = tenantContext.tenant
     const url = new URL(req.url)
+    const service = new TenantBusinessEventsService()
+    const statusOnly = url.searchParams.get("status") === "1" || url.searchParams.get("mode") === "status"
+
+    if (statusOnly) {
+      const statusResult = await service.getActiveStatuses({
+        tenant,
+        sessionIds: parseListParam(url.searchParams, "sessionIds"),
+        phoneNumbers: parseListParam(url.searchParams, "phones"),
+      })
+
+      if (!statusResult.ok) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: statusResult.error || "failed_to_load_business_event_statuses",
+          },
+          { status: 500 },
+        )
+      }
+
+      return NextResponse.json({
+        success: true,
+        statuses: statusResult.statuses,
+      })
+    }
+
     const range = parsePeriodRange(url.searchParams)
 
-    const service = new TenantBusinessEventsService()
     const [metricsResult, recentResult] = await Promise.all([
       service.getMetrics({ tenant, startAt: range.startAt, endAt: range.endAt }),
       service.listRecentEvents({
@@ -140,6 +175,22 @@ export async function POST(req: Request) {
     }
 
     const service = new TenantBusinessEventsService()
+    if (eventType === "attendance") {
+      await service.deleteEvents({
+        tenant,
+        eventTypes: ["no_show"],
+        sessionId: body?.sessionId,
+        phoneNumber: body?.phone,
+      })
+    } else if (eventType === "no_show") {
+      await service.deleteEvents({
+        tenant,
+        eventTypes: ["attendance"],
+        sessionId: body?.sessionId,
+        phoneNumber: body?.phone,
+      })
+    }
+
     const createResult = await service.createEvent({
       tenant,
       eventType,
@@ -258,6 +309,54 @@ export async function POST(req: Request) {
       {
         success: false,
         error: error?.message || "failed_to_create_business_event",
+      },
+      { status: 500 },
+    )
+  }
+}
+
+export async function DELETE(req: Request) {
+  try {
+    const tenantContext = await getTenantFromRequest()
+    const tenant = tenantContext.tenant
+    const body = await req.json().catch(() => ({}))
+
+    const eventType = normalizeEventType(body?.eventType)
+    if (!eventType) {
+      return NextResponse.json(
+        { success: false, error: "invalid_event_type" },
+        { status: 400 },
+      )
+    }
+
+    const service = new TenantBusinessEventsService()
+    const deleteResult = await service.deleteEvents({
+      tenant,
+      eventTypes: [eventType],
+      sessionId: body?.sessionId,
+      phoneNumber: body?.phone,
+    })
+
+    if (!deleteResult.ok) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: deleteResult.error || "failed_to_delete_business_event",
+        },
+        { status: 400 },
+      )
+    }
+
+    return NextResponse.json({
+      success: true,
+      deletedCount: deleteResult.deletedCount,
+    })
+  } catch (error: any) {
+    console.error("[business-events DELETE] Exceção não capturada:", error?.message, error?.code)
+    return NextResponse.json(
+      {
+        success: false,
+        error: error?.message || "failed_to_delete_business_event",
       },
       { status: 500 },
     )

@@ -25,6 +25,11 @@ import { TenantMessagingService } from "./tenant-messaging.service"
 import { GroupNotificationDispatcherService } from "./group-notification-dispatcher.service"
 import { sendErrorWebhook } from "@/lib/helpers/error-webhook"
 import { RedisService } from "@/lib/services/redis.service"
+import {
+  buildPauseActorPayload,
+  isPauseActorColumnError,
+  stripPauseActorPayload,
+} from "@/lib/helpers/pause-actor"
 
 export interface EnqueueReminderInput {
   tenant: string
@@ -299,9 +304,24 @@ function polishPortugueseFollowupText(input: string): string {
     .trim()
 }
 
+function collapseDuplicateLeadingVocative(text: string): string {
+  const input = String(text || "").trim()
+  if (!input) return ""
+
+  return input.replace(
+    /^([\p{L}'-]{2,40})\s*[,!]\s*\1\s*([!,:;.-])?\s*/iu,
+    (_match, name: string, punctuation: string) => `${name}${punctuation || ","} `,
+  ).trim()
+}
+
 function sanitizeFollowupText(input: string, max = 220): string {
   const stripped = stripInternalContextTags(String(input || ""))
-  return excerpt(polishPortugueseFollowupText(stripped.replace(/\r/g, " ").replace(/\n+/g, " ")), max)
+  return excerpt(
+    collapseDuplicateLeadingVocative(
+      polishPortugueseFollowupText(stripped.replace(/\r/g, " ").replace(/\n+/g, " ")),
+    ),
+    max,
+  )
 }
 
 function hasForbiddenIdentityDisclosure(message: string): boolean {
@@ -347,6 +367,7 @@ function isExpectedTaskCancellationReason(reason: string | undefined): boolean {
   const expectedSignals = [
     "cancelled terminal status",
     "cancelled paused",
+    "cancelled paused before generation",
     "cancelled paused before dispatch",
     "cancelled user replied",
     "cancelled user replied before dispatch",
@@ -771,6 +792,30 @@ function stripUntrustedFollowupVocative(message: string, trustedLeadName?: strin
     return `${greeting}, `
   }
 
+  const collapseDuplicateNames = (value: string): string =>
+    value
+      .replace(
+        new RegExp(String.raw`^(${nameGroup})\s*,\s+(${nameGroup})([!,.?:;])\s*`, "u"),
+        (match: string, first: string, second: string, punctuation: string) => {
+          const firstName = normalizeLeadName(first)
+          const secondName = normalizeLeadName(second)
+          if (!firstName || !secondName || !sameNormalizedName(firstName, secondName)) return match
+          if (trusted && !sameNormalizedName(firstName, trusted)) return match
+          return `${firstName}${punctuation} `
+        },
+      )
+      .replace(
+        new RegExp(String.raw`^(Oi|Ola|Ol[aÃ¡])\s+(${nameGroup})\s*,\s+(${nameGroup})([!,.?:;])\s*`, "u"),
+        (match: string, greeting: string, first: string, second: string, punctuation: string) => {
+          const firstName = normalizeLeadName(first)
+          const secondName = normalizeLeadName(second)
+          if (!firstName || !secondName || !sameNormalizedName(firstName, secondName)) return match
+          if (trusted && !sameNormalizedName(firstName, trusted)) return match
+          return `${greeting}, ${firstName}${punctuation} `
+        },
+      )
+
+  text = collapseDuplicateNames(text)
   text = text.replace(greetingName, replaceGreeting)
 
   const directMatch = text.match(directName)
@@ -780,6 +825,8 @@ function stripUntrustedFollowupVocative(message: string, trustedLeadName?: strin
       text = text.slice(directMatch[0].length)
     }
   }
+
+  text = collapseDuplicateNames(text)
 
   return capitalizeSentenceStart(text.replace(/\s+/g, " ").replace(/^,\s*/, "").trim())
 }
@@ -1646,6 +1693,7 @@ export class AgentTaskQueueService {
 
   private async generateAiRuntimeFollowupMessage(input: {
     tenant: string
+    sessionId: string
     step: number
     totalSteps: number
     leadName?: string
@@ -1768,6 +1816,7 @@ export class AgentTaskQueueService {
     ].join("\n")
 
     try {
+      const llmModelInfo = LLMFactory.describeEffectiveModel(nativeConfig, { tenant: input.tenant })
       const llm = LLMFactory.getService(nativeConfig, { tenant: input.tenant })
       const decision = await llm.decideNextTurn({
         systemPrompt: [
@@ -1802,6 +1851,40 @@ export class AgentTaskQueueService {
           topK: runtime.followupSamplingTopK,
         },
       })
+      const modelMetadata = {
+        agent_model_provider: (decision as any)?.agent_runtime_provider || llmModelInfo.effectiveProvider,
+        agent_model: (decision as any)?.agent_runtime_model || llmModelInfo.effectiveModel,
+        agent_model_requested_provider: llmModelInfo.requestedProvider,
+        agent_model_requested: llmModelInfo.requestedModel,
+        agent_model_effective_provider: llmModelInfo.effectiveProvider,
+        agent_model_effective: llmModelInfo.effectiveModel,
+        agent_model_primary_provider: llmModelInfo.primaryProvider,
+        agent_model_primary: llmModelInfo.primaryModel,
+        agent_model_fallback_provider: llmModelInfo.fallbackProvider || null,
+        agent_model_fallback: llmModelInfo.fallbackModel || null,
+        agent_model_fallback_used: Boolean((decision as any)?.agent_runtime_fallback_used),
+        agent_model_fallback_reason: (decision as any)?.agent_runtime_fallback_reason || null,
+        agent_vertex_global_enabled: llmModelInfo.vertexGlobalEnabled,
+        agent_vertex_project_configured: llmModelInfo.vertexProjectConfigured,
+        agent_vertex_env_model: llmModelInfo.vertexEnvModel || null,
+      }
+      await new TenantChatHistoryService(input.tenant)
+        .persistMessage({
+          sessionId: input.sessionId,
+          role: "system",
+          type: "status",
+          content: "followup_model_used",
+          source: "native-agent-followup",
+          additional: {
+            debug_event: "followup_model_used",
+            debug_severity: "info",
+            tenant: input.tenant,
+            step: input.step,
+            total_steps: input.totalSteps,
+            ...modelMetadata,
+          },
+        })
+        .catch(() => {})
       const candidate = ensureFollowupActionability(
         stripUntrustedFollowupVocative(String(decision.reply || ""), leadName),
         input.step,
@@ -1886,6 +1969,7 @@ export class AgentTaskQueueService {
 
       const aiMessage = await this.generateAiRuntimeFollowupMessage({
         tenant: input.tenant,
+        sessionId: input.sessionId,
         step,
         totalSteps,
         leadName: leadNameForFollowup,
@@ -2483,33 +2567,38 @@ export class AgentTaskQueueService {
       const tables = getTablesForTenant(tenant)
       const normalized = normalizePhoneNumber(phone)
       if (!normalized) return
+      const nowIso = new Date().toISOString()
+      const payload: Record<string, any> = {
+        numero: normalized,
+        pausar: true,
+        vaga: true,
+        agendamento: false,
+        pausado_em: nowIso,
+        updated_at: nowIso,
+        pause_reason: "scheduled_auto_pause",
+        ...buildPauseActorPayload({
+          role: "system",
+          source: "followup_final_auto_pause",
+          unit: tenant,
+        }),
+      }
       let upsert = await this.supabase
         .from(tables.pausar)
-        .upsert(
-          {
-            numero: normalized,
-            pausar: true,
-            vaga: true,
-            agendamento: false,
-            updated_at: new Date().toISOString(),
-            pause_reason: "scheduled_auto_pause",
-          },
-          { onConflict: "numero" },
-        )
+        .upsert(payload, { onConflict: "numero" })
 
-      if (upsert.error && String(upsert.error.message || "").toLowerCase().includes("pause_reason")) {
+      if (
+        upsert.error &&
+        (String(upsert.error.message || "").toLowerCase().includes("pause_reason") ||
+          String(upsert.error.message || "").toLowerCase().includes("pausado_em") ||
+          isPauseActorColumnError(upsert.error))
+      ) {
+        const fallbackPayload = { ...payload }
+        delete fallbackPayload.pause_reason
+        delete fallbackPayload.pausado_em
+        stripPauseActorPayload(fallbackPayload)
         upsert = await this.supabase
           .from(tables.pausar)
-          .upsert(
-            {
-              numero: normalized,
-              pausar: true,
-              vaga: true,
-              agendamento: false,
-              updated_at: new Date().toISOString(),
-            },
-            { onConflict: "numero" },
-          )
+          .upsert(fallbackPayload, { onConflict: "numero" })
       }
 
       if (upsert.error) {
@@ -2758,12 +2847,7 @@ export class AgentTaskQueueService {
     payload: Record<string, any>
     runtimeConfig: Awaited<ReturnType<AgentTaskQueueService["loadFollowupRuntimeConfig"]>>
   }): Promise<{ success: boolean; error?: string }> {
-    const source =
-      input.taskType === "followup"
-        ? "native-agent-followup"
-        : input.taskType === "post_schedule"
-          ? "native-agent-post-schedule"
-          : "native-agent-reminder"
+    const source = this.resolveTaskDispatchSource(input.taskType)
     const fromConfigMode =
       input.taskType === "followup"
         ? input.runtimeConfig.followupMessageMode
@@ -2860,6 +2944,13 @@ export class AgentTaskQueueService {
       historyContent: caption || `[documento] ${fileName || mediaUrl}`,
     })
     return { success: sentDocument.success, error: sentDocument.error }
+  }
+
+  private resolveTaskDispatchSource(taskType: string): string {
+    const normalized = String(taskType || "").trim().toLowerCase()
+    if (normalized === "followup") return "native-agent-followup"
+    if (normalized === "post_schedule") return "native-agent-post-schedule"
+    return "native-agent-reminder"
   }
 
   private async notifyTouchpoint(input: {
@@ -3397,6 +3488,44 @@ export class AgentTaskQueueService {
       }
 
       // post_schedule tasks fluem normalmente para dispatchTaskMessage
+
+      const dispatchTaskTypeForPauseGuard = isPostScheduleReminder ? "post_schedule" : taskType
+      const outboundPauseBlock = await this.messaging.checkAutomatedOutboundPauseBlock({
+        tenant,
+        phone,
+        sessionId,
+        source: this.resolveTaskDispatchSource(dispatchTaskTypeForPauseGuard),
+      })
+      if (outboundPauseBlock) {
+        result.skipped += 1
+        const reason = `${notificationTaskType}_cancelled_paused_before_generation`
+        await this.supabase
+          .from(this.table)
+          .update({
+            status: "cancelled",
+            attempts: Number(task.attempts || 0) + 1,
+            last_error: reason,
+          })
+          .eq("id", task.id)
+
+        if (taskType === "followup") {
+          await this.cancelPendingFollowups({ tenant, sessionId, phone }).catch(() => {})
+        }
+
+        await this.notifyTouchpoint({
+          tenant,
+          sessionId,
+          phone,
+          runtimeConfig,
+          kind: "cancelled",
+          taskType: notificationTaskType,
+          reason,
+          step: Number(payload?.followup_step || 0) || undefined,
+          totalSteps: Number(payload?.followup_total_steps || 0) || undefined,
+          taskId: String(task.id || ""),
+        })
+        continue
+      }
 
       const [pauseState, terminal] = await Promise.all([
         this.getLeadPauseStateForQueue(tenant, phone),

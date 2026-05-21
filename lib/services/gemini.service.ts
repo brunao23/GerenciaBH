@@ -329,7 +329,10 @@ function toSafeTokenInt(value: any): number {
 function extractGeminiUsageMetrics(data: any, fallbackModel: string): LLMUsageMetrics {
   const usage = data?.usageMetadata || {}
   const modelVersion = String(data?.modelVersion || "").trim()
-  const model = modelVersion ? normalizeModelCode(modelVersion) : normalizeModelCode(fallbackModel)
+  const executedModel = String(data?.__executedModel || "").trim()
+  const model = modelVersion
+    ? normalizeModelCode(modelVersion)
+    : normalizeModelCode(executedModel || fallbackModel)
 
   const inputTokens = toSafeTokenInt(usage?.promptTokenCount)
   const outputTokens = toSafeTokenInt(usage?.candidatesTokenCount)
@@ -393,6 +396,7 @@ export class GeminiService {
   private static readonly explicitCache = new Map<string, ExplicitCacheEntry>()
   private static readonly explicitCacheCooldown = new Map<string, number>()
   private static readonly MODEL_ALIASES: Record<string, string[]> = {
+    "gemini-3.5-flash": ["gemini-3-flash-preview", "gemini-2.5-flash"],
     "gemini-3.1-pro-preview": ["gemini-3-pro-preview", "gemini-2.5-pro"],
     "gemini-3.1-pro": ["gemini-3-pro-preview", "gemini-2.5-pro"],
     "gemini-3.1-flash-preview": ["gemini-3-flash-preview", "gemini-2.5-flash"],
@@ -757,6 +761,9 @@ export class GeminiService {
     }
 
     this.logUsageMetadata(attempt.data || {}, model, prepared.usedCachedContent)
+    if (attempt.data && typeof attempt.data === "object") {
+      attempt.data.__executedModel = model
+    }
     return {
       ok: true,
       data: attempt.data || {},

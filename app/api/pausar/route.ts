@@ -8,6 +8,11 @@ import {
 } from "@/lib/helpers/phone-normalization"
 import { AgentTaskQueueService } from "@/lib/services/agent-task-queue.service"
 import { isManualPauseReason } from "@/lib/services/lead-pause.service"
+import {
+  buildPauseActorPayload,
+  isPauseActorColumnError,
+  stripPauseActorPayload,
+} from "@/lib/helpers/pause-actor"
 
 /**
  * Normaliza numero de telefone removendo caracteres nao numericos
@@ -207,10 +212,10 @@ export async function GET(request: NextRequest) {
 // POST - Criar novo registro de pausa ou atualizar existente (upsert)
 export async function POST(request: NextRequest) {
   try {
-    const { tables, tenant } = await getTenantFromRequest()
+    const { tables, tenant, session } = await getTenantFromRequest()
     const { pausar: pausarTable, chatHistories } = tables
     const body = await request.json()
-    const { numero, pausar, vaga, agendamento, paused_until, pause_reason } = body
+    const { numero, pausar, vaga, agendamento, paused_until, pause_reason, pause_source } = body
 
     // Validacao do numero
     if (!numero || typeof numero !== 'string') {
@@ -259,6 +264,12 @@ export async function POST(request: NextRequest) {
       typeof pause_reason === "string" && pause_reason.trim().length > 0
         ? pause_reason.trim().slice(0, 180)
         : ""
+    const actorPayload = buildPauseActorPayload({
+      session,
+      source: typeof pause_source === "string" && pause_source.trim()
+        ? pause_source.trim()
+        : "tenant_pause_api",
+    })
     const payload: Record<string, any> = {
       numero: targetNumero,
       pausar: pausarBool,
@@ -278,6 +289,7 @@ export async function POST(request: NextRequest) {
     if (hasPausarField && pausarBool) {
       payload.pausado_em = nowIso
       payload.pause_reason = pauseReasonValue || String(existingRow?.pause_reason || "").trim() || "manual_human_panel"
+      Object.assign(payload, actorPayload)
     } else if (hasPausarField && !pausarBool) {
       payload.pause_reason = null
     } else if (pauseReasonValue) {
@@ -297,13 +309,15 @@ export async function POST(request: NextRequest) {
       error &&
       (error.message?.includes("paused_until") ||
         error.message?.includes("pausado_em") ||
-        error.message?.includes("pause_reason"))
+        error.message?.includes("pause_reason") ||
+        isPauseActorColumnError(error))
     ) {
       // Fallback para tabelas antigas sem as colunas paused_until / pausado_em
       const retryPayload = { ...payload }
       delete retryPayload.paused_until
       delete retryPayload.pausado_em
       delete retryPayload.pause_reason
+      stripPauseActorPayload(retryPayload)
 
       const retry = await supabase
         .from(pausarTable)
@@ -417,10 +431,10 @@ export async function POST(request: NextRequest) {
 // PUT - Atualizar registro existente
 export async function PUT(request: NextRequest) {
   try {
-    const { tables, tenant } = await getTenantFromRequest()
+    const { tables, tenant, session } = await getTenantFromRequest()
     const { pausar: pausarTable, chatHistories } = tables
     const body = await request.json()
-    const { numero, pausar, vaga, agendamento, paused_until, pause_reason } = body
+    const { numero, pausar, vaga, agendamento, paused_until, pause_reason, pause_source } = body
 
     if (!numero || typeof numero !== 'string') {
       return NextResponse.json({
@@ -459,6 +473,12 @@ export async function PUT(request: NextRequest) {
       typeof pause_reason === "string" && pause_reason.trim().length > 0
         ? pause_reason.trim().slice(0, 180)
         : ""
+    const actorPayload = buildPauseActorPayload({
+      session,
+      source: typeof pause_source === "string" && pause_source.trim()
+        ? pause_source.trim()
+        : "tenant_pause_api",
+    })
     const updateData: any = {
       numero: targetNumero,
       pausar: existingRow?.pausar ?? false,
@@ -474,6 +494,7 @@ export async function PUT(request: NextRequest) {
         updateData.pausado_em = nowIso
         updateData.pause_reason = pauseReasonValue || "manual_human_panel"
         updateData.paused_until = null
+        Object.assign(updateData, actorPayload)
       } else {
         updateData.pause_reason = null
         updateData.paused_until = null
@@ -504,12 +525,14 @@ export async function PUT(request: NextRequest) {
       error &&
       (error.message?.includes("paused_until") ||
         error.message?.includes("pausado_em") ||
-        error.message?.includes("pause_reason"))
+        error.message?.includes("pause_reason") ||
+        isPauseActorColumnError(error))
     ) {
       // Fallback para tabelas antigas sem as colunas paused_until / pausado_em
       delete updateData.paused_until
       delete updateData.pausado_em
       delete updateData.pause_reason
+      stripPauseActorPayload(updateData)
       const retry = await supabase
         .from(pausarTable)
         .upsert(updateData, { onConflict: "numero", ignoreDuplicates: false })

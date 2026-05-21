@@ -1,12 +1,12 @@
 /**
- * Corrige geminiModel para o ID correto da API Gemini
+ * Corrige geminiModel para a selecao operacional desejada no painel
  * Execute: npx dotenv-cli -e .env.local -- npx tsx scripts/fix-bia-vox-model-correct.ts
  */
 
 import { createBiaSupabaseServerClient } from "../lib/supabase/bia-client"
 
 const TENANT = "bia_vox"
-const CORRECT_MODEL = "gemini-3.1-flash-lite-preview"
+const CORRECT_MODEL = "gemini-3.5-flash"
 
 async function main() {
   const supabase = createBiaSupabaseServerClient()

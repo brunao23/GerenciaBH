@@ -56,6 +56,9 @@ const OBJECTIVE_KEYWORDS =
 const OBSERVATION_KEYWORDS =
   /\b(programar|rotina|disponibilidade|horario|horarios|tempo|duracao|quanto tempo|online|presencial|palestra|trabalho|faculdade|empresa|comando|aula)\b/i
 
+const PROFESSION_HINT_KEYWORDS =
+  /\b(analista|assistente|auxiliar|coordenador|coordenadora|gerente|gestor|gestora|diretor|diretora|engenheiro|engenheira|professor|professora|advogado|advogada|medico|medica|dentista|nutricionista|psicologo|psicologa|fisioterapeuta|contador|contadora|consultor|consultora|vendedor|vendedora|empreendedor|empreendedora|empresario|empresaria|estudante|direito|enfermagem|biomedicina|marketing|trafego|financeiro|bancario|servidor|servidora|publico|publica|comercial|rh|recursos humanos|social media|arquiteto|arquiteta|veterinario|veterinaria|estetica|saude)\b/i
+
 function normalizeSpaces(value: string): string {
   return value.replace(/\s+/g, " ").trim()
 }
@@ -177,6 +180,7 @@ function cleanProfessionCandidate(value: string): string {
 function inferProfession(messages: string[]): string {
   const patterns = [
     /\b(?:sou|atuo como|trabalho como|sou uma|sou um)\s+([^.,;\n]{3,100})/i,
+    /\b(?:trabalho com|atuo em|atuo na area de|atuo na area|sou da area de|sou da area)\s+([^.,;\n]{3,100})/i,
     /\b(?:curso|estudo|fa[cç]o)\s+([^.,;\n]{3,100})/i,
     /\b(?:minha profiss[aã]o [eé]|profiss[aã]o:)\s+([^.,;\n]{3,100})/i,
   ]
@@ -186,6 +190,20 @@ function inferProfession(messages: string[]): string {
       const match = text.match(pattern)
       const value = cleanProfessionCandidate(match?.[1] || "")
       if (value) return value
+    }
+  }
+
+  for (const text of messages) {
+    const firstFragment = splitReadableFragments(text)[0] || ""
+    const candidate = cleanProfessionCandidate(firstFragment.split(/[.;!?]/)[0] || firstFragment)
+    if (
+      candidate &&
+      candidate.length <= 80 &&
+      candidate.split(/\s+/).length <= 7 &&
+      PROFESSION_HINT_KEYWORDS.test(normalizeSearch(candidate)) &&
+      !/\b(quero|preciso|gostaria|dificuldade|dificuldades|desafio|medo|travar|travado|ansioso|ansiosa|melhorar|aprender|conseguir)\b/i.test(normalizeSearch(candidate))
+    ) {
+      return candidate
     }
   }
 

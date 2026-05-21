@@ -1,7 +1,4 @@
-import {
-  FunctionDeclarationSchemaType,
-  VertexAI,
-} from "@google-cloud/vertexai"
+import { GoogleGenAI, Type } from "@google/genai"
 import { LLMService } from "./llm.interface"
 import {
   AgentActionPlan,
@@ -257,29 +254,93 @@ function toSafeTokenInt(value: any): number {
 }
 
 function readVertexCredentialString(value: any): string {
-  return String(value || "").trim()
+  let text = String(value || "").replace(/^\uFEFF/, "").trim()
+  if (!text) return ""
+
+  const first = text[0]
+  const last = text[text.length - 1]
+  if ((first === `"` && last === `"`) || (first === `'` && last === `'`)) {
+    text = text.slice(1, -1).trim()
+  }
+
+  return text.includes("\\n") ? text.replace(/\\n/g, "\n").trim() : text
 }
 
-function resolveVertexGoogleAuthOptions(projectId: string): Record<string, any> | undefined {
+function parseVertexServiceAccountJson(raw: any): Record<string, any> | null {
+  const text = readVertexCredentialString(raw)
+  if (!text) return null
+
+  try {
+    const parsed = JSON.parse(text)
+    return parsed && typeof parsed === "object" ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function parseVertexServiceAccountBase64(raw: any): Record<string, any> | null {
+  const text = readVertexCredentialString(raw)
+  if (!text) return null
+
+  try {
+    const decoded = Buffer.from(text, "base64").toString("utf8")
+    return parseVertexServiceAccountJson(decoded)
+  } catch {
+    return null
+  }
+}
+
+function resolveVertexServiceAccountFromEnv(): {
+  clientEmail: string
+  privateKey: string
+  source: string
+} | null {
+  const jsonCredential =
+    parseVertexServiceAccountBase64(
+      process.env.VERTEX_SERVICE_ACCOUNT_JSON_BASE64 ||
+        process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64,
+    ) ||
+    parseVertexServiceAccountJson(
+      process.env.VERTEX_SERVICE_ACCOUNT_JSON || process.env.GOOGLE_SERVICE_ACCOUNT_JSON,
+    )
+
+  if (jsonCredential) {
+    const clientEmail = readVertexCredentialString(jsonCredential.client_email)
+    const privateKey = readVertexCredentialString(jsonCredential.private_key)
+    if (clientEmail && privateKey) {
+      return { clientEmail, privateKey, source: "service_account_json" }
+    }
+  }
+
   const clientEmail = readVertexCredentialString(
     process.env.VERTEX_SERVICE_ACCOUNT_EMAIL || process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
   )
-  const privateKeyRaw = readVertexCredentialString(
+  const privateKey = readVertexCredentialString(
     process.env.VERTEX_SERVICE_ACCOUNT_PRIVATE_KEY ||
       process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
   )
 
-  if (!clientEmail || !privateKeyRaw) return undefined
+  if (!clientEmail || !privateKey) return null
+  return { clientEmail, privateKey, source: "split_env" }
+}
 
-  const privateKey = privateKeyRaw.includes("\\n")
-    ? privateKeyRaw.replace(/\\n/g, "\n")
-    : privateKeyRaw
+function resolveVertexGoogleAuthOptions(projectId: string): Record<string, any> | undefined {
+  const credential = resolveVertexServiceAccountFromEnv()
+  if (!credential) {
+    console.warn("[VertexAIService] Service account credentials missing; using Google ADC if available.")
+    return undefined
+  }
+
+  if (!credential.clientEmail.includes("@") || !credential.privateKey.includes("BEGIN PRIVATE KEY")) {
+    console.warn(`[VertexAIService] Service account credentials look invalid source=${credential.source}.`)
+    return undefined
+  }
 
   return {
     projectId,
     credentials: {
-      client_email: clientEmail,
-      private_key: privateKey,
+      client_email: credential.clientEmail,
+      private_key: credential.privateKey,
     },
     scopes: ["https://www.googleapis.com/auth/cloud-platform"],
   }
@@ -326,12 +387,12 @@ function accumulateUsageMetrics(
 function normalizeSchemaType(input: any): any {
   const value = String(input || "").trim().toUpperCase()
   if (!value) return undefined
-  if (value === "OBJECT") return FunctionDeclarationSchemaType.OBJECT
-  if (value === "STRING") return FunctionDeclarationSchemaType.STRING
-  if (value === "NUMBER") return FunctionDeclarationSchemaType.NUMBER
-  if (value === "INTEGER") return FunctionDeclarationSchemaType.INTEGER
-  if (value === "BOOLEAN") return FunctionDeclarationSchemaType.BOOLEAN
-  if (value === "ARRAY") return FunctionDeclarationSchemaType.ARRAY
+  if (value === "OBJECT") return Type.OBJECT
+  if (value === "STRING") return Type.STRING
+  if (value === "NUMBER") return Type.NUMBER
+  if (value === "INTEGER") return Type.INTEGER
+  if (value === "BOOLEAN") return Type.BOOLEAN
+  if (value === "ARRAY") return Type.ARRAY
   return undefined
 }
 
@@ -373,7 +434,7 @@ function normalizeFunctionDeclarations(
         name: String(declaration.name || "").trim(),
         description: String(declaration.description || "").trim(),
         parameters: normalizeSchema(declaration.parameters || {
-          type: FunctionDeclarationSchemaType.OBJECT,
+          type: Type.OBJECT,
           properties: {},
         }),
       })),
@@ -385,7 +446,7 @@ export class VertexAIService implements LLMService {
   private readonly projectId: string
   private readonly location: string
   private readonly model: string
-  private readonly modelClient: any
+  private readonly ai: GoogleGenAI
 
   constructor(projectId: string, location = "us-central1", model = "gemini-2.5-flash") {
     this.projectId = String(projectId || "").trim()
@@ -398,20 +459,36 @@ export class VertexAIService implements LLMService {
 
     const googleAuthOptions = resolveVertexGoogleAuthOptions(this.projectId)
 
-    const vertex = new VertexAI({
+    this.ai = new GoogleGenAI({
+      vertexai: true,
       project: this.projectId,
       location: this.location,
       googleAuthOptions,
     })
-
-    this.modelClient = vertex.getGenerativeModel({
-      model: this.model,
-    })
   }
 
   private async generateContent(request: Record<string, any>): Promise<any> {
-    const result = await this.modelClient.generateContent(request)
-    const response = await Promise.resolve((result as any)?.response ?? result)
+    const config: Record<string, any> = {
+      ...(request.generationConfig && typeof request.generationConfig === "object"
+        ? request.generationConfig
+        : {}),
+    }
+
+    if (request.systemInstruction) {
+      config.systemInstruction = request.systemInstruction
+    }
+    if (request.tools) {
+      config.tools = request.tools
+    }
+    if (request.toolConfig) {
+      config.toolConfig = request.toolConfig
+    }
+
+    const response = await this.ai.models.generateContent({
+      model: this.model,
+      contents: request.contents,
+      config,
+    })
     return response || {}
   }
 

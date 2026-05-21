@@ -2,10 +2,18 @@ import { NextResponse } from "next/server"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { notifyGanho } from "@/lib/services/notifications"
 import { isValidTenant } from "@/lib/auth/tenant"
+import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
 import { resolveTenant } from "@/lib/helpers/resolve-tenant"
 import { resolveChatHistoriesTable } from "@/lib/helpers/resolve-chat-table"
 import { getTableColumns } from "@/lib/helpers/supabase-table-columns"
 import { sendCAPIEvent, getCAPIConfig } from "@/lib/services/meta-capi.service"
+import { getTablesForTenant } from "@/lib/helpers/tenant"
+import {
+  buildBrazilianPhoneVariants,
+  normalizeBrazilianWhatsappPhone,
+} from "@/lib/helpers/phone-normalization"
+import { AgentTaskQueueService } from "@/lib/services/agent-task-queue.service"
+import { buildPauseActorPayload } from "@/lib/helpers/pause-actor"
 
 const BLOCKED_LEAD_NAMES = new Set([
   "bot",
@@ -98,10 +106,12 @@ function extractLastLeadMessage(payload: any): string | null {
   return content.slice(0, 1000)
 }
 
-function parseOptionalBoolean(value: any): boolean | undefined {
+function parseOptionalBoolean(value: any): boolean | null | undefined {
+  if (value === null) return null
   if (value === true || value === false) return value
   const normalized = String(value ?? "").trim().toLowerCase()
   if (!normalized) return undefined
+  if (normalized === "null" || normalized === "unset" || normalized === "remove") return null
   if (normalized === "true" || normalized === "1") return true
   if (normalized === "false" || normalized === "0") return false
   return undefined
@@ -124,10 +134,17 @@ export async function PUT(req: Request) {
 
     // 1. Identificar Unidade (Tenant) da sessão JWT
     let tenant: string
+    let tenantSession: any = null
     try {
-      tenant = await resolveTenant(req)
+      const tenantInfo = await getTenantFromRequest()
+      tenant = tenantInfo.tenant
+      tenantSession = tenantInfo.session
     } catch (error: any) {
-      return NextResponse.json({ error: error?.message || "Unauthorized" }, { status: 401 })
+      try {
+        tenant = await resolveTenant(req)
+      } catch {
+        return NextResponse.json({ error: error?.message || "Unauthorized" }, { status: 401 })
+      }
     }
     console.log(`[CRM Status] Atualizando status para lead ${leadId}... Unidade: ${tenant}`)
 
@@ -241,6 +258,101 @@ export async function PUT(req: Request) {
       }
     }
 
+    const pauseLeadDefinitivelyAsStudent = async () => {
+      const leadProfile = await loadLeadProfile()
+      const directPhone = normalizeBrazilianWhatsappPhone(leadId)
+      const fallbackPhone = normalizeBrazilianWhatsappPhone(leadProfile.phoneNumber)
+      const targetNumero = directPhone.valid
+        ? directPhone.normalized
+        : fallbackPhone.valid
+          ? fallbackPhone.normalized
+          : ""
+
+      if (!targetNumero) {
+        console.warn(`[CRM Status] Nao foi possivel pausar aluno sem telefone valido: lead=${leadId}`)
+        return
+      }
+
+      const now = new Date().toISOString()
+      const { pausar: pausarTable } = getTablesForTenant(tenant)
+      const pauseColumns = await getTableColumns(supabase as any, pausarTable)
+
+      if (pauseColumns.size > 0) {
+        const pausePayload: Record<string, any> = {
+          numero: targetNumero,
+          pausar: true,
+          vaga: false,
+          agendamento: false,
+          paused_until: null,
+          pausado_em: now,
+          pause_reason: "definitive_pause_student",
+          updated_at: now,
+          ...buildPauseActorPayload({
+            session: tenantSession,
+            source: "crm_status_student",
+          }),
+        }
+        const filteredPayload = Object.fromEntries(
+          Object.entries(pausePayload).filter(([key]) => pauseColumns.has(key)),
+        )
+
+        const { error: pauseError } = await supabase
+          .from(pausarTable)
+          .upsert(filteredPayload, { onConflict: "numero", ignoreDuplicates: false })
+
+        if (pauseError) {
+          console.warn(`[CRM Status] Erro ao pausar lead aluno:`, pauseError)
+        }
+
+        const duplicateVariants = buildBrazilianPhoneVariants(targetNumero)
+          .filter((variant) => variant && variant !== targetNumero)
+        if (duplicateVariants.length > 0) {
+          try {
+            await supabase
+              .from(pausarTable)
+              .delete()
+              .in("numero", duplicateVariants)
+              .neq("numero", targetNumero)
+          } catch {
+            // A pausa principal ja foi salva; limpeza de variantes nao pode bloquear a UX.
+          }
+        }
+      }
+
+      try {
+        await supabase
+          .from("followup_schedule")
+          .update({ is_active: false, updated_at: now })
+          .eq("session_id", leadId)
+      } catch {
+        // Compatibilidade com ambientes sem tabela legada.
+      }
+
+      for (const variant of buildBrazilianPhoneVariants(targetNumero)) {
+        try {
+          await supabase
+            .from("followup_schedule")
+            .update({ is_active: false, updated_at: now })
+            .eq("phone_number", variant)
+        } catch {
+          // Compatibilidade com ambientes sem tabela legada.
+        }
+      }
+
+      const taskQueue = new AgentTaskQueueService()
+      await taskQueue
+        .cancelPendingFollowups({
+          tenant,
+          sessionId: leadId,
+          phone: targetNumero,
+        })
+        .catch((err: any) =>
+          console.warn(`[CRM Status] cancelPendingFollowups aluno error:`, err?.message),
+        )
+
+      console.log(`[CRM Status] Lead marcado como aluno e pausado definitivamente: ${targetNumero}`)
+    }
+
     // Buscar ou criar registro de status do lead
     const { data: existing, error: fetchError } = await supabase
       .from(statusTable)
@@ -315,6 +427,14 @@ export async function PUT(req: Request) {
         }
       }
 
+      if (requestedIsStudent === true) {
+        try {
+          await pauseLeadDefinitivelyAsStudent()
+        } catch (err: any) {
+          console.warn(`[CRM Status] Erro ao pausar aluno definitivo:`, err?.message || err)
+        }
+      }
+
       // Disparar eventos Meta CAPI (non-blocking)
       const capiEventName =
         requestedStatus && isQualificacao && !wasQualificacao ? "CompleteRegistration" :
@@ -373,6 +493,14 @@ export async function PUT(req: Request) {
           await ensureFollowUpScheduleActive()
         } catch (err: any) {
           console.warn(`[CRM Status] Erro ao garantir follow-up ativo:`, err)
+        }
+      }
+
+      if (requestedIsStudent === true) {
+        try {
+          await pauseLeadDefinitivelyAsStudent()
+        } catch (err: any) {
+          console.warn(`[CRM Status] Erro ao pausar aluno definitivo:`, err?.message || err)
         }
       }
     }

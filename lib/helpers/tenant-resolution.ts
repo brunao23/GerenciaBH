@@ -62,7 +62,7 @@ function isMissingTableError(error: any): boolean {
 }
 
 async function tableExists(supabase: any, table: string): Promise<boolean> {
-  const { error } = await supabase.from(table).select("*", { head: true, count: "planned" })
+  const { error } = await supabase.from(table).select("id").limit(1)
   if (!error) return true
   if (isMissingTableError(error)) return false
   console.warn(`[TenantResolution] Erro ao verificar tabela ${table}:`, error.message)

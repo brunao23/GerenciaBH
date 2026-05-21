@@ -117,7 +117,7 @@ function resolveProviderAndModel(config: NativeAgentConfig): { provider: string;
   if (forceVertexGlobal) {
     return {
       provider: "vertexai",
-      model: process.env.VERTEX_MODEL || config.geminiModel || "gemini-2.5-flash",
+      model: config.geminiModel || process.env.VERTEX_MODEL || process.env.GEMINI_MODEL || "gemini-3.5-flash",
     }
   }
   const provider = String(config.aiProvider || "google").toLowerCase().trim()
@@ -125,7 +125,7 @@ function resolveProviderAndModel(config: NativeAgentConfig): { provider: string;
   if (provider === "anthropic") return { provider, model: config.anthropicModel || "claude-sonnet-4-20250514" }
   if (provider === "groq") return { provider, model: config.groqModel || "llama3-70b-8192" }
   if (provider === "openrouter") return { provider, model: config.openRouterModel || "google/gemini-2.5-flash" }
-  return { provider: "google", model: config.geminiModel || "gemini-2.5-flash" }
+  return { provider: "google", model: config.geminiModel || process.env.GEMINI_MODEL || "gemini-3.5-flash" }
 }
 
 function validateProviderCredentials(config: NativeAgentConfig): string | null {

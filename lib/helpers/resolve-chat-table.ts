@@ -45,11 +45,11 @@ export async function resolveChatHistoriesTable(
 
   for (const table of candidates) {
     try {
-      const res = await supabase.from(table).select("id", { count: "exact", head: true })
+      const res = await supabase.from(table).select("id", { count: "exact" }).limit(1)
       if (!res.error) {
         available.push({
           table,
-          count: Number.isFinite(res.count as number) ? Number(res.count) : 0,
+          count: Number.isFinite(res.count as number) ? Number(res.count) : Array.isArray(res.data) ? res.data.length : 0,
         })
         continue
       }
