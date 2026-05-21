@@ -90,6 +90,12 @@ type AvailableSlotsResult = {
   slots?: Array<{ date: string; time: string }>
   total?: number
   error?: string
+  recommended_slots_for_lead?: Array<{
+    date: string
+    time: string
+    date_br?: string
+    weekday_name_pt?: string
+  }>
   searched_date_from?: string
   searched_date_to?: string
   business_days_configured?: Array<{ number: number; name: string }>
@@ -1964,6 +1970,70 @@ function formatSlotLabelForLead(slot: any): string {
   return `${info?.weekday_name_pt || "dia"} ${info?.date_br || formatDateIsoToBr(date)}, as ${time}`
 }
 
+function getSlotSelectionKey(slot: any): string {
+  const date = normalizeDateToIso(slot?.date) || ""
+  const time = normalizeTimeToHHmm(slot?.time) || ""
+  return `${date} ${time}`.trim()
+}
+
+function stableHashText(value: string): number {
+  let hash = 2166136261
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i)
+    hash = Math.imul(hash, 16777619)
+  }
+  return Math.abs(hash >>> 0)
+}
+
+function pickRepresentativeSlots(rawSlots: any[], context: string, max = 2): any[] {
+  const seen = new Set<string>()
+  const slots: any[] = []
+
+  for (const slot of rawSlots || []) {
+    const date = normalizeDateToIso(slot?.date)
+    const time = normalizeTimeToHHmm(slot?.time)
+    if (!date || !time) continue
+    const key = `${date} ${time}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    slots.push({ ...slot, date, time })
+  }
+
+  const sorted = slots.sort((a, b) => getSlotSelectionKey(a).localeCompare(getSlotSelectionKey(b)))
+  const limit = Math.max(1, Math.min(max, sorted.length))
+  if (sorted.length <= limit) return sorted
+
+  const seed = stableHashText(`${context || ""}|${sorted.length}|${getSlotSelectionKey(sorted[0])}|${getSlotSelectionKey(sorted[sorted.length - 1])}`)
+  const selected: any[] = []
+  const selectedKeys = new Set<string>()
+
+  for (let bucketIndex = 0; bucketIndex < limit; bucketIndex += 1) {
+    const start = Math.floor((bucketIndex * sorted.length) / limit)
+    const end = Math.max(start + 1, Math.floor(((bucketIndex + 1) * sorted.length) / limit))
+    const bucket = sorted.slice(start, end)
+    const candidate = bucket[(seed + bucketIndex * 7) % bucket.length]
+    const key = getSlotSelectionKey(candidate)
+    if (candidate && !selectedKeys.has(key)) {
+      selected.push(candidate)
+      selectedKeys.add(key)
+    }
+  }
+
+  if (selected.length < limit) {
+    const offset = seed % sorted.length
+    for (let i = 0; i < sorted.length && selected.length < limit; i += 1) {
+      const candidate = sorted[(offset + i) % sorted.length]
+      const key = getSlotSelectionKey(candidate)
+      if (!selectedKeys.has(key)) {
+        selected.push(candidate)
+        selectedKeys.add(key)
+      }
+    }
+  }
+
+  return selected
+}
+
 function buildAvailableSlotsRecoveryReply(response: Record<string, any>, leadMessage: string): string {
   const rawSlots = Array.isArray(response?.slots_with_context) && response.slots_with_context.length > 0
     ? response.slots_with_context
@@ -1986,7 +2056,11 @@ function buildAvailableSlotsRecoveryReply(response: Record<string, any>, leadMes
   const periodSlots = selectedPeriod
     ? rawSlots.filter((slot: any) => periodMatchesSlot(slot?.time, selectedPeriod))
     : rawSlots
-  const selectedSlots = (periodSlots.length ? periodSlots : rawSlots).slice(0, 2)
+  const selectedSlots = pickRepresentativeSlots(
+    periodSlots.length ? periodSlots : rawSlots,
+    `${leadMessage || ""}|${selectedPeriod || ""}|${requestedTime || ""}`,
+    2,
+  )
   const labels = selectedSlots.map(formatSlotLabelForLead).filter(Boolean)
 
   if (!labels.length) {
@@ -11216,11 +11290,27 @@ export class NativeAgentOrchestratorService {
         }
       }
       const daysWithFreeSlots = Array.from(daySummaryMap.values()).sort((a, b) => a.date.localeCompare(b.date))
+      const recommendedSlotsForLead = pickRepresentativeSlots(
+        dedupedSlots,
+        `${formatDateFromParts(requestedStart)}|${formatDateFromParts(endReference)}|${dedupedSlots.length}`,
+        Math.min(8, Math.max(1, dedupedSlots.length)),
+      ).map((slot) => {
+        const date = normalizeDateToIso(slot.date) || slot.date
+        const time = normalizeTimeToHHmm(slot.time) || slot.time
+        const weekdayInfo = date ? getWeekdayInfoForDateIso(date) : null
+        return {
+          date,
+          time,
+          date_br: date ? formatDateIsoToBr(date) : undefined,
+          weekday_name_pt: weekdayInfo?.weekday_name_pt,
+        }
+      })
 
       return {
         ok: true,
         slots: dedupedSlots,
         total: dedupedSlots.length,
+        recommended_slots_for_lead: recommendedSlotsForLead,
         searched_date_from: formatDateFromParts(requestedStart),
         searched_date_to: formatDateFromParts(endReference),
         business_days_configured: businessDaysConfigured,

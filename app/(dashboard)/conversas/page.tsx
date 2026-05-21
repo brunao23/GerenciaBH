@@ -33,6 +33,7 @@ import { Search, MessageSquare, Phone, User, Clock, AlertCircle, CheckCircle2, P
 import { useTenant } from "@/lib/contexts/TenantContext"
 import { resolveAvatarImageSrc } from "@/lib/helpers/avatar-proxy"
 import { cn } from "@/lib/utils"
+import { cleanUiText, repairMojibakeText } from "@/lib/utils/text-mojibake"
 import { toast } from "sonner"
 import { LeadWorkspacePanel } from "@/components/crm/lead-workspace-panel"
 
@@ -147,7 +148,7 @@ async function convertAudioBlobToWav(blob: Blob): Promise<Blob> {
   if (typeof window === "undefined") throw new Error("audio_conversion_unavailable")
   const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext
   if (!AudioContextCtor || typeof OfflineAudioContext === "undefined") {
-    throw new Error("Seu navegador nao suporta conversao de audio")
+    throw new Error("Seu navegador não suporta conversão de áudio")
   }
 
   const input = await blob.arrayBuffer()
@@ -355,7 +356,7 @@ const inferInstagramHandle = (session: ChatSession) => {
 }
 
 const cleanInstagramTransportText = (value?: string | null, mode: "preview" | "message" = "message") => {
-  const original = String(value || "")
+  const original = repairMojibakeText(value || "")
   if (!original) return ""
 
   let text = original.replace(/\r\n/g, "\n")
@@ -379,10 +380,45 @@ const cleanInstagramTransportText = (value?: string | null, mode: "preview" | "m
   return text
 }
 
+const cleanMultilineUiText = (value?: string | null, fallback = "") => {
+  const repaired = repairMojibakeText(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim()
+  return repaired || fallback
+}
+
+const normalizeChatMessageForUi = (message: ChatMessage): ChatMessage => ({
+  ...message,
+  content: cleanMultilineUiText(message?.content || ""),
+  audioTranscription: cleanMultilineUiText(message?.audioTranscription || ""),
+})
+
+const normalizeSessionForUi = (session: ChatSession): ChatSession => ({
+  ...session,
+  contact_name: cleanUiText(session.contact_name, session.contact_name || ""),
+  instagram_username: cleanUiText(session.instagram_username, session.instagram_username || ""),
+  instagram_bio: cleanMultilineUiText(session.instagram_bio || ""),
+  last_message_preview: cleanUiText(session.last_message_preview, session.last_message_preview || ""),
+  messages: Array.isArray(session.messages) ? session.messages.map(normalizeChatMessageForUi) : [],
+  formData: session.formData
+    ? {
+        nome: cleanUiText(session.formData.nome, session.formData.nome || ""),
+        primeiroNome: cleanUiText(session.formData.primeiroNome, session.formData.primeiroNome || ""),
+        dificuldade: cleanUiText(session.formData.dificuldade, session.formData.dificuldade || ""),
+        motivo: cleanUiText(session.formData.motivo, session.formData.motivo || ""),
+        profissao: cleanUiText(session.formData.profissao, session.formData.profissao || ""),
+        tempoDecisao: cleanUiText(session.formData.tempoDecisao, session.formData.tempoDecisao || ""),
+        comparecimento: cleanUiText(session.formData.comparecimento, session.formData.comparecimento || ""),
+      }
+    : undefined,
+})
+
 const dedupeSessionsById = (sessions: ChatSession[]): ChatSession[] => {
   const byId = new Map<string, ChatSession>()
 
-  for (const incoming of sessions) {
+  for (const rawIncoming of sessions) {
+    const incoming = normalizeSessionForUi(rawIncoming)
     const rawId = String(incoming.session_id || "").trim()
     const key = toCanonicalSessionKey(incoming) || rawId
     if (!key) continue
@@ -472,13 +508,13 @@ function mergeChatMessageLists(existingMessages: ChatMessage[], incomingMessages
   const byKey = new Map<string, ChatMessage>()
 
   for (let index = 0; index < existingMessages.length; index += 1) {
-    const message = existingMessages[index]
+    const message = normalizeChatMessageForUi(existingMessages[index])
     if (!message) continue
     byKey.set(buildChatMessageKey(message, index), message)
   }
 
   for (let index = 0; index < incomingMessages.length; index += 1) {
-    const message = incomingMessages[index]
+    const message = normalizeChatMessageForUi(incomingMessages[index])
     if (!message) continue
     const key = buildChatMessageKey(message, index)
     const current = byKey.get(key)
@@ -502,49 +538,51 @@ function areMessageListsEquivalent(a: ChatMessage[], b: ChatMessage[]): boolean 
 }
 
 function mergeSummarySessionShell(existing: ChatSession | undefined, incoming: ChatSession): ChatSession {
-  if (!existing) return incoming
+  const safeIncoming = normalizeSessionForUi(incoming)
+  if (!existing) return safeIncoming
+  const safeExisting = normalizeSessionForUi(existing)
 
-  const incomingName = String(incoming.contact_name || "").trim()
-  const existingName = String(existing.contact_name || "").trim()
+  const incomingName = String(safeIncoming.contact_name || "").trim()
+  const existingName = String(safeExisting.contact_name || "").trim()
   const incomingIsGeneric = isGenericSessionName(incomingName)
   const mergedName = incomingName && !incomingIsGeneric ? incomingName : existingName || incomingName
 
-  const incomingPic = String(incoming.profile_pic || "").trim()
-  const existingPic = String(existing.profile_pic || "").trim()
+  const incomingPic = String(safeIncoming.profile_pic || "").trim()
+  const existingPic = String(safeExisting.profile_pic || "").trim()
   const incomingPicValid = /^https?:\/\//i.test(incomingPic) || /^data:image\//i.test(incomingPic)
   const existingPicValid = /^https?:\/\//i.test(existingPic) || /^data:image\//i.test(existingPic)
-  const keepDetailedMessages = existing.isSummary === false
-  const existingMessages = Array.isArray(existing.messages) ? existing.messages : []
-  const incomingMessages = Array.isArray(incoming.messages) ? incoming.messages : []
+  const keepDetailedMessages = safeExisting.isSummary === false
+  const existingMessages = Array.isArray(safeExisting.messages) ? safeExisting.messages : []
+  const incomingMessages = Array.isArray(safeIncoming.messages) ? safeIncoming.messages : []
   const messages = keepDetailedMessages ? existingMessages : incomingMessages.length ? incomingMessages : existingMessages
-  const incomingCount = Number(incoming.messages_count ?? incomingMessages.length)
-  const existingCount = Number(existing.messages_count ?? existingMessages.length)
+  const incomingCount = Number(safeIncoming.messages_count ?? incomingMessages.length)
+  const existingCount = Number(safeExisting.messages_count ?? existingMessages.length)
 
   return {
-    ...existing,
-    ...incoming,
-    session_id: existing.session_id || incoming.session_id,
-    contact_name: mergedName || existing.contact_name || incoming.contact_name,
+    ...safeExisting,
+    ...safeIncoming,
+    session_id: safeExisting.session_id || safeIncoming.session_id,
+    contact_name: mergedName || safeExisting.contact_name || safeIncoming.contact_name,
     profile_pic: incomingPicValid ? incomingPic : existingPicValid ? existingPic : undefined,
-    instagram_username: incoming.instagram_username || existing.instagram_username,
-    instagram_bio: incoming.instagram_bio || existing.instagram_bio,
-    channel: existing.channel === "instagram" || incoming.channel === "instagram" ? "instagram" : "whatsapp",
+    instagram_username: safeIncoming.instagram_username || safeExisting.instagram_username,
+    instagram_bio: safeIncoming.instagram_bio || safeExisting.instagram_bio,
+    channel: safeExisting.channel === "instagram" || safeIncoming.channel === "instagram" ? "instagram" : "whatsapp",
     numero:
-      toCanonicalWhatsappPhone(existing.numero || incoming.numero || existing.session_id || incoming.session_id) ||
-      existing.numero ||
-      incoming.numero ||
+      toCanonicalWhatsappPhone(safeExisting.numero || safeIncoming.numero || safeExisting.session_id || safeIncoming.session_id) ||
+      safeExisting.numero ||
+      safeIncoming.numero ||
       null,
-    isStudent: incoming.isStudent ?? existing.isStudent ?? null,
-    usage_input_tokens: Math.max(existing.usage_input_tokens || 0, incoming.usage_input_tokens || 0),
-    usage_output_tokens: Math.max(existing.usage_output_tokens || 0, incoming.usage_output_tokens || 0),
-    usage_total_tokens: Math.max(existing.usage_total_tokens || 0, incoming.usage_total_tokens || 0),
-    usage_total_cost_brl: Math.max(existing.usage_total_cost_brl || 0, incoming.usage_total_cost_brl || 0),
-    isGroup: Boolean(existing.isGroup || incoming.isGroup),
-    last_id: Math.max(existing.last_id || 0, incoming.last_id || 0),
-    last_message_preview: incoming.last_message_preview || existing.last_message_preview,
+    isStudent: safeIncoming.isStudent ?? safeExisting.isStudent ?? null,
+    usage_input_tokens: Math.max(safeExisting.usage_input_tokens || 0, safeIncoming.usage_input_tokens || 0),
+    usage_output_tokens: Math.max(safeExisting.usage_output_tokens || 0, safeIncoming.usage_output_tokens || 0),
+    usage_total_tokens: Math.max(safeExisting.usage_total_tokens || 0, safeIncoming.usage_total_tokens || 0),
+    usage_total_cost_brl: Math.max(safeExisting.usage_total_cost_brl || 0, safeIncoming.usage_total_cost_brl || 0),
+    isGroup: Boolean(safeExisting.isGroup || safeIncoming.isGroup),
+    last_id: Math.max(safeExisting.last_id || 0, safeIncoming.last_id || 0),
+    last_message_preview: safeIncoming.last_message_preview || safeExisting.last_message_preview,
     messages,
     messages_count: Math.max(existingCount || 0, incomingCount || 0, messages.length),
-    isSummary: keepDetailedMessages ? false : incoming.isSummary ?? existing.isSummary,
+    isSummary: keepDetailedMessages ? false : safeIncoming.isSummary ?? safeExisting.isSummary,
   }
 }
 
@@ -731,11 +769,11 @@ const parseComponentsJson = (input: string): { components?: any[]; error?: strin
       return { error: "JSON deve ser um array de components ou { components: [...] }" }
     }
     if (value.length === 0) {
-      return { error: "JSON de components nao pode estar vazio" }
+      return { error: "JSON de components não pode estar vazio" }
     }
     return { components: value }
   } catch (error: any) {
-    return { error: error?.message || "JSON invalido" }
+    return { error: error?.message || "JSON inválido" }
   }
 }
 
@@ -767,7 +805,7 @@ const MAX_INDEXED_MESSAGES = 40
 const MAX_INDEXED_MESSAGE_CHARS = 240
 
 function normalizeText(text: string): string {
-  return text
+  return repairMojibakeText(text)
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -1063,7 +1101,7 @@ export default function ConversasPage() {
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
-        throw new Error(data.error || "Falha na requisiÃ§Ã£o")
+        throw new Error(data.error || "Falha na requisição")
       }
       setBusinessEventActive(session.session_id, eventType, !eventActive)
       toast.success(
@@ -1118,7 +1156,7 @@ export default function ConversasPage() {
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
-        throw new Error(data.error || "Falha na requisiÃ§Ã£o")
+        throw new Error(data.error || "Falha na requisição")
       }
       toast.success("Venda registrada!")
       setBusinessEventActive(session.session_id, "sale", true)
@@ -1177,7 +1215,7 @@ export default function ConversasPage() {
       })
     }
   }
-  // Estados para SeleÃ§Ã£o MÃºltipla
+  // Estados para Seleção Múltipla
   const [isSelectionMode, setIsSelectionMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [bulkDialogOpen, setBulkDialogOpen] = useState(false)
@@ -1458,12 +1496,12 @@ export default function ConversasPage() {
       } else {
         const errorData = await response.json().catch(() => ({}))
         console.warn(`[Conversas] Erro ao buscar status (${response.status}):`, errorData)
-        // Se nÃ£o encontrar registro, assume que estÃ¡ desativado
+        // Se não encontrar registro, assume que está desativado
         setFollowupAIEnabled(false)
       }
     } catch (error) {
       console.error("[Conversas] Erro ao buscar status do follow-up AI:", error)
-      // Em caso de erro, assume que estÃ¡ desativado para nÃ£o bloquear o botÃ£o
+      // Em caso de erro, assume que está desativado para não bloquear o botão
       setFollowupAIEnabled(false)
     }
   }, [])
@@ -1505,7 +1543,7 @@ export default function ConversasPage() {
       }
     } catch (error: any) {
       console.error("[Conversas] Erro ao alternar follow-up AI:", error)
-      alert(`Erro de conexÃ£o ao alterar follow-up AI: ${error?.message || 'Erro desconhecido'}`)
+      alert(`Erro de conexão ao alterar follow-up AI: ${error?.message || 'Erro desconhecido'}`)
     } finally {
       setFollowupAILoading(false)
     }
@@ -1542,7 +1580,7 @@ export default function ConversasPage() {
           alert(`Erro ao alterar status`)
         }
       } catch (error) {
-        alert(`Erro de conexÃ£o`)
+        alert(`Erro de conexão`)
       } finally {
         setPauseLoading(false)
       }
@@ -1568,8 +1606,9 @@ export default function ConversasPage() {
       }
 
       const payload = await response.json()
-      const detailed = Array.isArray(payload) ? (payload[0] as ChatSession | undefined) : undefined
-      if (!detailed) return
+      const detailedRaw = Array.isArray(payload) ? (payload[0] as ChatSession | undefined) : undefined
+      if (!detailedRaw) return
+      const detailed = normalizeSessionForUi(detailedRaw)
 
       setSessions((prev) =>
         prev.map((session) => {
@@ -1613,7 +1652,7 @@ export default function ConversasPage() {
         }),
       )
     } catch (error) {
-      console.error("Erro ao carregar detalhes da sessÃ£o:", error)
+      console.error("Erro ao carregar detalhes da sessão:", error)
     } finally {
       detailRequestsRef.current.delete(sessionId)
       setDetailLoadingSessionId((prev) => (prev === sessionId ? null : prev))
@@ -1713,8 +1752,9 @@ export default function ConversasPage() {
       if (!response.ok) return
 
       const payload = await response.json().catch(() => null)
-      const detailed = Array.isArray(payload) ? (payload[0] as ChatSession | undefined) : undefined
-      if (!detailed || !Array.isArray(detailed.messages)) return
+      const detailedRaw = Array.isArray(payload) ? (payload[0] as ChatSession | undefined) : undefined
+      if (!detailedRaw || !Array.isArray(detailedRaw.messages)) return
+      const detailed = normalizeSessionForUi(detailedRaw)
 
       setSessions((prev) =>
         prev.map((session) => {
@@ -1867,8 +1907,8 @@ export default function ConversasPage() {
     if (!current || !current.messages) return;
 
     const lines = [];
-    lines.push(`Conversa com: ${current.contact_name || "Lead"} (${current.numero || "Sem nÃºmero"})`);
-    lines.push(`Data da ExportaÃ§Ã£o: ${new Date().toLocaleString('pt-BR')}`);
+    lines.push(`Conversa com: ${current.contact_name || "Lead"} (${current.numero || "Sem número"})`);
+    lines.push(`Data da Exportação: ${new Date().toLocaleString('pt-BR')}`);
     lines.push("--------------------------------------------------");
     lines.push("");
 
@@ -1979,7 +2019,7 @@ export default function ConversasPage() {
     if (sessionsToExport.length === 0) return;
 
     const lines: string[] = [];
-    lines.push("RELATÃ“RIO DE EXPORTAÃ‡ÃƒO EM MASSA");
+    lines.push("RELATÓRIO DE EXPORTAÇÃO EM MASSA");
     lines.push(`Data: ${new Date().toLocaleString('pt-BR')}`);
     lines.push(`Total de conversas: ${sessionsToExport.length}`);
     lines.push("================================================================================");
@@ -1987,8 +2027,8 @@ export default function ConversasPage() {
 
     sessionsToExport.forEach((session, index) => {
       lines.push(`CONVERSA ${index + 1} DE ${sessionsToExport.length}`);
-      lines.push(`Contato: ${session.contact_name || "Lead"} (${session.numero || "Sem nÃºmero"})`);
-      lines.push(`ID SessÃ£o: ${session.session_id}`);
+      lines.push(`Contato: ${session.contact_name || "Lead"} (${session.numero || "Sem número"})`);
+      lines.push(`ID Sessão: ${session.session_id}`);
       lines.push("--------------------------------------------------");
 
       session.messages.forEach(msg => {
@@ -2012,7 +2052,7 @@ export default function ConversasPage() {
     link.click();
     document.body.removeChild(link);
 
-    // Limpar seleÃ§Ã£o apÃ³s exportar
+    // Limpar seleção após exportar
     setSelectedIds([]);
     setIsSelectionMode(false);
     toast.success(`${sessionsToExport.length} conversas exportadas!`);
@@ -2120,7 +2160,7 @@ export default function ConversasPage() {
       const res = await fetch("/api/meta/media", { method: "POST", body: form })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data?.error || "Falha ao enviar midia")
-      if (!data?.id) throw new Error("Meta nao retornou o ID da midia")
+      if (!data?.id) throw new Error("Meta não retornou o ID da midia")
 
       setBulkMetaHeaderMediaId(String(data.id))
       setBulkMetaHeaderMediaLink("")
@@ -2185,7 +2225,7 @@ export default function ConversasPage() {
           }
           const parsed = parseMetaTemplateLines(bulkMetaTemplates)
           if (parsed.length === 0) {
-            toast.error("Templates oficiais invalidos")
+            toast.error("Templates oficiais inválidos")
             return
           }
         }
@@ -2236,7 +2276,7 @@ export default function ConversasPage() {
             phone: String(phoneCandidate || ""),
             name,
             status: "skipped",
-            error: "Numero invalido",
+            error: "Numero inválido",
           },
         ])
         processed += 1
@@ -2386,7 +2426,7 @@ export default function ConversasPage() {
 
   const setAudioFromBlob = async (blob: Blob, name: string, options?: { forceWav?: boolean }) => {
     if (!blob || blob.size <= 0) {
-      toast.error("Audio vazio")
+      toast.error("Áudio vazio")
       return
     }
     const inferredMimeType = inferAudioMimeTypeFromName(name, blob.type || "")
@@ -2396,19 +2436,19 @@ export default function ConversasPage() {
 
     if (shouldConvertAudioToWav(preparedMimeType, preparedName, options?.forceWav === true)) {
       try {
-        toast.message("Preparando audio para envio...")
+        toast.message("Preparando áudio para envio...")
         preparedBlob = await convertAudioBlobToWav(preparedBlob)
         preparedName = preparedName.replace(/\.[a-z0-9]+$/i, "") || "audio"
         preparedName = `${preparedName}.wav`
         preparedMimeType = "audio/wav"
       } catch (error: any) {
-        toast.error(error?.message || "Nao foi possivel converter este audio")
+        toast.error(error?.message || "Não foi possível converter este áudio")
         return
       }
     }
 
     if (preparedBlob.size > MAX_MANUAL_AUDIO_BYTES) {
-      toast.error(`Audio maior que ${formatBytes(MAX_MANUAL_AUDIO_BYTES)} apos preparo`)
+      toast.error(`Áudio maior que ${formatBytes(MAX_MANUAL_AUDIO_BYTES)} após preparo`)
       return
     }
     const dataUrl = await readBlobAsDataUrl(preparedBlob)
@@ -2426,24 +2466,24 @@ export default function ConversasPage() {
     event.target.value = ""
     if (!file) return
     if (!/^audio\//i.test(file.type) && !/\.(mp3|ogg|opus|wav|m4a|aac|webm)$/i.test(file.name)) {
-      toast.error("Selecione um arquivo de audio valido")
+      toast.error("Selecione um arquivo de áudio válido")
       return
     }
     try {
       await setAudioFromBlob(file, file.name || "audio")
     } catch (error: any) {
-      toast.error(error?.message || "Erro ao carregar audio")
+      toast.error(error?.message || "Erro ao carregar áudio")
     }
   }
 
   const handleStartAudioRecording = async () => {
     if (isRecordingAudio) return
     if (!navigator?.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
-      toast.error("Gravacao de audio nao suportada neste navegador")
+      toast.error("Gravação de áudio não suportada neste navegador")
       return
     }
     if (current?.channel === "instagram") {
-      toast.error("Audio manual esta disponivel para WhatsApp")
+      toast.error("Áudio manual está disponível para WhatsApp")
       return
     }
 
@@ -2479,12 +2519,12 @@ export default function ConversasPage() {
       }
       recorder.start()
       setIsRecordingAudio(true)
-      toast.message("Gravando audio...")
+      toast.message("Gravando áudio...")
     } catch (error: any) {
       recordingStreamRef.current?.getTracks().forEach((track) => track.stop())
       recordingStreamRef.current = null
       setIsRecordingAudio(false)
-      toast.error(error?.message || "Nao foi possivel acessar o microfone")
+      toast.error(error?.message || "Não foi possível acessar o microfone")
     }
   }
 
@@ -2503,7 +2543,7 @@ export default function ConversasPage() {
   const handleSendAudio = async () => {
     if (!pendingAudio || !current) return
     if (current.channel === "instagram") {
-      toast.error("Audio manual esta disponivel para WhatsApp")
+      toast.error("Áudio manual está disponível para WhatsApp")
       return
     }
 
@@ -2524,12 +2564,12 @@ export default function ConversasPage() {
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        throw new Error(data?.error || "Erro ao enviar audio")
+        throw new Error(data?.error || "Erro ao enviar áudio")
       }
 
       const tempMsg: ChatMessage = {
         role: "bot",
-        content: "[Audio enviado pelo humano]",
+        content: "[Áudio enviado pelo humano]",
         created_at: new Date().toISOString(),
         isSuccess: true,
         isManual: true,
@@ -2554,9 +2594,9 @@ export default function ConversasPage() {
         }),
       )
       setPendingAudio(null)
-      toast.success("Audio enviado")
+      toast.success("Áudio enviado")
     } catch (error: any) {
-      toast.error(error?.message || "Erro ao enviar audio")
+      toast.error(error?.message || "Erro ao enviar áudio")
     } finally {
       setIsSendingAudio(false)
     }
@@ -2566,7 +2606,7 @@ export default function ConversasPage() {
     if (!current || isGeneratingSuggestion) return
     const sourceMessages = Array.isArray(current.messages) ? current.messages : []
     if (sourceMessages.length === 0) {
-      toast.error("Conversa sem historico para gerar sugestao")
+      toast.error("Conversa sem histrico para gerar sugestão")
       return
     }
 
@@ -2595,21 +2635,21 @@ export default function ConversasPage() {
 
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) {
-        throw new Error(payload?.error || "Erro ao gerar sugestao")
+        throw new Error(payload?.error || "Erro ao gerar sugestão")
       }
 
       const suggestedReply = String(payload?.reply || "").trim()
       if (!suggestedReply) {
-        toast.message("Sem sugestao no momento")
+        toast.message("Sem sugestão no momento")
         return
       }
 
       setMessageInput(suggestedReply)
       setLastSuggestedText(suggestedReply)
       setSuggestionVariant((prev) => (regenerate ? prev + 1 : 1))
-      toast.success(regenerate ? "Nova sugestao gerada" : "Sugestao gerada com IA")
+      toast.success(regenerate ? "Nova sugestão gerada" : "Sugestão gerada com IA")
     } catch (error: any) {
-      toast.error(error?.message || "Erro ao gerar sugestao")
+      toast.error(error?.message || "Erro ao gerar sugestão")
     } finally {
       setIsGeneratingSuggestion(false)
     }
@@ -2624,20 +2664,20 @@ export default function ConversasPage() {
 
     try {
       await navigator.clipboard.writeText(text)
-      toast.success("Sugestao copiada")
+      toast.success("Sugestão copiada")
     } catch {
-      toast.error("Falha ao copiar sugestao")
+      toast.error("Falha ao copiar sugestão")
     }
   }
 
   const handleDeleteMessage = async (msg: ChatMessage) => {
     if (!current) return
     if (!msg.message_id) {
-      toast.error("Nao foi possivel excluir: mensagem sem ID interno.")
+      toast.error("Não foi possível excluir: mensagem sem ID interno.")
       return
     }
     if (!msg.provider_message_id) {
-      toast.error("Nao foi possivel excluir no WhatsApp: ID da mensagem ausente.")
+      toast.error("Não foi possível excluir no WhatsApp: ID da mensagem ausente.")
       return
     }
 
@@ -2690,7 +2730,7 @@ export default function ConversasPage() {
     if (!current || clearingMemory) return
 
     const confirmed = window.confirm(
-      "Apagar memoria deste lead?\n\nIsso remove historico, pausas e registros relacionados no tenant para este contato.",
+      "Apagar memria deste lead?\n\nIsso remove histrico, pausas e registros relacionados no tenant para este contato.",
     )
     if (!confirmed) return
 
@@ -2713,7 +2753,7 @@ export default function ConversasPage() {
 
       const payload = await response.json().catch(() => ({}))
       if (!response.ok || !payload?.success) {
-        throw new Error(payload?.error || "Erro ao apagar memoria do lead")
+        throw new Error(payload?.error || "Erro ao apagar memria do lead")
       }
 
       setSessions((prev) => prev.filter((session) => session.session_id !== targetSessionId))
@@ -2723,13 +2763,13 @@ export default function ConversasPage() {
       const totalDeleted = Number(payload?.totalDeleted || 0)
       toast.success(
         totalDeleted > 0
-          ? `Memoria apagada com sucesso (${totalDeleted} registros removidos).`
-          : "Memoria apagada com sucesso.",
+          ? `Memória apagada com sucesso (${totalDeleted} registros removidos).`
+          : "Memória apagada com sucesso.",
       )
 
       fetchData(query)
     } catch (error: any) {
-      toast.error(error?.message || "Erro ao apagar memoria do lead.")
+      toast.error(error?.message || "Erro ao apagar memria do lead.")
     } finally {
       setClearingMemory(false)
     }
@@ -2737,7 +2777,7 @@ export default function ConversasPage() {
 
   const handleActivatePause = async () => {
     if (!currentPausePhone) {
-      toast.error("Nao foi possivel pausar: lead sem numero valido.")
+      toast.error("Não foi possível pausar: lead sem numero válido.")
       return
     }
     setTakeoverLoading(true)
@@ -2798,7 +2838,7 @@ export default function ConversasPage() {
       className="conversations-whatsapp-shell h-full min-h-0 w-full max-w-full flex flex-col lg:flex-row gap-0 overflow-hidden"
       style={conversationMobileSafeShellStyle}
     >
-      {/* Sidebar - Lista de SessÃµes */}
+      {/* Sidebar - Lista de Sessões */}
       <Card
         className={`genial-card conversation-list-panel w-full max-w-full min-h-0 flex flex-shrink-0 flex-col overflow-hidden rounded-none border border-border bg-card shadow-sm lg:rounded-l-2xl lg:rounded-r-none ${showListOnMobile ? "flex" : "hidden lg:flex"}`}
         style={conversationMobileSafePanelStyle}
@@ -2846,7 +2886,7 @@ export default function ConversasPage() {
                   variant="ghost"
                   size="icon"
                   onClick={() => setIsSelectionMode(true)}
-                  title="Selecionar MÃºltiplos"
+                  title="Selecionar Múltiplos"
                   className="text-text-gray hover:text-foreground"
                 >
                   <ListChecks className="w-5 h-5" />
@@ -2921,7 +2961,7 @@ export default function ConversasPage() {
                 <div className="space-y-4">
                    <h3 className="text-lg font-medium text-pure-white">Novo Contato</h3>
                    <div className="space-y-2">
-                     <Label className="text-pure-white">NÃºmero do Contato (com DDI +55)</Label>
+                     <Label className="text-pure-white">Número do Contato (com DDI +55)</Label>
                      <Input id="newContactPhone" placeholder="Ex: 5531999999999" className="bg-secondary-black border-border-gray text-foreground" />
                    </div>
                    <div className="space-y-2">
@@ -2933,7 +2973,7 @@ export default function ConversasPage() {
                          const phoneInput = document.getElementById("newContactPhone") as HTMLInputElement
                          const nameInput = document.getElementById("newContactName") as HTMLInputElement
                          if (!phoneInput?.value || !nameInput?.value) {
-                            toast.error("Preencha nÃºmero e nome")
+                            toast.error("Preencha número e nome")
                             return
                          }
                          const digits = onlyDigits(phoneInput.value)
@@ -2983,7 +3023,7 @@ export default function ConversasPage() {
               ) : filtered.length === 0 ? (
                 <div className="p-6 text-center text-text-gray">
                   <MessageSquare className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                  <p>{query ? "Nenhuma conversa encontrada" : "Nenhuma conversa disponÃ­vel"}</p>
+                  <p>{query ? "Nenhuma conversa encontrada" : "Nenhuma conversa disponível"}</p>
                 </div>
               ) : (
               <div className="space-y-1 p-2">
@@ -3037,7 +3077,7 @@ export default function ConversasPage() {
                         </div>
                         {session.channel !== "instagram" && (
                           <p className="text-xs text-text-gray truncate mb-1">
-                            {highlightText(session.numero || "Sem nÃºmero", query)}
+                            {highlightText(session.numero || "Sem número", query)}
                           </p>
                         )}
                         {session.channel === "instagram" && (
@@ -3086,7 +3126,7 @@ export default function ConversasPage() {
                               }`}
                             >
                               <GraduationCap className="w-2.5 h-2.5 mr-0.5" />
-                              {session.isStudent ? "Aluno" : "NÃ£o aluno"}
+                              {session.isStudent ? "Aluno" : "Não aluno"}
                             </Badge>
                           )}
                         </div>
@@ -3122,7 +3162,7 @@ export default function ConversasPage() {
                             )}
                             disabled={busyEvents.has(`${session.session_id}:no_show`)}
                             onClick={() => submitQuickEvent(session, "no_show")}
-                            title="Registrar bolo / nÃ£o compareceu"
+                            title="Registrar bolo / não compareceu"
                           >
                             <UserMinus className="w-3.5 h-3.5 2xl:mr-1" /><span className="hidden 2xl:inline">Bolo</span>
                           </Button>
@@ -3169,9 +3209,9 @@ export default function ConversasPage() {
                             )}
                             disabled={busyEvents.has(`${session.session_id}:student:no`)}
                             onClick={() => submitStudentFlag(session, false)}
-                            title="Marcar como nÃ£o aluno"
+                            title="Marcar como não aluno"
                           >
-                            <UserMinus className="w-3.5 h-3.5 2xl:mr-1" /><span className="hidden 2xl:inline">NÃ£o aluno</span>
+                            <UserMinus className="w-3.5 h-3.5 2xl:mr-1" /><span className="hidden 2xl:inline">Não aluno</span>
                           </Button>
                         </div>
                       </div>
@@ -3235,7 +3275,7 @@ export default function ConversasPage() {
                            }`}
                          >
                            <GraduationCap className="w-2.5 h-2.5 mr-1" />
-                           {current.isStudent ? "Aluno" : "NÃ£o aluno"}
+                           {current.isStudent ? "Aluno" : "Não aluno"}
                          </Badge>
                        )}
                         <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0 hover:bg-secondary" onClick={() => {
@@ -3252,9 +3292,9 @@ export default function ConversasPage() {
                           ? inferInstagramHandle(current)
                             ? `@${inferInstagramHandle(current)}`
                             : `IG ${current.session_id.replace(/^ig_/, "")}`
-                          : current.numero || "Sem nÃºmero"}
+                          : current.numero || "Sem número"}
                       </span>
-                      <span className="shrink-0">â€¢</span>
+                      <span className="shrink-0">•</span>
                       <span className="shrink-0">
                         {current.isSummary ? "~" : ""}
                         {current.messages_count ?? current.messages.length} mensagens
@@ -3361,15 +3401,15 @@ export default function ConversasPage() {
                       onClick={handleClearLeadMemory}
                       disabled={clearingMemory}
                       className="shrink-0 text-xs bg-red-500/10 text-red-300 border-red-500/40 hover:bg-red-500/20 hover:text-red-100 transition-colors"
-                      title="Apagar memoria completa do lead no sistema"
+                      title="Apagar memria completa do lead no sistema"
                     >
                       {clearingMemory ? (
                         <Loader2 className="w-3 h-3 mr-1 animate-spin" />
                       ) : (
                         <Trash2 className="w-3 h-3 mr-1" />
                       )}
-                      <span className="min-[1800px]:hidden">{clearingMemory ? "..." : "Memoria"}</span>
-                      <span className="hidden min-[1800px]:inline">{clearingMemory ? "Apagando..." : "Apagar Memoria"}</span>
+                      <span className="min-[1800px]:hidden">{clearingMemory ? "..." : "Memória"}</span>
+                      <span className="hidden min-[1800px]:inline">{clearingMemory ? "Apagando..." : "Apagar Memória"}</span>
                     </Button>
                   )}
                 </div>
@@ -3379,12 +3419,12 @@ export default function ConversasPage() {
             <CardContent className="flex-1 min-h-0 overflow-hidden bg-background/50 p-0">
               <div ref={scrollAreaRef} className="h-full min-h-0 overflow-y-auto overscroll-contain touch-pan-y genial-scrollbar">
                 <div className="p-2.5 sm:p-5 space-y-2.5 sm:space-y-4">
-                  {/* Dados do FormulÃ¡rio */}
+                  {/* Dados do Formulário */}
                   {current.formData && (
                     <div className="bg-card rounded-2xl p-4 mb-4 border border-border shadow-sm">
                       <h4 className="text-sm font-semibold text-pure-white mb-3 flex items-center gap-2">
                         <User className="w-4 h-4 text-accent-green" />
-                        Dados do FormulÃ¡rio
+                        Dados do Formulário
                       </h4>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         {current.formData.nome && (
@@ -3403,7 +3443,7 @@ export default function ConversasPage() {
                           <div>
                             <div className="text-xs text-text-gray mb-1 flex items-center gap-1">
                               <Briefcase className="w-3 h-3" />
-                              ProfissÃ£o
+                              Profissão
                             </div>
                             <div className="text-sm text-pure-white">{current.formData.profissao.replace(/_/g, ' ')}</div>
                           </div>
@@ -3427,7 +3467,7 @@ export default function ConversasPage() {
                           <div>
                             <div className="text-xs text-text-gray mb-1 flex items-center gap-1">
                               <Clock3 className="w-3 h-3" />
-                              Tempo de DecisÃ£o
+                              Tempo de Decisão
                             </div>
                             <div className="text-sm text-pure-white">{current.formData.tempoDecisao.replace(/_/g, ' ')}</div>
                           </div>
@@ -3436,7 +3476,7 @@ export default function ConversasPage() {
                           <div>
                             <div className="text-xs text-text-gray mb-1">Comparecimento</div>
                             <Badge variant="outline" className={current.formData.comparecimento === 'sim' ? 'border-accent-green/30 text-accent-green' : 'border-border text-text-gray'}>
-                              {current.formData.comparecimento === 'sim' ? 'Sim' : 'NÃ£o'}
+                              {current.formData.comparecimento === 'sim' ? 'Sim' : 'Não'}
                             </Badge>
                           </div>
                         )}
@@ -3450,7 +3490,7 @@ export default function ConversasPage() {
                     phone={current.channel === "instagram" ? undefined : current.numero || current.session_id}
                     leadName={current.contact_name || "Lead"}
                     compact
-                    title="Historico interno do lead"
+                    title="Histrico interno do lead"
                     className="mb-4"
                   />
 
@@ -3515,11 +3555,11 @@ export default function ConversasPage() {
                             <div className="mb-3 rounded-xl border border-current/10 bg-background/35 p-2">
                               <div className="mb-2 flex items-center gap-2 text-xs font-semibold">
                                 <FileAudio className="h-4 w-4" />
-                                <span>Audio</span>
+                                <span>Áudio</span>
                               </div>
                               <audio controls preload="metadata" className="w-full max-w-full">
                                 <source src={audioSource} type={getMessageAudioMimeType(msg)} />
-                                Seu navegador nao conseguiu reproduzir este audio.
+                                Seu navegador não conseguiu reproduzir este áudio.
                               </audio>
                             </div>
                           )}
@@ -3584,15 +3624,15 @@ export default function ConversasPage() {
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
                       <FileAudio className="h-4 w-4 text-accent-green" />
-                      <span>Audio</span>
+                      <span>Áudio</span>
                       {pendingAudio && (
                         <span className="truncate text-[11px] font-normal text-text-gray">
-                          {pendingAudio.name} Â· {formatBytes(pendingAudio.size)}
+                          {pendingAudio.name} · {formatBytes(pendingAudio.size)}
                         </span>
                       )}
                     </div>
                     <p className="mt-0.5 text-[11px] text-text-gray">
-                      Grave, anexe, escute antes de enviar e depois acompanhe pelo historico.
+                      Grave, anexe, escute antes de enviar e depois acompanhe pelo histrico.
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -3625,7 +3665,7 @@ export default function ConversasPage() {
                           className="h-8 rounded-lg bg-accent-green px-3 text-xs text-primary-foreground hover:bg-dark-green"
                         >
                           {isSendingAudio ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Send className="mr-1.5 h-3.5 w-3.5" />}
-                          Enviar audio
+                          Enviar áudio
                         </Button>
                         <Button
                           type="button"
@@ -3645,7 +3685,7 @@ export default function ConversasPage() {
                   <div className="mt-2 rounded-lg border border-border bg-card p-2">
                     <audio controls preload="metadata" className="w-full">
                       <source src={pendingAudio.dataUrl} type={pendingAudio.mimeType} />
-                      Seu navegador nao conseguiu reproduzir este audio.
+                      Seu navegador não conseguiu reproduzir este áudio.
                     </audio>
                   </div>
                 )}
@@ -3682,7 +3722,7 @@ export default function ConversasPage() {
                     disabled={isGeneratingSuggestion || !current || (!messageInput.trim() && !lastSuggestedText)}
                     variant="outline"
                     className="h-10 w-full rounded-xl border-border text-foreground hover:bg-secondary sm:h-[52px]"
-                    title="Gerar outra versao da sugestao"
+                    title="Gerar outra versao da sugestão"
                   >
                     <RefreshCcw className="w-4 h-4" />
                   </Button>
@@ -3691,7 +3731,7 @@ export default function ConversasPage() {
                     disabled={!messageInput.trim()}
                     variant="outline"
                     className="h-10 w-full rounded-xl border-border text-foreground hover:bg-secondary sm:h-[52px]"
-                    title="Copiar sugestao"
+                    title="Copiar sugestão"
                   >
                     <Copy className="w-4 h-4" />
                   </Button>
@@ -3834,7 +3874,7 @@ export default function ConversasPage() {
                       ))}
                     </div>
                   ) : (
-                    <div className="text-xs text-text-gray">Este template nao exige parametros.</div>
+                    <div className="text-xs text-text-gray">Este template não exige parametros.</div>
                   )}
                   {bulkMetaHeaderMediaType && (
                     <div className="space-y-2">
@@ -4005,7 +4045,7 @@ export default function ConversasPage() {
       <Dialog open={detailLoadingSessionId !== null}>
         <DialogContent className="sm:max-w-md bg-secondary-black border border-border-gray text-foreground flex flex-col items-center justify-center py-10">
           <Loader2 className="h-10 w-10 text-accent-green animate-spin mb-4" />
-          <DialogTitle>Carregando histÃ³rico completo...</DialogTitle>
+          <DialogTitle>Carregando histórico completo...</DialogTitle>
           <DialogDescription className="text-text-gray">
             Isso pode demorar alguns segundos dependendo do tamanho da conversa.
           </DialogDescription>
@@ -4017,7 +4057,7 @@ export default function ConversasPage() {
           <DialogHeader>
             <DialogTitle>Editar Nome do Lead</DialogTitle>
             <DialogDescription className="text-text-gray">
-              Isso atualizarÃ¡ o nome exibido nesta conversa.
+              Isso atualizará o nome exibido nesta conversa.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
@@ -4052,7 +4092,7 @@ export default function ConversasPage() {
                   toast.error("Erro interno ao atualizar")
                 }
              }}>
-                Salvar AlteraÃ§Ãµes
+                Salvar Alterações
              </Button>
           </DialogFooter>
         </DialogContent>
@@ -4105,7 +4145,7 @@ export default function ConversasPage() {
                 />
                 <Input
                   type="number"
-                  placeholder="MÃªs"
+                  placeholder="Mês"
                   min={1}
                   max={12}
                   value={saleForm.month}
