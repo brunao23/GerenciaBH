@@ -910,27 +910,10 @@ function enforcePromptBaseDiscoveryBeforeScheduling(params: {
   qualification: QualificationState
 }): { responseText: string; blocked: boolean; reason?: string } {
   const responseText = String(params.responseText || "").trim()
-  if (!responseText) return { responseText, blocked: false }
-  const blockReason = resolvePromptBaseSchedulingToolBlockReason(
-    params.leadMessage,
-    params.conversationRows,
-  )
-  const reason = blockReason
-    ? blockReason.replace("_before_scheduling", "_response_mentions_schedule")
-        .replace("_step_not_ready", "_response_mentions_schedule")
-        .replace("_not_scheduling_intent", "_response_mentions_schedule")
-    : ""
-  if (!reason) {
-    return { responseText, blocked: false }
-  }
-  if (!responseMentionsAvailabilityOrSpecificSlots(responseText)) {
-    return { responseText, blocked: false }
-  }
-  return {
-    responseText: "",
-    blocked: true,
-    reason,
-  }
+  // Prompt Base/LangGraph decide the commercial flow. This layer must not
+  // silence schedule-related replies; concrete booking safety remains inside
+  // the scheduling tools (availability lookup + explicit confirmation).
+  return { responseText, blocked: false }
 }
 
 function stripCombinedQualificationSegments(value: string): string {
@@ -1832,42 +1815,41 @@ function buildLangGraphWhatsAppV2ToolPolicy(params: {
     .map((tool) => String(tool?.name || "").trim().toLowerCase())
     .filter(Boolean)
   const uniqueToolNames = Array.from(new Set(allToolNames))
-  const nonSchedulingTools = uniqueToolNames.filter((name) => !SCHEDULING_TOOL_TYPES.has(name as AgentActionPlan["type"]))
   const notes: string[] = []
 
-  const blockScheduling = (
+  const allowPromptBaseTools = (
     stage: LangGraphWhatsAppStage,
     intent: string,
-    reason: string,
+    reason?: string,
   ): LangGraphWhatsAppToolPolicy => {
-    notes.push(reason)
+    if (reason) notes.push(reason)
     return {
       stage,
       intent,
-      allowedToolNames: nonSchedulingTools,
-      blockedToolNames: uniqueToolNames.filter((name) => !nonSchedulingTools.includes(name)),
-      schedulingBlocked: true,
-      allowAvailabilityLookup: false,
-      allowSchedulingMutation: false,
+      allowedToolNames: uniqueToolNames,
+      blockedToolNames: [],
+      schedulingBlocked: false,
+      allowAvailabilityLookup: true,
+      allowSchedulingMutation: true,
       blockReason: reason,
       graphNotes: notes,
     }
   }
 
   if (params.promptBaseSchedulingToolBlockReason) {
-    return blockScheduling(
+    return allowPromptBaseTools(
       "promptbase_discovery",
-      "promptbase_flow_not_ready",
+      "promptbase_flow_observed",
       params.promptBaseSchedulingToolBlockReason,
     )
   }
 
   if (leadAskedCourseOrMethodInfoBeforeScheduling(leadMessage)) {
-    return blockScheduling("course_info", "course_or_method_question", "lead_asked_course_info_before_schedule")
+    return allowPromptBaseTools("course_info", "course_or_method_question", "lead_asked_course_info_before_schedule")
   }
 
   if (leadExplicitlyAskedValue(leadMessage) && !params.qualification.qualified) {
-    return blockScheduling("value_question", "value_question_before_qualification", "value_requires_promptbase_context_first")
+    return allowPromptBaseTools("value_question", "value_question_before_qualification", "value_requires_promptbase_context_first")
   }
 
   const explicitSchedulingMutation = leadExplicitlyConfirmsSchedulingMutation(leadMessage, params.conversationRows)
@@ -1905,12 +1887,12 @@ function buildLangGraphWhatsAppV2ToolPolicy(params: {
     return {
       stage: "pause_or_handoff",
       intent: "negative_or_pause_signal",
-      allowedToolNames: nonSchedulingTools,
-      blockedToolNames: uniqueToolNames.filter((name) => !nonSchedulingTools.includes(name)),
-      schedulingBlocked: true,
-      allowAvailabilityLookup: false,
-      allowSchedulingMutation: false,
-      blockReason: "negative_or_pause_signal_blocks_schedule_tools",
+      allowedToolNames: uniqueToolNames,
+      blockedToolNames: [],
+      schedulingBlocked: false,
+      allowAvailabilityLookup: true,
+      allowSchedulingMutation: true,
+      blockReason: "negative_or_pause_signal_observed",
       graphNotes: ["pause_or_handoff_path"],
     }
   }
@@ -1918,12 +1900,12 @@ function buildLangGraphWhatsAppV2ToolPolicy(params: {
   return {
     stage: "general",
     intent: "promptbase_general_response",
-    allowedToolNames: nonSchedulingTools,
-    blockedToolNames: uniqueToolNames.filter((name) => !nonSchedulingTools.includes(name)),
-    schedulingBlocked: true,
-    allowAvailabilityLookup: false,
-    allowSchedulingMutation: false,
-    blockReason: "default_promptbase_first_no_schedule_tools",
+    allowedToolNames: uniqueToolNames,
+    blockedToolNames: [],
+    schedulingBlocked: false,
+    allowAvailabilityLookup: true,
+    allowSchedulingMutation: true,
+    blockReason: "default_promptbase_tools_available",
     graphNotes: ["promptbase_first_default"],
   }
 }
@@ -1943,11 +1925,9 @@ function appendLangGraphV2PolicyToPrompt(systemPrompt: string, policy: LangGraph
     `Intencao detectada: ${policy.intent}.`,
     `Ferramentas permitidas neste turno: ${allowed}.`,
     `Ferramentas bloqueadas neste turno: ${blocked}.`,
-    policy.schedulingBlocked
-      ? "Nao chame ferramenta de agenda neste turno. Responda pelo Prompt Base e pelo contexto da conversa."
-      : policy.allowSchedulingMutation
-        ? "Voce pode executar mutacao de agenda somente se o lead confirmou claramente data/horario/modalidade conforme o contexto."
-        : "Voce pode consultar disponibilidade, mas nao pode confirmar/agendar/remarcar/cancelar sem confirmacao clara do lead.",
+    policy.allowSchedulingMutation
+      ? "Ferramentas de agenda estao disponiveis quando o Prompt Base/contexto pedir. Consulte horarios sempre que oferecer disponibilidade. Mutacao de agenda so pode ser executada se o lead confirmou claramente data/horario/modalidade conforme o contexto."
+      : "Voce pode consultar disponibilidade, mas nao pode confirmar/agendar/remarcar/cancelar sem confirmacao clara do lead.",
     policy.stage === "schedule_availability"
       ? "Nesta etapa use get_available_slots quando precisar validar dia/horario. NUNCA use handoff_human por erro, duvida ou bloqueio de agenda; resolva com ferramenta de agenda ou responda pedindo confirmacao."
       : "",
@@ -5104,26 +5084,7 @@ export class NativeAgentOrchestratorService {
     const effectiveLeadMessage = isFromMeTrigger ? lastLeadMessageFromHistory : content
     const learningUserMessage = effectiveLeadMessage || (isFromMeTrigger ? "[internal_fromme_trigger]" : content)
     const qualificationState = resolveQualificationState(conversationRows, effectiveLeadMessage || content)
-    const promptBaseSchedulingToolBlockReason = resolvePromptBaseSchedulingToolBlockReason(
-      effectiveLeadMessage || content,
-      conversationRows,
-    )
-    const blockSchedulingToolForPromptBase = (): Promise<GeminiToolHandlerResult> =>
-      Promise.resolve({
-        ok: false,
-        action: { type: "none" as AgentActionPlan["type"] },
-        response: {
-          ok: false,
-          error: promptBaseSchedulingToolBlockReason || "prompt_base_flow_not_ready",
-          guidance: promptBaseSchedulingToolBlockReason === "prompt_base_course_info_before_scheduling"
-            ? "The latest lead message asks about the course, methodology, classes or diagnosis. Do not use scheduling tools; answer the question by following the tenant Prompt Base and continue the current funnel step."
-            : promptBaseSchedulingToolBlockReason === "prompt_base_generic_reply_not_scheduling_intent" ||
-                promptBaseSchedulingToolBlockReason === "prompt_base_weak_contextual_reply_not_scheduling_intent"
-              ? "The latest lead message is only a greeting or short generic reply. Do not use scheduling tools; answer naturally and continue the prompt base funnel/discovery step."
-              : "Continue the prompt base discovery/qualification step before using scheduling tools.",
-        },
-        error: promptBaseSchedulingToolBlockReason || "prompt_base_flow_not_ready",
-      } satisfies GeminiToolHandlerResult)
+    const promptBaseSchedulingToolBlockReason = ""
     const assistantMessagesCount = conversationRows.filter((turn) => turn.role === "assistant").length
     const userMessagesCount = conversationRows.filter((turn) => turn.role === "user").length
 
@@ -5387,10 +5348,6 @@ export class NativeAgentOrchestratorService {
     }
 
     const onToolCallForDecision = (toolCall: GeminiToolCall) => {
-      const toolName = String(toolCall?.name || "").trim().toLowerCase()
-      if (promptBaseSchedulingToolBlockReason && SCHEDULING_TOOL_TYPES.has(toolName)) {
-        return blockSchedulingToolForPromptBase()
-      }
       return this.executeToolCall({
         toolCall,
         tenant,
@@ -5521,10 +5478,6 @@ export class NativeAgentOrchestratorService {
                 sampling: llmSampling,
                 functionDeclarations,
                 onToolCall: (toolCall) => {
-                  const toolName = String(toolCall?.name || "").trim().toLowerCase()
-                  if (promptBaseSchedulingToolBlockReason && SCHEDULING_TOOL_TYPES.has(toolName)) {
-                    return blockSchedulingToolForPromptBase()
-                  }
                   return this.executeToolCall({
                     toolCall,
                     tenant,
@@ -5735,10 +5688,6 @@ export class NativeAgentOrchestratorService {
             maxSteps: 2,
             functionDeclarations,
             onToolCall: (toolCall) => {
-              const toolName = String(toolCall?.name || "").trim().toLowerCase()
-              if (promptBaseSchedulingToolBlockReason && SCHEDULING_TOOL_TYPES.has(toolName)) {
-                return blockSchedulingToolForPromptBase()
-              }
               return this.executeToolCall({
                 toolCall,
                 tenant,
@@ -6651,8 +6600,10 @@ export class NativeAgentOrchestratorService {
       }
     }
 
-    responseText = repairBrokenUrlSpacing(
-      stripUnsafeLeadNameVocatives(responseText, resolvedContactName),
+    responseText = repairMojibakeDeep(
+      repairBrokenUrlSpacing(
+        stripUnsafeLeadNameVocatives(responseText, resolvedContactName),
+      ),
     )
 
     const supersededBeforeSend = await chat.hasNewerUserMessage({
@@ -7479,10 +7430,6 @@ export class NativeAgentOrchestratorService {
       return null
     }
 
-    const promptBaseSchedulingBlockReason = resolvePromptBaseSchedulingToolBlockReason(
-      leadMessage,
-      params.conversationRows,
-    )
     const needsLookup =
       detectsAvailabilityLookupIntent(leadMessage) ||
       responseMentionsAvailabilityOrSpecificSlots(responseText)
@@ -7499,16 +7446,6 @@ export class NativeAgentOrchestratorService {
       !claimsConfirmed &&
       leadConfirmedSchedulingMutation &&
       responseRequestsSchedulingEmail(responseText)
-    ) {
-      return null
-    }
-
-    if (
-      !claimsConfirmed &&
-      needsLookup &&
-      Boolean(promptBaseSchedulingBlockReason) &&
-      (promptBaseSchedulingBlockReason === "prompt_base_course_info_before_scheduling" ||
-        !leadExplicitlyRequestsScheduling(leadMessage))
     ) {
       return null
     }
@@ -10083,29 +10020,6 @@ export class NativeAgentOrchestratorService {
   }): Promise<GeminiToolHandlerResult> {
     const name = String(params.toolCall.name || "").trim().toLowerCase()
     const args = params.toolCall.args || {}
-
-    if (SCHEDULING_TOOL_TYPES.has(name as AgentActionPlan["type"])) {
-      const recentRows = await params.chat
-        .loadConversation(params.sessionId, 16)
-        .catch(() => [] as Array<{ role: "user" | "assistant" | "system"; content: string }>)
-      const blockReason = resolvePromptBaseSchedulingToolBlockReason(
-        String(params.leadMessageContext || ""),
-        recentRows,
-      )
-      if (blockReason) {
-        return {
-          ok: false,
-          action: { type: "none" },
-          error: blockReason,
-          response: {
-            ok: false,
-            error: blockReason,
-            instruction:
-              "Nao use ferramentas de agenda neste turno. A ultima mensagem do lead ainda pertence ao Prompt Base ou nao confirmou agenda; responda com contexto e continue o fluxo do tenant.",
-          },
-        }
-      }
-    }
 
     if (name === "get_current_datetime") {
       const timezone = String(args.timezone || params.config.timezone || "America/Sao_Paulo").trim()

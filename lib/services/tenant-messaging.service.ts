@@ -203,7 +203,7 @@ export function repairKnownPortugueseMojibakeArtifacts(value: string): string {
   let text = String(value || "")
   if (!text) return ""
 
-  const brokenAccent = "(?:[\\u00D2\\uFFFD]{1,4}[\\u00A3\\u00AA\\u00BA]?|[\\u00D2\\uFFFD\\u00A3\\u00AA\\u00BA]{1,5})"
+  const brokenAccent = "(?:[\\u00D2\\uFFFD?]{1,6}[\\u00A3\\u00AA\\u00BA?]?|[\\u00D2\\uFFFD\\u00A3\\u00AA\\u00BA?]{1,8})"
   const replacements: Array<[RegExp, string]> = [
     [new RegExp(`hor${brokenAccent}i?rios`, "gi"), "hor\u00E1rios"],
     [new RegExp(`hor${brokenAccent}i?rio`, "gi"), "hor\u00E1rio"],
@@ -235,8 +235,9 @@ export function repairKnownPortugueseMojibakeArtifacts(value: string): string {
 }
 
 export function sanitizeOutgoingMessageText(value: string): string {
+  const hadTerminalQuestion = /[?？]\s*$/.test(String(value || ""))
   const repaired = repairKnownPortugueseMojibakeArtifacts(tryRepairMojibake(value))
-  return String(repaired || "")
+  const cleaned = String(repaired || "")
     .replace(/\\r\\n/g, "\n")
     .replace(/\\n/g, "\n")
     .replace(/\\t/g, " ")
@@ -244,6 +245,7 @@ export function sanitizeOutgoingMessageText(value: string): string {
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim()
+  return hadTerminalQuestion && cleaned && !/[?!.]$/.test(cleaned) ? `${cleaned}?` : cleaned
 }
 
 type InstagramTarget =
@@ -947,7 +949,9 @@ export class TenantMessagingService {
         await this.persistOutgoingMessage({
           tenant,
           sessionId: input.sessionId || phone,
-          message: `[localização] ${input.name || ""} ${input.address || ""}`.trim(),
+          message: sanitizeOutgoingMessageText(
+            `Localização enviada: ${input.name || "unidade"}${input.address ? ` - ${input.address}` : ""}`,
+          ),
           messageId,
           source: input.source || "native-agent",
           additional: {
