@@ -25,11 +25,15 @@ export async function GET(req: Request) {
     const url = new URL(req.url)
     const dryRun = url.searchParams.get("dryRun") === "1"
     const force = url.searchParams.get("force") === "1"
+    const forceQueue = url.searchParams.get("forceQueue") === "1" || url.searchParams.get("forceQueue") === "true"
     const limitRaw = Number(url.searchParams.get("limit") || "100")
     const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(200, Math.floor(limitRaw))) : 100
 
     const result = await scheduleRemindersForAllTenants({ dryRun, force })
-    const queue = dryRun ? null : await new AgentTaskQueueService().processDueTasks(limit)
+    const queue =
+      !dryRun && forceQueue
+        ? await new AgentTaskQueueService().processDueTasks(limit)
+        : null
 
     const totalScheduled = result.results.reduce((sum, r) => sum + r.scheduled, 0)
     const totalScanned = result.results.reduce((sum, r) => sum + r.scanned, 0)
@@ -42,6 +46,7 @@ export async function GET(req: Request) {
       success: true,
       dryRun,
       force,
+      forceQueue,
       tenants: result.total,
       totalScanned,
       totalScheduled,
