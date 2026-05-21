@@ -13005,9 +13005,80 @@ export class NativeAgentOrchestratorService {
         .filter(Boolean)
         .join(":")
 
+      const sendPostScheduleNow = async (): Promise<boolean> => {
+        const source = "native-agent-post-schedule"
+        const mediaUrl = String(params.config.postScheduleMediaUrl || "").trim()
+        const common = {
+          tenant: params.tenant,
+          phone: params.phone,
+          sessionId: params.sessionId,
+          source,
+          zapiDelayMessageSeconds: params.config.zapiDelayMessageSeconds,
+          zapiDelayTypingSeconds: params.config.zapiDelayTypingSeconds,
+        }
+
+        if (mode === "text") {
+          const sent = await this.messaging.sendText({
+            ...common,
+            message: messageText,
+            additional: {
+              post_schedule_key: postScheduleKey,
+              appointment_id: params.appointmentData?.appointmentId || null,
+              appointment_date: params.appointmentData?.date || null,
+              appointment_time: params.appointmentData?.time || null,
+            },
+          })
+          return sent.success === true
+        }
+
+        if (!mediaUrl) return false
+
+        if (mode === "image") {
+          const sent = await this.messaging.sendImage({
+            ...common,
+            mediaUrl,
+            caption: captionText,
+            historyContent: captionText || "[imagem pos-agendamento]",
+          })
+          return sent.success === true
+        }
+
+        if (mode === "video") {
+          const sent = await this.messaging.sendVideo({
+            ...common,
+            mediaUrl,
+            caption: captionText,
+            historyContent: captionText || "[video pos-agendamento]",
+          })
+          return sent.success === true
+        }
+
+        if (mode === "document") {
+          const sent = await this.messaging.sendDocument({
+            ...common,
+            mediaUrl,
+            caption: captionText,
+            fileName: String(params.config.postScheduleDocumentFileName || "").trim() || undefined,
+            historyContent: captionText || `[documento pos-agendamento] ${mediaUrl}`,
+          })
+          return sent.success === true
+        }
+
+        return false
+      }
+
       postScheduleTasks.push(
-        this.taskQueue
-          .enqueueReminder({
+        (async () => {
+          const shouldSendImmediately = delayMinutes <= 2
+          if (shouldSendImmediately) {
+            const sentNow = await sendPostScheduleNow().catch((error) => {
+              console.warn("[native-agent] immediate post-schedule message failed:", error)
+              return false
+            })
+            if (sentNow) return
+          }
+
+          const result = await this.taskQueue.enqueueReminder({
             tenant: params.tenant,
             sessionId: params.sessionId,
             phone: params.phone,
@@ -13027,11 +13098,10 @@ export class NativeAgentOrchestratorService {
               appointment_mode: params.appointmentData?.mode,
             },
           })
-          .then((result) => {
-            if (!result.ok) {
-              console.warn("[native-agent] failed to enqueue post-schedule message:", result.error)
-            }
-          })
+          if (!result.ok) {
+            console.warn("[native-agent] failed to enqueue post-schedule message:", result.error)
+          }
+        })()
           .catch((err) => {
             console.warn("[native-agent] failed to enqueue post-schedule message:", err)
           }),

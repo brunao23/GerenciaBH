@@ -31,8 +31,8 @@ export async function GET(req: Request) {
 
     const result = await scheduleRemindersForAllTenants({ dryRun, force })
     const queue =
-      !dryRun && forceQueue
-        ? await new AgentTaskQueueService().processDueTasks(limit)
+      !dryRun
+        ? await new AgentTaskQueueService().processDueTasks(forceQueue ? limit : Math.min(limit, 50))
         : null
 
     const totalScheduled = result.results.reduce((sum, r) => sum + r.scheduled, 0)

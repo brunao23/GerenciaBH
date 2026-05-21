@@ -176,6 +176,26 @@ function toTaskMessageMode(value: any, fallback: TaskMessageMode): TaskMessageMo
   return fallback
 }
 
+function normalizePauseReasonForQueue(value: any): string {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+}
+
+function canAppointmentAutomationBypassPause(pauseState: LeadPauseState): boolean {
+  if (!pauseState.paused) return true
+  if (!pauseState.isManual) return true
+
+  const reason = normalizePauseReasonForQueue(pauseState.pauseReason)
+
+  // Pausa manual segue soberana. A excecao existe apenas para pausas tecnicas
+  // antigas gravadas como auto-pos-agendamento sem o marcador manual correto.
+  return reason === "scheduled_auto_pause"
+}
+
 function isMissingTableError(error: any): boolean {
   const message = String(error?.message || "").toLowerCase()
   const code = String(error?.code || "")
@@ -3489,16 +3509,58 @@ export class AgentTaskQueueService {
 
       // post_schedule tasks fluem normalmente para dispatchTaskMessage
 
-      const dispatchTaskTypeForPauseGuard = isPostScheduleReminder ? "post_schedule" : taskType
-      const outboundPauseBlock = await this.messaging.checkAutomatedOutboundPauseBlock({
-        tenant,
-        phone,
-        sessionId,
-        source: this.resolveTaskDispatchSource(dispatchTaskTypeForPauseGuard),
-      })
-      if (outboundPauseBlock) {
+      if (!isOfficialReminder && !isPostScheduleReminder) {
+        const outboundPauseBlock = await this.messaging.checkAutomatedOutboundPauseBlock({
+          tenant,
+          phone,
+          sessionId,
+          source: this.resolveTaskDispatchSource(taskType),
+        })
+        if (outboundPauseBlock) {
+          result.skipped += 1
+          const reason = `${notificationTaskType}_cancelled_paused_before_generation`
+          await this.supabase
+            .from(this.table)
+            .update({
+              status: "cancelled",
+              attempts: Number(task.attempts || 0) + 1,
+              last_error: reason,
+            })
+            .eq("id", task.id)
+
+          if (taskType === "followup") {
+            await this.cancelPendingFollowups({ tenant, sessionId, phone }).catch(() => {})
+          }
+
+          await this.notifyTouchpoint({
+            tenant,
+            sessionId,
+            phone,
+            runtimeConfig,
+            kind: "cancelled",
+            taskType: notificationTaskType,
+            reason,
+            step: Number(payload?.followup_step || 0) || undefined,
+            totalSteps: Number(payload?.followup_total_steps || 0) || undefined,
+            taskId: String(task.id || ""),
+          })
+          continue
+        }
+      }
+
+      const [pauseState, terminal] = await Promise.all([
+        this.getLeadPauseStateForQueue(tenant, phone),
+        this.isLeadTerminal(tenant, sessionId, phone),
+      ])
+      const paused = pauseState.paused
+      const isAppointmentAutomation = isOfficialReminder || isPostScheduleReminder
+      const appointmentAutomationHasActiveAppointment = isAppointmentAutomation
+        ? await this.hasActiveScheduledAppointment({ tenant, sessionId, phone })
+        : false
+
+      if (isPostScheduleReminder && !appointmentAutomationHasActiveAppointment) {
         result.skipped += 1
-        const reason = `${notificationTaskType}_cancelled_paused_before_generation`
+        const reason = "post_schedule_cancelled_no_active_appointment"
         await this.supabase
           .from(this.table)
           .update({
@@ -3507,10 +3569,6 @@ export class AgentTaskQueueService {
             last_error: reason,
           })
           .eq("id", task.id)
-
-        if (taskType === "followup") {
-          await this.cancelPendingFollowups({ tenant, sessionId, phone }).catch(() => {})
-        }
 
         await this.notifyTouchpoint({
           tenant,
@@ -3527,18 +3585,13 @@ export class AgentTaskQueueService {
         continue
       }
 
-      const [pauseState, terminal] = await Promise.all([
-        this.getLeadPauseStateForQueue(tenant, phone),
-        this.isLeadTerminal(tenant, sessionId, phone),
-      ])
-      const paused = pauseState.paused
-
       // REGRA ABSOLUTA DE PAUSA:
-      // Leads pausados NÃƒO recebem NENHUMA interaÃ§Ã£o da IA, exceto:
-      //   1. isOfficialReminder  Ã¢â€ â€™ lembretes de pÃ³s-agendamento (3days, 1day, 4hours)
-      //   2. isPostScheduleReminder Ã¢â€ â€™ mensagem automÃ¡tica de pÃ³s-agendamento
-      // Qualquer outro tipo (followup, disparo, reengagement, welcome, etc.) Ã© BLOQUEADO.
-      const isExemptFromPause = (isOfficialReminder || isPostScheduleReminder) && !pauseState.isManual
+      // Leads pausados nao recebem IA/follow-up/disparo. Somente automacoes oficiais
+      // de um agendamento ativo passam quando a pausa nao foi manual.
+      const isExemptFromPause =
+        isAppointmentAutomation &&
+        appointmentAutomationHasActiveAppointment &&
+        canAppointmentAutomationBypassPause(pauseState)
       const shouldCancelAsPaused = paused && !isExemptFromPause
       const shouldCancelAsTerminal = terminal && !isExemptFromPause
 
