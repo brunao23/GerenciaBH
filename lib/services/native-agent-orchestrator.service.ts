@@ -1638,8 +1638,8 @@ function extractSchedulingTimeCandidate(rawMessage: string): string | undefined 
 
   const normalized = normalizeComparableMessage(raw)
   const normalizedExplicit =
-    normalized.match(/\b(?:as|a)\s*([01]?\d|2[0-3])(?:\s*(?:h|:)\s*([0-5]\d))?\b/) ||
-    normalized.match(/\b([01]?\d|2[0-3])\s*(?:h|hora|horas)\b/)
+    normalized.match(/\b(?:as|a)\s*([01]?\d|2[0-3])(?:\s*(?:h|hs|:)\s*([0-5]\d)?)?\b/) ||
+    normalized.match(/\b([01]?\d|2[0-3])\s*(?:h|hs|hora|horas)\b/)
   if (normalizedExplicit && normalized.length <= 140) {
     const hour = Number(normalizedExplicit[1])
     const minute = normalizedExplicit[2] !== undefined ? Number(normalizedExplicit[2]) : 0
@@ -1677,7 +1677,7 @@ function extractSchedulingTimeCandidates(rawMessage: string): string[] {
   }
 
   const normalized = normalizeComparableMessage(raw)
-  for (const match of normalized.matchAll(/\b([01]?\d|2[0-3])\s*(?:h|hora|horas)\b/g)) {
+  for (const match of normalized.matchAll(/\b([01]?\d|2[0-3])\s*(?:h|hs|hora|horas)\b/g)) {
     addCandidate(match[1], 0)
   }
 
@@ -1727,7 +1727,16 @@ function responseMentionsAvailabilityOrSpecificSlots(responseText: string): bool
 function responseClaimsAppointmentConfirmed(responseText: string): boolean {
   const text = normalizeComparableMessage(responseText)
   if (!text) return false
-  return /\b(agendado|agendamento confirmado|agendamento realizado|confirmado|reservado|formalizado|te espero|diagnostico com)\b/.test(text)
+  if (responseRequestsSchedulingEmail(responseText)) return false
+  if (
+    /\b(qual|me\s+passa|me\s+envia|informa|me\s+informe|preciso|para\s+eu|pra\s+eu)\b.{0,120}\b(email|e-mail)\b/.test(
+      text,
+    )
+  ) {
+    return false
+  }
+
+  return /\b(agendamento\s+(?:confirmado|realizado|feito)|ficou\s+(?:agendado|marcado|reservado|formalizado)|esta\s+(?:agendado|marcado|reservado|formalizado)|diagnostico\s+(?:agendado|confirmado|marcado)|te\s+espero)\b/.test(text)
 }
 
 function shouldBypassSemanticCacheForScheduling(leadMessage: string, responseText?: string): boolean {

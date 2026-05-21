@@ -62,6 +62,7 @@ const REASON_LABELS: Record<string, string> = {
   forced_get_available_slots_tool: "o sistema for\u00e7ou consulta de hor\u00e1rios para proteger a precis\u00e3o da agenda",
   forced_schedule_appointment_tool: "o sistema tentou confirmar agendamento com ferramenta, mas ainda precisa respeitar as travas de confirma\u00e7\u00e3o",
   schedule_requires_explicit_lead_confirmation: "agendamento bloqueado porque o lead ainda n\u00e3o confirmou data e hor\u00e1rio com clareza",
+  schedule_confirmation_without_tool_blocked: "confirma\u00e7\u00e3o de agenda bloqueada porque n\u00e3o houve grava\u00e7\u00e3o confirmada na agenda",
   prompt_base_weak_contextual_reply_not_scheduling_intent: "a mensagem do lead n\u00e3o tinha inten\u00e7\u00e3o clara de agenda",
   prompt_base_discovery_step_not_ready: "o atendimento ainda estava na etapa de qualifica\u00e7\u00e3o do prompt base",
   default_promptbase_first_no_schedule_tools: "o prompt base deve responder antes de usar ferramentas de agenda",
@@ -278,6 +279,19 @@ function describeEvent(input: DiscordSystemLogInput, event: string, severity: Di
         impact: "Protege a agenda contra marca\u00e7\u00f5es indevidas.",
         action: "A IA deve pedir confirma\u00e7\u00e3o clara antes de chamar a ferramenta de agendamento.",
         context: `Motivo: ${reason}`,
+      }
+    case "schedule_confirmation_blocked_without_tool":
+      return {
+        title: "Agenda: confirma\u00e7\u00e3o sem ferramenta bloqueada",
+        eventLabel: "Confirma\u00e7\u00e3o de agenda sem ferramenta",
+        summary: "A IA escreveu como se o agendamento estivesse confirmado, mas n\u00e3o havia execu\u00e7\u00e3o bem-sucedida de criar ou reagendar compromisso.",
+        impact: "Evita que o lead receba confirma\u00e7\u00e3o de hor\u00e1rio que n\u00e3o foi gravado na agenda.",
+        action: "Se a mensagem bloqueada apenas pedia e-mail, confirma\u00e7\u00e3o ou dados para formalizar, revisar o detector de confirma\u00e7\u00e3o.",
+        context: [
+          leadPreview !== "n/a" ? `Mensagem do lead: ${leadPreview}` : "",
+          originalReply !== "n/a" ? `Resposta bloqueada: ${originalReply}` : "",
+          `Motivo: ${reason}`,
+        ].filter(Boolean).join("\n"),
       }
     case "prompt_base_discovery_schedule_blocked":
       return {
