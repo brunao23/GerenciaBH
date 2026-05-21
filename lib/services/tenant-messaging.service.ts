@@ -286,6 +286,17 @@ export class TenantMessagingService {
     )
   }
 
+  private isScheduledAutoPauseReason(reason?: string | null): boolean {
+    const normalized = String(reason || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+
+    return normalized === "scheduled_auto_pause"
+  }
+
   private shouldSkipPauseGateForRecipient(rawTarget: string): boolean {
     const target = String(rawTarget || "").trim().toLowerCase()
     if (!target) return true
@@ -417,7 +428,12 @@ export class TenantMessagingService {
     })
 
     if (!pauseState.paused) return null
-    if (this.isPauseExemptAutomationSource(input.source) && !pauseState.isManual) return null
+    if (
+      this.isPauseExemptAutomationSource(input.source) &&
+      (!pauseState.isManual || this.isScheduledAutoPauseReason(pauseState.pauseReason))
+    ) {
+      return null
+    }
 
     console.warn(
       `[TenantMessaging][PauseGuard] Envio automatizado bloqueado por pausa ativa: tenant=${input.tenant} phone=${lookupPhone} source=${input.source || "unknown"} reason=${pauseState.pauseReason || "paused"}`,

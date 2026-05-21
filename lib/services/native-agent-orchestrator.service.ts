@@ -13032,7 +13032,14 @@ export class NativeAgentOrchestratorService {
       )
     }
 
-    if (params.config.postScheduleAutomationEnabled) {
+    const configuredPostScheduleMode = params.config.postScheduleMessageMode || "text"
+    const configuredPostScheduleMediaUrl = String(params.config.postScheduleMediaUrl || "").trim()
+    const hasConfiguredPostScheduleMedia =
+      configuredPostScheduleMode !== "text" && Boolean(configuredPostScheduleMediaUrl)
+    const shouldRunPostScheduleAutomation =
+      params.config.postScheduleAutomationEnabled || hasConfiguredPostScheduleMedia
+
+    if (shouldRunPostScheduleAutomation) {
       const delayMinutes = Math.max(0, Number(params.config.postScheduleDelayMinutes ?? 2))
       const runAt = new Date(Date.now() + delayMinutes * 60 * 1000).toISOString()
       const messageText = this.buildPostScheduleMessageTemplate(
@@ -13045,7 +13052,7 @@ export class NativeAgentOrchestratorService {
         params.contactName,
         params.appointmentData,
       )
-      const mode = params.config.postScheduleMessageMode || "text"
+      const mode = configuredPostScheduleMode
       const postScheduleKey = [
         "post_schedule",
         params.tenant,
@@ -13059,7 +13066,7 @@ export class NativeAgentOrchestratorService {
 
       const sendPostScheduleNow = async (): Promise<boolean> => {
         const source = "native-agent-post-schedule"
-        const mediaUrl = String(params.config.postScheduleMediaUrl || "").trim()
+        const mediaUrl = configuredPostScheduleMediaUrl
         const common = {
           tenant: params.tenant,
           phone: params.phone,
@@ -13141,7 +13148,7 @@ export class NativeAgentOrchestratorService {
               source: "native_agent_post_schedule",
               post_schedule_key: postScheduleKey,
               message_mode: mode,
-              media_url: String(params.config.postScheduleMediaUrl || "").trim(),
+              media_url: configuredPostScheduleMediaUrl,
               caption: captionText,
               file_name: String(params.config.postScheduleDocumentFileName || "").trim(),
               appointment_id: params.appointmentData?.appointmentId,
