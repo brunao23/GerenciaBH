@@ -292,6 +292,66 @@ function describeEvent(input: DiscordSystemLogInput, event: string, severity: Di
           `Motivo: ${reason}`,
         ].filter(Boolean).join("\n"),
       }
+    case "prompt_base_fixed_reply_suppressed":
+      return {
+        title: "Prompt base: resposta bloqueada pela vigil\u00e2ncia",
+        eventLabel: "Resposta do prompt base suprimida",
+        summary: "A camada de vigil\u00e2ncia entendeu que a resposta poderia estar fixa, cortada ou repetindo pergunta j\u00e1 respondida e bloqueou o envio.",
+        impact: "Pode proteger contra loop, mas se a resposta bloqueada estava contextual, a trava ficou agressiva demais.",
+        action: "Conferir a conversa. Se a resposta bloqueada fazia sentido para o lead, ajustar a sensibilidade para o prompt base prevalecer.",
+        context: [
+          leadPreview !== "n/a" ? `Mensagem do lead: ${leadPreview}` : "",
+          originalReply !== "n/a" ? `Resposta bloqueada: ${originalReply}` : "",
+        ].filter(Boolean).join("\n") || `Motivo: ${reason}`,
+      }
+    case "prompt_base_minimal_repair_applied":
+      return {
+        title: "Prompt base: resposta reparada antes do envio",
+        eventLabel: "Reparo m\u00ednimo aplicado",
+        summary: "A vigil\u00e2ncia detectou risco de texto fixo ou repetitivo e o pr\u00f3prio prompt base gerou uma resposta substituta antes do envio.",
+        impact: "Atendimento seguiu sem travar o lead.",
+        action: "Acompanhar apenas se o mesmo lead/tenant repetir esse evento muitas vezes.",
+        context: [
+          leadPreview !== "n/a" ? `Mensagem do lead: ${leadPreview}` : "",
+          originalReply !== "n/a" ? `Resposta original: ${originalReply}` : "",
+        ].filter(Boolean).join("\n") || `Motivo: ${reason}`,
+      }
+    case "prompt_base_minimal_repair_failed":
+      return {
+        title: "Prompt base: reparo m\u00ednimo falhou",
+        eventLabel: "Falha no reparo do prompt base",
+        summary: "A resposta precisava ser reparada, mas o modelo n\u00e3o retornou uma substitui\u00e7\u00e3o segura naquele momento.",
+        impact: "Pode deixar o atendimento sem resposta se a mensagem original tamb\u00e9m for bloqueada.",
+        action: "Verificar modelo, prompt base e conversa do lead.",
+        context: leadPreview !== "n/a" ? `Mensagem do lead: ${leadPreview}` : `Motivo: ${reason}`,
+      }
+    case "prompt_base_final_send_guard_repaired":
+      return {
+        title: "Prompt base: envio final corrigido",
+        eventLabel: "Reparo final antes do WhatsApp",
+        summary: "Antes do envio, o sistema detectou risco na resposta e conseguiu reescrever com o prompt base.",
+        impact: "Prote\u00e7\u00e3o aplicada sem interromper o atendimento.",
+        action: "Monitorar recorr\u00eancia. Se repetir muito, revisar a origem da resposta inicial.",
+        context: originalReply !== "n/a" ? `Resposta original: ${originalReply}` : `Motivo: ${reason}`,
+      }
+    case "prompt_base_final_send_guard_suppressed":
+      return {
+        title: "Prompt base: envio final bloqueado",
+        eventLabel: "Bloqueio final antes do WhatsApp",
+        summary: "A resposta final ainda parecia fixa, cortada, interna ou repetitiva, e o sistema bloqueou o envio para proteger o lead.",
+        impact: "O lead pode ficar sem resposta se n\u00e3o houver nova mensagem ou atendimento humano.",
+        action: "Investigar a conversa e o prompt base do tenant. Esse evento n\u00e3o deve ser recorrente.",
+        context: originalReply !== "n/a" ? `Resposta bloqueada: ${originalReply}` : `Motivo: ${reason}`,
+      }
+    case "prompt_base_final_send_guard_repair_failed":
+      return {
+        title: "Prompt base: reparo final falhou",
+        eventLabel: "Falha na prote\u00e7\u00e3o final",
+        summary: "O sistema tentou corrigir uma resposta de risco antes do envio, mas o reparo final falhou.",
+        impact: "Pode bloquear a resposta ou deixar o atendimento sem continuidade.",
+        action: "Verificar erro do modelo e conversa do lead.",
+        context: originalReply !== "n/a" ? `Resposta original: ${originalReply}` : `Motivo: ${reason}`,
+      }
     case "tool_none_error":
       return {
         title: "Ferramenta ignorada pelo sistema",

@@ -556,14 +556,49 @@ function buildQualificationQuestion(
 }
 
 function responseAsksAreaAndPainTogether(value: string): boolean {
+  return getQuestionLikeClauses(value).some(
+    (clause) => questionClauseAsksArea(clause) && questionClauseAsksPain(clause),
+  )
+}
+
+function getQuestionLikeClauses(value: string): string[] {
+  const raw = String(value || "").replace(/\s+/g, " ").trim()
+  if (!raw) return []
+
+  const clauses: string[] = []
+  const questionParts = raw.split("?")
+  for (let index = 0; index < questionParts.length - 1; index += 1) {
+    const beforeQuestion = questionParts[index] || ""
+    const clause = beforeQuestion.split(/[\n.!;:]+/).pop() || beforeQuestion
+    if (clause.trim()) clauses.push(clause.trim())
+  }
+
+  for (const segment of raw.split(/(?<=[.!?])\s+|\n+/)) {
+    const normalized = normalizeComparableMessage(segment)
+    if (/\b(me conta|me fale|me diz|qual|quais|conte um pouco|fala um pouco)\b/.test(normalized)) {
+      clauses.push(segment.trim())
+    }
+  }
+
+  return Array.from(new Set(clauses.map((clause) => clause.trim()).filter(Boolean)))
+}
+
+function questionClauseAsksArea(value: string): boolean {
   const text = normalizeComparableMessage(value)
   if (!text) return false
-  const asksArea =
-    /\b(area de atuacao|sua area|minha area|profissao|atuacao)\b/.test(text) ||
-    /\bqual e a sua area\b/.test(text)
-  const asksPain =
-    /\b(principal desafio|qual desafio|desafio de comunicacao|quer resolver com a comunicacao|quer resolver)\b/.test(text)
-  return asksArea && asksPain
+  return (
+    /\b(area de atuacao|sua area de atuacao|qual e sua area|qual sua area|qual e a sua area|profissao|em que voce trabalha|com o que voce trabalha)\b/.test(text) ||
+    /\b(me conta|me fale|me diz|qual|quais)\b.*\b(area|profissao|atuacao|trabalho)\b/.test(text)
+  )
+}
+
+function questionClauseAsksPain(value: string): boolean {
+  const text = normalizeComparableMessage(value)
+  if (!text) return false
+  return (
+    /\b(principal desafio|qual desafio|desafio de comunicacao|o que voce quer resolver|quer resolver com a comunicacao|como esse desafio aparece|como isso aparece)\b/.test(text) ||
+    /\b(me conta|me fale|me diz|qual|quais)\b.*\b(desafio|problema|objetivo|trava|comunicacao|oratoria|quer desenvolver|quer resolver)\b/.test(text)
+  )
 }
 
 function getConversationRowRole(row: any): string {
@@ -578,33 +613,20 @@ function getConversationRowContent(row: any): string {
 
 function responseAsksDiscoveryQuestion(value: string): boolean {
   const raw = String(value || "")
-  const text = normalizeComparableMessage(raw)
-  if (!text) return false
-  if (responseAsksAreaAndPainTogether(raw)) return true
-
-  const asks =
-    raw.includes("?") ||
-    /\b(me conta|me fale|me diz|qual|quais|conte um pouco|fala um pouco)\b/.test(text)
-  if (!asks) return false
-
-  return (
-    /\b(area de atuacao|sua area de atuacao|qual e sua area|qual sua area|profissao|em que voce trabalha|com o que voce trabalha)\b/.test(text) ||
-    /\b(principal desafio|qual desafio|desafio de comunicacao|problema.*(comunicacao|oratoria)|desafio.*(comunicacao|oratoria)|objetivo.*(comunicacao|oratoria)|o que voce quer resolver|quer desenvolver)\b/.test(text) ||
-    /\b(como esse desafio aparece|como isso aparece|me conta.*(desafio|contexto|rotina|comunicacao|oratoria))\b/.test(text)
-  )
+  const clauses = getQuestionLikeClauses(raw)
+  if (!clauses.length) return false
+  return clauses.some((clause) => questionClauseAsksArea(clause) || questionClauseAsksPain(clause))
 }
 
 function responseRepeatsKnownQualificationQuestion(
   responseText: string,
   qualification: QualificationState,
 ): boolean {
-  const text = normalizeComparableMessage(responseText)
-  if (!text) return false
+  const clauses = getQuestionLikeClauses(responseText)
+  if (!clauses.length) return false
 
-  const asksArea =
-    /\b(area de atuacao|qual e sua area|qual sua area|sua area|profissao|em que voce trabalha|com o que voce trabalha)\b/.test(text)
-  const asksPain =
-    /\b(principal desafio|qual desafio|desafio de comunicacao|o que voce quer resolver|quer resolver com a comunicacao|como esse desafio aparece|como isso aparece)\b/.test(text)
+  const asksArea = clauses.some(questionClauseAsksArea)
+  const asksPain = clauses.some(questionClauseAsksPain)
 
   return (qualification.hasArea && asksArea) || (qualification.hasPain && asksPain)
 }
