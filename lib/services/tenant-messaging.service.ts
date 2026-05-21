@@ -17,6 +17,7 @@ import {
   TenantChatHistoryService,
 } from "./tenant-chat-history.service"
 import { normalizeBrazilianWhatsappPhone } from "@/lib/helpers/phone-normalization"
+import { repairMojibakeText } from "@/lib/utils/text-mojibake"
 
 export interface SendTenantTextInput {
   tenant: string
@@ -203,7 +204,7 @@ export function repairKnownPortugueseMojibakeArtifacts(value: string): string {
   let text = String(value || "")
   if (!text) return ""
 
-  const brokenAccent = "(?:[\\u00D2\\uFFFD?]{1,6}[\\u00A3\\u00AA\\u00BA?]?|[\\u00D2\\uFFFD\\u00A3\\u00AA\\u00BA?]{1,8})"
+  const brokenAccent = "(?:[\\u00D2\\uFFFD?]{1,8}[\\u00A1\\u00A3\\u00AA\\u00BA?]?|[\\u00D2\\uFFFD\\u00A1\\u00A3\\u00AA\\u00BA?]{1,10})"
   const replacements: Array<[RegExp, string]> = [
     [new RegExp(`hor${brokenAccent}i?rios`, "gi"), "hor\u00E1rios"],
     [new RegExp(`hor${brokenAccent}i?rio`, "gi"), "hor\u00E1rio"],
@@ -236,7 +237,7 @@ export function repairKnownPortugueseMojibakeArtifacts(value: string): string {
 
 export function sanitizeOutgoingMessageText(value: string): string {
   const hadTerminalQuestion = /[?？]\s*$/.test(String(value || ""))
-  const repaired = repairKnownPortugueseMojibakeArtifacts(tryRepairMojibake(value))
+  const repaired = repairMojibakeText(repairKnownPortugueseMojibakeArtifacts(tryRepairMojibake(value)))
   const cleaned = String(repaired || "")
     .replace(/\\r\\n/g, "\n")
     .replace(/\\n/g, "\n")

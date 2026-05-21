@@ -69,7 +69,7 @@ function repairKnownPortugueseArtifacts(value: string): string {
   let text = String(value || "")
   if (!text) return ""
 
-  const brokenAccent = "(?:[\\u00D2\\uFFFD]{1,6}[\\u00A3\\u00AA\\u00BA]?|[\\u00D2\\uFFFD\\u00A3\\u00AA\\u00BA]{1,8})"
+  const brokenAccent = "(?:[\\u00D2\\uFFFD]{1,8}[\\u00A1\\u00A3\\u00AA\\u00BA]?|[\\u00D2\\uFFFD\\u00A1\\u00A3\\u00AA\\u00BA]{1,10})"
   const replacements: Array<[RegExp, string]> = [
     [/\u00C3\u0192\u00C2\u00A1|\u00C3\u00A1/g, "\u00E1"],
     [/\u00C3\u0192\u00C2\u00A0|\u00C3\u00A0/g, "\u00E0"],

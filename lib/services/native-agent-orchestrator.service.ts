@@ -3366,75 +3366,12 @@ function buildGeneralPeriodQuestion(availability: TodayPeriodAvailability): stri
 
 function applyUnsupportedPeriodGuard(text: string, config: NativeAgentConfig): string {
   const content = String(text || "").trim()
-  if (!content) return ""
-
-  const supported = resolveTenantPeriodAvailability(config)
-  if (supported.morning && supported.afternoon && supported.evening) return content
-
-  const paragraphs = content.split(/\n{2,}/g).map((part) => part.trim()).filter(Boolean)
-  if (!paragraphs.length) return content
-
-  let changed = false
-  const guarded = paragraphs.map((paragraph) => {
-    const normalized = normalizeComparableMessage(paragraph)
-    const mentionsAnyPeriod = /\b(manha|tarde|noite)\b/.test(normalized)
-    if (!mentionsAnyPeriod) return paragraph
-
-    const mentionsUnsupported =
-      (!supported.morning && /\bmanha\b/.test(normalized)) ||
-      (!supported.afternoon && /\btarde\b/.test(normalized)) ||
-      (!supported.evening && /\bnoite\b/.test(normalized))
-    if (!mentionsUnsupported) return paragraph
-
-    const asksPeriodChoice = /(funciona\s+melhor|prefere|qual\s+periodo|melhor\s+para\s+voce|melhor\s+pra\s+voce|qual\s+desses)/.test(
-      normalized,
-    )
-    const mentionsSchedulingContext =
-      /(agenda|agendar|agendamento|horario|horarios|disponib|consulta|consultoria|diagnostico|visita|encontro|atendimento)/.test(
-        normalized,
-      )
-    if (!(asksPeriodChoice || mentionsSchedulingContext)) return paragraph
-
-    const rewritten = buildGeneralPeriodQuestion(supported)
-    if (normalizeComparableMessage(rewritten) !== normalizeComparableMessage(paragraph)) {
-      changed = true
-    }
-    return rewritten
-  })
-
-  return changed ? guarded.join("\n\n").trim() : content
+  return content
 }
 
 function applyTemporalPeriodGuard(text: string, config: NativeAgentConfig): string {
   const content = String(text || "").trim()
-  if (!content) return ""
-
-  const { availability } = resolveTodayPeriodAvailability(config)
-  const paragraphs = content.split(/\n{2,}/g).map((part) => part.trim()).filter(Boolean)
-  if (!paragraphs.length) return applyUnsupportedPeriodGuard(content, config)
-
-  let changed = false
-  const guarded = paragraphs.map((paragraph) => {
-    const normalized = normalizeComparableMessage(paragraph)
-    const mentionsToday = /\bhoje\b/.test(normalized)
-    const hasPeriodWords = /\b(manha|tarde|noite)\b/.test(normalized)
-    const asksPeriodChoice = /(funciona\s+melhor|prefere|qual\s+periodo|melhor\s+para\s+voce|melhor\s+pra\s+voce|qual\s+desses)/.test(
-      normalized,
-    )
-
-    if (!(mentionsToday && hasPeriodWords && asksPeriodChoice)) {
-      return paragraph
-    }
-
-    const rewritten = buildTodayPeriodQuestion(availability)
-    if (normalizeComparableMessage(rewritten) !== normalizeComparableMessage(paragraph)) {
-      changed = true
-    }
-    return rewritten
-  })
-
-  const temporalGuarded = changed ? guarded.join("\n\n").trim() : content
-  return applyUnsupportedPeriodGuard(temporalGuarded, config)
+  return content
 }
 
 function normalizeNameForCompare(value: string): string {
@@ -5868,6 +5805,76 @@ export class NativeAgentOrchestratorService {
       decision.actions = decision.executions.map((execution: GeminiToolExecution) => execution.action)
       if (schedulingRecovery.reply) {
         decision.reply = schedulingRecovery.reply
+      } else if (schedulingRecovery.reason === "forced_get_available_slots_tool") {
+        const availabilityExecution = schedulingRecovery.executions.find((execution) => {
+          return String(execution.call?.name || "").toLowerCase() === "get_available_slots"
+        })
+        if (availabilityExecution?.ok) {
+          try {
+            const availabilityContext = JSON.stringify({
+              tool: "get_available_slots",
+              response: {
+                ok: availabilityExecution.response?.ok,
+                slots: availabilityExecution.response?.recommended_slots_for_lead || availabilityExecution.response?.slots_with_context || availabilityExecution.response?.slots || [],
+                days_with_free_slots: availabilityExecution.response?.days_with_free_slots || [],
+                business_days_configured: availabilityExecution.response?.business_days_configured || [],
+                business_hours_per_day: availabilityExecution.response?.business_hours_per_day || {},
+              },
+            }).slice(0, 9000)
+            const generatedDecision = await llm.decideNextTurn({
+              systemPrompt: [
+                basePrompt,
+                "",
+                "AGENDA CONSULTADA NESTA RODADA - PROMPT BASE SOBERANO:",
+                "A ferramenta get_available_slots ja foi executada pelo orquestrador apenas para validar a agenda real.",
+                "Agora responda como o agente do tenant, com linguagem natural e seguindo o Prompt Base.",
+                "Use os dados de agenda abaixo como fonte de verdade, sem inventar horarios.",
+                "Se a ultima mensagem do lead ainda pedir contexto, valor, endereco ou outra duvida, responda a duvida antes de oferecer horarios.",
+                "Nao escreva texto tecnico, JSON, nome de ferramenta, 'vou verificar' nem frases fixas do sistema.",
+                availabilityContext,
+              ].join("\n"),
+              conversation,
+              sampling: {
+                ...llmSampling,
+                temperature: Math.min(Math.max(Number(llmSampling.temperature || 0.4), 0.25), 0.55),
+              },
+            })
+            const generatedText = enforceBusinessHoursClaimConsistency(
+              stripUnsafeLeadNameVocatives(
+                fixGreetingTemporalAndVocative(
+                  applyAssistantOutputPolicy(String(generatedDecision.reply || ""), {
+                    allowEmojis: config.moderateEmojiEnabled !== false,
+                    allowLanguageVices: false,
+                  }),
+                  config,
+                  resolvedContactName,
+                ),
+                resolvedContactName,
+              ),
+              config,
+            )
+            if (generatedText && !looksLikeCutPromptBaseFallback(generatedText)) {
+              decision.reply = generatedText
+              if (generatedDecision.usage) {
+                ;(decision as any).usage = mergeLlmUsageMetrics((decision as any).usage, generatedDecision.usage)
+              }
+            }
+          } catch (error: any) {
+            await this
+              .persistDebugStatus({
+                chat,
+                sessionId,
+                content: "schedule_recovery_promptbase_reply_failed",
+                details: {
+                  debug_event: "schedule_recovery_promptbase_reply_failed",
+                  debug_severity: "warning",
+                  error: String(error?.message || error || "").slice(0, 500),
+                  lead_preview: String(effectiveLeadMessage || content || "").slice(0, 180),
+                },
+              })
+              .catch(() => {})
+          }
+        }
       }
       await this
         .persistDebugStatus({
@@ -6378,7 +6385,7 @@ export class NativeAgentOrchestratorService {
 
       if (!locationRepairedByPromptBase) {
         responseText = ""
-        suppressEmptyReplyRecovery = true
+        suppressEmptyReplyRecovery = false
         await this
           .persistDebugStatus({
             chat,
@@ -7659,7 +7666,7 @@ export class NativeAgentOrchestratorService {
 
       return {
         executions: [execution],
-        reply: execution.ok ? buildAvailableSlotsRecoveryReply(execution.response, leadMessage) : undefined,
+        reply: undefined,
         reason: "forced_get_available_slots_tool",
       }
     }

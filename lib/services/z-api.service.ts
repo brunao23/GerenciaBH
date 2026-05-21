@@ -3,6 +3,8 @@
  * Docs: https://developer.z-api.io/
  */
 
+import { repairMojibakeText } from "@/lib/utils/text-mojibake"
+
 export interface ZApiConfig {
   instanceId: string
   token: string
@@ -439,10 +441,15 @@ export class ZApiService {
       let lastError: string | undefined
       let lastData: any = null
 
+      const message = repairMojibakeText(params.message).trim()
+      if (!message) {
+        return { success: false, error: "Mensagem vazia apos sanitizacao" }
+      }
+
       for (const target of uniqueTargets) {
         const payload: Record<string, any> = {
           phone: target,
-          message: params.message,
+          message,
           delayMessage,
           delayTyping,
         }
