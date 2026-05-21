@@ -6255,11 +6255,7 @@ export class NativeAgentOrchestratorService {
         .catch(() => {})
     }
 
-    if (
-      responseText &&
-      (looksLikeCutPromptBaseFallback(responseText) ||
-        responseRepeatsKnownQualificationQuestion(responseText, qualificationState))
-    ) {
+    if (responseText && looksLikeCutPromptBaseFallback(responseText)) {
       let repairedByPromptBase = false
       const blockedReplyPreview = responseText
 
@@ -6293,11 +6289,7 @@ export class NativeAgentOrchestratorService {
           config,
         )
 
-        if (
-          safeRepairedText &&
-          !looksLikeCutPromptBaseFallback(safeRepairedText) &&
-          !responseRepeatsKnownQualificationQuestion(safeRepairedText, qualificationState)
-        ) {
+        if (safeRepairedText && !looksLikeCutPromptBaseFallback(safeRepairedText)) {
           responseText = safeRepairedText
           repairedByPromptBase = true
           if (repairDecision.usage) {
@@ -6473,11 +6465,7 @@ export class NativeAgentOrchestratorService {
           config,
         )
 
-        if (
-          safeRecoveredText &&
-          !looksLikeCutPromptBaseFallback(safeRecoveredText) &&
-          !responseRepeatsKnownQualificationQuestion(safeRecoveredText, qualificationState)
-        ) {
+        if (safeRecoveredText && !looksLikeCutPromptBaseFallback(safeRecoveredText)) {
           responseText = safeRecoveredText
           recoveredByPromptBase = true
           if (recoveryDecision.usage) {
@@ -6597,10 +6585,7 @@ export class NativeAgentOrchestratorService {
       }
     }
 
-    const finalPromptBaseViolation =
-      Boolean(responseText) &&
-      (looksLikeCutPromptBaseFallback(responseText) ||
-        responseRepeatsKnownQualificationQuestion(responseText, qualificationState))
+    const finalPromptBaseViolation = Boolean(responseText) && looksLikeCutPromptBaseFallback(responseText)
 
     if (finalPromptBaseViolation) {
       const blockedReplyPreview = responseText
@@ -6647,11 +6632,7 @@ export class NativeAgentOrchestratorService {
           config,
         )
 
-        if (
-          safeRepairedText &&
-          !looksLikeCutPromptBaseFallback(safeRepairedText) &&
-          !responseRepeatsKnownQualificationQuestion(safeRepairedText, qualificationState)
-        ) {
+        if (safeRepairedText && !looksLikeCutPromptBaseFallback(safeRepairedText)) {
           responseText = safeRepairedText
           finalRepairApplied = true
           if (finalRepairDecision.usage) {
