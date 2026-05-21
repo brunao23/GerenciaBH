@@ -203,12 +203,14 @@ export function repairKnownPortugueseMojibakeArtifacts(value: string): string {
   let text = String(value || "")
   if (!text) return ""
 
-  const brokenAccent = "[\\u00D2\\uFFFD]{1,4}"
+  const brokenAccent = "(?:[\\u00D2\\uFFFD]{1,4}[\\u00A3\\u00AA\\u00BA]?|[\\u00D2\\uFFFD\\u00A3\\u00AA\\u00BA]{1,5})"
   const replacements: Array<[RegExp, string]> = [
-    [new RegExp(`hor${brokenAccent}rios`, "gi"), "hor\u00E1rios"],
-    [new RegExp(`hor${brokenAccent}rio`, "gi"), "hor\u00E1rio"],
+    [new RegExp(`hor${brokenAccent}i?rios`, "gi"), "hor\u00E1rios"],
+    [new RegExp(`hor${brokenAccent}i?rio`, "gi"), "hor\u00E1rio"],
     [new RegExp(`voc${brokenAccent}`, "gi"), "voc\u00EA"],
-    [new RegExp(`amanh${brokenAccent}`, "gi"), "amanh\u00E3"],
+    [/voc\u00EA[\uFFFD\u00AA\u00BA]+/gi, "voc\u00EA"],
+    [new RegExp(`Manh${brokenAccent}`, "g"), "Manh\u00E3"],
+    [new RegExp(`amanh${brokenAccent}`, "g"), "amanh\u00E3"],
     [new RegExp(`s${brokenAccent}bado`, "gi"), "s\u00E1bado"],
     [new RegExp(`ter${brokenAccent}a`, "gi"), "ter\u00E7a"],
     [new RegExp(`n${brokenAccent}o`, "gi"), "n\u00E3o"],
