@@ -173,7 +173,7 @@ function tryRepairMojibake(value: string): string {
   try {
     let current = text
     let score = countMojibakeArtifacts(current)
-    for (let i = 0; i < 2; i += 1) {
+    for (let i = 0; i < 4; i += 1) {
       const latin1Candidate = Buffer.from(current, "latin1").toString("utf8")
       const cp1252Candidate = decodeFromWindows1252(current)
 
@@ -199,8 +199,41 @@ function tryRepairMojibake(value: string): string {
   }
 }
 
-function sanitizeOutgoingMessageText(value: string): string {
-  const repaired = tryRepairMojibake(value)
+export function repairKnownPortugueseMojibakeArtifacts(value: string): string {
+  let text = String(value || "")
+  if (!text) return ""
+
+  const brokenAccent = "[\\u00D2\\uFFFD]{1,4}"
+  const replacements: Array<[RegExp, string]> = [
+    [new RegExp(`hor${brokenAccent}rios`, "gi"), "hor\u00E1rios"],
+    [new RegExp(`hor${brokenAccent}rio`, "gi"), "hor\u00E1rio"],
+    [new RegExp(`voc${brokenAccent}`, "gi"), "voc\u00EA"],
+    [new RegExp(`amanh${brokenAccent}`, "gi"), "amanh\u00E3"],
+    [new RegExp(`s${brokenAccent}bado`, "gi"), "s\u00E1bado"],
+    [new RegExp(`ter${brokenAccent}a`, "gi"), "ter\u00E7a"],
+    [new RegExp(`n${brokenAccent}o`, "gi"), "n\u00E3o"],
+    [new RegExp(`op${brokenAccent}es`, "gi"), "op\u00E7\u00F5es"],
+    [new RegExp(`informa${brokenAccent}es`, "gi"), "informa\u00E7\u00F5es"],
+    [new RegExp(`comunica${brokenAccent}o`, "gi"), "comunica\u00E7\u00E3o"],
+    [new RegExp(`atua${brokenAccent}o`, "gi"), "atua\u00E7\u00E3o"],
+    [new RegExp(`aten${brokenAccent}o`, "gi"), "aten\u00E7\u00E3o"],
+    [new RegExp(`diagn${brokenAccent}stico`, "gi"), "diagn\u00F3stico"],
+    [new RegExp(`presen${brokenAccent}a`, "gi"), "presen\u00E7a"],
+    [new RegExp(`Jati${brokenAccent}ca`, "g"), "Jati\u00FAca"],
+    [new RegExp(`jati${brokenAccent}ca`, "g"), "jati\u00FAca"],
+    [new RegExp(`Macei${brokenAccent}`, "g"), "Macei\u00F3"],
+    [new RegExp(`macei${brokenAccent}`, "g"), "macei\u00F3"],
+  ]
+
+  for (const [pattern, replacement] of replacements) {
+    text = text.replace(pattern, replacement)
+  }
+
+  return text
+}
+
+export function sanitizeOutgoingMessageText(value: string): string {
+  const repaired = repairKnownPortugueseMojibakeArtifacts(tryRepairMojibake(value))
   return String(repaired || "")
     .replace(/\\r\\n/g, "\n")
     .replace(/\\n/g, "\n")

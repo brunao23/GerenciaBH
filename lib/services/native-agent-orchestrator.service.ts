@@ -31,6 +31,7 @@ import { LLMService } from "./llm.interface"
 import { LLMFactory } from "./llm-factory"
 import { GoogleCalendarService } from "@/lib/services/google-calendar.service"
 import {
+  repairKnownPortugueseMojibakeArtifacts,
   TenantMessagingService,
   type SendTenantAudioResult,
   type SendTenantTextResult,
@@ -2329,7 +2330,7 @@ function repairMojibakeDeep(value: string): string {
     if (!next || next === current) break
     current = next
   }
-  return current
+  return repairKnownPortugueseMojibakeArtifacts(current)
 }
 
 function stripMarkdownFormatting(text: string): string {
@@ -4802,7 +4803,9 @@ export class NativeAgentOrchestratorService {
     // Auto-pause: detect negative intent BEFORE any AI processing
     // Only runs when autoPauseOnHumanIntervention is explicitly enabled
     // -----------------------------------------------------------------------
-    const negativeIntent = detectNegativeLeadIntent(content)
+    const negativeIntent: NegativeIntentResult = config.autoPauseOnHumanIntervention === true
+      ? detectNegativeLeadIntent(content)
+      : { detected: false }
     if (negativeIntent.detected && shouldAutoPauseFromNegativeIntent(negativeIntent)) {
       const label = negativeIntentLabel(negativeIntent.category)
       console.log(
