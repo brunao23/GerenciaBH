@@ -23,7 +23,8 @@ import {
   AlertCircle,
   CheckCircle2,
   Loader2,
-  ShieldCheck
+  ShieldCheck,
+  History,
 } from "lucide-react"
 import { toast } from "sonner"
 import { useTenant } from "@/lib/contexts/TenantContext"
@@ -56,6 +57,25 @@ interface PausaRecord {
   paused_by_source?: string | null
   created_at: string
   updated_at: string
+}
+
+interface PauseHistoryRecord {
+  id: number
+  tenant: string
+  phone: string
+  session_id?: string | null
+  action: "pause" | "unpause" | "delete" | "update"
+  previous_paused?: boolean | null
+  new_paused?: boolean | null
+  pause_reason?: string | null
+  paused_until?: string | null
+  actor_role?: string | null
+  actor_name?: string | null
+  actor_user_id?: string | null
+  actor_unit?: string | null
+  actor_source?: string | null
+  metadata?: Record<string, any> | null
+  created_at: string
 }
 
 const formatPauseTime = (iso?: string | null) => {
@@ -118,9 +138,50 @@ const formatPauseActor = (pausa: PausaRecord) => {
   }
 }
 
+const formatHistoryAction = (action: PauseHistoryRecord["action"]) => {
+  if (action === "pause") return { label: "Pausou", className: "border-red-500/40 bg-red-500/10 text-red-300" }
+  if (action === "unpause") return { label: "Despausou", className: "border-green-500/40 bg-green-500/10 text-green-300" }
+  if (action === "delete") return { label: "Removeu", className: "border-orange-500/40 bg-orange-500/10 text-orange-300" }
+  return { label: "Atualizou", className: "border-cyan-500/40 bg-cyan-500/10 text-cyan-300" }
+}
+
+const formatHistoryActor = (item: PauseHistoryRecord) => {
+  const role = String(item.actor_role || "").toLowerCase()
+  const source = String(item.actor_source || "").toLowerCase()
+  const roleLabel =
+    role === "admin"
+      ? "Admin"
+      : role === "unit_user"
+        ? "Usuário da unidade"
+        : role === "system"
+          ? "Sistema"
+          : "Origem não informada"
+  const sourceLabel = source.includes("zapi_webhook_human")
+    ? "Mensagem humana no WhatsApp"
+    : source.includes("post_schedule")
+      ? "Pós-agendamento"
+      : source.includes("critical")
+        ? "Pausa automática"
+        : source.includes("delete")
+          ? "Remoção na aba Pausas"
+          : source.includes("toggle")
+            ? "Toggle da aba Pausas"
+            : source.includes("tenant_pause")
+              ? "Aba Pausas"
+              : source || ""
+
+  return {
+    roleLabel,
+    name: String(item.actor_name || "").trim(),
+    sourceLabel,
+  }
+}
+
 export default function PausasPage() {
   const { tenant } = useTenant()
   const [pausas, setPausas] = useState<PausaRecord[]>([])
+  const [pauseHistory, setPauseHistory] = useState<PauseHistoryRecord[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
   const [novoNumero, setNovoNumero] = useState("")
@@ -172,6 +233,25 @@ export default function PausasPage() {
   }
 
   // Preparar adição
+  const carregarHistoricoPausas = async () => {
+    if (!tenant) return
+    setHistoryLoading(true)
+    try {
+      const response = await fetch("/api/pausar/history?limit=80", {
+        headers: { "x-tenant-prefix": tenant.prefix },
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setPauseHistory(data.data || [])
+      }
+    } catch (error) {
+      console.error("[Pausas] Erro ao carregar historico de pausas:", error)
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
+
   const handlePreAddPausa = () => {
     if (!novoNumeroPreview.valid) {
       toast.error(novoNumeroPreview.error || "Digite um número válido")
@@ -201,6 +281,7 @@ export default function PausasPage() {
         setNovoNumero("")
         setConfirmPausaOpen(false)
         carregarPausas()
+        carregarHistoricoPausas()
       } else {
         const error = await response.json()
         toast.error(error.error || "Erro ao adicionar pausa")
@@ -243,6 +324,7 @@ export default function PausasPage() {
       if (response.ok) {
         toast.success("Pausa atualizada")
         carregarPausas()
+        carregarHistoricoPausas()
       } else {
         toast.error("Erro ao atualizar pausa")
       }
@@ -265,6 +347,7 @@ export default function PausasPage() {
       if (response.ok) {
         toast.success("Pausa removida")
         carregarPausas()
+        carregarHistoricoPausas()
       } else {
         toast.error("Erro ao remover pausa")
       }
@@ -364,6 +447,7 @@ export default function PausasPage() {
     toast.success(`Processamento concluído! ${successCount} número(s) pausados.`)
     setImportText("")
     carregarPausas()
+    carregarHistoricoPausas()
 
     if (errorCount === 0) {
       setTimeout(() => setImportOpen(false), 2000)
@@ -372,6 +456,7 @@ export default function PausasPage() {
 
   useEffect(() => {
     carregarPausas()
+    carregarHistoricoPausas()
   }, [tenant])
 
   const statusCounts = useMemo(() => {
@@ -767,6 +852,71 @@ export default function PausasPage() {
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="bg-[var(--card-black)] border-[var(--border-gray)]">
+        <CardHeader>
+          <CardTitle className="text-[var(--pure-white)] flex items-center gap-2">
+            <History className="h-5 w-5 text-cyan-400" />
+            Histórico de pausas e despausas
+          </CardTitle>
+          <CardDescription className="text-[var(--text-gray)]">
+            Registro acumulado de quem pausou, despausou ou removeu pausas nesta unidade.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {historyLoading ? (
+            <div className="text-center py-6 text-[var(--text-gray)]">
+              <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2 text-cyan-400" />
+              Carregando histórico...
+            </div>
+          ) : pauseHistory.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-[var(--border-gray)] p-6 text-center text-sm text-[var(--text-gray)]">
+              Nenhum evento registrado ainda. As próximas pausas e despausas aparecerão aqui.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {pauseHistory.map((item) => {
+                const action = formatHistoryAction(item.action)
+                const actor = formatHistoryActor(item)
+                return (
+                  <div
+                    key={item.id}
+                    className="flex flex-col gap-3 rounded-xl border border-[var(--border-gray)] bg-[var(--secondary-black)] p-4 md:flex-row md:items-center md:justify-between"
+                  >
+                    <div className="min-w-0 space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="outline" className={action.className}>
+                          {action.label}
+                        </Badge>
+                        <span className="font-mono text-sm text-[var(--pure-white)]">{item.phone}</span>
+                        <span className="text-xs text-[var(--text-gray)]">{formatPauseTime(item.created_at)}</span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--text-gray)]">
+                        <span>
+                          Por: <span className="text-[var(--pure-white)]">{actor.name || actor.roleLabel}</span>
+                        </span>
+                        {actor.sourceLabel && (
+                          <Badge variant="outline" className="border-cyan-500/30 bg-cyan-500/10 text-cyan-300">
+                            {actor.sourceLabel}
+                          </Badge>
+                        )}
+                        {item.pause_reason && (
+                          <span className="truncate">Motivo: {item.pause_reason}</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-xs text-[var(--text-gray)]">
+                      {item.previous_paused === item.new_paused
+                        ? "Sem mudança no estado principal"
+                        : `${item.previous_paused ? "Pausado" : "Ativo"} → ${item.new_paused ? "Pausado" : "Ativo"}`}
                     </div>
                   </div>
                 )

@@ -13,6 +13,7 @@ import {
   isPauseActorColumnError,
   stripPauseActorPayload,
 } from "@/lib/helpers/pause-actor"
+import { recordPauseAuditEvent } from "@/lib/services/pause-audit.service"
 
 /**
  * Normaliza numero de telefone removendo caracteres nao numericos
@@ -363,6 +364,28 @@ export async function POST(request: NextRequest) {
 
     console.log(`[Pausar API POST] Registro salvo com sucesso para ${targetNumero}`)
 
+    if (hasPausarField) {
+      await recordPauseAuditEvent({
+        tenant,
+        phone: targetNumero,
+        sessionId: targetNumero,
+        action: pausarBool ? "pause" : "unpause",
+        previousPaused: existingRow ? parseBooleanInput(existingRow.pausar, false) : null,
+        newPaused: pausarBool,
+        pauseReason: data?.pause_reason ?? payload.pause_reason ?? null,
+        pausedUntil: data?.paused_until ?? payload.paused_until ?? null,
+        actor: actorPayload,
+        metadata: {
+          source: "api_pausar_post",
+          previous_numero: existingRow?.numero || null,
+          vaga: vagaBool,
+          agendamento: agendamentoBool,
+        },
+      }).catch((auditError: any) =>
+        console.warn("[Pausar API POST] Falha ao registrar historico:", auditError?.message),
+      )
+    }
+
     // CANCELAMENTO IMEDIATO DE FOLLOWUPS PENDENTES
     // Quando o humano pausa um lead via painel, todos os followups agendados
     // sao cancelados imediatamente - sem depender do ciclo do cron.
@@ -575,6 +598,25 @@ export async function PUT(request: NextRequest) {
 
     console.log(`[Pausar API PUT] Registro atualizado com sucesso para ${targetNumero}`)
 
+    await recordPauseAuditEvent({
+      tenant,
+      phone: targetNumero,
+      sessionId: targetNumero,
+      action: pausar !== undefined ? (updateData.pausar ? "pause" : "unpause") : "update",
+      previousPaused: existingRow ? parseBooleanInput(existingRow.pausar, false) : null,
+      newPaused: parseBooleanInput(updateData.pausar, false),
+      pauseReason: data?.pause_reason ?? updateData.pause_reason ?? null,
+      pausedUntil: data?.paused_until ?? updateData.paused_until ?? null,
+      actor: actorPayload,
+      metadata: {
+        source: "api_pausar_put",
+        previous_numero: existingRow?.numero || null,
+        changed_fields: Object.keys(body || {}).filter((key) => key !== "numero"),
+      },
+    }).catch((auditError: any) =>
+      console.warn("[Pausar API PUT] Falha ao registrar historico:", auditError?.message),
+    )
+
     if (updateData.pausar === true) {
       try {
         await cancelFollowupsForPausedLead({
@@ -626,8 +668,12 @@ export async function DELETE(request: NextRequest) {
 
     const supabase = createBiaSupabaseServerClient()
 
-    const { tables } = await getTenantFromRequest()
+    const { tables, tenant, session } = await getTenantFromRequest()
     const { pausar: pausarTable } = tables
+    const actorPayload = buildPauseActorPayload({
+      session,
+      source: "tenant_pause_api_delete",
+    })
 
     if (!numero && id === undefined) {
       return NextResponse.json({
@@ -683,6 +729,26 @@ export async function DELETE(request: NextRequest) {
     }
 
     console.log(`[Pausar API DELETE] Registro removido com sucesso (${logRef})`)
+
+    for (const row of Array.isArray(data) ? data : []) {
+      await recordPauseAuditEvent({
+        tenant,
+        phone: String(row?.numero || numero || ""),
+        sessionId: String(row?.numero || numero || ""),
+        action: "delete",
+        previousPaused: parseBooleanInput(row?.pausar, false),
+        newPaused: false,
+        pauseReason: row?.pause_reason ?? null,
+        pausedUntil: row?.paused_until ?? null,
+        actor: actorPayload,
+        metadata: {
+          source: "api_pausar_delete",
+          deleted_id: row?.id ?? null,
+        },
+      }).catch((auditError: any) =>
+        console.warn("[Pausar API DELETE] Falha ao registrar historico:", auditError?.message),
+      )
+    }
 
     return NextResponse.json({
       success: true,

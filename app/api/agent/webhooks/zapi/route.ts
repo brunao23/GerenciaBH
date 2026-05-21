@@ -29,6 +29,8 @@ import {
 } from "@/lib/services/lead-pause.service"
 import { detectGroupPauseIntent } from "@/lib/services/group-pause-intent.service"
 import { RedisService } from "@/lib/services/redis.service"
+import { buildPauseActorPayload } from "@/lib/helpers/pause-actor"
+import { recordPauseAuditEvent } from "@/lib/services/pause-audit.service"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
@@ -2599,6 +2601,21 @@ async function pauseAiForLead(
   const supabase = createBiaSupabaseServerClient()
   const { pausar: pauseTable } = getTablesForTenant(tenant)
   const nowIso = new Date().toISOString()
+  const phoneVariants = Array.from(
+    new Set([
+      normalized,
+      normalized.startsWith("55") ? normalized.slice(2) : "",
+      !normalized.startsWith("55") ? `55${normalized}` : "",
+    ].filter(Boolean)),
+  )
+  const { data: existingRows } = await supabase
+    .from(pauseTable)
+    .select("numero, pausar, pause_reason, paused_until")
+    .in("numero", phoneVariants)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .then((result) => result, () => ({ data: null }))
+  const existingRow = Array.isArray(existingRows) ? existingRows[0] : null
   const pauseMinutes = Math.max(0, Math.floor(Number(options?.minutes || 0)))
   const pausedUntilIso =
     pauseMinutes > 0
@@ -2638,19 +2655,35 @@ async function pauseAiForLead(
 
   if (upsert.error) {
     console.warn("[zapi-webhook] failed to auto-pause AI for human intervention:", upsert.error)
+  } else {
+    await recordPauseAuditEvent({
+      tenant,
+      phone: normalized,
+      sessionId: normalized,
+      action: "pause",
+      previousPaused: existingRow ? String(existingRow?.pausar || "").toLowerCase() === "true" || existingRow?.pausar === true : null,
+      newPaused: true,
+      pauseReason: payload.pause_reason || null,
+      pausedUntil: payload.paused_until || null,
+      actor: buildPauseActorPayload({
+        role: isManualLikePause ? "unit_user" : "system",
+        source: isManualLikePause ? "zapi_webhook_human_manual_message" : "zapi_webhook_auto_pause",
+        unit: tenant,
+      }),
+      metadata: {
+        source: "zapi_webhook_pause",
+        reason: options?.reason || null,
+        minutes: pauseMinutes || null,
+      },
+    }).catch((auditError: any) =>
+      console.warn("[zapi-webhook] failed to write pause audit:", auditError?.message),
+    )
   }
 
   const reason = String(options?.reason || "").trim().toLowerCase()
   const pausedStatus = reason
     ? `paused_${reason.replace(/[^a-z0-9_]/g, "_").slice(0, 64)}`
     : "paused_manual"
-  const phoneVariants = Array.from(
-    new Set([
-      normalized,
-      normalized.startsWith("55") ? normalized.slice(2) : "",
-      !normalized.startsWith("55") ? `55${normalized}` : "",
-    ].filter(Boolean)),
-  )
   await supabase
     .from("followup_schedule")
     .update({
@@ -2670,6 +2703,21 @@ async function unpauseAiForLead(tenant: string, phone: string): Promise<void> {
   const supabase = createBiaSupabaseServerClient()
   const { pausar: pauseTable } = getTablesForTenant(tenant)
   const nowIso = new Date().toISOString()
+  const phoneVariants = Array.from(
+    new Set([
+      normalized,
+      normalized.startsWith("55") ? normalized.slice(2) : "",
+      !normalized.startsWith("55") ? `55${normalized}` : "",
+    ].filter(Boolean)),
+  )
+  const { data: existingRows } = await supabase
+    .from(pauseTable)
+    .select("numero, pausar, pause_reason, paused_until")
+    .in("numero", phoneVariants)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .then((result) => result, () => ({ data: null }))
+  const existingRow = Array.isArray(existingRows) ? existingRows[0] : null
   const payload: Record<string, any> = {
     numero: normalized,
     pausar: false,
@@ -2695,6 +2743,27 @@ async function unpauseAiForLead(tenant: string, phone: string): Promise<void> {
 
   if (upsert.error) {
     console.warn("[zapi-webhook] failed to unpause AI for reschedule flow:", upsert.error)
+  } else {
+    await recordPauseAuditEvent({
+      tenant,
+      phone: normalized,
+      sessionId: normalized,
+      action: "unpause",
+      previousPaused: existingRow ? String(existingRow?.pausar || "").toLowerCase() === "true" || existingRow?.pausar === true : null,
+      newPaused: false,
+      pauseReason: existingRow?.pause_reason || null,
+      pausedUntil: null,
+      actor: buildPauseActorPayload({
+        role: "system",
+        source: "zapi_webhook_resume_flow",
+        unit: tenant,
+      }),
+      metadata: {
+        source: "zapi_webhook_unpause",
+      },
+    }).catch((auditError: any) =>
+      console.warn("[zapi-webhook] failed to write unpause audit:", auditError?.message),
+    )
   }
 }
 

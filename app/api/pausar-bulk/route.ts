@@ -7,6 +7,7 @@ import {
   isPauseActorColumnError,
   stripPauseActorPayload,
 } from "@/lib/helpers/pause-actor"
+import { recordPauseAuditEvent } from "@/lib/services/pause-audit.service"
 
 function normalizePhoneNumber(numero: string): string {
   return normalizeBrazilianWhatsappPhone(numero).normalized
@@ -14,7 +15,7 @@ function normalizePhoneNumber(numero: string): string {
 
 export async function POST(request: NextRequest) {
   try {
-    const { tables, session } = await getTenantFromRequest()
+    const { tables, tenant, session } = await getTenantFromRequest()
     const { pausar: pausarTable } = tables
 
     const body = await request.json()
@@ -113,6 +114,26 @@ export async function POST(request: NextRequest) {
         { status: 500 },
       )
     }
+
+    await Promise.allSettled(
+      validRecords.map((record) =>
+        recordPauseAuditEvent({
+          tenant,
+          phone: record.numero,
+          sessionId: record.numero,
+          action: record.pausar ? "pause" : "unpause",
+          previousPaused: null,
+          newPaused: record.pausar,
+          pauseReason: record.pause_reason || null,
+          pausedUntil: record.paused_until || null,
+          actor: actorPayload,
+          metadata: {
+            source: "api_pausar_bulk",
+            batch_size: validRecords.length,
+          },
+        }),
+      ),
+    )
 
     return NextResponse.json({
       success: true,

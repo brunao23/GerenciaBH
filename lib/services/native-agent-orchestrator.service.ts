@@ -59,6 +59,7 @@ import { RedisService } from "@/lib/services/redis.service"
 import { buildLeadAttendanceSummary } from "@/lib/helpers/lead-attendance-summary"
 import { DiscordSystemLogService } from "@/lib/services/discord-system-log.service"
 import { buildPauseActorPayload } from "@/lib/helpers/pause-actor"
+import { recordPauseAuditEvent } from "@/lib/services/pause-audit.service"
 
 type AppointmentResult = {
   ok: boolean
@@ -867,6 +868,15 @@ function looksLikeCutPromptBaseFallback(value: string): boolean {
   return (
     /^seu contexto\b/.test(text) ||
     /\b(vou seguir pelo que voce ja contou|sem te fazer repetir|continuar pelo ponto certo do atendimento)\b/.test(text)
+  )
+}
+
+function looksLikeInternalOperationalFallback(value: string): boolean {
+  const text = normalizeComparableMessage(value)
+  if (!text) return false
+  return (
+    /^seu contexto\b/.test(text) ||
+    /\b(vou seguir pelo que voce ja contou|sem te fazer repetir|contexto foi cortado|prompt base|langgraph|orquestrador|ferramenta|recuperacao|erro interno)\b/.test(text)
   )
 }
 
@@ -6308,9 +6318,17 @@ export class NativeAgentOrchestratorService {
         .persistDebugStatus({
           chat,
           sessionId,
-          content: repairedByPromptBase ? "prompt_base_minimal_repair_applied" : "prompt_base_fixed_reply_suppressed",
+          content: repairedByPromptBase
+            ? "prompt_base_minimal_repair_applied"
+            : looksLikeInternalOperationalFallback(blockedReplyPreview)
+              ? "prompt_base_internal_reply_suppressed"
+              : "prompt_base_guard_observed_original_allowed",
           details: {
-            debug_event: repairedByPromptBase ? "prompt_base_minimal_repair_applied" : "prompt_base_fixed_reply_suppressed",
+            debug_event: repairedByPromptBase
+              ? "prompt_base_minimal_repair_applied"
+              : looksLikeInternalOperationalFallback(blockedReplyPreview)
+                ? "prompt_base_internal_reply_suppressed"
+                : "prompt_base_guard_observed_original_allowed",
             debug_severity: "warning",
             lead_preview: String(effectiveLeadMessage || content || "").slice(0, 180),
             blocked_reply_preview: blockedReplyPreview.slice(0, 240),
@@ -6320,9 +6338,9 @@ export class NativeAgentOrchestratorService {
         })
         .catch(() => {})
 
-      if (!repairedByPromptBase) {
+      if (!repairedByPromptBase && looksLikeInternalOperationalFallback(blockedReplyPreview)) {
         responseText = ""
-        suppressEmptyReplyRecovery = true
+        suppressEmptyReplyRecovery = false
       }
     }
 
@@ -6578,6 +6596,7 @@ export class NativeAgentOrchestratorService {
     if (finalPromptBaseViolation) {
       const blockedReplyPreview = responseText
       let finalRepairApplied = false
+      const finalShouldHardSuppress = looksLikeInternalOperationalFallback(blockedReplyPreview)
 
       try {
         const finalRepairDecision = await llm.decideNextTurn({
@@ -6657,12 +6676,16 @@ export class NativeAgentOrchestratorService {
           sessionId,
           content: finalRepairApplied
             ? "prompt_base_final_send_guard_repaired"
-            : "prompt_base_final_send_guard_suppressed",
+            : finalShouldHardSuppress
+              ? "prompt_base_final_send_guard_suppressed"
+              : "prompt_base_final_guard_observed_original_allowed",
           details: {
             debug_event: finalRepairApplied
               ? "prompt_base_final_send_guard_repaired"
-              : "prompt_base_final_send_guard_suppressed",
-            debug_severity: finalRepairApplied ? "warning" : "critical",
+              : finalShouldHardSuppress
+                ? "prompt_base_final_send_guard_suppressed"
+                : "prompt_base_final_guard_observed_original_allowed",
+            debug_severity: finalRepairApplied || !finalShouldHardSuppress ? "warning" : "critical",
             lead_preview: String(effectiveLeadMessage || content || "").slice(0, 180),
             blocked_reply_preview: String(blockedReplyPreview || "").slice(0, 240),
             repaired_reply_preview: finalRepairApplied ? String(responseText || "").slice(0, 240) : null,
@@ -6671,7 +6694,7 @@ export class NativeAgentOrchestratorService {
         })
         .catch(() => {})
 
-      if (!finalRepairApplied) {
+      if (!finalRepairApplied && finalShouldHardSuppress) {
         return {
           processed: true,
           replied: false,
@@ -6683,7 +6706,10 @@ export class NativeAgentOrchestratorService {
 
     responseText = repairMojibakeDeep(
       repairBrokenUrlSpacing(
-        stripUnsafeLeadNameVocatives(responseText, resolvedContactName),
+        stripUnsafeLeadNameVocatives(
+          fixGreetingTemporalAndVocative(responseText, config, resolvedContactName),
+          resolvedContactName,
+        ),
       ),
     )
 
@@ -12724,6 +12750,11 @@ export class NativeAgentOrchestratorService {
     const nowIso = new Date().toISOString()
     const reason = String(input.reason || "").trim().slice(0, 180)
     if (normalizedPhone) {
+      const actorPayload = buildPauseActorPayload({
+        role: "system",
+        source: "native_agent_critical_pause",
+        unit: input.tenant,
+      })
       const pausePayload: Record<string, any> = {
         numero: normalizedPhone,
         pausar: true,
@@ -12733,16 +12764,29 @@ export class NativeAgentOrchestratorService {
         paused_until: input.pausedUntilIso || null,
         updated_at: nowIso,
         pause_reason: reason || null,
-        ...buildPauseActorPayload({
-          role: "system",
-          source: "native_agent_critical_pause",
-          unit: input.tenant,
-        }),
+        ...actorPayload,
       }
 
       const upsert = await this.upsertWithColumnFallback(tables.pausar, pausePayload, "numero")
       if (upsert.error && !this.isMissingTableError(upsert.error)) {
         console.warn("[native-agent] failed to apply critical pause:", upsert.error)
+      } else if (!upsert.error) {
+        await recordPauseAuditEvent({
+          tenant: input.tenant,
+          phone: normalizedPhone,
+          sessionId: sessionId || input.sessionId,
+          action: "pause",
+          previousPaused: null,
+          newPaused: true,
+          pauseReason: reason || null,
+          pausedUntil: input.pausedUntilIso || null,
+          actor: actorPayload,
+          metadata: {
+            source: "native_agent_critical_pause",
+          },
+        }).catch((auditError: any) =>
+          console.warn("[native-agent] failed to write critical pause audit:", auditError?.message),
+        )
       }
     }
 
@@ -12763,6 +12807,11 @@ export class NativeAgentOrchestratorService {
   private async pauseLeadAfterScheduling(tenant: string, phone: string): Promise<void> {
     const tables = getTablesForTenant(tenant)
     const nowIso = new Date().toISOString()
+    const actorPayload = buildPauseActorPayload({
+      role: "system",
+      source: "native_agent_post_schedule",
+      unit: tenant,
+    })
     const payload: Record<string, any> = {
       numero: phone,
       pausar: true,
@@ -12771,16 +12820,29 @@ export class NativeAgentOrchestratorService {
       pausado_em: nowIso,
       updated_at: nowIso,
       pause_reason: "scheduled_auto_pause",
-      ...buildPauseActorPayload({
-        role: "system",
-        source: "native_agent_post_schedule",
-        unit: tenant,
-      }),
+      ...actorPayload,
     }
 
     const upsert = await this.upsertWithColumnFallback(tables.pausar, payload, "numero")
     if (upsert.error && !this.isMissingTableError(upsert.error)) {
       console.warn("[native-agent] failed to pause lead after scheduling:", upsert.error)
+    } else if (!upsert.error) {
+      await recordPauseAuditEvent({
+        tenant,
+        phone,
+        sessionId: phone,
+        action: "pause",
+        previousPaused: null,
+        newPaused: true,
+        pauseReason: "scheduled_auto_pause",
+        pausedUntil: null,
+        actor: actorPayload,
+        metadata: {
+          source: "native_agent_post_schedule",
+        },
+      }).catch((auditError: any) =>
+        console.warn("[native-agent] failed to write post-schedule pause audit:", auditError?.message),
+      )
     }
   }
 
