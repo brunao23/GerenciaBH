@@ -96,7 +96,15 @@ type AvailableSlotsResult = {
     time: string
     date_br?: string
     weekday_name_pt?: string
+    period?: "manha" | "tarde" | "noite"
   }>
+  recommended_slots_by_period?: Record<string, Array<{
+    date: string
+    time: string
+    date_br?: string
+    weekday_name_pt?: string
+    period?: "manha" | "tarde" | "noite"
+  }>>
   searched_date_from?: string
   searched_date_to?: string
   business_days_configured?: Array<{ number: number; name: string }>
@@ -2053,6 +2061,104 @@ function pickRepresentativeSlots(rawSlots: any[], context: string, max = 2): any
   return selected
 }
 
+function getSlotPeriodKey(timeValue: any): "manha" | "tarde" | "noite" | null {
+  const normalized = normalizeTimeToHHmm(timeValue)
+  if (!normalized) return null
+  const [hourPart] = normalized.split(":")
+  const hour = Number(hourPart)
+  if (!Number.isFinite(hour)) return null
+  if (hour < 12) return "manha"
+  if (hour < 18) return "tarde"
+  return "noite"
+}
+
+function enrichRecommendedSlotForLead(slot: any): {
+  date: string
+  time: string
+  date_br?: string
+  weekday_name_pt?: string
+  period?: "manha" | "tarde" | "noite"
+} | null {
+  const date = normalizeDateToIso(slot?.date)
+  const time = normalizeTimeToHHmm(slot?.time)
+  if (!date || !time) return null
+  const weekdayInfo = getWeekdayInfoForDateIso(date)
+  return {
+    date,
+    time,
+    date_br: formatDateIsoToBr(date),
+    weekday_name_pt: weekdayInfo?.weekday_name_pt,
+    period: getSlotPeriodKey(time) || undefined,
+  }
+}
+
+function buildBalancedRecommendedSlotsByPeriod(
+  rawSlots: any[],
+  context: string,
+  perPeriodMax = 3,
+): Record<string, Array<{ date: string; time: string; date_br?: string; weekday_name_pt?: string; period?: "manha" | "tarde" | "noite" }>> {
+  const groups: Record<"manha" | "tarde" | "noite", any[]> = {
+    manha: [],
+    tarde: [],
+    noite: [],
+  }
+
+  for (const slot of rawSlots || []) {
+    const period = getSlotPeriodKey(slot?.time)
+    if (!period) continue
+    groups[period].push(slot)
+  }
+
+  const result: Record<string, Array<{ date: string; time: string; date_br?: string; weekday_name_pt?: string; period?: "manha" | "tarde" | "noite" }>> = {}
+  for (const period of ["manha", "tarde", "noite"] as const) {
+    const periodSlots = groups[period]
+    if (!periodSlots.length) continue
+    const selected = pickRepresentativeSlots(
+      periodSlots,
+      `${context || ""}|${period}`,
+      Math.min(Math.max(2, perPeriodMax), periodSlots.length),
+    )
+      .map(enrichRecommendedSlotForLead)
+      .filter(Boolean) as Array<{ date: string; time: string; date_br?: string; weekday_name_pt?: string; period?: "manha" | "tarde" | "noite" }>
+    if (selected.length) result[period] = selected
+  }
+
+  return result
+}
+
+function flattenBalancedRecommendedSlots(
+  byPeriod: Record<string, Array<{ date: string; time: string; date_br?: string; weekday_name_pt?: string; period?: "manha" | "tarde" | "noite" }>>,
+): Array<{ date: string; time: string; date_br?: string; weekday_name_pt?: string; period?: "manha" | "tarde" | "noite" }> {
+  const flattened: Array<{ date: string; time: string; date_br?: string; weekday_name_pt?: string; period?: "manha" | "tarde" | "noite" }> = []
+  for (const period of ["manha", "tarde", "noite"]) {
+    flattened.push(...(byPeriod?.[period] || []))
+  }
+  return flattened
+}
+
+function formatSlotLabelsForLead(labels: string[]): string {
+  const clean = labels.map((label) => String(label || "").trim()).filter(Boolean)
+  if (clean.length <= 1) return clean[0] || ""
+  if (clean.length === 2) return `${clean[0]} ou ${clean[1]}`
+  return `${clean.slice(0, -1).join(", ")} ou ${clean[clean.length - 1]}`
+}
+
+function formatBalancedSlotsByPeriodForLead(
+  byPeriod: Record<string, Array<{ date: string; time: string; date_br?: string; weekday_name_pt?: string; period?: "manha" | "tarde" | "noite" }>>,
+): string {
+  const periodLabels: Record<string, string> = {
+    manha: "de manha",
+    tarde: "de tarde",
+    noite: "a noite",
+  }
+  const parts: string[] = []
+  for (const period of ["manha", "tarde", "noite"]) {
+    const labels = (byPeriod?.[period] || []).map(formatSlotLabelForLead).filter(Boolean)
+    if (labels.length) parts.push(`${periodLabels[period]}: ${formatSlotLabelsForLead(labels)}`)
+  }
+  return formatSlotLabelsForLead(parts)
+}
+
 function buildAvailableSlotsRecoveryReply(response: Record<string, any>, leadMessage: string): string {
   const rawSlots = Array.isArray(response?.slots_with_context) && response.slots_with_context.length > 0
     ? response.slots_with_context
@@ -2075,10 +2181,21 @@ function buildAvailableSlotsRecoveryReply(response: Record<string, any>, leadMes
   const periodSlots = selectedPeriod
     ? rawSlots.filter((slot: any) => periodMatchesSlot(slot?.time, selectedPeriod))
     : rawSlots
+  if (!selectedPeriod) {
+    const byPeriod = buildBalancedRecommendedSlotsByPeriod(
+      rawSlots,
+      `${leadMessage || ""}|${requestedTime || ""}`,
+      2,
+    )
+    const periodText = formatBalancedSlotsByPeriodForLead(byPeriod)
+    if (periodText) {
+      return `Consultei a agenda. Tenho ${periodText}. Qual funciona melhor para voce?`
+    }
+  }
   const selectedSlots = pickRepresentativeSlots(
     periodSlots.length ? periodSlots : rawSlots,
     `${leadMessage || ""}|${selectedPeriod || ""}|${requestedTime || ""}`,
-    2,
+    selectedPeriod ? 3 : 2,
   )
   const labels = selectedSlots.map(formatSlotLabelForLead).filter(Boolean)
 
@@ -2090,7 +2207,7 @@ function buildAvailableSlotsRecoveryReply(response: Record<string, any>, leadMes
     return `Consultei a agenda. Tenho ${labels[0]}. Esse horario funciona para voce?`
   }
 
-  return `Consultei a agenda. Tenho ${labels[0]} ou ${labels[1]}. Qual funciona melhor para voce?`
+  return `Consultei a agenda. Tenho ${formatSlotLabelsForLead(labels)}. Qual funciona melhor para voce?`
 }
 
 function buildScheduleRecoveryReply(execution: GeminiToolExecution, contactName?: string | null): string | undefined {
@@ -5835,6 +5952,7 @@ export class NativeAgentOrchestratorService {
               response: {
                 ok: availabilityExecution.response?.ok,
                 slots: availabilityExecution.response?.recommended_slots_for_lead || availabilityExecution.response?.slots_with_context || availabilityExecution.response?.slots || [],
+                recommended_slots_by_period: availabilityExecution.response?.recommended_slots_by_period || {},
                 days_with_free_slots: availabilityExecution.response?.days_with_free_slots || [],
                 business_days_configured: availabilityExecution.response?.business_days_configured || [],
                 business_hours_per_day: availabilityExecution.response?.business_hours_per_day || {},
@@ -5848,6 +5966,7 @@ export class NativeAgentOrchestratorService {
                 "A ferramenta get_available_slots ja foi executada pelo orquestrador apenas para validar a agenda real.",
                 "Agora responda como o agente do tenant, com linguagem natural e seguindo o Prompt Base.",
                 "Use os dados de agenda abaixo como fonte de verdade, sem inventar horarios.",
+                "Ao oferecer opcoes, prefira recommended_slots_by_period/recommended_slots_for_lead. Nao use sempre os primeiros horarios da lista; distribua 2 a 3 horarios por turno disponivel quando couber na conversa.",
                 "Se a ultima mensagem do lead ainda pedir contexto, valor, endereco ou outra duvida, responda a duvida antes de oferecer horarios.",
                 "Nao escreva texto tecnico, JSON, nome de ferramenta, 'vou verificar' nem frases fixas do sistema.",
                 availabilityContext,
@@ -9551,7 +9670,8 @@ export class NativeAgentOrchestratorService {
       "FLUXO OBRIGATORIO DE APRESENTACAO DE HORARIOS:",
       "- PASSO 1 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â CONSULTAR: chame get_available_slots. Identifique quais periodos (manha / tarde / noite) possuem vagas reais.",
       "- PASSO 2 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â PERGUNTAR O PERIODO: pergunte ao lead qual periodo prefere, oferecendo SOMENTE os periodos com vagas. Exemplo: 'Voce prefere de manha ou de tarde?' (se so houver manha e tarde). Se houver vagas hoje, mencione primeiro: 'Tenho hoje ainda de tarde ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â ou prefere outro dia? Pode sugerir um dia ou horario e eu verifico.'",
-      "- PASSO 3 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â SO ENTAO O HORARIO ESPECIFICO: apos o lead indicar o periodo ou o dia, apresente no maximo 1 ou 2 opcoes especificas dentro daquele periodo/dia.",
+      "- PASSO 3 - HORARIOS ESPECIFICOS COM MARGEM: apos o lead indicar periodo ou dia, use os slots reais e ofereca 2 a 3 opcoes daquele turno quando houver vagas suficientes. Se a unidade tiver mais de um turno disponivel e o lead ainda nao escolheu, ofereca 2 opcoes por turno disponivel (manha/tarde/noite) sem ficar sempre nos primeiros horarios.",
+      "- [ANTI-HORARIO FIXO] NUNCA escolha sempre os mesmos horarios padrao (ex.: sempre 10h e 15h). Use recommended_slots_by_period/recommended_slots_for_lead quando disponivel, pois eles ja vem balanceados por turno.",
       "- ANTI-REPETICAO DE PERIODO: se o lead ja respondeu 'manha', 'tarde' ou 'noite', e proibido perguntar de novo 'manha, tarde ou noite?' ou 'tarde ou noite?'. A proxima resposta deve usar essa escolha para avancar.",
       "- PROIBIDO ABSOLUTO: NUNCA apresente data e horario especificos (ex: 'quarta (29/04) as 14h') antes de o lead indicar o periodo ou dia de preferencia, EXCETO se o lead ja tiver pedido um dia/horario concreto.",
       "- PROIBIDO: repetir a mesma data, dia da semana ou horario em mensagens diferentes do mesmo turno. Diga uma vez.",
@@ -10190,6 +10310,21 @@ export class NativeAgentOrchestratorService {
         action,
       })
       const slotNowParts = getNowPartsForTimezone(params.config.timezone || "America/Sao_Paulo")
+      const rawResultSlots = Array.isArray(result.slots) ? result.slots : []
+      const recommendationSeed = [
+        params.tenant,
+        params.sessionId,
+        params.leadMessageContext,
+        action.date_from,
+        action.date_to,
+        rawResultSlots.length,
+      ].join("|")
+      const recommendedSlotsByPeriod = buildBalancedRecommendedSlotsByPeriod(
+        rawResultSlots,
+        recommendationSeed,
+        3,
+      )
+      const recommendedSlotsForLead = flattenBalancedRecommendedSlots(recommendedSlotsByPeriod)
 
       const holidaysInRange = Array.isArray(result.holidays_in_range) ? result.holidays_in_range : []
 
@@ -10200,14 +10335,16 @@ export class NativeAgentOrchestratorService {
         response: {
           ok: result.ok,
           total: Number(result.total || 0),
-          slots: Array.isArray(result.slots) ? result.slots : [],
-          slots_with_context: Array.isArray(result.slots)
-            ? result.slots.map((slot) => ({
+          slots: rawResultSlots,
+          slots_with_context: rawResultSlots.length
+            ? rawResultSlots.map((slot) => ({
               date: slot.date,
               time: slot.time,
               ...getSlotDateContext(slot.date, slotNowParts),
             }))
             : [],
+          recommended_slots_for_lead: recommendedSlotsForLead,
+          recommended_slots_by_period: recommendedSlotsByPeriod,
           holidays_in_range: holidaysInRange,
           searched_date_from: result.searched_date_from,
           searched_date_to: result.searched_date_to,
@@ -11313,27 +11450,19 @@ export class NativeAgentOrchestratorService {
         }
       }
       const daysWithFreeSlots = Array.from(daySummaryMap.values()).sort((a, b) => a.date.localeCompare(b.date))
-      const recommendedSlotsForLead = pickRepresentativeSlots(
+      const recommendedSlotsByPeriod = buildBalancedRecommendedSlotsByPeriod(
         dedupedSlots,
-        `${formatDateFromParts(requestedStart)}|${formatDateFromParts(endReference)}|${dedupedSlots.length}`,
-        Math.min(8, Math.max(1, dedupedSlots.length)),
-      ).map((slot) => {
-        const date = normalizeDateToIso(slot.date) || slot.date
-        const time = normalizeTimeToHHmm(slot.time) || slot.time
-        const weekdayInfo = date ? getWeekdayInfoForDateIso(date) : null
-        return {
-          date,
-          time,
-          date_br: date ? formatDateIsoToBr(date) : undefined,
-          weekday_name_pt: weekdayInfo?.weekday_name_pt,
-        }
-      })
+        `${params.tenant}|${formatDateFromParts(requestedStart)}|${formatDateFromParts(endReference)}|${dedupedSlots.length}`,
+        3,
+      )
+      const recommendedSlotsForLead = flattenBalancedRecommendedSlots(recommendedSlotsByPeriod)
 
       return {
         ok: true,
         slots: dedupedSlots,
         total: dedupedSlots.length,
         recommended_slots_for_lead: recommendedSlotsForLead,
+        recommended_slots_by_period: recommendedSlotsByPeriod,
         searched_date_from: formatDateFromParts(requestedStart),
         searched_date_to: formatDateFromParts(endReference),
         business_days_configured: businessDaysConfigured,
