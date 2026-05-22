@@ -2626,10 +2626,13 @@ async function pauseAiForLead(
     normalizedReason.includes("manual") ||
     normalizedReason.includes("human_intervention") ||
     normalizedReason.includes("handoff_human")
+  const isHumanOutboundTemporaryPause =
+    normalizedReason.includes("human_outbound_message_temporary_pause")
+  const isUnitUserInitiatedPause = isManualLikePause || isHumanOutboundTemporaryPause
   const payload: Record<string, any> = {
     numero: normalized,
     pausar: true,
-    vaga: !isManualLikePause,
+    vaga: !isUnitUserInitiatedPause,
     agendamento: false,
     updated_at: nowIso,
     pausado_em: nowIso,
@@ -2666,8 +2669,10 @@ async function pauseAiForLead(
       pauseReason: payload.pause_reason || null,
       pausedUntil: payload.paused_until || null,
       actor: buildPauseActorPayload({
-        role: isManualLikePause ? "unit_user" : "system",
-        source: isManualLikePause ? "zapi_webhook_human_manual_message" : "zapi_webhook_auto_pause",
+        role: isUnitUserInitiatedPause ? "unit_user" : "system",
+        source: isHumanOutboundTemporaryPause
+          ? "zapi_webhook_human_outbound_temporary_pause"
+          : isManualLikePause ? "zapi_webhook_human_manual_message" : "zapi_webhook_auto_pause",
         unit: tenant,
       }),
       metadata: {
@@ -4108,8 +4113,10 @@ export async function POST(req: NextRequest) {
       canonicalPhone &&
       !shouldTriggerFromExternalStarter
     ) {
+      const humanOutboundPauseMinutes = 30
       await pauseAiForLead(tenant, canonicalPhone, {
-        reason: "human_manual_pause",
+        minutes: humanOutboundPauseMinutes,
+        reason: "human_outbound_message_temporary_pause",
       })
       await new AgentTaskQueueService()
         .cancelPendingFollowups({
@@ -4122,11 +4129,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         received: true,
         ignored: true,
-        reason: "human_manual_message_paused_ai",
+        reason: "human_outbound_message_temporarily_paused_ai",
         tenant,
         persisted,
         canonicalSessionId,
         canonicalPhone,
+        pausedMinutes: humanOutboundPauseMinutes,
       })
     }
 
