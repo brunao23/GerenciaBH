@@ -70,6 +70,7 @@ function repairKnownPortugueseArtifacts(value: string): string {
   if (!text) return ""
 
   const brokenAccent = "(?:[\\u00D2\\uFFFD]{1,8}[\\u00A1\\u00A3\\u00AA\\u00BA]?|[\\u00D2\\uFFFD\\u00A1\\u00A3\\u00AA\\u00BA]{1,10})"
+  const brokenNoise = "[\\u00D2\\uFFFD\\u00BF\\u00BD\\u00A1\\u00A3\\u00AA\\u00BA?\\-]+"
   const replacements: Array<[RegExp, string]> = [
     [/\u00C3\u0192\u00C2\u00A1|\u00C3\u00A1/g, "\u00E1"],
     [/\u00C3\u0192\u00C2\u00A0|\u00C3\u00A0/g, "\u00E0"],
@@ -109,6 +110,13 @@ function repairKnownPortugueseArtifacts(value: string): string {
     [new RegExp(`jati${brokenAccent}ca`, "g"), "jati\u00FAca"],
     [new RegExp(`Macei${brokenAccent}`, "g"), "Macei\u00F3"],
     [new RegExp(`macei${brokenAccent}`, "g"), "macei\u00F3"],
+    [
+      new RegExp(
+        `(\\b\\d{1,2}(?::\\d{2})?\\s*h?)\\s+(?:${brokenNoise}\\s*)+a(?:${brokenNoise}\\s*)*s\\s+(\\d{1,2}(?::\\d{2})?\\s*h?\\b)`,
+        "gi",
+      ),
+      "$1 \u00E0s $2",
+    ],
   ]
 
   for (const [pattern, replacement] of replacements) {
@@ -144,4 +152,20 @@ export function repairMojibakeText(value: unknown): string {
 export function cleanUiText(value: unknown, fallback = ""): string {
   const repaired = repairMojibakeText(value).replace(/\s+/g, " ").trim()
   return repaired || fallback
+}
+
+export function sanitizeWhatsAppText(value: unknown): string {
+  const original = String(value ?? "")
+  const hadTerminalQuestion = /[?？]\s*$/.test(original)
+  const repaired = repairMojibakeText(original)
+  const cleaned = String(repaired || "")
+    .replace(/\\r\\n/g, "\n")
+    .replace(/\\n/g, "\n")
+    .replace(/\\t/g, " ")
+    .replace(/\r/g, "")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+
+  return hadTerminalQuestion && cleaned && !/[?!.]$/.test(cleaned) ? `${cleaned}?` : cleaned
 }

@@ -3,7 +3,7 @@
  * Docs: https://developer.z-api.io/
  */
 
-import { repairMojibakeText } from "@/lib/utils/text-mojibake"
+import { sanitizeWhatsAppText } from "@/lib/utils/text-mojibake"
 
 export interface ZApiConfig {
   instanceId: string
@@ -441,7 +441,7 @@ export class ZApiService {
       let lastError: string | undefined
       let lastData: any = null
 
-      const message = repairMojibakeText(params.message).trim()
+      const message = sanitizeWhatsAppText(params.message)
       if (!message) {
         return { success: false, error: "Mensagem vazia apos sanitizacao" }
       }
