@@ -627,8 +627,29 @@ function stripMensagemBlock(t: string) {
   return s
 }
 
+function isMeaningfulShortSchedulingReply(text: string): boolean {
+  const trimmed = String(text || "").trim()
+  if (!trimmed) return false
+
+  const normalized = trimmed
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, "")
+
+  // Replies like "09:00", "9h", "9h30", "18" and "1" are valid lead choices.
+  if (/^(?:[01]?\d|2[0-3])(?::[0-5]\d|h(?:[0-5]\d)?)?$/.test(normalized)) return true
+  if (/^\d{1,2}$/.test(normalized)) return true
+  if (/^\d{1,2}[\/.-]\d{1,2}(?:[\/.-]\d{2,4})?$/.test(normalized)) return true
+
+  return false
+}
+
 function cleanHumanMessage(text: string) {
   if (!text) return ""
+  const originalText = String(text).trim()
+  const keepShortSchedulingReply = isMeaningfulShortSchedulingReply(originalText)
+  if (keepShortSchedulingReply) return originalText
   let s = String(text).replace(/\r/g, "")
 
   // LEI INVIOLÁVEL: Remove COMPLETAMENTE qualquer bloco JSON que contenha prompt/regras
@@ -1019,8 +1040,13 @@ function cleanAnyMessage(text: string) {
   s = s.replace(/\(\s*\)/g, "").trim()
 
   const cleaned = s.trim()
-  if (cleaned.length < 3) return ""
-  if (cleaned.match(/^[\d\s:,\[\]\{\}"]+$/)) return "" // Só números, espaços e caracteres especiais
+  if (cleaned.length < 3 && !isMeaningfulShortSchedulingReply(cleaned)) return ""
+  if (
+    cleaned.match(/^[\d\s:,\[\]\{\}"]+$/) &&
+    !isMeaningfulShortSchedulingReply(cleaned)
+  ) {
+    return "" // Only numeric/special content without conversational value.
+  }
 
   return cleaned
 }
@@ -2058,7 +2084,12 @@ export async function GET(req: Request) {
 
           // Remove mensagens que são só caracteres especiais/números
           const trimmed = m.content.trim()
-          if (trimmed.match(/^[\d\s:,\[\]\{\}"]+$/)) return false
+          if (
+            trimmed.match(/^[\d\s:,\[\]\{\}"]+$/) &&
+            !isMeaningfulShortSchedulingReply(trimmed)
+          ) {
+            return false
+          }
 
           // LEI INVIOLÁVEL: Remove mensagens de usuário que ainda contêm QUALQUER resquício de prompt
           if (m.role === "user") {
