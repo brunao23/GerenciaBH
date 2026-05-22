@@ -1130,6 +1130,13 @@ function leadExplicitlyConfirmsSchedulingMutation(
     return true
   }
 
+  const shortAffirmativeScheduleConfirmation =
+    text.length <= 80 &&
+    /\b(sim|ok|certo|confirmo|confirmado|pode ser|isso|fechado|combinado|pode agendar|pode marcar|marca|marcar|agenda|agendar|reserva|reservar)\b/.test(text)
+  if (shortAffirmativeScheduleConfirmation && recentAssistantAskedSingleScheduleConfirmation(rows)) {
+    return true
+  }
+
   const answeredModeOnly = /^(presencial|online|on\s*line|on-line|ead|virtual)$/i.test(text)
   if (answeredModeOnly && recentAssistantAskedSchedulingMode(rows) && findRecentSchedulingTimeCandidate(rows, "")) {
     return true
@@ -1723,7 +1730,7 @@ function responseMentionsAvailabilityOrSpecificSlots(responseText: string): bool
 
   const saysWillCheckSchedule =
     /\b(vou validar|vou verificar|vou consultar|validar os horarios|verificar os horarios|consultar a agenda)\b/.test(text)
-  const hasScheduleNoun = /\b(agenda|disponivel|disponiveis|horario|horarios|vaga|vagas)\b/.test(text)
+  const hasScheduleNoun = /\b(agenda|agendamento|agendar|reserva|reservar|disponivel|disponiveis|horario|horarios|vaga|vagas)\b/.test(text)
   const hasConcreteTimeOrDay =
     /\b([01]?\d|2[0-3])[:h](?:[0-5]\d)?\b/.test(text) ||
     /\b(hoje|amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo)\b/.test(text)
