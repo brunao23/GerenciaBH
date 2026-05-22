@@ -2213,6 +2213,11 @@ function buildAvailableSlotsRecoveryReply(response: Record<string, any>, leadMes
 function buildScheduleRecoveryReply(execution: GeminiToolExecution, contactName?: string | null): string | undefined {
   const response = execution.response || {}
   if (!execution.ok || response?.ok === false) {
+    const error = String(response?.error || execution.error || "").trim().toLowerCase()
+    if (error === "schedule_requires_explicit_lead_confirmation") {
+      return buildSchedulePendingConfirmationReply(execution, contactName)
+    }
+
     const alternativeSlots = Array.isArray(response?.alternativeSlots) ? response.alternativeSlots : []
     if (alternativeSlots.length) {
       return buildAvailableSlotsRecoveryReply({ slots: alternativeSlots }, "")
@@ -2235,6 +2240,36 @@ function buildScheduleRecoveryReply(execution: GeminiToolExecution, contactName?
   const modeLabel = mode === "online" ? " online" : ""
 
   return `${namePrefix}agendamento confirmado com sucesso${modeLabel}: ${dateLabel}${timeLabel ? `, ${timeLabel}` : ""}.`
+}
+
+function buildSchedulePendingConfirmationReply(
+  execution: Pick<GeminiToolExecution, "action" | "response" | "error">,
+  contactName?: string | null,
+): string | undefined {
+  const response = execution.response || {}
+  const date = normalizeDateToIso(response?.confirmed_date || response?.date || execution.action?.date)
+  const time = normalizeTimeToHHmm(response?.confirmed_time || response?.time || execution.action?.time)
+  if (!date && !time) return undefined
+
+  const info = getWeekdayInfoForDateIso(date)
+  const leadName = sanitizeSafeVocativeName(contactName) || ""
+  const namePrefix = leadName ? `${leadName}, ` : ""
+  const dateLabel = info?.weekday_name_pt && info?.date_br
+    ? `${info.weekday_name_pt}, dia ${info.date_br}`
+    : date
+      ? `dia ${formatDateIsoToBr(date)}`
+      : "esse dia"
+  const timeLabel = time ? `as ${formatSlotTimeForLead(time)}` : "esse horario"
+
+  if (date && time) {
+    return `${namePrefix}para eu reservar corretamente, confirma ${dateLabel}, ${timeLabel}?`
+  }
+
+  if (time) {
+    return `${namePrefix}para eu reservar corretamente, confirma ${timeLabel}?`
+  }
+
+  return `${namePrefix}para eu reservar corretamente, confirma ${dateLabel}?`
 }
 
 function shouldForceRescheduleBeforeCancel(rawMessage: string): boolean {
@@ -6036,6 +6071,33 @@ export class NativeAgentOrchestratorService {
       responseClaimsAppointmentConfirmed(String(decision.reply || "")) &&
       !promptBaseSchedulingToolBlockReason
     ) {
+      const latestLeadMessageText = String(effectiveLeadMessage || content || "")
+      const pendingTime = findRecentSchedulingTimeCandidate(conversationRows, latestLeadMessageText)
+      let pendingDate = pendingTime
+        ? await this.resolveRecentScheduleDateHintFromHistory({
+          tenant,
+          sessionId,
+          requestedTime: pendingTime,
+        })
+        : undefined
+      if (!pendingDate) {
+        pendingDate = findRecentSchedulingDateCandidate(
+          conversationRows,
+          latestLeadMessageText,
+          config.timezone || "America/Sao_Paulo",
+          pendingTime,
+        )
+      }
+      const pendingReply = buildSchedulePendingConfirmationReply({
+        action: {
+          type: "schedule_appointment",
+          date: pendingDate,
+          time: pendingTime,
+        } as AgentActionPlan,
+        response: {},
+        error: "schedule_confirmation_without_tool",
+      }, resolvedContactName)
+
       await this
         .persistDebugStatus({
           chat,
@@ -6049,11 +6111,15 @@ export class NativeAgentOrchestratorService {
           },
         })
         .catch(() => {})
-      return {
-        processed: true,
-        replied: false,
-        actions: [],
-        reason: "schedule_confirmation_without_tool_blocked",
+      if (pendingReply) {
+        decision.reply = pendingReply
+      } else {
+        return {
+          processed: true,
+          replied: false,
+          actions: [],
+          reason: "schedule_confirmation_without_tool_blocked",
+        }
       }
     }
 
@@ -7707,12 +7773,21 @@ export class NativeAgentOrchestratorService {
 
     const leadEmail = extractEmailCandidate(leadMessage) || extractEmailCandidate(responseText)
     const selectedTime = findRecentSchedulingTimeCandidate(params.conversationRows, `${leadMessage}\n${responseText}`)
-    const selectedDate = findRecentSchedulingDateCandidate(
-      params.conversationRows,
-      combinedContext,
-      timezone,
-      selectedTime,
-    )
+    let selectedDate = selectedTime
+      ? await this.resolveRecentScheduleDateHintFromHistory({
+        tenant: params.tenant,
+        sessionId: params.sessionId,
+        requestedTime: selectedTime,
+      })
+      : undefined
+    if (!selectedDate) {
+      selectedDate = findRecentSchedulingDateCandidate(
+        params.conversationRows,
+        [recentScheduleContext, leadMessage].filter(Boolean).join("\n"),
+        timezone,
+        selectedTime,
+      )
+    }
     const shouldSchedule =
       Boolean(selectedTime) &&
       leadConfirmedSchedulingMutation
@@ -7742,7 +7817,7 @@ export class NativeAgentOrchestratorService {
         chat: params.chat,
         incomingMessageId: params.incomingMessageId,
         qualificationState: params.qualificationState,
-        leadMessageContext: combinedContext || leadMessage,
+        leadMessageContext: leadMessage,
       })
       const execution = toExecution(toolCall, handled, {
         type: "schedule_appointment",
