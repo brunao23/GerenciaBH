@@ -4,7 +4,6 @@ import { GeminiService } from "./gemini.service";
 import { OpenAIService } from "./openai.service";
 import { AnthropicService } from "./anthropic.service";
 import { GroqService } from "./groq.service";
-import { OpenRouterService } from "./openrouter.service";
 import { VertexAIService } from "./vertexai.service";
 import { VertexWithGoogleFallbackService } from "./vertex-with-google-fallback.service";
 
@@ -75,14 +74,8 @@ export class LLMFactory {
             }
 
             case "openrouter": {
-                const apiKey = config.openRouterApiKey || process.env.OPENROUTER_API_KEY || "";
-                const model = config.openRouterModel || "google/gemini-2.5-flash";
-                if (!apiKey) {
-                    console.warn(`[LLMFactory] OpenRouter selected but no API key found. Falling back to Gemini.`);
-                    return LLMFactory.buildGeminiService(config);
-                }
-                console.log(`[LLMFactory] Using OpenRouter provider model=${model}`);
-                return new OpenRouterService(apiKey, model);
+                console.warn("[LLMFactory] OpenRouter is disabled in this project. Using Google Gemini instead.");
+                return LLMFactory.buildGeminiService(config);
             }
 
             case "google":
@@ -152,50 +145,6 @@ export class LLMFactory {
             fallbacks.push({
                 service: new GeminiService(geminiKey, model),
                 provider: "google",
-                model,
-            });
-        }
-
-        const anthropicKey = config.anthropicApiKey || process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY || "";
-        if (anthropicKey) {
-            const model = "claude-3-5-haiku-20241022";
-            console.log(`[LLMFactory] Using Vertex fallback: Anthropic model=${model}`);
-            fallbacks.push({
-                service: new AnthropicService(anthropicKey, model),
-                provider: "anthropic",
-                model,
-            });
-        }
-
-        const openaiKey = config.openaiApiKey || process.env.OPENAI_API_KEY || "";
-        if (openaiKey) {
-            const model = "gpt-4o-mini";
-            console.log(`[LLMFactory] Using Vertex fallback: OpenAI model=${model}`);
-            fallbacks.push({
-                service: new OpenAIService(openaiKey, model),
-                provider: "openai",
-                model,
-            });
-        }
-
-        const groqKey = config.groqApiKey || process.env.GROQ_API_KEY || "";
-        if (groqKey) {
-            const model = LLMFactory.resolveGroqModel(config);
-            console.log(`[LLMFactory] Using Vertex fallback: Groq model=${model}`);
-            fallbacks.push({
-                service: new GroqService(groqKey, model),
-                provider: "groq",
-                model,
-            });
-        }
-
-        const openRouterKey = config.openRouterApiKey || process.env.OPENROUTER_API_KEY || "";
-        if (openRouterKey) {
-            const model = config.openRouterModel || "google/gemini-2.5-flash";
-            console.log(`[LLMFactory] Using Vertex fallback: OpenRouter model=${model}`);
-            fallbacks.push({
-                service: new OpenRouterService(openRouterKey, model),
-                provider: "openrouter",
                 model,
             });
         }
@@ -274,32 +223,35 @@ export class LLMFactory {
         if (LLMFactory.resolveGeminiApiKey(config)) {
             return { provider: "google", model: LLMFactory.resolveGeminiModel(config) };
         }
-        if (config.anthropicApiKey || process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY) {
-            return { provider: "anthropic", model: "claude-3-5-haiku-20241022" };
-        }
-        if (config.openaiApiKey || process.env.OPENAI_API_KEY) {
-            return { provider: "openai", model: "gpt-4o-mini" };
-        }
-        if (config.groqApiKey || process.env.GROQ_API_KEY) {
-            return { provider: "groq", model: LLMFactory.resolveGroqModel(config) };
-        }
-        if (config.openRouterApiKey || process.env.OPENROUTER_API_KEY) {
-            return { provider: "openrouter", model: config.openRouterModel || "google/gemini-2.5-flash" };
-        }
         return null;
     }
 
     private static normalizeVertexModelForExecution(model: string): string {
         const requested = String(model || "").trim();
-        const normalized = requested.toLowerCase();
+        const normalized = LLMFactory.normalizeModelCode(requested);
         const aliases: Record<string, string> = {
             "gemini-3.1-flash": "gemini-3-flash-preview",
             "gemini-3.1-flash-preview": "gemini-3-flash-preview",
             "gemini-3.1-flash-lite": "gemini-3-flash-preview",
+            "gemini-3.1-flash-lite-preview": "gemini-3-flash-preview",
             "gemini-3.1-pro": "gemini-3-pro-preview",
             "gemini-3.1-pro-preview": "gemini-3-pro-preview",
         };
-        return aliases[normalized] || requested || "gemini-3.5-flash";
+        return aliases[normalized] || normalized || "gemini-3.5-flash";
+    }
+
+    private static normalizeModelCode(model: string): string {
+        return String(model || "")
+            .trim()
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .replace(/^models\//i, "")
+            .replace(/^publishers\/google\/models\//i, "")
+            .toLowerCase()
+            .replace(/[()]/g, "")
+            .replace(/[\s_]+/g, "-")
+            .replace(/-+/g, "-")
+            .replace(/^-|-$/g, "");
     }
 
     private static resolveVertexLocation(model: string): string {
@@ -336,7 +288,7 @@ export class LLMFactory {
         }
         if (normalized === "groq") return LLMFactory.resolveGroqModel(config);
         if (normalized === "openrouter") {
-            return String(config.openRouterModel || "google/gemini-2.5-flash").trim() || "google/gemini-2.5-flash";
+            return LLMFactory.resolveGeminiModel(config);
         }
         if (normalized === "vertexai") return LLMFactory.resolveVertexModel(config);
         return LLMFactory.resolveGeminiModel(config);
@@ -373,6 +325,7 @@ export class LLMFactory {
         const configured = String(config.aiProvider || "google").toLowerCase().trim();
         if (configured === "vertexai") return "vertexai";
         if (LLMFactory.shouldForceVertexForAllTenants()) return "vertexai";
+        if (configured === "openrouter") return "google";
 
         const tenant = String(context?.tenant || "")
             .trim()
@@ -391,28 +344,8 @@ export class LLMFactory {
     }
 
     static getFallbackService(config: NativeAgentConfig): LLMService | null {
-        // Tenta Anthropic Claude 3.5 Haiku
-        const anthropicKey = config.anthropicApiKey || process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY || "";
-        if (anthropicKey) {
-            console.log(`[LLMFactory] Using Fallback: Anthropic Claude 3.5 Haiku`);
-            return new AnthropicService(anthropicKey, "claude-3-5-haiku-20241022");
-        }
-
-        // Tenta OpenAI GPT-4o-mini
-        const openaiKey = config.openaiApiKey || process.env.OPENAI_API_KEY || "";
-        if (openaiKey) {
-            console.log(`[LLMFactory] Using Fallback: OpenAI GPT-4o-mini`);
-            return new OpenAIService(openaiKey, "gpt-4o-mini");
-        }
-
-        // Tenta Groq Llama 3
-        const groqKey = config.groqApiKey || process.env.GROQ_API_KEY || "";
-        if (groqKey) {
-            const model = LLMFactory.resolveGroqModel(config);
-            console.log(`[LLMFactory] Using Fallback: Groq model=${model}`);
-            return new GroqService(groqKey, model);
-        }
-
+        const geminiKey = LLMFactory.resolveGeminiApiKey(config);
+        if (geminiKey) return LLMFactory.buildGeminiService(config);
         return null;
     }
 }

@@ -303,9 +303,19 @@ function actionFromToolCall(toolCall: GeminiToolCall): AgentActionPlan {
 }
 
 function normalizeModelCode(value: string): string {
-  const text = String(value || "").trim().toLowerCase()
+  const text = String(value || "")
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
   if (!text) return ""
-  return text.replace(/^models\//, "")
+  return text
+    .replace(/^models\//, "")
+    .replace(/^publishers\/google\/models\//, "")
+    .replace(/[()]/g, "")
+    .replace(/[\s_]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
 }
 
 function buildUniqueModelList(values: string[]): string[] {

@@ -239,7 +239,7 @@ function resolveLlmReadinessIssue(config: NativeAgentConfig): string | null {
     return String(config.groqApiKey || "").trim() ? null : "missing_groq_api_key"
   }
   if (provider === "openrouter") {
-    return String(config.openRouterApiKey || "").trim() ? null : "missing_openrouter_api_key"
+    return hasGeminiKey ? null : "missing_gemini_api_key"
   }
   return hasGeminiKey ? null : "missing_gemini_api_key"
 }

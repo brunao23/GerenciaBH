@@ -124,7 +124,7 @@ function resolveProviderAndModel(config: NativeAgentConfig): { provider: string;
   if (provider === "openai") return { provider, model: config.openaiModel || "gpt-4o" }
   if (provider === "anthropic") return { provider, model: config.anthropicModel || "claude-sonnet-4-20250514" }
   if (provider === "groq") return { provider, model: config.groqModel || "llama3-70b-8192" }
-  if (provider === "openrouter") return { provider, model: config.openRouterModel || "google/gemini-2.5-flash" }
+  if (provider === "openrouter") return { provider: "google", model: config.geminiModel || process.env.GEMINI_MODEL || "gemini-3.5-flash" }
   return { provider: "google", model: config.geminiModel || process.env.GEMINI_MODEL || "gemini-3.5-flash" }
 }
 
@@ -148,7 +148,7 @@ function validateProviderCredentials(config: NativeAgentConfig): string | null {
   if (provider === "openai") return config.openaiApiKey ? null : "openai_api_key_missing"
   if (provider === "anthropic") return config.anthropicApiKey ? null : "anthropic_api_key_missing"
   if (provider === "groq") return config.groqApiKey ? null : "groq_api_key_missing"
-  if (provider === "openrouter") return config.openRouterApiKey ? null : "openrouter_api_key_missing"
+  if (provider === "openrouter") return config.geminiApiKey ? null : "gemini_api_key_missing"
   return config.geminiApiKey ? null : "gemini_api_key_missing"
 }
 
