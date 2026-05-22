@@ -810,6 +810,9 @@ async function transcribeAudioForEvent(params: {
   const event = params.event
   const config = params.config
   if (!event.hasAudio) return {}
+  if (event.fromMe === true) {
+    return { error: "audio_transcription_skipped_from_me" }
+  }
   if (!config) {
     return { error: "missing_native_agent_config_for_audio_transcription" }
   }
@@ -2353,7 +2356,7 @@ function buildContent(event: ZapiMessageEvent): string {
   if (event.isReaction && event.reactionValue) {
     return `[Reacao] ${event.reactionValue}`
   }
-  if (event.hasAudio) return "[Audio recebido]"
+  if (event.hasAudio) return event.fromMe ? "[Audio enviado pela unidade]" : "[Audio recebido]"
   if (event.hasMedia) {
     if (event.mediaType === "image") return event.mediaCaption ? `[Imagem] ${event.mediaCaption}` : "[Imagem recebida]"
     if (event.mediaType === "video") return event.mediaCaption ? `[Video] ${event.mediaCaption}` : "[Video recebido]"
@@ -3960,6 +3963,17 @@ export async function POST(req: NextRequest) {
 
     if (
       event.callbackType === "received" &&
+      event.fromMe === true &&
+      event.hasAudio &&
+      (!event.text || isAudioPlaceholderText(event.text))
+    ) {
+      event.text = "[Audio enviado pela unidade]"
+      event.metadata.audioTranscriptionStatus = "skipped_from_me"
+    }
+
+    if (
+      event.callbackType === "received" &&
+      event.fromMe !== true &&
       event.hasAudio &&
       (!event.text || isAudioPlaceholderText(event.text))
     ) {
