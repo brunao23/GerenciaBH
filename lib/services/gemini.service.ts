@@ -1056,6 +1056,8 @@ export class GeminiService {
         break
       }
 
+      const toolResponseParts: any[] = []
+
       for (const toolCall of toolCalls) {
         allCalls.push(toolCall)
         const defaultAction = actionFromToolCall(toolCall)
@@ -1091,17 +1093,19 @@ export class GeminiService {
         }
 
         executions.push(execution)
+        toolResponseParts.push({
+          functionResponse: {
+            name: toolCall.name,
+            id: toolCall.id,
+            response: execution.response,
+          },
+        })
+      }
+
+      if (toolResponseParts.length > 0) {
         contents.push({
           role: "user",
-          parts: [
-            {
-              functionResponse: {
-                name: toolCall.name,
-                id: toolCall.id,
-                response: execution.response,
-              },
-            },
-          ],
+          parts: toolResponseParts,
         })
       }
     }

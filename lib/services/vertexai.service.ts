@@ -707,6 +707,8 @@ export class VertexAIService implements LLMService {
       const toolCalls = extractToolCallsFromParts(parts)
       if (!toolCalls.length) break
 
+      const toolResponseParts: any[] = []
+
       for (const toolCall of toolCalls) {
         allCalls.push(toolCall)
         const defaultAction = actionFromToolCall(toolCall)
@@ -743,16 +745,18 @@ export class VertexAIService implements LLMService {
         }
 
         executions.push(execution)
+        toolResponseParts.push({
+          functionResponse: {
+            name: toolCall.name,
+            response: execution.response,
+          },
+        })
+      }
+
+      if (toolResponseParts.length > 0) {
         contents.push({
           role: "user",
-          parts: [
-            {
-              functionResponse: {
-                name: toolCall.name,
-                response: execution.response,
-              },
-            },
-          ],
+          parts: toolResponseParts,
         })
       }
     }
