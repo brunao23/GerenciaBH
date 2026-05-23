@@ -6073,11 +6073,74 @@ export class NativeAgentOrchestratorService {
         .catch(() => {})
     }
 
-    if (
+    const claimsAppointmentWithoutCurrentTool =
       !hasAppointmentMutationExecution(decision.executions as GeminiToolExecution[]) &&
       responseClaimsAppointmentConfirmed(String(decision.reply || "")) &&
       !promptBaseSchedulingToolBlockReason
-    ) {
+
+    if (claimsAppointmentWithoutCurrentTool) {
+      const latestPauseState = pauseLookupPhone
+        ? await getLeadPauseState({
+            tenant,
+            phone: pauseLookupPhone,
+            supabase: this.supabase,
+          })
+        : null
+      if (latestPauseState?.paused) {
+        await this
+          .persistDebugStatus({
+            chat,
+            sessionId,
+            content: "schedule_confirmation_suppressed_paused_lead",
+            details: {
+              debug_event: "schedule_confirmation_suppressed_paused_lead",
+              debug_severity: "info",
+              lead_preview: String(effectiveLeadMessage || content || "").slice(0, 180),
+              suppressed_reply_preview: String(decision.reply || "").slice(0, 240),
+              pause_reason: latestPauseState.pauseReason || null,
+              pause_is_manual: latestPauseState.isManual === true,
+            },
+          })
+          .catch(() => {})
+        return {
+          processed: true,
+          replied: false,
+          actions: [],
+          reason: "schedule_confirmation_suppressed_paused_lead",
+        }
+      }
+
+      const hasExistingActiveAppointment = await this.hasActiveAppointmentForLead({
+        tenant,
+        sessionId,
+        phone,
+        timezone: config.timezone || "America/Sao_Paulo",
+      })
+      if (hasExistingActiveAppointment) {
+        if (phone) {
+          await this.pauseLeadAfterScheduling(tenant, phone).catch(() => {})
+        }
+        await this
+          .persistDebugStatus({
+            chat,
+            sessionId,
+            content: "schedule_confirmation_suppressed_existing_appointment",
+            details: {
+              debug_event: "schedule_confirmation_suppressed_existing_appointment",
+              debug_severity: "info",
+              lead_preview: String(effectiveLeadMessage || content || "").slice(0, 180),
+              suppressed_reply_preview: String(decision.reply || "").slice(0, 240),
+            },
+          })
+          .catch(() => {})
+        return {
+          processed: true,
+          replied: false,
+          actions: [],
+          reason: "schedule_confirmation_suppressed_existing_appointment",
+        }
+      }
+
       const latestLeadMessageText = String(effectiveLeadMessage || content || "")
       const pendingTime = findRecentSchedulingTimeCandidate(conversationRows, latestLeadMessageText)
       let pendingDate = pendingTime
@@ -7532,6 +7595,80 @@ export class NativeAgentOrchestratorService {
     }
 
     return { ok: true }
+  }
+
+  private async hasActiveAppointmentForLead(params: {
+    tenant: string
+    sessionId?: string
+    phone?: string
+    timezone?: string
+  }): Promise<boolean> {
+    try {
+      const normalizedSession = normalizeSessionId(params.sessionId || "")
+      const normalizedPhone = normalizePhoneNumber(params.phone || "")
+      if (!normalizedSession && !normalizedPhone) return false
+
+      const tables = getTablesForTenant(params.tenant)
+      const columns = await getTableColumns(this.supabase as any, tables.agendamentos)
+      if (!columns.size) return false
+
+      const mappedColumns = this.resolveAgendamentosColumns(columns)
+      const todayIso = formatDateFromParts(
+        getNowPartsForTimezone(params.timezone || "America/Sao_Paulo"),
+      )
+
+      const phoneVariants = Array.from(
+        new Set(
+          [
+            normalizedPhone,
+            normalizedPhone.startsWith("55") ? normalizedPhone.slice(2) : "",
+            normalizedPhone && !normalizedPhone.startsWith("55") ? `55${normalizedPhone}` : "",
+          ].filter(Boolean),
+        ),
+      )
+      const sessionVariants = Array.from(
+        new Set([normalizedSession, normalizeSessionId(params.phone || "")].filter(Boolean)),
+      )
+
+      const rowIsActive = (row: any): boolean => {
+        const statusValue = mappedColumns.statusColumn ? row?.[mappedColumns.statusColumn] : row?.status
+        if (isCancelledAppointmentStatus(statusValue)) return false
+
+        if (mappedColumns.dateColumn) {
+          const rowDate = normalizeDateToIso(row?.[mappedColumns.dateColumn])
+          if (rowDate && rowDate < todayIso) return false
+        }
+
+        return true
+      }
+
+      const queryColumnValues = async (column: string, values: string[]): Promise<boolean> => {
+        const cleanValues = Array.from(new Set(values.map((value) => String(value || "").trim()).filter(Boolean)))
+        if (!column || !cleanValues.length) return false
+
+        const result = await this.supabase
+          .from(tables.agendamentos)
+          .select("*")
+          .in(column, cleanValues)
+          .limit(20)
+
+        if (result.error || !Array.isArray(result.data)) return false
+        return result.data.some(rowIsActive)
+      }
+
+      for (const column of mappedColumns.sessionColumns) {
+        if (await queryColumnValues(column, sessionVariants)) return true
+      }
+
+      for (const column of mappedColumns.phoneColumns) {
+        if (await queryColumnValues(column, phoneVariants)) return true
+      }
+
+      return false
+    } catch (error: any) {
+      console.warn("[native-agent] active appointment lookup failed:", error?.message || error)
+      return false
+    }
   }
 
   private createGoogleCalendarService(config: NativeAgentConfig): GoogleCalendarService {
