@@ -405,6 +405,11 @@ function compactComparableMessage(value: string): string {
     .trim()
 }
 
+function mentionsEmailWord(normalizedText: string): boolean {
+  const text = normalizeComparableMessage(normalizedText)
+  return /\b(?:email|e\s*[- ]?\s*mail)\b/.test(text)
+}
+
 function compactGreetingComparableMessage(value: string): string {
   const tokens = compactComparableMessage(value).split(" ").filter(Boolean)
   const merged: string[] = []
@@ -1083,7 +1088,7 @@ function recentAssistantRequestedSchedulingEmail(rows: any[] | undefined): boole
     const text = normalizeComparableMessage(content)
     if (!text) continue
     if (
-      /\b(email|e-mail)\b/.test(text) &&
+      mentionsEmailWord(text) &&
       /\b(reservad[ao]|formalizar|confirmacao|confirmar|agendamento|horario|agenda)\b/.test(text)
     ) {
       return true
@@ -1092,11 +1097,54 @@ function recentAssistantRequestedSchedulingEmail(rows: any[] | undefined): boole
   return false
 }
 
+function recentLeadSelectedConcreteScheduleBeforeEmail(rows: any[] | undefined): boolean {
+  const ordered = Array.isArray(rows) ? [...rows].reverse() : []
+  let sawSchedulingEmailRequest = false
+  let sawAssistantScheduleOffer = false
+  let sawRecentLeadDateHint = false
+
+  for (const row of ordered.slice(0, 14)) {
+    const message = row?.message || row || {}
+    const role = String(message?.role || row?.role || "").trim().toLowerCase()
+    const content = String(message?.content || row?.content || "")
+    const text = normalizeComparableMessage(content)
+    if (!text) continue
+
+    if (role === "assistant") {
+      if (responseRequestsSchedulingEmail(content)) {
+        sawSchedulingEmailRequest = true
+      }
+      if (responseMentionsAvailabilityOrSpecificSlots(content)) {
+        sawAssistantScheduleOffer = true
+      }
+      continue
+    }
+
+    if (role !== "user") continue
+    if (extractEmailCandidate(content)) continue
+    if (latestLeadMessageIsSchedulingQuestionOrInfoRequest(content)) continue
+
+    const hasTime = Boolean(extractSchedulingTimeCandidate(content))
+    const hasDateHint =
+      /\b(hoje|amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo|dia\s+\d{1,2}|\d{1,2}\/\d{1,2})\b/.test(text)
+
+    if (hasDateHint) {
+      sawRecentLeadDateHint = true
+    }
+
+    if (hasTime && (hasDateHint || sawRecentLeadDateHint || sawAssistantScheduleOffer || sawSchedulingEmailRequest)) {
+      return true
+    }
+  }
+
+  return false
+}
+
 function responseRequestsSchedulingEmail(responseText: string): boolean {
   const text = normalizeComparableMessage(responseText)
   if (!text) return false
   return (
-    /\b(email|e-mail)\b/.test(text) &&
+    mentionsEmailWord(text) &&
     /\b(formalizar|confirmacao|confirmar|reservar|reservado|agendamento|agenda|horario)\b/.test(text)
   )
 }
@@ -1129,7 +1177,12 @@ function leadExplicitlyConfirmsSchedulingMutation(
 
   const hasRecentOffer = hasRecentAssistantOfferedSchedule(rows)
   const hasEmail = Boolean(extractEmailCandidate(rawMessage))
-  if (hasEmail && hasRecentOffer && recentAssistantRequestedSchedulingEmail(rows)) {
+  const assistantRequestedSchedulingEmail = recentAssistantRequestedSchedulingEmail(rows)
+  if (
+    hasEmail &&
+    assistantRequestedSchedulingEmail &&
+    (hasRecentOffer || recentLeadSelectedConcreteScheduleBeforeEmail(rows))
+  ) {
     return true
   }
 
@@ -1754,6 +1807,10 @@ function responseClaimsAppointmentConfirmed(responseText: string): boolean {
   if (
     /\b(qual|me\s+passa|me\s+envia|informa|me\s+informe|preciso|para\s+eu|pra\s+eu)\b.{0,120}\b(email|e-mail)\b/.test(
       text,
+    ) ||
+    (
+      /\b(qual|me\s+passa|me\s+envia|informa|me\s+informe|preciso|para\s+eu|pra\s+eu)\b/.test(text) &&
+      mentionsEmailWord(text)
     )
   ) {
     return false
