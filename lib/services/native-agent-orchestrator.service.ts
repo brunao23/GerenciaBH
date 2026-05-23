@@ -3589,6 +3589,15 @@ function isSuspiciousLeadNameToken(value: string): boolean {
     "ola",
     "oi",
     "opa",
+    "ok",
+    "sim",
+    "nao",
+    "não",
+    "isso",
+    "certo",
+    "pode",
+    "confirmo",
+    "confirmado",
     "bom",
     "boa",
     "bomdia",
@@ -3621,6 +3630,12 @@ function isSuspiciousLeadNameToken(value: string): boolean {
     "financeira",
     "administrativo",
     "administrativa",
+    "servidor",
+    "servidora",
+    "publico",
+    "publica",
+    "studio",
+    "estudio",
   ])
   if (invalidExactTokens.has(compact)) return true
 
@@ -3672,12 +3687,14 @@ function isNonPersonContactDisplayName(contactName?: string | null): boolean {
     "assistente", "agente", "atendente", "suporte", "admin", "teste",
     "vendas", "compras", "comercial", "financeiro", "recepcao", "atendimento",
     "sac", "loja", "empresa", "numero", "celular", "zap",
-    "ola", "oi", "opa", "bom", "boa", "interesse", "informacoes",
+    "ola", "oi", "opa", "ok", "sim", "nao", "não", "isso", "certo", "pode",
+    "confirmo", "confirmado", "bom", "boa", "interesse", "informacoes",
     "analista", "auxiliar", "consultor", "consultora", "coordenador", "coordenadora",
     "supervisor", "supervisora", "gerente", "diretor", "diretora", "professor",
     "professora", "engenheiro", "engenheira", "advogado", "advogada", "contador",
     "contadora", "administrativo", "administrativa", "operador", "operadora",
     "medico", "medica", "doutor", "doutora", "dr", "dra", "personal", "coach",
+    "servidor", "servidora", "publico", "publica", "studio", "estudio",
     "terapeuta", "nutricionista", "dentista", "psicologo", "psicologa",
   ])
 
@@ -3717,6 +3734,14 @@ function sanitizeSafeVocativeName(contactName?: string | null): string | null {
   if (/(.)\1{2,}/.test(flat)) return null
   if (/(inho|inha|zinho|zinha|ete|eta|ito|ita)$/.test(flat)) return null
   return base
+}
+
+function resolveSafeLeadNotificationName(...candidates: Array<string | null | undefined>): string {
+  for (const candidate of candidates) {
+    const safeName = sanitizeSafeVocativeName(candidate)
+    if (safeName) return safeName
+  }
+  return "Lead"
 }
 
 function fixGreetingTemporalAndVocative(
@@ -6117,78 +6142,69 @@ export class NativeAgentOrchestratorService {
         timezone: config.timezone || "America/Sao_Paulo",
       })
       if (hasExistingActiveAppointment) {
-        if (phone) {
-          await this.pauseLeadAfterScheduling(tenant, phone).catch(() => {})
-        }
         await this
           .persistDebugStatus({
             chat,
             sessionId,
-            content: "schedule_confirmation_suppressed_existing_appointment",
+            content: "schedule_confirmation_allowed_existing_appointment",
             details: {
-              debug_event: "schedule_confirmation_suppressed_existing_appointment",
+              debug_event: "schedule_confirmation_allowed_existing_appointment",
               debug_severity: "info",
               lead_preview: String(effectiveLeadMessage || content || "").slice(0, 180),
-              suppressed_reply_preview: String(decision.reply || "").slice(0, 240),
+              allowed_reply_preview: String(decision.reply || "").slice(0, 240),
             },
           })
           .catch(() => {})
-        return {
-          processed: true,
-          replied: false,
-          actions: [],
-          reason: "schedule_confirmation_suppressed_existing_appointment",
-        }
-      }
-
-      const latestLeadMessageText = String(effectiveLeadMessage || content || "")
-      const pendingTime = findRecentSchedulingTimeCandidate(conversationRows, latestLeadMessageText)
-      let pendingDate = pendingTime
-        ? await this.resolveRecentScheduleDateHintFromHistory({
-          tenant,
-          sessionId,
-          requestedTime: pendingTime,
-        })
-        : undefined
-      if (!pendingDate) {
-        pendingDate = findRecentSchedulingDateCandidate(
-          conversationRows,
-          latestLeadMessageText,
-          config.timezone || "America/Sao_Paulo",
-          pendingTime,
-        )
-      }
-      const pendingReply = buildSchedulePendingConfirmationReply({
-        action: {
-          type: "schedule_appointment",
-          date: pendingDate,
-          time: pendingTime,
-        } as AgentActionPlan,
-        response: {},
-        error: "schedule_confirmation_without_tool",
-      }, resolvedContactName)
-
-      await this
-        .persistDebugStatus({
-          chat,
-          sessionId,
-          content: "schedule_confirmation_blocked_without_tool",
-          details: {
-            debug_event: "schedule_confirmation_blocked_without_tool",
-            debug_severity: "error",
-            lead_preview: String(effectiveLeadMessage || content || "").slice(0, 180),
-            blocked_reply_preview: String(decision.reply || "").slice(0, 240),
-          },
-        })
-        .catch(() => {})
-      if (pendingReply) {
-        decision.reply = pendingReply
       } else {
-        return {
-          processed: true,
-          replied: false,
-          actions: [],
-          reason: "schedule_confirmation_without_tool_blocked",
+        const latestLeadMessageText = String(effectiveLeadMessage || content || "")
+        const pendingTime = findRecentSchedulingTimeCandidate(conversationRows, latestLeadMessageText)
+        let pendingDate = pendingTime
+          ? await this.resolveRecentScheduleDateHintFromHistory({
+            tenant,
+            sessionId,
+            requestedTime: pendingTime,
+          })
+          : undefined
+        if (!pendingDate) {
+          pendingDate = findRecentSchedulingDateCandidate(
+            conversationRows,
+            latestLeadMessageText,
+            config.timezone || "America/Sao_Paulo",
+            pendingTime,
+          )
+        }
+        const pendingReply = buildSchedulePendingConfirmationReply({
+          action: {
+            type: "schedule_appointment",
+            date: pendingDate,
+            time: pendingTime,
+          } as AgentActionPlan,
+          response: {},
+          error: "schedule_confirmation_without_tool",
+        }, resolvedContactName)
+
+        await this
+          .persistDebugStatus({
+            chat,
+            sessionId,
+            content: "schedule_confirmation_blocked_without_tool",
+            details: {
+              debug_event: "schedule_confirmation_blocked_without_tool",
+              debug_severity: "error",
+              lead_preview: String(effectiveLeadMessage || content || "").slice(0, 180),
+              blocked_reply_preview: String(decision.reply || "").slice(0, 240),
+            },
+          })
+          .catch(() => {})
+        if (pendingReply) {
+          decision.reply = pendingReply
+        } else {
+          return {
+            processed: true,
+            replied: false,
+            actions: [],
+            reason: "schedule_confirmation_without_tool_blocked",
+          }
         }
       }
     }
@@ -8555,20 +8571,65 @@ export class NativeAgentOrchestratorService {
       observations: aiFields.observations || fallbackFields.observations,
     }
 
+    const normalizeSummaryField = (
+      field: keyof typeof merged,
+      value: string,
+    ): string => {
+      let clean = repairMojibakeDeep(String(value || ""))
+        .replace(/\s*\|\s*/g, "; ")
+        .replace(/\s+/g, " ")
+        .trim()
+      if (!clean || this.isMissingAttendanceValue(clean)) return ""
+
+      if (field === "pain") {
+        clean = clean
+          .replace(/^(?:em|com|sobre|para)\s+/i, "")
+          .replace(/\bfalar em publico\b/gi, "falar em p\u00fablico")
+          .replace(/\boratoria\b/gi, "orat\u00f3ria")
+          .trim()
+      }
+
+      if (field === "observations") {
+        clean = clean
+          .replace(/^eu\s+/i, "Lead ")
+          .replace(/\bno estado\b/i, "do estado")
+          .replace(/\binterior no\b/i, "interior do")
+          .trim()
+      }
+
+      if (field === "profession") {
+        clean = clean
+          .replace(/\bpublico\b/gi, "p\u00fablico")
+          .replace(/\bpublica\b/gi, "p\u00fablica")
+          .trim()
+      }
+
+      return clean.charAt(0).toUpperCase() + clean.slice(1)
+    }
+
+    if (!merged.objective || this.isMissingAttendanceValue(merged.objective)) {
+      const source = normalizeComparableMessage([merged.pain, merged.profession, merged.observations].filter(Boolean).join(" "))
+      if (source.includes("falar em publico") || source.includes("oratoria") || source.includes("timidez")) {
+        merged.objective = "Melhorar a orat\u00f3ria, ganhar seguran\u00e7a e se comunicar melhor em p\u00fablico"
+      } else if (source.includes("clareza") || source.includes("comunicacao")) {
+        merged.objective = "Comunicar-se com mais clareza e seguran\u00e7a"
+      }
+    }
+
     const hasUsefulField = Object.values(merged).some((value) => value && !this.isMissingAttendanceValue(value))
     if (!hasUsefulField) return fallback || ai
 
-    const formatValue = (value: string) => {
-      const clean = repairMojibakeDeep(String(value || "")).replace(/\s+/g, " ").trim()
+    const formatValue = (field: keyof typeof merged, value: string) => {
+      const clean = normalizeSummaryField(field, value)
       if (!clean || this.isMissingAttendanceValue(clean)) return "N\u00e3o informado"
       return clean.length > 180 ? `${clean.slice(0, 177).trim()}...` : clean
     }
 
     return [
-      `- *Profiss\u00e3o:* ${formatValue(merged.profession)}`,
-      `- *Dor:* ${formatValue(merged.pain)}`,
-      `- *Objetivo/interesse:* ${formatValue(merged.objective)}`,
-      `- *Observa\u00e7\u00f5es:* ${formatValue(merged.observations)}`,
+      `- *Profiss\u00e3o:* ${formatValue("profession", merged.profession)}`,
+      `- *Dor:* ${formatValue("pain", merged.pain)}`,
+      `- *Objetivo/interesse:* ${formatValue("objective", merged.objective)}`,
+      `- *Observa\u00e7\u00f5es:* ${formatValue("observations", merged.observations)}`,
     ].join("\n")
   }
 
@@ -8729,7 +8790,7 @@ export class NativeAgentOrchestratorService {
     isEdit?: boolean
     attendanceSummary?: string
   }): string {
-    const name = String(sanitizeSafeVocativeName(input.contactName) || "Lead").trim()
+    const name = resolveSafeLeadNotificationName(input.action.customer_name, input.contactName)
     const day = formatDateToBr(input.action.date)
     const time = String(input.action.time || "nao informado").trim()
     const notes = String(input.action.note || "").trim()
@@ -8781,7 +8842,7 @@ export class NativeAgentOrchestratorService {
     action: AgentActionPlan
     error: string
   }): string {
-    const name = String(sanitizeSafeVocativeName(input.contactName) || "Lead").trim()
+    const name = resolveSafeLeadNotificationName(input.action.customer_name, input.contactName)
     const day = formatDateToBr(input.action.date)
     const time = String(input.action.time || "nao informado").trim()
     const contact = formatNotificationContact(input.phone)
@@ -8808,7 +8869,7 @@ export class NativeAgentOrchestratorService {
     contactName?: string
     reason: string
   }): string {
-    const name = String(sanitizeSafeVocativeName(input.contactName) || "Lead").trim()
+    const name = resolveSafeLeadNotificationName(input.contactName)
     const contact = formatNotificationContact(input.phone)
     const notes = String(input.reason || "Lead solicitou apoio humano.").trim()
 
