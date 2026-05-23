@@ -5635,26 +5635,31 @@ export class NativeAgentOrchestratorService {
             langGraphPilotDecisionUsed = true
           } catch (langGraphError: any) {
             langGraphPilotFallbackReason = String(langGraphError?.message || langGraphError || "langgraph_pilot_failed")
-            await this
-              .persistDebugStatus({
-                chat,
-                sessionId,
-                content: "langgraph_whatsapp_pilot_fallback",
-                details: {
-                  debug_event: "langgraph_whatsapp_pilot_fallback",
-                  debug_severity: "warning",
-                  tenant,
-                  error: String(langGraphError?.message || langGraphError || "").slice(0, 500),
-                },
+            try {
+              decision = await llm.decideNextTurnWithTools({
+                systemPrompt: basePrompt,
+                conversation,
+                sampling: llmSampling,
+                functionDeclarations,
+                onToolCall: onToolCallForDecision,
               })
-              .catch(() => {})
-            decision = await llm.decideNextTurnWithTools({
-              systemPrompt: basePrompt,
-              conversation,
-              sampling: llmSampling,
-              functionDeclarations,
-              onToolCall: onToolCallForDecision,
-            })
+            } catch (directLlmError: any) {
+              await this
+                .persistDebugStatus({
+                  chat,
+                  sessionId,
+                  content: "langgraph_whatsapp_pilot_fallback",
+                  details: {
+                    debug_event: "langgraph_whatsapp_pilot_fallback",
+                    debug_severity: "warning",
+                    tenant,
+                    error: String(langGraphError?.message || langGraphError || "").slice(0, 500),
+                    direct_llm_error: String(directLlmError?.message || directLlmError || "").slice(0, 500),
+                  },
+                })
+                .catch(() => {})
+              throw directLlmError
+            }
           }
         } else {
           decision = await llm.decideNextTurnWithTools({
