@@ -2,6 +2,7 @@ import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { type MessagingConfig } from "@/lib/helpers/messaging-config"
 import { createZApiServiceFromMessagingConfig } from "@/lib/helpers/zapi-messaging"
 import { notifyAdminUpdate } from "@/lib/services/tenant-notifications"
+import { notifyDiscordZapiHealthAlert } from "@/lib/services/discord-zapi-health-alert.service"
 
 type ZapiHealth = "connected" | "disconnected" | "expired" | "error" | "not_configured"
 
@@ -268,6 +269,32 @@ async function persistSnapshotAndNotify(unit: UnitRow, status: ZapiUnitStatus): 
   if (!paymentChanged && !healthChanged) return false
 
   const problematic = status.health === "expired" || status.health === "disconnected" || status.health === "error"
+  const shouldNotifyDiscord =
+    problematic ||
+    status.health === "not_configured" ||
+    (previousHealth && previousHealth !== "connected" && status.health === "connected") ||
+    paymentChanged
+
+  const discordAlertSent = shouldNotifyDiscord
+    ? await notifyDiscordZapiHealthAlert({
+        tenant: unit.unit_prefix,
+        unitName: unit.unit_name,
+        unitId: unit.id,
+        provider: status.provider,
+        instanceId: status.instanceId,
+        previousHealth,
+        currentHealth: status.health,
+        connected: status.connected,
+        statusText: status.statusText,
+        paymentStatus: status.paymentStatus,
+        dueAt: status.dueAt,
+        paymentUrl: status.paymentUrl,
+        dashboardUrl: status.dashboardUrl,
+        error: status.error,
+        checkedAt: status.lastCheckedAt,
+      })
+    : false
+
   let title = ""
   let message = ""
 
@@ -279,7 +306,7 @@ async function persistSnapshotAndNotify(unit: UnitRow, status: ZapiUnitStatus): 
     message = `A unidade ${unit.unit_name} voltou a ficar conectada.`
   }
 
-  if (!title || !message) return false
+  if (!title || !message) return discordAlertSent
 
   const result = await notifyAdminUpdate({
     tenant: unit.unit_prefix,
@@ -287,7 +314,7 @@ async function persistSnapshotAndNotify(unit: UnitRow, status: ZapiUnitStatus): 
     message,
     sourceId: unit.id,
   })
-  return result.ok
+  return result.ok || discordAlertSent
 }
 
 export async function monitorZapiInstances(options?: {
@@ -323,4 +350,3 @@ export async function monitorZapiInstances(options?: {
     statuses,
   }
 }
-
