@@ -1034,6 +1034,14 @@ function latestLeadMessageIsGenericNonSchedulingReply(
     )
   if (shortConfirmation && (hasRecentScheduleOffer || hasRecentSchedulingInvite)) return false
 
+  if (
+    /\b(te\s+respondo|respondo\s+(logo|depois|mais\s+tarde)|te\s+retorno|retorno\s+(logo|depois)|falo\s+com\s+voce|te\s+falo)\b/.test(
+      compact,
+    )
+  ) {
+    return true
+  }
+
   return (
     shortConfirmation ||
     /^(nao|n|nao obrigada|obrigado|obrigada|valeu|entendi|aham|uhum|hum|hmm)$/.test(compact)
@@ -1736,7 +1744,7 @@ function responseMentionsAvailabilityOrSpecificSlots(responseText: string): bool
     /\b(hoje|amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo)\b/.test(text)
   const offersSlot = /\b(tenho|temos)\b/.test(text) && hasConcreteTimeOrDay
 
-  return saysWillCheckSchedule || hasScheduleNoun || offersSlot
+  return saysWillCheckSchedule || (hasScheduleNoun && hasConcreteTimeOrDay) || offersSlot
 }
 
 function responseClaimsAppointmentConfirmed(responseText: string): boolean {
@@ -1751,7 +1759,7 @@ function responseClaimsAppointmentConfirmed(responseText: string): boolean {
     return false
   }
 
-  return /\b(agendamento\s+(?:confirmado|realizado|feito)|ficou\s+(?:agendado|marcado|reservado|formalizado)|esta\s+(?:agendado|marcado|reservado|formalizado)|diagnostico\s+(?:agendado|confirmado|marcado)|te\s+espero)\b/.test(text)
+  return /\b(agendamento\s+(?:confirmado|realizado|feito)|ficou\s+(?:agendado|marcado|reservado|formalizado)|esta\s+(?:agendado|marcado|reservado|formalizado)|diagnostico\s+(?:agendado|confirmado|marcado))\b/.test(text)
 }
 
 function shouldBypassSemanticCacheForScheduling(leadMessage: string, responseText?: string): boolean {
@@ -1779,6 +1787,26 @@ function findRecentSchedulingTimeCandidate(rows: any[] | undefined, currentMessa
     if (role !== "user") continue
     const candidate = extractSchedulingTimeCandidate(String(message?.content || row?.content || ""))
     if (candidate) return candidate
+  }
+
+  for (const row of ordered.slice(0, 8)) {
+    const message = row?.message || row || {}
+    const role = String(message?.role || row?.role || "").trim().toLowerCase()
+    if (role !== "assistant") continue
+
+    const content = String(message?.content || row?.content || "")
+    const text = normalizeComparableMessage(content)
+    if (!text) continue
+
+    const times = extractSchedulingTimeCandidates(content)
+    if (times.length !== 1) continue
+
+    const askedExplicitConfirmation =
+      /\b(confirma|confirmar|posso reservar|posso deixar reservado|deixo reservado|deixar reservado|reservar|formalizar|fica bom|pode ser)\b/.test(text)
+    const offeredChoice =
+      /\b(ou|qual desses|qual destas|qual dessas|qual daqueles|qual daquelas|opcoes|opcao|alternativas)\b/.test(text)
+
+    if (askedExplicitConfirmation && !offeredChoice) return times[0]
   }
   return undefined
 }
@@ -5734,7 +5762,7 @@ export class NativeAgentOrchestratorService {
           if (!decision) {
             decision = {
               reply:
-                "Perfeito. Recebi sua mensagem e jÃƒÆ’Ã‚Â¡ estou organizando as prÃƒÆ’Ã‚Â³ximas informaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Âµes para vocÃƒÆ’Ã‚Âª.",
+                "Perfeito. Recebi sua mensagem e ja estou organizando as proximas informacoes para voce.",
               actions: [{ type: "none" }],
               handoff: false,
               toolCalls: [],
@@ -7877,13 +7905,22 @@ export class NativeAgentOrchestratorService {
       return null
     }
 
-    const needsLookup =
-      detectsAvailabilityLookupIntent(leadMessage) ||
-      responseMentionsAvailabilityOrSpecificSlots(responseText)
     const leadConfirmedSchedulingMutation = leadExplicitlyConfirmsSchedulingMutation(
       leadMessage,
       params.conversationRows,
     )
+    const leadHasAvailabilityIntent =
+      detectsAvailabilityLookupIntent(leadMessage) ||
+      leadExplicitlyRequestsScheduling(leadMessage) ||
+      Boolean(leadSelectedSingleSchedulingPeriod(leadMessage)) ||
+      leadConfirmedSchedulingMutation
+    const needsLookup =
+      detectsAvailabilityLookupIntent(leadMessage) ||
+      (
+        leadHasAvailabilityIntent &&
+        !latestLeadMessageIsGenericNonSchedulingReply(leadMessage, params.conversationRows) &&
+        responseMentionsAvailabilityOrSpecificSlots(responseText)
+      )
 
     if (claimsConfirmed ? hasAppointmentMutationExecution(params.existingExecutions) : hasSchedulingToolExecution(params.existingExecutions)) {
       return null

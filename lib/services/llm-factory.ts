@@ -85,28 +85,81 @@ export class LLMFactory {
         }
     }
 
-    private static buildGeminiService(config: NativeAgentConfig): GeminiService {
-        const apiKey = LLMFactory.resolveGeminiApiKey(config);
+    private static buildGeminiService(config: NativeAgentConfig, options?: { envOnly?: boolean }): GeminiService {
+        const apiKey = LLMFactory.resolveGeminiApiKey(config, options);
         const model = LLMFactory.resolveGeminiModel(config);
         console.log(`[LLMFactory] Using Google Gemini provider model=${model}`);
         return new GeminiService(apiKey, model);
     }
 
-    private static resolveGeminiApiKey(config: NativeAgentConfig): string {
+    private static resolveGeminiApiKey(config: NativeAgentConfig, options?: { envOnly?: boolean }): string {
         return String(
-            config.geminiApiKey ||
-                process.env.GEMINI_API_KEY ||
+            process.env.GEMINI_API_KEY ||
                 process.env.GOOGLE_API_KEY ||
+                (options?.envOnly ? "" : config.geminiApiKey) ||
                 "",
         ).trim();
     }
 
-    private static buildVertexService(config: NativeAgentConfig): LLMService {
-        const projectId =
+    private static readCredentialString(value: any): string {
+        let text = String(value || "").replace(/^\uFEFF/, "").trim();
+        if (!text) return "";
+
+        const first = text[0];
+        const last = text[text.length - 1];
+        if ((first === `"` && last === `"`) || (first === `'` && last === `'`)) {
+            text = text.slice(1, -1).trim();
+        }
+
+        return text.includes("\\n") ? text.replace(/\\n/g, "\n").trim() : text;
+    }
+
+    private static parseServiceAccountJson(raw: any): Record<string, any> | null {
+        const text = LLMFactory.readCredentialString(raw);
+        if (!text) return null;
+
+        try {
+            const parsed = JSON.parse(text);
+            return parsed && typeof parsed === "object" ? parsed : null;
+        } catch {
+            return null;
+        }
+    }
+
+    private static parseServiceAccountBase64(raw: any): Record<string, any> | null {
+        const text = LLMFactory.readCredentialString(raw);
+        if (!text) return null;
+
+        try {
+            return LLMFactory.parseServiceAccountJson(Buffer.from(text, "base64").toString("utf8"));
+        } catch {
+            return null;
+        }
+    }
+
+    private static resolveVertexProjectId(): string {
+        const configured = String(
             process.env.VERTEX_PROJECT_ID ||
-            process.env.GOOGLE_CLOUD_PROJECT ||
-            process.env.GCLOUD_PROJECT ||
-            "";
+                process.env.GOOGLE_CLOUD_PROJECT ||
+                process.env.GCLOUD_PROJECT ||
+                "",
+        ).trim();
+        if (configured) return configured;
+
+        const serviceAccount =
+            LLMFactory.parseServiceAccountBase64(
+                process.env.VERTEX_SERVICE_ACCOUNT_JSON_BASE64 ||
+                    process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64,
+            ) ||
+            LLMFactory.parseServiceAccountJson(
+                process.env.VERTEX_SERVICE_ACCOUNT_JSON || process.env.GOOGLE_SERVICE_ACCOUNT_JSON,
+            );
+
+        return String(serviceAccount?.project_id || "").trim();
+    }
+
+    private static buildVertexService(config: NativeAgentConfig): LLMService {
+        const projectId = LLMFactory.resolveVertexProjectId();
         const model = LLMFactory.resolveVertexModel(config);
         const location = LLMFactory.resolveVertexLocation(model);
         const fallbacks = LLMFactory.resolveVertexFallbackServices(config);
@@ -117,7 +170,7 @@ export class LLMFactory {
                 `[LLMFactory] Vertex selected but VERTEX_PROJECT_ID is missing. Falling back to ${primaryFallback?.provider || "none"}.`,
             );
             if (primaryFallback) return primaryFallback.service;
-            return LLMFactory.buildGeminiService(config);
+            return LLMFactory.buildGeminiService(config, { envOnly: true });
         }
 
         console.log(
@@ -138,7 +191,7 @@ export class LLMFactory {
 
     private static resolveVertexFallbackServices(config: NativeAgentConfig): LLMFallbackInfo[] {
         const fallbacks: LLMFallbackInfo[] = [];
-        const geminiKey = LLMFactory.resolveGeminiApiKey(config);
+        const geminiKey = LLMFactory.resolveGeminiApiKey(config, { envOnly: true });
         if (geminiKey) {
             const model = LLMFactory.resolveGeminiModel(config);
             console.log(`[LLMFactory] Using Vertex fallback: Google Gemini model=${model}`);
@@ -159,11 +212,7 @@ export class LLMFactory {
         const requestedProvider = String(config.aiProvider || "google").trim().toLowerCase() || "google";
         const requestedModel = LLMFactory.resolveConfiguredModel(config, requestedProvider);
         const effectiveProvider = LLMFactory.resolveEffectiveProvider(config, context);
-        const vertexProjectConfigured = Boolean(
-            process.env.VERTEX_PROJECT_ID ||
-                process.env.GOOGLE_CLOUD_PROJECT ||
-                process.env.GCLOUD_PROJECT,
-        );
+        const vertexProjectConfigured = Boolean(LLMFactory.resolveVertexProjectId());
 
         if (effectiveProvider === "vertexai") {
             const primaryModel = LLMFactory.resolveVertexModel(config);
@@ -220,7 +269,7 @@ export class LLMFactory {
     }
 
     private static resolveVertexFallbackInfo(config: NativeAgentConfig): { provider: string; model: string } | null {
-        if (LLMFactory.resolveGeminiApiKey(config)) {
+        if (LLMFactory.resolveGeminiApiKey(config, { envOnly: true })) {
             return { provider: "google", model: LLMFactory.resolveGeminiModel(config) };
         }
         return null;
@@ -257,10 +306,7 @@ export class LLMFactory {
     private static resolveVertexLocation(model: string): string {
         const configured = String(process.env.VERTEX_LOCATION || "").trim();
         const normalizedModel = String(model || "").trim().toLowerCase();
-        const requiresGlobalOrMultiRegionEndpoint =
-            normalizedModel === "gemini-3.5-flash" ||
-            normalizedModel === "gemini-3-flash-preview" ||
-            normalizedModel === "gemini-3-pro-preview";
+        const requiresGlobalOrMultiRegionEndpoint = /^gemini-3(?:[.-]|$)/.test(normalizedModel);
         const normalizedLocation = configured.toLowerCase();
         const isSupportedGemini3Location =
             normalizedLocation === "global" ||
@@ -344,8 +390,9 @@ export class LLMFactory {
     }
 
     static getFallbackService(config: NativeAgentConfig): LLMService | null {
-        const geminiKey = LLMFactory.resolveGeminiApiKey(config);
-        if (geminiKey) return LLMFactory.buildGeminiService(config);
+        const useEnvOnlyFallback = LLMFactory.shouldForceVertexForAllTenants();
+        const geminiKey = LLMFactory.resolveGeminiApiKey(config, { envOnly: useEnvOnlyFallback });
+        if (geminiKey) return LLMFactory.buildGeminiService(config, { envOnly: useEnvOnlyFallback });
         return null;
     }
 }
