@@ -48,7 +48,7 @@ const LOW_SIGNAL_PATTERNS = [
 ]
 
 const PAIN_KEYWORDS =
-  /\b(dificuldade|dificuldades|desafio|problema|ansioso|ansiosa|ansiedade|medo|travar|travo|trava|travou|enrolado|enrolada|inseguranca|timidez|vergonha|esqueco|comunicar|comunicacao|falar em publico|oratoria|clareza|rotina|encaixar|voz tremula|tremula)\b/i
+  /\b(dificuldade|dificuldades|desafio|problema|ansioso|ansiosa|ansiedade|nervoso|nervosa|nervosismo|medo|travar|travo|trava|travou|enrolado|enrolada|embolado|embolada|emboladas|inseguranca|timidez|vergonha|esqueco|comunicar|comunicacao|falar em publico|apresentacao|apresentacoes|clareza|rapido|rapida|horrivel|evito|evitar|rotina|encaixar|voz tremula|tremula)\b/i
 
 const OBJECTIVE_KEYWORDS =
   /\b(quero|preciso|busco|gostaria|tenho interesse|aprender|melhorar|conseguir|desenvolver|crescer|evoluir|entrar|vender|matricula|aula|diagnostico)\b/i
@@ -116,6 +116,37 @@ function isLowSignalText(value: string): boolean {
   return LOW_SIGNAL_PATTERNS.some((pattern) => pattern.test(normalized))
 }
 
+function isCourseInfoOnlyText(value: string): boolean {
+  const normalized = normalizeSearch(value)
+  if (!normalized) return true
+  return (
+    /\b(ola|oi|bom dia|boa tarde|boa noite)\b/.test(normalized) ||
+    /\b(gostaria de saber|queria saber|tenho interesse|mais informacoes|informacoes|qual valor|quanto custa)\b/.test(normalized) ||
+    /\b(curso de oratoria|oratoria da vox|vox2you|diagnostico estrategico|diagnostico de comunicacao)\b/.test(normalized)
+  )
+}
+
+function isInvalidProfessionCandidate(value: string): boolean {
+  const normalized = normalizeSearch(value)
+  if (!normalized) return true
+  if (/^(de|da|do|sobre|para|com|em)\b/.test(normalized)) return true
+  if (isCourseInfoOnlyText(value)) return true
+  if (/\b(curso|diagnostico|vox2you|oratoria|apresentacao|apresentacoes|horario|manha|tarde|noite)\b/.test(normalized)) {
+    return true
+  }
+  return false
+}
+
+function isInvalidPainCandidate(value: string): boolean {
+  const normalized = normalizeSearch(value)
+  if (!normalized) return true
+  if (isCourseInfoOnlyText(value)) return true
+  if (/\b(qual valor|quanto custa|horario|horarios|manha|tarde|noite|sexta|segunda|terca|quarta|quinta|sabado|domingo)\b/.test(normalized)) {
+    return true
+  }
+  return false
+}
+
 function isLeadMessage(message: LeadAttendanceMessage): boolean {
   const role = String(message.role || "").toLowerCase()
   const type = String(message.type || "").toLowerCase()
@@ -163,14 +194,32 @@ function pickFragmentsByPattern(messages: string[], pattern: RegExp, maxItems = 
   return found
 }
 
+function pickPainFragments(messages: string[], maxItems = 2): string[] {
+  const found: string[] = []
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const fragments = splitReadableFragments(messages[i])
+    for (const fragment of fragments) {
+      if (!PAIN_KEYWORDS.test(normalizeSearch(fragment))) continue
+      if (isInvalidPainCandidate(fragment)) continue
+      if (!found.some((item) => normalizeSearch(item) === normalizeSearch(fragment))) {
+        found.push(truncateText(fragment, 180))
+      }
+      if (found.length >= maxItems) return found
+    }
+  }
+  return found
+}
+
 function cleanProfessionCandidate(value: string): string {
   const clean = cleanSummaryText(value)
   if (!clean) return ""
+  if (isInvalidProfessionCandidate(clean)) return ""
 
   return truncateText(
     clean
-      .replace(/\s+(?:e|,)\s+(?:trabalho|tenho|fico|comeco|come[cç]o|quero|preciso|busco)\b[\s\S]*$/i, "")
+      .replace(/\s+(?:e|,)\s+(?:(?:meu|minha)\s+)?(?:trabalho|rotina|atuacao|atuação|tenho|fico|comeco|come[cç]o|quero|preciso|busco)\b[\s\S]*$/i, "")
       .replace(/\s+(?:com|em)\s+(?:palestra|palestras|comunicacao|comunica[cç][aã]o)\b[\s\S]*$/i, "")
+      .replace(/^prof\b/i, "professor")
       .replace(/^(uma|um|a|o)\s+/i, "")
       .trim(),
     80,
@@ -181,7 +230,7 @@ function inferProfession(messages: string[]): string {
   const patterns = [
     /\b(?:sou|atuo como|trabalho como|sou uma|sou um)\s+([^.,;\n]{3,100})/i,
     /\b(?:trabalho com|atuo em|atuo na area de|atuo na area|sou da area de|sou da area)\s+([^.,;\n]{3,100})/i,
-    /\b(?:curso|estudo|fa[cç]o)\s+([^.,;\n]{3,100})/i,
+    /\b(?:estudo|fa[cç]o faculdade de|fa[cç]o graduação em|curso faculdade de)\s+([^.,;\n]{3,100})/i,
     /\b(?:minha profiss[aã]o [eé]|profiss[aã]o:)\s+([^.,;\n]{3,100})/i,
   ]
 
@@ -219,6 +268,12 @@ function buildObservation(messages: string[], formData: LeadAttendanceFormData):
 
   const fragments = pickFragmentsByPattern(messages, OBSERVATION_KEYWORDS, 2)
   for (const fragment of fragments) {
+    const normalizedFragment = normalizeSearch(fragment)
+    const looksLikeProfessionIntro =
+      /^(sou|sou uma|sou um|trabalho como|trabalho com|atuo como|atuo em|atuo na area)\b/.test(normalizedFragment)
+    const hasLogisticSignal =
+      /\b(disponibilidade|horario|horarios|tempo|duracao|online|presencial|manha|tarde|noite|segunda|terca|quarta|quinta|sexta|sabado|domingo)\b/.test(normalizedFragment)
+    if (looksLikeProfessionIntro && !hasLogisticSignal) continue
     if (!pieces.some((piece) => normalizeSearch(piece).includes(normalizeSearch(fragment)))) {
       pieces.push(fragment)
     }
@@ -253,7 +308,7 @@ export function buildLeadAttendanceSummary(input: LeadAttendanceSummaryInput): s
   const profession = truncateText(formData.profissao || inferProfession(leadMessages), 120)
   const painFragments = [
     truncateText(formData.dificuldade || formData.motivo || "", 180),
-    ...pickFragmentsByPattern(leadMessages, PAIN_KEYWORDS, 2),
+    ...pickPainFragments(leadMessages, 2),
   ].filter(Boolean)
   const pain = truncateText(Array.from(new Set(painFragments.map((item) => normalizeSpaces(item)))).join(" | "), 260)
   const objective = truncateText(pickFragmentsByPattern(leadMessages, OBJECTIVE_KEYWORDS, 2).join(" | "), 220)

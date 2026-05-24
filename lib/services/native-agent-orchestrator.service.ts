@@ -3829,6 +3829,13 @@ function resolveSafeLeadNotificationName(...candidates: Array<string | null | un
   return "Lead"
 }
 
+function resolveSafeAppointmentCustomerName(toolName?: string | null, contactName?: string | null): string | undefined {
+  const contact = sanitizeSafeVocativeName(contactName)
+  const tool = sanitizeSafeVocativeName(toolName)
+  if (contact && tool && normalizeNameForCompare(contact) !== normalizeNameForCompare(tool)) return contact
+  return tool || contact || undefined
+}
+
 function fixGreetingTemporalAndVocative(
   text: string,
   config: NativeAgentConfig,
@@ -8655,11 +8662,43 @@ export class NativeAgentOrchestratorService {
     )
   }
 
+  private isInvalidAttendanceSummarySegment(
+    field: "profession" | "pain" | "objective" | "observations",
+    value: string,
+  ): boolean {
+    const normalized = normalizeComparableMessage(value)
+    if (this.isMissingAttendanceValue(value)) return true
+
+    const isCourseInfoOnly =
+      /\b(ola|oi|bom dia|boa tarde|boa noite)\b/.test(normalized) ||
+      /\b(gostaria de saber|queria saber|tenho interesse|mais informacoes|informacoes|qual valor|quanto custa)\b/.test(normalized) ||
+      /\b(curso de oratoria|oratoria da vox|vox2you|diagnostico estrategico|diagnostico de comunicacao)\b/.test(normalized)
+
+    if (field === "profession") {
+      if (/^(de|da|do|sobre|para|com|em)\b/.test(normalized)) return true
+      if (isCourseInfoOnly) return true
+      if (/\b(curso|diagnostico|vox2you|oratoria|apresentacao|apresentacoes|horario|manha|tarde|noite)\b/.test(normalized)) {
+        return true
+      }
+      if (normalized.split(/\s+/).length > 8) return true
+    }
+
+    if (field === "pain") {
+      const hasRealPainSignal =
+        /\b(dificuldade|dificuldades|desafio|problema|medo|trava|travar|travado|travada|inseguranca|timidez|nervoso|nervosa|nervosismo|diccao|clareza|desenvoltura|rapido|rapida|embolado|embolada|emboladas|horrivel|evito|evitar|falar em publico|apresentacao|apresentacoes)\b/.test(normalized)
+      if (isCourseInfoOnly && !hasRealPainSignal) return true
+      if (/\b(qual valor|quanto custa|horario|horarios|manha|tarde|noite|segunda|terca|quarta|quinta|sexta|sabado|domingo)\b/.test(normalized)) {
+        return true
+      }
+    }
+
+    return false
+  }
+
   private mergeAttendanceSummaries(aiSummary: string, fallbackSummary: string): string {
     const fallback = String(fallbackSummary || "").trim()
     const ai = String(aiSummary || "").trim()
-    if (!ai) return fallback
-    if (!fallback) return ai
+    if (!ai && !fallback) return ""
 
     const aiFields = this.parseAttendanceSummaryFields(ai)
     const fallbackFields = this.parseAttendanceSummaryFields(fallback)
@@ -8679,6 +8718,29 @@ export class NativeAgentOrchestratorService {
         .replace(/\s+/g, " ")
         .trim()
       if (!clean || this.isMissingAttendanceValue(clean)) return ""
+
+      clean = clean
+        .split(/\s*;\s*/)
+        .map((segment) => segment.trim())
+        .filter((segment) => segment && !this.isInvalidAttendanceSummarySegment(field, segment))
+        .join("; ")
+        .replace(/^(?:ola|oi|bom dia|boa tarde|boa noite)[,!.\s]+/i, "")
+        .trim()
+
+      if (!clean || this.isMissingAttendanceValue(clean) || this.isInvalidAttendanceSummarySegment(field, clean)) {
+        return ""
+      }
+
+      if (field === "objective") {
+        const normalizedObjective = normalizeComparableMessage(clean)
+        if (/\b(gostaria de saber|queria saber|tenho interesse|mais informacoes)\b/.test(normalizedObjective)) {
+          if (normalizedObjective.includes("oratoria")) {
+            clean = "Conhecer o curso de oratória e desenvolver a comunicação"
+          } else if (normalizedObjective.includes("curso")) {
+            clean = "Conhecer o curso e entender o melhor caminho para o caso"
+          }
+        }
+      }
 
       if (field === "pain") {
         clean = clean
@@ -8715,14 +8777,15 @@ export class NativeAgentOrchestratorService {
       }
     }
 
-    const hasUsefulField = Object.values(merged).some((value) => value && !this.isMissingAttendanceValue(value))
-    if (!hasUsefulField) return fallback || ai
-
     const formatValue = (field: keyof typeof merged, value: string) => {
       const clean = normalizeSummaryField(field, value)
       if (!clean || this.isMissingAttendanceValue(clean)) return "N\u00e3o informado"
       return clean.length > 180 ? `${clean.slice(0, 177).trim()}...` : clean
     }
+
+    const hasUsefulField = (Object.keys(merged) as Array<keyof typeof merged>)
+      .some((field) => Boolean(normalizeSummaryField(field, merged[field])))
+    if (!hasUsefulField) return fallback || ai
 
     return [
       `- *Profiss\u00e3o:* ${formatValue("profession", merged.profession)}`,
@@ -8842,8 +8905,11 @@ export class NativeAgentOrchestratorService {
       "- *Observa\u00e7\u00f5es:* ...",
       "",
       "Regras:",
+      "- Use as mensagens da IA apenas como contexto. Profiss\u00e3o, Dor e Objetivo/interesse devem vir do que o LEAD contou.",
       "- Profiss\u00e3o: cargo, area, ocupacao ou contexto profissional/estudo do lead.",
+      "- Nunca use como profiss\u00e3o: curso de orat\u00f3ria, Vox2You, diagn\u00f3stico, interesse no curso, hor\u00e1rio ou pergunta do lead.",
       "- Dor: dificuldade principal, inseguranca, trava, medo, problema ou necessidade.",
+      "- Dor deve ser uma s\u00edntese curta. N\u00e3o copie sauda\u00e7\u00e3o, pergunta sobre valor, frase de interesse ou pedido de informa\u00e7\u00f5es.",
       "- Objetivo/interesse: o que o lead quer alcan\u00e7ar com o atendimento/curso/diagnostico.",
       "- Observa\u00e7\u00f5es: detalhes logisticos ou relevantes para o consultor, sem repetir data/hora do agendamento.",
       "- Nao use JSON, aspas, codigo, lista extra ou explicacao.",
@@ -8889,7 +8955,7 @@ export class NativeAgentOrchestratorService {
     isEdit?: boolean
     attendanceSummary?: string
   }): string {
-    const name = resolveSafeLeadNotificationName(input.action.customer_name, input.contactName)
+    const name = resolveSafeLeadNotificationName(input.contactName, input.action.customer_name)
     const day = formatDateToBr(input.action.date)
     const time = String(input.action.time || "nao informado").trim()
     const notes = String(input.action.note || "").trim()
@@ -8941,7 +9007,7 @@ export class NativeAgentOrchestratorService {
     action: AgentActionPlan
     error: string
   }): string {
-    const name = resolveSafeLeadNotificationName(input.action.customer_name, input.contactName)
+    const name = resolveSafeLeadNotificationName(input.contactName, input.action.customer_name)
     const day = formatDateToBr(input.action.date)
     const time = String(input.action.time || "nao informado").trim()
     const contact = formatNotificationContact(input.phone)
@@ -10776,9 +10842,10 @@ export class NativeAgentOrchestratorService {
         timezone: params.config.timezone || "America/Sao_Paulo",
         timeValue: args.time,
       })
-      const sanitizedCustomerName =
-        sanitizeSafeVocativeName(args.customer_name ? String(args.customer_name) : "") ||
-        sanitizeSafeVocativeName(params.contactName || "")
+      const sanitizedCustomerName = resolveSafeAppointmentCustomerName(
+        args.customer_name ? String(args.customer_name) : "",
+        params.contactName || "",
+      )
 
       const action: AgentActionPlan = {
         type: "schedule_appointment",
