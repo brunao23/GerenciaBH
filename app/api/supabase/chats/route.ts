@@ -1051,6 +1051,33 @@ function cleanAnyMessage(text: string) {
   return cleaned
 }
 
+function normalizeLeadNameToken(value: string): string {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "")
+}
+
+function isBlockedLeadNameToken(value: string): boolean {
+  const token = normalizeLeadNameToken(value)
+  if (!token) return true
+
+  const blocked = new Set([
+    "bot", "assistente", "atendente", "sistema", "ia", "ai", "chatbot",
+    "virtual", "automatico", "vox", "robo", "lead", "cliente", "usuario",
+    "contato", "whatsapp", "teste", "ola", "oi", "opa", "sim", "nao",
+    "ok", "isso", "certo", "confirmo", "confirmado", "bom", "boa",
+    "bomdia", "boatarde", "boanoite", "tudobem", "interesse", "informacoes",
+    "hoje", "amanha", "manha", "tarde", "noite", "segunda", "segundafeira",
+    "terca", "tercafeira", "quarta", "quartafeira", "quinta", "quintafeira",
+    "sexta", "sextafeira", "sabado", "domingo", "horario", "agenda",
+    "agendamento", "agendado",
+  ])
+
+  return blocked.has(token) || /^\d+$/.test(token)
+}
+
 function extractNameFromMessageMeta(msg: any): string | null {
   if (!msg || typeof msg !== "object") return null
 
@@ -1101,11 +1128,12 @@ function extractNameFromMessageMeta(msg: any): string | null {
     if (!raw || raw.length < 2) continue
     if (raw.includes("@")) continue
     const lower = raw.toLowerCase()
-    if (blocked.has(lower)) continue
+    if (blocked.has(lower) || isBlockedLeadNameToken(lower)) continue
     if (/^\d+$/.test(lower)) continue
 
     const first = raw.split(" ")[0]
     if (!first || first.length < 2) continue
+    if (isBlockedLeadNameToken(first)) continue
     return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase()
   }
 
@@ -1122,6 +1150,7 @@ function extractLeadNameFromAssistantGreeting(content: string): string | null {
   const name = String(match[1] || "").trim()
   if (!name || /^\d+$/.test(name)) return null
   if (name.includes("@")) return null
+  if (isBlockedLeadNameToken(name)) return null
 
   return name.charAt(0).toUpperCase() + name.slice(1).toLowerCase()
 }
@@ -1226,7 +1255,7 @@ function extractNameFromMessage(text: string, role: string): string | null {
   const nameInAIMessage = text.match(/Nome do cliente\/(?:usuário\/)?lead:\s*([A-ZÁÀÂÃÃ‰ÃŠÃÃ“Ã”ÕÃšÃ‡][a-záàâãéêíóôõúç]{1,19})/i)
   if (nameInAIMessage && nameInAIMessage[1]) {
     const name = nameInAIMessage[1].trim()
-    if (name.length >= 2 && name.length <= 20) {
+    if (name.length >= 2 && name.length <= 20 && !isBlockedLeadNameToken(name)) {
       return name.charAt(0).toUpperCase() + name.slice(1).toLowerCase()
     }
   }
@@ -1236,7 +1265,7 @@ function extractNameFromMessage(text: string, role: string): string | null {
   if (nameBeforeComma && nameBeforeComma[1]) {
     const name = nameBeforeComma[1].trim()
     const aiNames = ["sofia", "bot", "assistente", "atendente", "sistema", "ia", "ai", "chatbot", "virtual", "automatico"]
-    if (!aiNames.includes(name.toLowerCase()) && name.length >= 3 && name.length <= 20) {
+    if (!aiNames.includes(name.toLowerCase()) && !isBlockedLeadNameToken(name) && name.length >= 3 && name.length <= 20) {
       return name.charAt(0).toUpperCase() + name.slice(1).toLowerCase()
     }
   }
@@ -1246,7 +1275,7 @@ function extractNameFromMessage(text: string, role: string): string | null {
   if (greetingName && greetingName[1]) {
     const name = greetingName[1].trim()
     const aiNames = ["sofia", "bot", "assistente", "atendente", "sistema", "ia", "ai", "chatbot", "virtual", "automatico", "tudo", "bem"]
-    if (!aiNames.includes(name.toLowerCase()) && name.length >= 3 && name.length <= 20) {
+    if (!aiNames.includes(name.toLowerCase()) && !isBlockedLeadNameToken(name) && name.length >= 3 && name.length <= 20) {
       return name.charAt(0).toUpperCase() + name.slice(1).toLowerCase()
     }
   }
@@ -1275,7 +1304,7 @@ function extractNameFromMessage(text: string, role: string): string | null {
     if (match && match[1]) {
       const name = match[1].trim().toLowerCase()
 
-      if (aiNames.includes(name)) continue
+      if (aiNames.includes(name) || isBlockedLeadNameToken(name)) continue
 
       const commonWords = [
         "oi",
@@ -1326,6 +1355,7 @@ function extractNameFromMessage(text: string, role: string): string | null {
         name.length <= 20 &&
         !/\d/.test(name) && // não contém números
         !commonWords.includes(name) && // não é palavra comum
+        !isBlockedLeadNameToken(name) &&
         /^[a-záàâãéêíóôõúç]+$/i.test(name) // só letras válidas
       ) {
         const isExplicitIntroduction = /(?:meu nome|me chamo|sou|pode me chamar|me chamam|responsável)/i.test(text)

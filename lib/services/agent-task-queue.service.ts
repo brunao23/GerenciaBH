@@ -720,6 +720,11 @@ function normalizeLeadName(name?: string): string {
     "alegria", "prosperidade", "abundancia", "bencao", "bencaos", "gloria",
     "forca", "vida", "luz", "conquista", "vitoria", "sucesso", "crescimento",
     "evolucao", "energia", "positividade", "felicidade", "sorriso",
+    // Periodos, dias e termos de agenda nunca sao nomes confiaveis.
+    "hoje", "amanha", "manha", "tarde", "noite", "segunda", "segundafeira",
+    "terca", "tercafeira", "quarta", "quartafeira", "quinta", "quintafeira",
+    "sexta", "sextafeira", "sabado", "domingo", "horario", "agenda",
+    "agendamento", "agendado",
   ])
 
   // Texto sem acentos para checar padrÃµes invÃ¡lidos
@@ -741,7 +746,8 @@ function normalizeLeadName(name?: string): string {
 
   for (const part of parts) {
     const partFlat = part.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
-    if (blocked.has(partFlat)) continue
+    const partCompact = partFlat.replace(/[^a-z0-9]/g, "")
+    if (blocked.has(partFlat) || blocked.has(partCompact)) continue
     if (!/[a-zA-Z\u00C0-\u024F]/.test(part)) continue
     if (part.length < 2) continue
     // Rejeitar palavras sem vogal
