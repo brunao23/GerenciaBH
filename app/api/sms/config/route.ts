@@ -28,8 +28,11 @@ export async function POST(req: Request) {
       senderId: body?.senderId,
       autoScheduleEnabled: body?.autoScheduleEnabled === true,
       autoNoShowEnabled: body?.autoNoShowEnabled === true,
+      appointmentRemindersEnabled: body?.appointmentRemindersEnabled === true,
+      reminderSequenceMinutes: body?.reminderSequenceMinutes,
       scheduleTemplate: body?.scheduleTemplate,
       noShowTemplate: body?.noShowTemplate,
+      reminderTemplate: body?.reminderTemplate,
       updatedBy: session?.unitName || session?.userId || "dashboard_user",
     })
 

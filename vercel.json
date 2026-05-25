@@ -29,6 +29,10 @@
       "schedule": "*/15 * * * *"
     },
     {
+      "path": "/api/sms/process",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/meta-welcome-cron",
       "schedule": "*/10 * * * *"
     },

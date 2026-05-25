@@ -635,7 +635,7 @@ export async function POST(req: Request) {
 
     if (statusFinal !== "pendente" && diaFinal !== "A definir" && horarioFinal !== "A definir") {
       new TenantSmsService()
-        .sendAutomaticScheduleSms({
+        .handleAppointmentScheduledSms({
           tenant,
           phone: contatoFinal,
           leadName: nomeFinal || "Cliente",

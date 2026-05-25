@@ -13,7 +13,7 @@ export async function POST(req: Request) {
     }
 
     const supabase = createBiaSupabaseServerClient()
-    let query = supabase
+    let logQuery = supabase
       .from("tenant_sms_logs")
       .update({
         provider_status: status || null,
@@ -21,14 +21,24 @@ export async function POST(req: Request) {
       })
 
     if (messageId) {
-      query = query.eq("provider_message_id", messageId)
+      logQuery = logQuery.eq("provider_message_id", messageId)
     } else {
-      query = query.eq("phone", phone)
+      logQuery = logQuery.eq("phone", phone)
     }
 
-    const { error } = await query
+    const { error } = await logQuery
     if (error) {
       return NextResponse.json({ success: false, error: error.message }, { status: 500 })
+    }
+
+    if (messageId) {
+      await supabase
+        .from("tenant_sms_scheduled_messages")
+        .update({
+          provider_status: status || null,
+          raw_response: body,
+        })
+        .eq("provider_message_id", messageId)
     }
 
     return NextResponse.json({ success: true })

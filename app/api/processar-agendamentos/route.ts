@@ -479,7 +479,7 @@ export async function POST(request: NextRequest) {
 
           if (dadosAgendamento.status !== "pendente" && dadosAgendamento.dia !== "A definir" && dadosAgendamento.horario !== "A definir") {
             new TenantSmsService()
-              .sendAutomaticScheduleSms({
+              .handleAppointmentScheduledSms({
                 tenant,
                 phone: dadosAgendamento.contato,
                 leadName: dadosAgendamento.nome || "Cliente",

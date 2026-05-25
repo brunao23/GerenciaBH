@@ -159,8 +159,11 @@ type SmsConfig = {
   senderId?: string | null
   autoScheduleEnabled: boolean
   autoNoShowEnabled: boolean
+  appointmentRemindersEnabled: boolean
+  reminderSequenceMinutes: number[]
   scheduleTemplate: string
   noShowTemplate: string
+  reminderTemplate: string
 }
 
 type SmsSendResult = {
@@ -193,10 +196,25 @@ type SmsLogSummary = {
   created_at: string
 }
 
+type SmsScheduledSummary = {
+  id: string
+  phone: string
+  lead_name?: string | null
+  appointment_date?: string | null
+  appointment_time?: string | null
+  sequence_offset_minutes: number
+  run_at: string
+  status: string
+  error_message?: string | null
+}
+
 const DEFAULT_SMS_SCHEDULE_TEMPLATE =
   "Oi {{nome}}, seu diagnostico na {{unidade}} ficou agendado para {{data}} as {{hora}}. Qualquer duvida, responda por aqui."
 const DEFAULT_SMS_NO_SHOW_TEMPLATE =
   "Oi {{nome}}, vimos que voce nao conseguiu comparecer ao diagnostico. Quer que a gente te envie novas opcoes de horario?"
+const DEFAULT_SMS_REMINDER_TEMPLATE =
+  "Oi {{nome}}, lembrete: seu diagnostico na {{unidade}} esta agendado para {{data}} as {{hora}}. Se precisar ajustar, responda por aqui."
+const DEFAULT_SMS_REMINDER_SEQUENCE = "1440,180,60"
 
 const ensureBRPrefix = (num: string) => {
   const clean = num.replace(/\D/g, "")
@@ -550,8 +568,11 @@ export default function DisparosPage() {
   const [smsSenderId, setSmsSenderId] = useState("")
   const [smsAutoScheduleEnabled, setSmsAutoScheduleEnabled] = useState(false)
   const [smsAutoNoShowEnabled, setSmsAutoNoShowEnabled] = useState(false)
+  const [smsAppointmentRemindersEnabled, setSmsAppointmentRemindersEnabled] = useState(false)
+  const [smsReminderSequence, setSmsReminderSequence] = useState(DEFAULT_SMS_REMINDER_SEQUENCE)
   const [smsScheduleTemplate, setSmsScheduleTemplate] = useState(DEFAULT_SMS_SCHEDULE_TEMPLATE)
   const [smsNoShowTemplate, setSmsNoShowTemplate] = useState(DEFAULT_SMS_NO_SHOW_TEMPLATE)
+  const [smsReminderTemplate, setSmsReminderTemplate] = useState(DEFAULT_SMS_REMINDER_TEMPLATE)
   const [smsTestPhone, setSmsTestPhone] = useState("")
   const [smsTestMessage, setSmsTestMessage] = useState("Teste de SMS Integrax pelo GerencIA.")
   const [smsCampaignName, setSmsCampaignName] = useState("")
@@ -562,6 +583,7 @@ export default function DisparosPage() {
   const [smsManualList, setSmsManualList] = useState("")
   const [smsCampaigns, setSmsCampaigns] = useState<SmsCampaignSummary[]>([])
   const [smsLogs, setSmsLogs] = useState<SmsLogSummary[]>([])
+  const [smsScheduledMessages, setSmsScheduledMessages] = useState<SmsScheduledSummary[]>([])
   const [smsResults, setSmsResults] = useState<SmsSendResult[]>([])
   const stopRef = useRef(false)
 
@@ -614,14 +636,24 @@ export default function DisparosPage() {
         setSmsSenderId(config.senderId || "")
         setSmsAutoScheduleEnabled(config.autoScheduleEnabled === true)
         setSmsAutoNoShowEnabled(config.autoNoShowEnabled === true)
+        setSmsAppointmentRemindersEnabled(config.appointmentRemindersEnabled === true)
+        setSmsReminderSequence(
+          Array.isArray(config.reminderSequenceMinutes) && config.reminderSequenceMinutes.length > 0
+            ? config.reminderSequenceMinutes.join(",")
+            : DEFAULT_SMS_REMINDER_SEQUENCE,
+        )
         setSmsScheduleTemplate(config.scheduleTemplate || DEFAULT_SMS_SCHEDULE_TEMPLATE)
         setSmsNoShowTemplate(config.noShowTemplate || DEFAULT_SMS_NO_SHOW_TEMPLATE)
+        setSmsReminderTemplate(config.reminderTemplate || DEFAULT_SMS_REMINDER_TEMPLATE)
       }
 
       const campaignsData = await campaignsRes.json().catch(() => ({}))
       if (campaignsRes.ok) {
         setSmsCampaigns(Array.isArray(campaignsData?.campaigns) ? campaignsData.campaigns : [])
         setSmsLogs(Array.isArray(campaignsData?.logs) ? campaignsData.logs : [])
+        setSmsScheduledMessages(
+          Array.isArray(campaignsData?.scheduledMessages) ? campaignsData.scheduledMessages : [],
+        )
       }
     } catch (error) {
       console.warn("[Disparos] Falha ao carregar SMS:", error)
@@ -994,13 +1026,21 @@ export default function DisparosPage() {
   const handleSaveSmsConfig = async () => {
     setSmsSaving(true)
     try {
+      const reminderSequenceMinutes = smsReminderSequence
+        .split(/[,\n;|]+/)
+        .map((item) => Number(item.trim()))
+        .filter((item) => Number.isFinite(item) && item > 0)
+
       const body: Record<string, any> = {
         enabled: smsEnabled,
         senderId: smsSenderId.trim() || undefined,
         autoScheduleEnabled: smsAutoScheduleEnabled,
         autoNoShowEnabled: smsAutoNoShowEnabled,
+        appointmentRemindersEnabled: smsAppointmentRemindersEnabled,
+        reminderSequenceMinutes: reminderSequenceMinutes.length > 0 ? reminderSequenceMinutes : [1440, 180, 60],
         scheduleTemplate: smsScheduleTemplate.trim() || DEFAULT_SMS_SCHEDULE_TEMPLATE,
         noShowTemplate: smsNoShowTemplate.trim() || DEFAULT_SMS_NO_SHOW_TEMPLATE,
+        reminderTemplate: smsReminderTemplate.trim() || DEFAULT_SMS_REMINDER_TEMPLATE,
       }
       if (smsToken.trim()) body.token = smsToken.trim()
 
@@ -1565,6 +1605,32 @@ export default function DisparosPage() {
                 <Switch checked={smsAutoNoShowEnabled} onCheckedChange={setSmsAutoNoShowEnabled} />
               </label>
             </div>
+            <label className="flex items-center justify-between rounded-lg border border-cyan-500/30 bg-cyan-500/5 p-3">
+              <span>
+                <span className="block text-sm text-pure-white">Sequencia de lembretes por SMS</span>
+                <span className="block text-xs text-text-gray">
+                  Enfileira SMS antes do horario do diagnostico, alem do SMS imediato de agendamento.
+                </span>
+              </span>
+              <Switch checked={smsAppointmentRemindersEnabled} onCheckedChange={setSmsAppointmentRemindersEnabled} />
+            </label>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Minutos antes do agendamento</Label>
+                <Input
+                  value={smsReminderSequence}
+                  onChange={(e) => setSmsReminderSequence(e.target.value)}
+                  placeholder="1440,180,60"
+                  className="bg-foreground/8 border-border-gray text-pure-white"
+                />
+                <div className="text-[11px] text-text-gray">
+                  Ex.: 1440 = 24h antes, 180 = 3h antes, 60 = 1h antes.
+                </div>
+              </div>
+              <div className="rounded-lg border border-border-gray/60 bg-secondary-black p-3 text-xs text-text-gray">
+                O cron processa a fila a cada 5 minutos. Se o agendamento for cancelado, bolo ou tiver data/horario alterado, o SMS pendente e cancelado antes do envio.
+              </div>
+            </div>
             <div className="space-y-2">
               <Label>Template de agendamento</Label>
               <Textarea
@@ -1583,6 +1649,17 @@ export default function DisparosPage() {
                 onChange={(e) => setSmsNoShowTemplate(e.target.value)}
                 className="min-h-[90px] bg-foreground/8 border-border-gray text-pure-white"
               />
+            </div>
+            <div className="space-y-2">
+              <Label>Template dos lembretes de agendamento</Label>
+              <Textarea
+                value={smsReminderTemplate}
+                onChange={(e) => setSmsReminderTemplate(e.target.value)}
+                className="min-h-[90px] bg-foreground/8 border-border-gray text-pure-white"
+              />
+              <div className="text-[11px] text-text-gray">
+                Variaveis: {"{{nome}}"}, {"{{primeiro_nome}}"}, {"{{data}}"}, {"{{hora}}"}, {"{{unidade}}"}, {"{{antecedencia}}"}.
+              </div>
             </div>
             <Button
               onClick={handleSaveSmsConfig}
@@ -1726,6 +1803,35 @@ export default function DisparosPage() {
                     </div>
                   </div>
                 ))
+              )}
+            </div>
+            <div className="space-y-2">
+              <div className="text-xs uppercase text-text-gray">Fila de lembretes</div>
+              {smsScheduledMessages.length === 0 ? (
+                <div className="text-xs text-text-gray">Nenhum lembrete SMS pendente ou recente.</div>
+              ) : (
+                <div className="max-h-48 overflow-auto space-y-2">
+                  {smsScheduledMessages.slice(0, 10).map((item) => (
+                    <div key={item.id} className="rounded border border-border-gray bg-secondary-black p-2 text-xs">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="font-mono text-pure-white">{item.phone}</div>
+                          <div className="text-text-gray">
+                            {item.lead_name || "Lead"} - {item.sequence_offset_minutes} min antes
+                          </div>
+                        </div>
+                        <Badge variant="outline" className="text-text-gray">
+                          {item.status}
+                        </Badge>
+                      </div>
+                      <div className="mt-1 text-text-gray">
+                        Envio: {formatDate(item.run_at)}
+                        {item.appointment_date ? ` | Agenda: ${item.appointment_date} ${item.appointment_time || ""}` : ""}
+                      </div>
+                      {item.error_message && <div className="mt-1 text-red-300">{item.error_message}</div>}
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
             <div className="space-y-2">

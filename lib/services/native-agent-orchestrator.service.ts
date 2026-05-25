@@ -13586,7 +13586,7 @@ export class NativeAgentOrchestratorService {
 
     postScheduleTasks.push(
       new TenantSmsService()
-        .sendAutomaticScheduleSms({
+        .handleAppointmentScheduledSms({
           tenant: params.tenant,
           phone: params.phone,
           leadName: params.contactName || "Cliente",
