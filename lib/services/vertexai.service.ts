@@ -19,7 +19,7 @@ type VertexSamplingConfig = {
   topK?: number
 }
 
-let vertexTransientCooldownUntil = 0
+const vertexTransientCooldownUntilByModel = new Map<string, number>()
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -57,6 +57,54 @@ function isRetryableVertexError(error: any): boolean {
   )
 }
 
+function isVertexModelFallbackError(error: any): boolean {
+  const text = stringifyError(error).toLowerCase()
+  return (
+    isRetryableVertexError(error) ||
+    text.includes("invalid endpoint name") ||
+    text.includes("model not found") ||
+    text.includes("model_not_found") ||
+    text.includes("not found for api version") ||
+    text.includes("not supported")
+  )
+}
+
+function normalizeModelKey(model: string): string {
+  return String(model || "")
+    .trim()
+    .toLowerCase()
+}
+
+function resolveVertexFallbackModels(primaryModel: string): string[] {
+  const configured = String(process.env.VERTEX_MODEL_FALLBACKS || "").trim()
+  const rawModels = configured
+    ? configured.split(",")
+    : ["gemini-2.5-flash", "gemini-3.5-flash"]
+  const seen = new Set<string>([normalizeModelKey(primaryModel)])
+
+  return rawModels
+    .map((model) => String(model || "").trim())
+    .filter((model) => {
+      const key = normalizeModelKey(model)
+      if (!key || seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+}
+
+function getVertexCooldownRemaining(model: string): number {
+  return Math.max(0, (vertexTransientCooldownUntilByModel.get(normalizeModelKey(model)) || 0) - Date.now())
+}
+
+function setVertexCooldown(model: string, delayMs: number): void {
+  const key = normalizeModelKey(model)
+  if (!key) return
+  vertexTransientCooldownUntilByModel.set(
+    key,
+    Math.max(vertexTransientCooldownUntilByModel.get(key) || 0, Date.now() + delayMs),
+  )
+}
+
 function buildRetryDelayMs(error: any, attempt: number): number {
   const text = stringifyError(error)
   const retrySecondsMatch = text.match(/retry(?:\s|-)?after["'\s:=]+(\d+)/i)
@@ -68,6 +116,48 @@ function buildRetryDelayMs(error: any, attempt: number): number {
   const base = safeInt(process.env.VERTEX_RETRY_BASE_MS, 700, 250, 2500)
   const jitter = Math.floor(Math.random() * 350)
   return Math.min(5000, base * Math.pow(2, attempt) + jitter)
+}
+
+function annotateVertexResponse<T>(response: T, model: string, fallbackReason?: string | null): T {
+  if (!response || typeof response !== "object") return response
+  try {
+    Object.defineProperties(response as any, {
+      __vertexModelUsed: {
+        value: model,
+        enumerable: false,
+        configurable: true,
+      },
+      __vertexModelFallbackReason: {
+        value: fallbackReason || null,
+        enumerable: false,
+        configurable: true,
+      },
+    })
+  } catch {
+    ;(response as any).__vertexModelUsed = model
+    ;(response as any).__vertexModelFallbackReason = fallbackReason || null
+  }
+  return response
+}
+
+function getVertexModelUsed(data: any, fallbackModel: string): string {
+  return String(data?.__vertexModelUsed || data?.modelVersion || fallbackModel || "").trim()
+}
+
+function getVertexFallbackReason(data: any): string | null {
+  const reason = String(data?.__vertexModelFallbackReason || "").trim()
+  return reason || null
+}
+
+function buildVertexRuntimeMetadata(data: any, primaryModel: string): Record<string, any> {
+  const model = getVertexModelUsed(data, primaryModel)
+  const fallbackUsed = normalizeModelKey(model) !== normalizeModelKey(primaryModel)
+  return {
+    agent_runtime_provider: "vertexai",
+    agent_runtime_model: model || primaryModel,
+    agent_runtime_fallback_used: fallbackUsed,
+    agent_runtime_fallback_reason: fallbackUsed ? getVertexFallbackReason(data) : null,
+  }
 }
 
 function resolveSamplingValue(
@@ -536,33 +626,54 @@ export class VertexAIService implements LLMService {
     }
 
     const maxRetries = safeInt(process.env.VERTEX_MAX_RETRIES, 2, 0, 4)
+    const modelsToTry = [this.model, ...resolveVertexFallbackModels(this.model)]
     let lastError: any = null
+    let firstModelError: any = null
 
-    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
-      const cooldownRemaining = vertexTransientCooldownUntil - Date.now()
-      if (cooldownRemaining > 0) {
-        await sleep(Math.min(cooldownRemaining, 2500))
-      }
+    for (let modelIndex = 0; modelIndex < modelsToTry.length; modelIndex += 1) {
+      const model = modelsToTry[modelIndex]
 
-      try {
-        const response = await this.ai.models.generateContent({
-          model: this.model,
-          contents: request.contents,
-          config,
-        })
-        return response || {}
-      } catch (error: any) {
-        lastError = error
-        if (!isRetryableVertexError(error) || attempt >= maxRetries) {
-          throw error
+      for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+        const cooldownRemaining = getVertexCooldownRemaining(model)
+        if (cooldownRemaining > 0) {
+          await sleep(Math.min(cooldownRemaining, 2500))
         }
 
-        const delayMs = buildRetryDelayMs(error, attempt)
-        vertexTransientCooldownUntil = Math.max(vertexTransientCooldownUntil, Date.now() + delayMs)
-        console.warn(
-          `[VertexAIService] Transient Vertex error. retry=${attempt + 1}/${maxRetries} delayMs=${delayMs} reason=${stringifyError(error).slice(0, 240)}`,
-        )
-        await sleep(delayMs)
+        try {
+          const response = await this.ai.models.generateContent({
+            model,
+            contents: request.contents,
+            config,
+          })
+          return annotateVertexResponse(
+            response || {},
+            model,
+            modelIndex > 0 ? stringifyError(firstModelError || lastError).slice(0, 300) : null,
+          )
+        } catch (error: any) {
+          lastError = error
+          if (!firstModelError) firstModelError = error
+
+          if (isRetryableVertexError(error) && attempt < maxRetries) {
+            const delayMs = buildRetryDelayMs(error, attempt)
+            setVertexCooldown(model, delayMs)
+            console.warn(
+              `[VertexAIService] Transient Vertex error. model=${model} retry=${attempt + 1}/${maxRetries} delayMs=${delayMs} reason=${stringifyError(error).slice(0, 240)}`,
+            )
+            await sleep(delayMs)
+            continue
+          }
+
+          if (modelIndex < modelsToTry.length - 1 && isVertexModelFallbackError(error)) {
+            const nextModel = modelsToTry[modelIndex + 1]
+            console.warn(
+              `[VertexAIService] Vertex model failed. trying_model_fallback=${nextModel} failed_model=${model} reason=${stringifyError(error).slice(0, 240)}`,
+            )
+            break
+          }
+
+          throw error
+        }
       }
     }
 
@@ -702,19 +813,20 @@ export class VertexAIService implements LLMService {
       },
     })
 
-    const usage = extractUsageMetrics(data, this.model)
+    const usage = extractUsageMetrics(data, getVertexModelUsed(data, this.model))
     const outputText = String(
       data?.candidates?.[0]?.content?.parts?.map((part: any) => part?.text || "").join("\n") || "",
     ).trim()
 
     const parsed = safeParseDecision(outputText)
-    if (parsed) return { ...parsed, usage }
+    if (parsed) return { ...parsed, usage, ...buildVertexRuntimeMetadata(data, this.model) }
 
     return {
       reply: outputText || "",
       actions: [{ type: "none" }],
       handoff: false,
       usage,
+      ...buildVertexRuntimeMetadata(data, this.model),
     }
   }
 
@@ -744,6 +856,7 @@ export class VertexAIService implements LLMService {
     const executions: GeminiToolExecution[] = []
     let latestText = ""
     let usageAggregate: LLMUsageMetrics | null = null
+    let vertexRuntimeMetadata: Record<string, any> = {}
 
     for (let step = 0; step < maxSteps; step++) {
       const request: Record<string, any> = {
@@ -764,9 +877,10 @@ export class VertexAIService implements LLMService {
       }
 
       const data = await this.generateContent(request)
+      vertexRuntimeMetadata = buildVertexRuntimeMetadata(data, this.model)
       usageAggregate = accumulateUsageMetrics(
         usageAggregate,
-        extractUsageMetrics(data, this.model),
+        extractUsageMetrics(data, getVertexModelUsed(data, this.model)),
       )
       const content = data?.candidates?.[0]?.content || {}
       const parts = Array.isArray(content?.parts) ? content.parts : []
@@ -850,6 +964,7 @@ export class VertexAIService implements LLMService {
       toolCalls: allCalls,
       executions,
       usage: usageAggregate || undefined,
+      ...vertexRuntimeMetadata,
     }
   }
 }

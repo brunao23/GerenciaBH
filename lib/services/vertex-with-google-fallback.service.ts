@@ -42,12 +42,16 @@ export class VertexWithGoogleFallbackService implements LLMService {
     runtime: { provider?: string; model?: string; fallbackUsed: boolean; fallbackReason?: string },
   ): T {
     if (!decision || typeof decision !== "object") return decision
+    const internalFallbackUsed = Boolean((decision as any).agent_runtime_fallback_used)
+    const internalFallbackReason = String((decision as any).agent_runtime_fallback_reason || "").trim()
+    const internalProvider = String((decision as any).agent_runtime_provider || "").trim()
+    const internalModel = String((decision as any).agent_runtime_model || "").trim()
     return {
       ...decision,
-      agent_runtime_provider: runtime.provider || null,
-      agent_runtime_model: runtime.model || null,
-      agent_runtime_fallback_used: runtime.fallbackUsed,
-      agent_runtime_fallback_reason: runtime.fallbackReason || null,
+      agent_runtime_provider: internalProvider || runtime.provider || null,
+      agent_runtime_model: internalModel || runtime.model || null,
+      agent_runtime_fallback_used: runtime.fallbackUsed || internalFallbackUsed,
+      agent_runtime_fallback_reason: runtime.fallbackReason || internalFallbackReason || null,
       agent_runtime_primary_provider: this.metadata.primaryProvider || null,
       agent_runtime_primary_model: this.metadata.primaryModel || null,
       agent_runtime_fallback_provider: this.metadata.fallbackProvider || null,
