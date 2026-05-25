@@ -166,6 +166,30 @@ function parseEnvBooleanWithDefault(value: string | undefined, fallback: boolean
   return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on"
 }
 
+function stringifyRuntimeError(error: any): string {
+  if (!error) return ""
+  if (typeof error === "string") return error
+  const message = String(error?.message || "").trim()
+  if (message) return message
+  try {
+    return JSON.stringify(error)
+  } catch {
+    return String(error)
+  }
+}
+
+function isLlmCapacityOrQuotaError(error: any): boolean {
+  const text = stringifyRuntimeError(error).toLowerCase()
+  return (
+    text.includes("resource_exhausted") ||
+    text.includes("resource exhausted") ||
+    text.includes('"code":429') ||
+    text.includes("code 429") ||
+    text.includes("rate limit") ||
+    text.includes("quota")
+  )
+}
+
 function parseTenantCsv(value: string | undefined, fallback: string[]): Set<string> {
   const raw = String(value || "").trim()
   const source = raw ? raw.split(",") : fallback
@@ -5774,6 +5798,23 @@ export class NativeAgentOrchestratorService {
             langGraphPilotDecisionUsed = true
           } catch (langGraphError: any) {
             langGraphPilotFallbackReason = String(langGraphError?.message || langGraphError || "langgraph_pilot_failed")
+            if (isLlmCapacityOrQuotaError(langGraphError)) {
+              await this
+                .persistDebugStatus({
+                  chat,
+                  sessionId,
+                  content: "langgraph_capacity_retry_skipped",
+                  details: {
+                    debug_event: "langgraph_capacity_retry_skipped",
+                    debug_severity: "warning",
+                    tenant,
+                    reason: langGraphPilotFallbackReason.slice(0, 500),
+                    action: "skip_same_provider_direct_retry",
+                  },
+                })
+                .catch(() => {})
+              throw langGraphError
+            }
             try {
               decision = await llm.decideNextTurnWithTools({
                 systemPrompt: basePrompt,
@@ -5811,21 +5852,30 @@ export class NativeAgentOrchestratorService {
         }
       } catch (toolError) {
         console.error("[native-agent] tool-calling fallback to legacy JSON:", toolError)
-        try {
-          const legacyDecision = await llm.decideNextTurn({
-            systemPrompt: basePrompt,
-            conversation,
-            sampling: llmSampling,
-          })
-          decision = {
-            ...legacyDecision,
-            toolCalls: [],
-            executions: [],
-          }
-        } catch (legacyError) {
-          console.error("[native-agent] legacy fallback also failed:", legacyError)
+        const capacityError = isLlmCapacityOrQuotaError(toolError)
+        let legacyError: any = capacityError ? toolError : null
 
-          // ================= CIRCUIT BREAKER / FALLBACK =================
+        if (!capacityError) {
+          try {
+            const legacyDecision = await llm.decideNextTurn({
+              systemPrompt: basePrompt,
+              conversation,
+              sampling: llmSampling,
+            })
+            decision = {
+              ...legacyDecision,
+              toolCalls: [],
+              executions: [],
+            }
+          } catch (error) {
+            legacyError = error
+            console.error("[native-agent] legacy fallback also failed:", legacyError)
+          }
+        } else {
+          console.warn("[native-agent] skipping same-provider legacy retry after LLM quota/capacity error.")
+        }
+
+        if (!decision) {
           const fallbackLlm = LLMFactory.getFallbackService(config)
           if (fallbackLlm && fallbackLlm.constructor.name !== llm.constructor.name) {
             console.log(`[native-agent] Triggering Global Fallback LLM!`)
@@ -5889,6 +5939,7 @@ export class NativeAgentOrchestratorService {
                   debug_severity: "warning",
                   tool_error: String((toolError as any)?.message || toolError || ""),
                   legacy_error: String((legacyError as any)?.message || legacyError || ""),
+                  skipped_same_provider_retry: capacityError,
                 },
               })
               .catch(() => {})

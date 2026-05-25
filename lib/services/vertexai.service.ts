@@ -19,6 +19,57 @@ type VertexSamplingConfig = {
   topK?: number
 }
 
+let vertexTransientCooldownUntil = 0
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function safeInt(value: any, fallback: number, min: number, max: number): number {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return fallback
+  return Math.max(min, Math.min(max, Math.floor(numeric)))
+}
+
+function stringifyError(error: any): string {
+  if (!error) return ""
+  if (typeof error === "string") return error
+  const message = String(error?.message || "").trim()
+  if (message) return message
+  try {
+    return JSON.stringify(error)
+  } catch {
+    return String(error)
+  }
+}
+
+function isRetryableVertexError(error: any): boolean {
+  const text = stringifyError(error).toLowerCase()
+  return (
+    text.includes("resource_exhausted") ||
+    text.includes("resource exhausted") ||
+    text.includes('"code":429') ||
+    text.includes("code 429") ||
+    text.includes("rate limit") ||
+    text.includes("quota") ||
+    text.includes("temporarily unavailable") ||
+    text.includes("unavailable")
+  )
+}
+
+function buildRetryDelayMs(error: any, attempt: number): number {
+  const text = stringifyError(error)
+  const retrySecondsMatch = text.match(/retry(?:\s|-)?after["'\s:=]+(\d+)/i)
+  const retrySeconds = retrySecondsMatch ? Number(retrySecondsMatch[1]) : 0
+  if (Number.isFinite(retrySeconds) && retrySeconds > 0) {
+    return Math.min(5000, Math.max(500, retrySeconds * 1000))
+  }
+
+  const base = safeInt(process.env.VERTEX_RETRY_BASE_MS, 700, 250, 2500)
+  const jitter = Math.floor(Math.random() * 350)
+  return Math.min(5000, base * Math.pow(2, attempt) + jitter)
+}
+
 function resolveSamplingValue(
   value: any,
   fallback: number,
@@ -484,12 +535,38 @@ export class VertexAIService implements LLMService {
       config.toolConfig = request.toolConfig
     }
 
-    const response = await this.ai.models.generateContent({
-      model: this.model,
-      contents: request.contents,
-      config,
-    })
-    return response || {}
+    const maxRetries = safeInt(process.env.VERTEX_MAX_RETRIES, 2, 0, 4)
+    let lastError: any = null
+
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      const cooldownRemaining = vertexTransientCooldownUntil - Date.now()
+      if (cooldownRemaining > 0) {
+        await sleep(Math.min(cooldownRemaining, 2500))
+      }
+
+      try {
+        const response = await this.ai.models.generateContent({
+          model: this.model,
+          contents: request.contents,
+          config,
+        })
+        return response || {}
+      } catch (error: any) {
+        lastError = error
+        if (!isRetryableVertexError(error) || attempt >= maxRetries) {
+          throw error
+        }
+
+        const delayMs = buildRetryDelayMs(error, attempt)
+        vertexTransientCooldownUntil = Math.max(vertexTransientCooldownUntil, Date.now() + delayMs)
+        console.warn(
+          `[VertexAIService] Transient Vertex error. retry=${attempt + 1}/${maxRetries} delayMs=${delayMs} reason=${stringifyError(error).slice(0, 240)}`,
+        )
+        await sleep(delayMs)
+      }
+    }
+
+    throw lastError
   }
 
   async transcribeAudio(input: {
