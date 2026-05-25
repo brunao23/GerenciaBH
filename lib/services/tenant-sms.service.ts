@@ -98,6 +98,29 @@ function renderTemplate(template: string, data: Record<string, string>): string 
     .trim()
 }
 
+function normalizeIntegraxError(raw: any, fallback: string): string {
+  const message = String(raw?.message || raw?.error || fallback || "").trim()
+  const normalized = message.toLowerCase()
+
+  if (normalized.includes("integration not authorized to send") || normalized.includes("enable trust")) {
+    return "Integrax bloqueou o envio: a integracao ainda nao esta autorizada para SMS. Acione o suporte da Integrax e peca a liberacao de trust/envio para este token."
+  }
+
+  if (normalized.includes("invalid token")) {
+    return "Token Integrax invalido. Confira o token salvo nesta unidade."
+  }
+
+  if (normalized.includes("insufficient balance")) {
+    return "Saldo Integrax insuficiente para enviar SMS."
+  }
+
+  if (normalized.includes("rate limited")) {
+    return "Integrax aplicou limite de envio. Aguarde alguns instantes e tente novamente."
+  }
+
+  return message || fallback || "Falha ao enviar SMS Integrax"
+}
+
 function dedupeRecipients(recipients: SmsRecipient[]): SmsRecipient[] {
   const map = new Map<string, SmsRecipient>()
   for (const item of recipients) {
@@ -497,7 +520,7 @@ export class TenantSmsService {
           ok: false,
           phone,
           providerStatus: raw?.code || String(response.status),
-          error: raw?.message || `Integrax HTTP ${response.status}`,
+          error: normalizeIntegraxError(raw, `Integrax HTTP ${response.status}`),
           raw,
         }
       }
@@ -550,4 +573,3 @@ export class TenantSmsService {
     }
   }
 }
-
