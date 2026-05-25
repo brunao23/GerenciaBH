@@ -58,6 +58,7 @@ import {
 import { RedisService } from "@/lib/services/redis.service"
 import { buildLeadAttendanceSummary } from "@/lib/helpers/lead-attendance-summary"
 import { DiscordSystemLogService } from "@/lib/services/discord-system-log.service"
+import { TenantSmsService } from "@/lib/services/tenant-sms.service"
 import { buildPauseActorPayload } from "@/lib/helpers/pause-actor"
 import { recordPauseAuditEvent } from "@/lib/services/pause-audit.service"
 
@@ -13582,6 +13583,22 @@ export class NativeAgentOrchestratorService {
     })
 
     const postScheduleTasks: Array<Promise<unknown>> = []
+
+    postScheduleTasks.push(
+      new TenantSmsService()
+        .sendAutomaticScheduleSms({
+          tenant: params.tenant,
+          phone: params.phone,
+          leadName: params.contactName || "Cliente",
+          date: params.appointmentData?.date,
+          time: params.appointmentData?.time,
+          appointmentId: params.appointmentData?.appointmentId,
+          unitName: params.tenant,
+        })
+        .catch((error) => {
+          console.warn("[native-agent] SMS pos-agendamento falhou:", error?.message || error)
+        }),
+    )
 
     // Fallback global: garante notificacao de sucesso no grupo mesmo se a etapa
     // anterior de notificacao do tool-flow falhar em algum tenant.

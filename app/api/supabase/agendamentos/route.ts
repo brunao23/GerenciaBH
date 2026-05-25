@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { notifyAgendamentoCreated } from "@/lib/services/notifications"
 import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
+import { TenantSmsService } from "@/lib/services/tenant-sms.service"
 
 type Row = Record<string, any>
 const tableColumnsCache = new Map<string, Set<string>>()
@@ -553,7 +554,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const { tables, session } = await getTenantFromRequest()
+    const { tenant, tables, session } = await getTenantFromRequest()
     const { agendamentos } = tables
     const supabase = createBiaSupabaseServerClient()
     const body = await req.json()
@@ -631,6 +632,20 @@ export async function POST(req: Request) {
       diaFinal,
       horarioFinal
     ).catch(err => console.error("[Agendamentos API] Erro ao criar notificação:", err))
+
+    if (statusFinal !== "pendente" && diaFinal !== "A definir" && horarioFinal !== "A definir") {
+      new TenantSmsService()
+        .sendAutomaticScheduleSms({
+          tenant,
+          phone: contatoFinal,
+          leadName: nomeFinal || "Cliente",
+          date: diaFinal,
+          time: horarioFinal,
+          appointmentId: data?.id ? String(data.id) : null,
+          unitName: session?.unitName || tenant,
+        })
+        .catch((err) => console.warn("[Agendamentos API] SMS pos-agendamento falhou:", err?.message || err))
+    }
 
     return NextResponse.json({ success: true, data })
   } catch (e: any) {

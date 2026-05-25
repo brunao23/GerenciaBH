@@ -3,6 +3,7 @@ import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
 import { AgentTaskQueueService } from "@/lib/services/agent-task-queue.service"
 import { TenantBusinessEventsService, type TenantBusinessEventType } from "@/lib/services/tenant-business-events.service"
 import { getNativeAgentConfigForTenant } from "@/lib/helpers/native-agent-config"
+import { TenantSmsService } from "@/lib/services/tenant-sms.service"
 
 function toIsoDate(value?: string | null): string | null {
   const text = String(value || "").trim()
@@ -225,6 +226,17 @@ export async function POST(req: Request) {
     const eventDate = new Date(event.event_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })
 
     let queuedTask: { type: "reengagement" | "welcome"; id?: string; runAt?: string } | null = null
+
+    if (event.event_type === "no_show" && event.phone_number) {
+      new TenantSmsService()
+        .sendAutomaticNoShowSms({
+          tenant,
+          phone: event.phone_number,
+          leadName,
+          unitName: tenantContext?.session?.unitName || tenant,
+        })
+        .catch((error) => console.warn("[business-events POST] SMS automatico de bolo falhou:", error?.message || error))
+    }
 
     if (
       event.event_type === "no_show" &&

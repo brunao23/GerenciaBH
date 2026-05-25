@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { notifyAgendamentoCreated } from "@/lib/services/notifications"
+import { TenantSmsService } from "@/lib/services/tenant-sms.service"
 import { resolveChatHistoriesTable } from "@/lib/helpers/resolve-chat-table"
 
 // Cliente Supabase com Service Role para acesso administrativo
@@ -475,6 +476,20 @@ export async function POST(request: NextRequest) {
             dadosAgendamento.dia || "A definir",
             dadosAgendamento.horario || "A definir"
           ).catch(err => console.error(`[ProcessarAgendamentos] [${tenant}] Erro ao criar notificação de agendamento:`, err))
+
+          if (dadosAgendamento.status !== "pendente" && dadosAgendamento.dia !== "A definir" && dadosAgendamento.horario !== "A definir") {
+            new TenantSmsService()
+              .sendAutomaticScheduleSms({
+                tenant,
+                phone: dadosAgendamento.contato,
+                leadName: dadosAgendamento.nome || "Cliente",
+                date: dadosAgendamento.dia,
+                time: dadosAgendamento.horario,
+                appointmentId: novoAgendamento?.id ? String(novoAgendamento.id) : null,
+                unitName: tenant,
+              })
+              .catch((err) => console.warn(`[ProcessarAgendamentos] [${tenant}] SMS pos-agendamento falhou:`, err?.message || err))
+          }
 
           try {
             if (dadosAgendamento.dia !== "A definir" && dadosAgendamento.horario !== "A definir") {

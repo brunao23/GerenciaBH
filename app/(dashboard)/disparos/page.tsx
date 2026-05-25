@@ -153,6 +153,51 @@ type MetaPhoneNumber = {
   verified_name?: string
 }
 
+type SmsConfig = {
+  enabled: boolean
+  hasToken: boolean
+  senderId?: string | null
+  autoScheduleEnabled: boolean
+  autoNoShowEnabled: boolean
+  scheduleTemplate: string
+  noShowTemplate: string
+}
+
+type SmsSendResult = {
+  phone: string
+  ok: boolean
+  error?: string
+  providerStatus?: string | null
+  providerMessageId?: string | null
+}
+
+type SmsCampaignSummary = {
+  id: string
+  name: string
+  segment: string
+  status: string
+  recipient_count: number
+  sent_count: number
+  failed_count: number
+  created_at: string
+}
+
+type SmsLogSummary = {
+  id: string
+  phone: string
+  lead_name?: string | null
+  event_type: string
+  success: boolean
+  provider_status?: string | null
+  error_message?: string | null
+  created_at: string
+}
+
+const DEFAULT_SMS_SCHEDULE_TEMPLATE =
+  "Oi {{nome}}, seu diagnostico na {{unidade}} ficou agendado para {{data}} as {{hora}}. Qualquer duvida, responda por aqui."
+const DEFAULT_SMS_NO_SHOW_TEMPLATE =
+  "Oi {{nome}}, vimos que voce nao conseguiu comparecer ao diagnostico. Quer que a gente te envie novas opcoes de horario?"
+
 const ensureBRPrefix = (num: string) => {
   const clean = num.replace(/\D/g, "")
   if (clean.length === 10 || clean.length === 11) return `55${clean}`
@@ -496,6 +541,28 @@ export default function DisparosPage() {
   const [zapiPhoneCode, setZapiPhoneCode] = useState("")
   const [zapiQrRefreshTimer, setZapiQrRefreshTimer] = useState(0)
   const [zapiQrAutoRefreshLeft, setZapiQrAutoRefreshLeft] = useState(0)
+  const [smsLoading, setSmsLoading] = useState(false)
+  const [smsSaving, setSmsSaving] = useState(false)
+  const [smsSending, setSmsSending] = useState(false)
+  const [smsEnabled, setSmsEnabled] = useState(false)
+  const [smsHasToken, setSmsHasToken] = useState(false)
+  const [smsToken, setSmsToken] = useState("")
+  const [smsSenderId, setSmsSenderId] = useState("")
+  const [smsAutoScheduleEnabled, setSmsAutoScheduleEnabled] = useState(false)
+  const [smsAutoNoShowEnabled, setSmsAutoNoShowEnabled] = useState(false)
+  const [smsScheduleTemplate, setSmsScheduleTemplate] = useState(DEFAULT_SMS_SCHEDULE_TEMPLATE)
+  const [smsNoShowTemplate, setSmsNoShowTemplate] = useState(DEFAULT_SMS_NO_SHOW_TEMPLATE)
+  const [smsTestPhone, setSmsTestPhone] = useState("")
+  const [smsTestMessage, setSmsTestMessage] = useState("Teste de SMS Integrax pelo GerencIA.")
+  const [smsCampaignName, setSmsCampaignName] = useState("")
+  const [smsCampaignSegment, setSmsCampaignSegment] = useState<"scheduled" | "no_show" | "manual">("scheduled")
+  const [smsCampaignMessage, setSmsCampaignMessage] = useState(
+    "Oi {{nome}}, passando pela {{unidade}} para confirmar seu contato. Podemos falar por aqui?",
+  )
+  const [smsManualList, setSmsManualList] = useState("")
+  const [smsCampaigns, setSmsCampaigns] = useState<SmsCampaignSummary[]>([])
+  const [smsLogs, setSmsLogs] = useState<SmsLogSummary[]>([])
+  const [smsResults, setSmsResults] = useState<SmsSendResult[]>([])
   const stopRef = useRef(false)
 
   useEffect(() => {
@@ -529,6 +596,44 @@ export default function DisparosPage() {
     }
     load()
   }, [tenant?.prefix])
+
+  const loadSmsDashboard = useCallback(async () => {
+    setSmsLoading(true)
+    try {
+      const [configRes, campaignsRes] = await Promise.all([
+        fetch("/api/sms/config", { cache: "no-store" }),
+        fetch("/api/sms/campaigns", { cache: "no-store" }),
+      ])
+
+      const configData = await configRes.json().catch(() => ({}))
+      if (configRes.ok && configData?.config) {
+        const config = configData.config as SmsConfig
+        setSmsEnabled(config.enabled === true)
+        setSmsHasToken(config.hasToken === true)
+        setSmsToken("")
+        setSmsSenderId(config.senderId || "")
+        setSmsAutoScheduleEnabled(config.autoScheduleEnabled === true)
+        setSmsAutoNoShowEnabled(config.autoNoShowEnabled === true)
+        setSmsScheduleTemplate(config.scheduleTemplate || DEFAULT_SMS_SCHEDULE_TEMPLATE)
+        setSmsNoShowTemplate(config.noShowTemplate || DEFAULT_SMS_NO_SHOW_TEMPLATE)
+      }
+
+      const campaignsData = await campaignsRes.json().catch(() => ({}))
+      if (campaignsRes.ok) {
+        setSmsCampaigns(Array.isArray(campaignsData?.campaigns) ? campaignsData.campaigns : [])
+        setSmsLogs(Array.isArray(campaignsData?.logs) ? campaignsData.logs : [])
+      }
+    } catch (error) {
+      console.warn("[Disparos] Falha ao carregar SMS:", error)
+    } finally {
+      setSmsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!tenant?.prefix) return
+    loadSmsDashboard()
+  }, [tenant?.prefix, loadSmsDashboard])
 
   const zapiReady = Boolean(
     clientToken.trim() &&
@@ -883,6 +988,112 @@ export default function DisparosPage() {
       toast.error(error?.message || "Erro ao salvar configuracao")
     } finally {
       setSavingConfig(false)
+    }
+  }
+
+  const handleSaveSmsConfig = async () => {
+    setSmsSaving(true)
+    try {
+      const body: Record<string, any> = {
+        enabled: smsEnabled,
+        senderId: smsSenderId.trim() || undefined,
+        autoScheduleEnabled: smsAutoScheduleEnabled,
+        autoNoShowEnabled: smsAutoNoShowEnabled,
+        scheduleTemplate: smsScheduleTemplate.trim() || DEFAULT_SMS_SCHEDULE_TEMPLATE,
+        noShowTemplate: smsNoShowTemplate.trim() || DEFAULT_SMS_NO_SHOW_TEMPLATE,
+      }
+      if (smsToken.trim()) body.token = smsToken.trim()
+
+      const res = await fetch("/api/sms/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || "Erro ao salvar SMS")
+      }
+
+      const config = data.config as SmsConfig
+      setSmsHasToken(config?.hasToken === true)
+      setSmsToken("")
+      toast.success("SMS Integrax salvo para esta unidade.")
+      await loadSmsDashboard()
+    } catch (error: any) {
+      toast.error(error?.message || "Erro ao salvar SMS")
+    } finally {
+      setSmsSaving(false)
+    }
+  }
+
+  const handleSmsTest = async () => {
+    if (!smsTestPhone.trim()) {
+      toast.error("Informe o telefone para teste.")
+      return
+    }
+    if (!smsTestMessage.trim()) {
+      toast.error("Informe a mensagem de teste.")
+      return
+    }
+
+    setSmsSending(true)
+    try {
+      const res = await fetch("/api/sms/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phone: smsTestPhone,
+          message: smsTestMessage,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || "Erro ao enviar SMS de teste")
+      }
+      toast.success("SMS de teste enviado.")
+      await loadSmsDashboard()
+    } catch (error: any) {
+      toast.error(error?.message || "Erro ao enviar SMS de teste")
+    } finally {
+      setSmsSending(false)
+    }
+  }
+
+  const handleSmsCampaign = async () => {
+    if (!smsCampaignMessage.trim()) {
+      toast.error("Informe a mensagem da campanha SMS.")
+      return
+    }
+    const manualRecipients = smsCampaignSegment === "manual" ? parseContacts(smsManualList) : []
+    if (smsCampaignSegment === "manual" && manualRecipients.length === 0) {
+      toast.error("Cole pelo menos um telefone na lista manual.")
+      return
+    }
+
+    setSmsSending(true)
+    setSmsResults([])
+    try {
+      const res = await fetch("/api/sms/campaigns", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: smsCampaignName || undefined,
+          segment: smsCampaignSegment,
+          message: smsCampaignMessage,
+          recipients: manualRecipients,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || "Erro ao enviar campanha SMS")
+      }
+      setSmsResults(Array.isArray(data?.results) ? data.results : [])
+      toast.success(`Campanha SMS processada: ${data?.campaign?.sent_count || 0} enviado(s).`)
+      await loadSmsDashboard()
+    } catch (error: any) {
+      toast.error(error?.message || "Erro ao enviar campanha SMS")
+    } finally {
+      setSmsSending(false)
     }
   }
 
@@ -1284,6 +1495,265 @@ export default function DisparosPage() {
     metaReportConfig?.metaPhoneNumberId,
   )
 
+  const renderSmsPanel = () => (
+    <Card className="genial-card border-cyan-500/20">
+      <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <CardTitle className="text-pure-white flex items-center gap-2">
+            <Smartphone className="w-5 h-5 text-cyan-300" />
+            SMS Integrax
+          </CardTitle>
+          <CardDescription className="text-text-gray">
+            Envie SMS para agendados, leads que deram bolo e listas manuais. Automacoes rodam por unidade.
+          </CardDescription>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className={smsEnabled ? "border-cyan-400/40 text-cyan-300" : "border-border-gray text-text-gray"}>
+            {smsEnabled ? "Ativo" : "Inativo"}
+          </Badge>
+          <Button
+            variant="outline"
+            className="border-border-gray text-text-gray hover:bg-white/5"
+            onClick={loadSmsDashboard}
+            disabled={smsLoading}
+          >
+            <RefreshCw className="w-4 h-4 mr-2" />
+            {smsLoading ? "Atualizando..." : "Atualizar"}
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="grid gap-6 lg:grid-cols-2">
+          <div className="rounded-lg border border-border-gray/60 bg-foreground/5 p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm font-semibold text-pure-white">Configuracao Integrax</div>
+                <div className="text-xs text-text-gray">
+                  O token fica salvo no servidor e nao volta preenchido na tela.
+                </div>
+              </div>
+              <Switch checked={smsEnabled} onCheckedChange={setSmsEnabled} />
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Token da Integrax</Label>
+                <Input
+                  type="password"
+                  value={smsToken}
+                  onChange={(e) => setSmsToken(e.target.value)}
+                  placeholder={smsHasToken ? "Token ja configurado" : "Cole o token"}
+                  className="bg-foreground/8 border-border-gray text-pure-white"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Sender ID / shortcode</Label>
+                <Input
+                  value={smsSenderId}
+                  onChange={(e) => setSmsSenderId(e.target.value)}
+                  placeholder="Opcional. Ex: 29094"
+                  className="bg-foreground/8 border-border-gray text-pure-white"
+                />
+              </div>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="flex items-center justify-between rounded-lg border border-border-gray/60 bg-secondary-black p-3">
+                <span className="text-sm text-text-gray">SMS ao agendar</span>
+                <Switch checked={smsAutoScheduleEnabled} onCheckedChange={setSmsAutoScheduleEnabled} />
+              </label>
+              <label className="flex items-center justify-between rounded-lg border border-border-gray/60 bg-secondary-black p-3">
+                <span className="text-sm text-text-gray">SMS quando marcar bolo</span>
+                <Switch checked={smsAutoNoShowEnabled} onCheckedChange={setSmsAutoNoShowEnabled} />
+              </label>
+            </div>
+            <div className="space-y-2">
+              <Label>Template de agendamento</Label>
+              <Textarea
+                value={smsScheduleTemplate}
+                onChange={(e) => setSmsScheduleTemplate(e.target.value)}
+                className="min-h-[90px] bg-foreground/8 border-border-gray text-pure-white"
+              />
+              <div className="text-[11px] text-text-gray">
+                Variaveis: {"{{nome}}"}, {"{{primeiro_nome}}"}, {"{{data}}"}, {"{{hora}}"}, {"{{unidade}}"}.
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Template de bolo/no-show</Label>
+              <Textarea
+                value={smsNoShowTemplate}
+                onChange={(e) => setSmsNoShowTemplate(e.target.value)}
+                className="min-h-[90px] bg-foreground/8 border-border-gray text-pure-white"
+              />
+            </div>
+            <Button
+              onClick={handleSaveSmsConfig}
+              disabled={smsSaving}
+              className="bg-cyan-400 text-[var(--primary-black)] hover:bg-cyan-300"
+            >
+              {smsSaving ? "Salvando..." : "Salvar SMS"}
+            </Button>
+          </div>
+
+          <div className="rounded-lg border border-border-gray/60 bg-foreground/5 p-4 space-y-4">
+            <div>
+              <div className="text-sm font-semibold text-pure-white">Teste rapido</div>
+              <div className="text-xs text-text-gray">Use antes de ativar automacoes para validar saldo, token e entrega.</div>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Telefone</Label>
+                <Input
+                  value={smsTestPhone}
+                  onChange={(e) => setSmsTestPhone(e.target.value)}
+                  placeholder="5511999999999"
+                  className="bg-foreground/8 border-border-gray text-pure-white"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Status</Label>
+                <div className="h-10 rounded-md border border-border-gray bg-secondary-black px-3 text-sm text-text-gray flex items-center">
+                  {smsHasToken ? "Token configurado" : "Token pendente"}
+                </div>
+              </div>
+            </div>
+            <Textarea
+              value={smsTestMessage}
+              onChange={(e) => setSmsTestMessage(e.target.value)}
+              className="min-h-[100px] bg-foreground/8 border-border-gray text-pure-white"
+            />
+            <Button
+              onClick={handleSmsTest}
+              disabled={smsSending || !smsEnabled}
+              variant="outline"
+              className="border-cyan-400/40 text-cyan-300 hover:bg-cyan-400/10"
+            >
+              <MessageSquare className="w-4 h-4 mr-2" />
+              Enviar teste
+            </Button>
+          </div>
+        </div>
+
+        <div className="grid gap-6 lg:grid-cols-2">
+          <div className="rounded-lg border border-border-gray/60 bg-foreground/5 p-4 space-y-4">
+            <div>
+              <div className="text-sm font-semibold text-pure-white">Campanha SMS</div>
+              <div className="text-xs text-text-gray">
+                Segmentos automaticos usam agendamentos futuros e eventos de bolo registrados no CRM.
+              </div>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Nome da campanha</Label>
+                <Input
+                  value={smsCampaignName}
+                  onChange={(e) => setSmsCampaignName(e.target.value)}
+                  placeholder="Opcional"
+                  className="bg-foreground/8 border-border-gray text-pure-white"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Segmento</Label>
+                <Select value={smsCampaignSegment} onValueChange={(value) => setSmsCampaignSegment(value as any)}>
+                  <SelectTrigger className="bg-foreground/8 border-border-gray text-pure-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-secondary border-border text-pure-white">
+                    <SelectItem value="scheduled">Quem agendou</SelectItem>
+                    <SelectItem value="no_show">Quem deu bolo</SelectItem>
+                    <SelectItem value="manual">Lista manual</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            {smsCampaignSegment === "manual" && (
+              <Textarea
+                value={smsManualList}
+                onChange={(e) => setSmsManualList(e.target.value)}
+                placeholder={"5511999999999,Joao\n5511888888888,Maria"}
+                className="min-h-[110px] bg-foreground/8 border-border-gray text-pure-white"
+              />
+            )}
+            <Textarea
+              value={smsCampaignMessage}
+              onChange={(e) => setSmsCampaignMessage(e.target.value)}
+              className="min-h-[120px] bg-foreground/8 border-border-gray text-pure-white"
+            />
+            <div className="flex items-center gap-3">
+              <Button
+                onClick={handleSmsCampaign}
+                disabled={smsSending || !smsEnabled}
+                className="bg-cyan-400 text-[var(--primary-black)] hover:bg-cyan-300"
+              >
+                {smsSending ? "Enviando..." : "Enviar campanha SMS"}
+              </Button>
+              {smsCampaignSegment === "manual" && (
+                <span className="text-xs text-text-gray">{parseContacts(smsManualList).length} contatos manuais</span>
+              )}
+            </div>
+            {smsResults.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-xs text-text-gray">Resultado da ultima campanha</div>
+                <div className="max-h-44 overflow-auto space-y-2">
+                  {smsResults.map((item, index) => (
+                    <div key={`${item.phone}-${index}`} className="flex items-center justify-between rounded border border-border-gray bg-secondary-black p-2 text-xs">
+                      <span className="font-mono text-text-gray">{item.phone}</span>
+                      <Badge variant="outline" className={item.ok ? "border-green-500/40 text-green-400" : "border-red-500/40 text-red-400"}>
+                        {item.ok ? "Enviado" : item.error || "Erro"}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-lg border border-border-gray/60 bg-foreground/5 p-4 space-y-4">
+            <div>
+              <div className="text-sm font-semibold text-pure-white">Historico SMS</div>
+              <div className="text-xs text-text-gray">Ultimas campanhas e envios registrados por tenant.</div>
+            </div>
+            <div className="space-y-2">
+              {smsCampaigns.length === 0 ? (
+                <div className="text-xs text-text-gray">Nenhuma campanha SMS registrada.</div>
+              ) : (
+                smsCampaigns.slice(0, 6).map((campaign) => (
+                  <div key={campaign.id} className="rounded border border-border-gray bg-secondary-black p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-sm text-pure-white">{campaign.name}</div>
+                      <Badge variant="outline" className="text-xs text-text-gray">{campaign.status}</Badge>
+                    </div>
+                    <div className="text-xs text-text-gray">
+                      {campaign.segment} - {campaign.sent_count}/{campaign.recipient_count} enviados, {campaign.failed_count} falhas
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="space-y-2">
+              <div className="text-xs uppercase text-text-gray">Ultimos envios</div>
+              {smsLogs.length === 0 ? (
+                <div className="text-xs text-text-gray">Nenhum SMS enviado ainda.</div>
+              ) : (
+                <div className="max-h-52 overflow-auto space-y-2">
+                  {smsLogs.slice(0, 10).map((log) => (
+                    <div key={log.id} className="flex items-center justify-between rounded border border-border-gray bg-secondary-black p-2 text-xs">
+                      <div>
+                        <div className="font-mono text-pure-white">{log.phone}</div>
+                        <div className="text-text-gray">{log.event_type}{log.lead_name ? ` - ${log.lead_name}` : ""}</div>
+                      </div>
+                      <Badge variant="outline" className={log.success ? "border-green-500/40 text-green-400" : "border-red-500/40 text-red-400"}>
+                        {log.success ? log.provider_status || "OK" : log.error_message || "Erro"}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  )
+
   const renderMetaDashboard = () => {
     if (provider !== "meta") return null
 
@@ -1667,10 +2137,10 @@ export default function DisparosPage() {
         <div>
           <h1 className="text-3xl font-bold text-pure-white flex items-center gap-2">
             <Megaphone className="w-7 h-7 text-accent-green" />
-            Disparos WhatsApp
+            Campanhas WhatsApp e SMS
           </h1>
           <p className="text-text-gray">
-            Envio inteligente usando {provider === "meta" ? "Meta Cloud API" : provider === "evolution" ? "Evolution API" : "Z-API"} com delay seguro.
+            Envio inteligente por WhatsApp e SMS Integrax com controles por unidade.
           </p>
         </div>
         <Button asChild variant="outline" className="border-border-gray text-text-gray hover:bg-white/5">
@@ -1679,6 +2149,8 @@ export default function DisparosPage() {
       </div>
 
       {renderMetaDashboard()}
+
+      {renderSmsPanel()}
 
       <MetaTemplatesPanel />
 
@@ -2087,4 +2559,3 @@ Oi {primeiro_nome}, passando para lembrar..."
     </div>
   )
 }
-
