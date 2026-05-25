@@ -10,6 +10,7 @@ export type NotificationType =
   | 'followup_active'
   | 'agendamento_created'
   | 'agendamento_confirmed'
+  | 'agendamento_cancelled'
   | 'ganho'
   | 'erro'
   | 'lead_paused'
@@ -102,6 +103,11 @@ function getNotificationTypeConfig(type: NotificationType): {
       color: '#10b981', // Verde
       icon: '✅',
       priority: 'high'
+    },
+    agendamento_cancelled: {
+      color: '#ef4444', // Vermelho
+      icon: '\u{1F6D1}',
+      priority: 'urgent'
     },
     ganho: {
       color: '#f59e0b', // Amarelo/Ouro

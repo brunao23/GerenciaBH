@@ -2438,6 +2438,20 @@ function shouldForceRescheduleBeforeCancel(rawMessage: string): boolean {
   return temporaryBlockPatterns.some((pattern) => pattern.test(text))
 }
 
+function leadRequestsAppointmentCancellation(rawMessage: string): boolean {
+  const text = normalizeComparableMessage(rawMessage)
+  if (!text) return false
+  if (shouldForceRescheduleBeforeCancel(rawMessage)) return false
+
+  const cancellationPatterns = [
+    /\b(favor|por\s+favor)?\s*(cancelar|cancele|cancela|cancelamento)\b/,
+    /\b(quero|preciso|gostaria\s+de)\s+(cancelar|cancele|desmarcar|desmarque)\b/,
+    /\b(desmarcar|desmarque|desmarca)\b/,
+  ]
+
+  return cancellationPatterns.some((pattern) => pattern.test(text))
+}
+
 function seededUnitInterval(seedRaw: string): number {
   const seed = String(seedRaw || "reply-default")
   let hash = 2166136261
@@ -3905,6 +3919,73 @@ function resolveSafeAppointmentCustomerName(toolName?: string | null, contactNam
   const tool = sanitizeSafeVocativeName(toolName)
   if (contact && tool && normalizeNameForCompare(contact) !== normalizeNameForCompare(tool)) return contact
   return tool || contact || undefined
+}
+
+function conversationTurnRole(row: any): string {
+  return String(row?.role || row?.message?.role || row?.sender_type || "").trim().toLowerCase()
+}
+
+function conversationTurnContent(row: any): string {
+  return String(row?.content || row?.message?.content || row?.message?.text || row?.text || "").trim()
+}
+
+function assistantAskedForLeadName(value: string): boolean {
+  const text = normalizeComparableMessage(value)
+  if (!text) return false
+  return (
+    /\bcomo\s+(posso|podemos)\s+te\s+chamar\b/.test(text) ||
+    /\bqual\s+(e\s+)?(o\s+)?seu\s+nome\b/.test(text) ||
+    /\b(me\s+fala|me\s+diz|me\s+informa|pode\s+me\s+dizer|pode\s+me\s+falar)\s+(o\s+)?seu\s+nome\b/.test(text) ||
+    /\bnome\s+(para|pra)\s+(deixar|reservar|formalizar|agendar)\b/.test(text)
+  )
+}
+
+function normalizeExplicitLeadNameCandidate(value: string): string | null {
+  const cleaned = stripDecorativeNameNoise(value)
+    .split(/[,.!?;:\n]/)[0]
+    .replace(/\b(?:e|mas|porque|pois|para|pra)\b[\s\S]*$/iu, "")
+    .trim()
+  if (!cleaned || cleaned.length < 2 || cleaned.length > 45) return null
+  if (!/^\p{L}[\p{L}\s'-]{1,44}$/u.test(cleaned)) return null
+  if (isInvalidLeadNameCandidate(cleaned)) return null
+  return sanitizeSafeVocativeName(cleaned)
+}
+
+function resolveExplicitLeadNameFromConversationRows(rows: any[] | undefined): string | null {
+  const turns = Array.isArray(rows) ? rows : []
+  if (!turns.length) return null
+
+  const explicitPatterns = [
+    /\b(?:me\s+chamo|meu\s+nome\s+(?:e|eh|\u00e9)|pode(?:m)?\s+me\s+chamar\s+de|me\s+chamam\s+de|chama(?:-me)?\s+de|chamo[-\s]me\s+de)\s+([\p{L}][\p{L}\s'-]{1,44})/iu,
+    /\b(?:sou|eu\s+sou)\s+(?:o|a)\s+([\p{L}][\p{L}\s'-]{1,44})/iu,
+  ]
+
+  for (let i = turns.length - 1; i >= 0; i -= 1) {
+    if (conversationTurnRole(turns[i]) !== "user") continue
+    const text = conversationTurnContent(turns[i])
+    if (!text || text.length > 120) continue
+    for (const pattern of explicitPatterns) {
+      const match = text.match(pattern)
+      const accepted = match?.[1] ? normalizeExplicitLeadNameCandidate(match[1]) : null
+      if (accepted) return accepted
+    }
+  }
+
+  for (let i = 0; i < turns.length; i += 1) {
+    if (conversationTurnRole(turns[i]) !== "user") continue
+    const text = conversationTurnContent(turns[i])
+    if (!text || text.length > 45) continue
+    if (!/^[\p{L}\s'-]{2,45}[.!?]?$/u.test(text)) continue
+    const previousAssistantAskedName = turns
+      .slice(Math.max(0, i - 3), i)
+      .reverse()
+      .some((turn) => conversationTurnRole(turn) === "assistant" && assistantAskedForLeadName(conversationTurnContent(turn)))
+    if (!previousAssistantAskedName) continue
+    const accepted = normalizeExplicitLeadNameCandidate(text)
+    if (accepted) return accepted
+  }
+
+  return null
 }
 
 function fixGreetingTemporalAndVocative(
@@ -6293,6 +6374,80 @@ export class NativeAgentOrchestratorService {
         .catch(() => {})
     }
 
+    const latestLeadCancellationMessage = String(effectiveLeadMessage || content || "")
+    const hasCancelAppointmentExecution = (decision.executions as GeminiToolExecution[]).some((execution) => {
+      const type = String(execution?.action?.type || execution?.call?.name || "").trim().toLowerCase()
+      return type === "cancel_appointment"
+    })
+    if (
+      !hasCancelAppointmentExecution &&
+      leadRequestsAppointmentCancellation(latestLeadCancellationMessage)
+    ) {
+      const hasActiveAppointment = await this.hasActiveAppointmentForLead({
+        tenant,
+        sessionId,
+        phone,
+        timezone: config.timezone || "America/Sao_Paulo",
+      })
+
+      if (hasActiveAppointment) {
+        const forcedCancelCall: GeminiToolCall = {
+          name: "cancel_appointment",
+          args: {
+            reason: latestLeadCancellationMessage.slice(0, 220),
+          },
+        }
+        const handled = await this.executeToolCall({
+          toolCall: forcedCancelCall,
+          tenant,
+          phone,
+          sessionId,
+          contactName: resolvedContactName || undefined,
+          config,
+          chat,
+          incomingMessageId: input.messageId,
+          qualificationState,
+          leadMessageContext: latestLeadCancellationMessage,
+        })
+        const ok = Boolean(handled?.ok)
+        const responsePayload =
+          handled?.response && typeof handled.response === "object"
+            ? handled.response
+            : ok
+              ? { ok: true }
+              : { ok: false, error: handled?.error || "cancel_appointment_failed" }
+        const cancelExecution: GeminiToolExecution = {
+          call: forcedCancelCall,
+          action: handled?.action || { type: "cancel_appointment", note: latestLeadCancellationMessage.slice(0, 220) },
+          ok,
+          response: responsePayload,
+          error: handled?.error,
+        }
+        decision.executions = [
+          ...(Array.isArray(decision.executions) ? decision.executions : []),
+          cancelExecution,
+        ]
+        decision.actions = decision.executions.map((execution: GeminiToolExecution) => execution.action)
+        decision.reply = ok
+          ? "Entendi, cancelei seu agendamento por aqui. Se quiser remarcar depois, fico a disposicao."
+          : "Entendi. Nao consegui concluir o cancelamento automaticamente, mas deixei registrado para a equipe conferir."
+        await this
+          .persistDebugStatus({
+            chat,
+            sessionId,
+            content: "cancel_appointment_tool_recovery_forced",
+            details: {
+              debug_event: "cancel_appointment_tool_recovery_forced",
+              debug_severity: ok ? "info" : "warning",
+              lead_preview: latestLeadCancellationMessage.slice(0, 180),
+              tool_ok: ok,
+              error: handled?.error || responsePayload?.error || null,
+            },
+          })
+          .catch(() => {})
+      }
+    }
+
     const claimsAppointmentWithoutCurrentTool =
       !hasAppointmentMutationExecution(decision.executions as GeminiToolExecution[]) &&
       responseClaimsAppointmentConfirmed(String(decision.reply || "")) &&
@@ -8363,6 +8518,31 @@ export class NativeAgentOrchestratorService {
         }).catch(() => {})
       }
 
+      if (actionType === "cancel_appointment") {
+        const leadLabel = firstName(params.contactName) || params.contactName || params.phone
+        const day = formatDateToBr(execution.action?.date)
+        const time = String(execution.action?.time || "").trim()
+        const when = [day, time ? `as ${time}` : ""].filter(Boolean).join(" ") || "agendamento atual"
+        await createNotification({
+          type: execution.ok ? "agendamento_cancelled" : "erro",
+          title: execution.ok ? "Agendamento cancelado" : "Falha ao cancelar agendamento",
+          message: execution.ok
+            ? `${leadLabel} pediu cancelamento e o sistema cancelou ${when}.`
+            : `${leadLabel} pediu cancelamento, mas o sistema retornou: ${execution.error || execution.response?.error || "cancelamento_falhou"}`,
+          phoneNumber: params.phone,
+          leadName: params.contactName || undefined,
+          metadata: {
+            appointmentId: execution.response?.appointmentId,
+            date: execution.action?.date,
+            time: execution.action?.time,
+            error: execution.error || execution.response?.error || null,
+            sessionId: params.sessionId,
+          },
+          priority: "urgent",
+          tenant: params.tenant,
+        }).catch(() => {})
+      }
+
       if (!params.config.toolNotificationsEnabled) continue
       const targets = normalizeNotificationTargets(params.config.toolNotificationTargets)
       if (!targets.length) continue
@@ -8462,6 +8642,36 @@ export class NativeAgentOrchestratorService {
               content: "tool_notification_handoff_error",
               details: {
                 debug_event: "tool_notification_handoff_error",
+                debug_severity: "error",
+                failed_count: notifyResult.failed,
+                failures: notifyResult.failures,
+              },
+            })
+            .catch(() => {})
+        }
+      }
+
+      if (actionType === "cancel_appointment" && (execution.ok || !isGuardrail)) {
+        const message = this.buildCancelAppointmentNotification({
+          phone: params.phone,
+          contactName: params.contactName,
+          action: execution.action || ({ type: "cancel_appointment" } as AgentActionPlan),
+          ok: execution.ok,
+          error: execution.error || String(execution.response?.error || ""),
+        })
+        const notifyResult = await this.sendToolNotifications(params.tenant, targets, message, {
+          anchorSessionId: params.sessionId,
+          dedupeKey: `cancel_appointment:${params.sessionId}:${params.phone}:${execution.response?.appointmentId || execution.action?.date || ""}:${execution.ok ? "ok" : "error"}`,
+          dedupeWindowSeconds: 3600,
+        })
+        if (notifyResult.failed > 0) {
+          await this
+            .persistDebugStatus({
+              chat: params.chat,
+              sessionId: params.sessionId,
+              content: "tool_notification_cancel_appointment_error",
+              details: {
+                debug_event: "tool_notification_cancel_appointment_error",
                 debug_severity: "error",
                 failed_count: notifyResult.failed,
                 failures: notifyResult.failures,
@@ -9125,6 +9335,39 @@ export class NativeAgentOrchestratorService {
     lines.push("", "\u26A0\uFE0F _Verifique o motivo e reagende manualmente se necessario._")
 
     return lines.join("\n")
+  }
+
+  private buildCancelAppointmentNotification(input: {
+    phone: string
+    contactName?: string
+    action: AgentActionPlan
+    ok: boolean
+    error?: string
+  }): string {
+    const name = resolveSafeLeadNotificationName(input.contactName, input.action.customer_name)
+    const contact = formatNotificationContact(input.phone)
+    const day = formatDateToBr(input.action.date)
+    const time = String(input.action.time || "").trim()
+    const reason = String(input.action.note || "").trim()
+    const when = [day, time ? `as ${time}` : ""].filter(Boolean).join(" ")
+
+    const lines = [
+      input.ok ? "\u{1F6D1} *CANCELAMENTO DE AGENDAMENTO*" : "\u26A0\uFE0F *PEDIDO DE CANCELAMENTO - VERIFICAR*",
+      "",
+      `\u{1F464} *Cliente:* ${name}`,
+      `\u{1F4DE} *Contato:* ${contact}`,
+      when ? `\u{1F4C5} *Agendamento:* ${when}` : "",
+      reason ? `\u{1F4AC} *Mensagem/motivo:* ${reason}` : "",
+      input.ok
+        ? "\u2705 *Status:* agendamento cancelado pela IA."
+        : `\u274C *Status:* a IA tentou cancelar, mas o sistema retornou: ${input.error || "erro nao informado"}.`,
+      "",
+      input.ok
+        ? "_Acompanhar se vale tentar recuperacao/reagendamento._"
+        : "_Verifique o atendimento e cancele/reagende manualmente se necessario._",
+    ]
+
+    return lines.filter(Boolean).join("\n")
   }
 
   private buildHandoffNotification(input: {
@@ -10194,8 +10437,10 @@ export class NativeAgentOrchestratorService {
       "- [LEI INVIOLÃƒÆ’Ã‚ÂVEL] Voce e 100% AUTONOMA para agendar, reagendar e cancelar. NUNCA transfira para humano (handoff_human) quando o assunto for agendamento, reagendamento, remarcacao, mudanca de horario ou cancelamento.",
       "- [PROIBIDO ABSOLUTO] NUNCA diga 'vou chamar o time', 'vou transferir para a equipe', 'vou acionar o time comercial', 'vou pedir para alguem da equipe', 'vou notificar o time', 'um atendente vai te ajudar com o agendamento' ou qualquer variacao que sugira que outra pessoa fara o agendamento/reagendamento.",
       "- [PROIBIDO ABSOLUTO] NUNCA use handoff_human para resolver questoes de agenda, horarios, datas ou remarcacao. Use EXCLUSIVAMENTE as ferramentas: get_available_slots, schedule_appointment, edit_appointment, cancel_appointment.",
+      "- [NOME REAL ANTES DE AGENDAR] Antes de chamar schedule_appointment, confirme que o nome real foi informado pelo proprio lead nesta conversa. Se ainda nao souber o nome real, pergunte uma unica vez: 'Perfeito. Para eu deixar reservado, como posso te chamar?' e aguarde a resposta. NUNCA use nome do WhatsApp, sobrenome isolado, cargo, periodo, dia da semana ou placeholder como customer_name.",
       "- [FLUXO OBRIGATORIO DE REAGENDAMENTO] Quando o lead pedir para mudar, remarcar, trocar dia/horario OU avisar que nao podera comparecer (ex.: doenca, imprevisto, 'hoje nao consigo ir'), voce DEVE tentar reagendar IMEDIATAMENTE: (1) chame get_available_slots para ver opcoes; (2) ofereca horarios reais; (3) confirme e chame edit_appointment. NUNCA seja passiva.",
       "- [CANCELAMENTO COM CRITERIO] cancel_appointment so pode ser usado quando o lead pedir cancelamento definitivo de forma explicita. Se houver qualquer chance de remarcacao, priorize reagendar antes de cancelar.",
+      "- [CANCELAMENTO COM NOTIFICACAO INTERNA] Quando o lead pedir cancelamento definitivo, use cancel_appointment. O sistema notificara o grupo interno automaticamente quando a ferramenta rodar. Nao diga que vai chamar alguem e nao deixe o pedido sem ferramenta.",
       "- [FLUXO OBRIGATORIO DE CANCELAMENTO + NOVO AGENDAMENTO] Se edit_appointment falhar ou nÃƒÆ’Ã‚Â£o ÃƒÆ’Ã‚Â©ncontrar o agendamento anterior: (1) tente cancel_appointment; (2) crie novo agendamento via schedule_appointment. NUNCA desista e transfira para humano.",
       "- [UNICO CASO DE HANDOFF] Use handoff_human SOMENTE quando: o lead pedir para falar com humano sobre assunto NAO relacionado a agenda, houver violacao de guardrail, ou o assunto for completamente fora do escopo do negocio.",
       hasConfiguredUnitCoordinates
@@ -10624,7 +10869,7 @@ export class NativeAgentOrchestratorService {
       {
         name: "schedule_appointment",
         description:
-          "Cria agendamento quando o lead confirmar data e horario. Use formato YYYY-MM-DD e HH:mm.",
+          "Cria agendamento quando o lead confirmar data e horario e o nome real ja tiver sido informado pelo proprio lead nesta conversa. Use formato YYYY-MM-DD e HH:mm.",
         parameters: {
           type: "object",
           properties: {
@@ -10639,7 +10884,7 @@ export class NativeAgentOrchestratorService {
             customer_name: {
               type: "string",
               description:
-                "Nome real do lead (opcional). Nunca usar cargo, profissao, area ou setor como nome. Exemplos proibidos: Analista, Engenheiro, Professor, Financeiro, Vendas, Comercial.",
+                "Nome real informado pelo proprio lead nesta conversa. Se o nome ainda nao foi informado, nao chame schedule_appointment: pergunte como pode chamar. Nunca usar nome do WhatsApp, sobrenome isolado, cargo, profissao, area, setor, dia ou periodo como nome.",
             },
             customer_email: {
               type: "string",
@@ -10678,7 +10923,7 @@ export class NativeAgentOrchestratorService {
       {
         name: "cancel_appointment",
         description:
-          "Cancela o agendamento atual do lead SOMENTE quando houver pedido explicito e definitivo de cancelamento. Se o lead estiver apenas impossibilitado de comparecer, priorize edit_appointment para reagendar imediatamente.",
+          "Cancela o agendamento atual do lead SOMENTE quando houver pedido explicito e definitivo de cancelamento. Se o lead estiver apenas impossibilitado de comparecer, priorize edit_appointment para reagendar imediatamente. Quando executada, a automacao envia notificacao interna para o grupo configurado.",
         parameters: {
           type: "object",
           properties: {
@@ -10966,8 +11211,24 @@ export class NativeAgentOrchestratorService {
       }
 
       const recentConversationRows = await params.chat
-        .loadConversation(params.sessionId, 16)
+        .loadConversation(params.sessionId, 40)
         .catch(() => [])
+      const explicitLeadNameForSchedule = resolveExplicitLeadNameFromConversationRows(recentConversationRows)
+      if (!explicitLeadNameForSchedule) {
+        return {
+          ok: false,
+          action,
+          error: "schedule_requires_lead_name",
+          response: {
+            ok: false,
+            error: "schedule_requires_lead_name",
+            instruction:
+              "Antes de agendar, pergunte de forma curta: 'Perfeito. Para eu deixar reservado, como posso te chamar?' Nao confirme o agendamento ainda e nao use nome do WhatsApp como customer_name.",
+          },
+        }
+      }
+      action.customer_name = explicitLeadNameForSchedule
+
       const leadConfirmedSchedulingMutation = leadExplicitlyConfirmsSchedulingMutation(
         String(params.leadMessageContext || ""),
         recentConversationRows,
