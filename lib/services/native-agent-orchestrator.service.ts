@@ -1842,10 +1842,15 @@ function hasSchedulingToolExecution(executions: GeminiToolExecution[] | undefine
   })
 }
 
-function hasAppointmentMutationExecution(executions: GeminiToolExecution[] | undefined): boolean {
+function hasSuccessfulAppointmentMutationExecution(executions: GeminiToolExecution[] | undefined): boolean {
   return Array.isArray(executions) && executions.some((execution) => {
     const type = String(execution?.action?.type || execution?.call?.name || "").trim().toLowerCase()
-    return type === "schedule_appointment" || type === "edit_appointment"
+    const responseOk = execution?.response?.ok
+    return (
+      (type === "schedule_appointment" || type === "edit_appointment") &&
+      execution?.ok === true &&
+      responseOk !== false
+    )
   })
 }
 
@@ -2485,6 +2490,9 @@ function buildScheduleRecoveryReply(execution: GeminiToolExecution, contactName?
   const response = execution.response || {}
   if (!execution.ok || response?.ok === false) {
     const error = String(response?.error || execution.error || "").trim().toLowerCase()
+    if (error === "schedule_requires_lead_name") {
+      return "Perfeito. Para eu deixar reservado, como posso te chamar?"
+    }
     if (error === "schedule_requires_explicit_lead_confirmation") {
       return buildSchedulePendingConfirmationReply(execution, contactName)
     }
@@ -6738,7 +6746,7 @@ export class NativeAgentOrchestratorService {
     }
 
     const claimsAppointmentWithoutCurrentTool =
-      !hasAppointmentMutationExecution(decision.executions as GeminiToolExecution[]) &&
+      !hasSuccessfulAppointmentMutationExecution(decision.executions as GeminiToolExecution[]) &&
       responseClaimsAppointmentConfirmed(String(decision.reply || "")) &&
       !promptBaseSchedulingToolBlockReason
 
@@ -8559,7 +8567,7 @@ export class NativeAgentOrchestratorService {
         responseMentionsAvailabilityOrSpecificSlots(responseText)
       )
 
-    if (claimsConfirmed ? hasAppointmentMutationExecution(params.existingExecutions) : hasSchedulingToolExecution(params.existingExecutions)) {
+    if (claimsConfirmed ? hasSuccessfulAppointmentMutationExecution(params.existingExecutions) : hasSchedulingToolExecution(params.existingExecutions)) {
       return null
     }
 
@@ -11554,11 +11562,7 @@ export class NativeAgentOrchestratorService {
           },
         }
       }
-      const trustedContactNameForSchedule = resolveTrustedScheduleContactName(
-        action.customer_name,
-        params.contactName || "",
-      )
-      const scheduleCustomerName = explicitLeadNameForSchedule || trustedContactNameForSchedule
+      const scheduleCustomerName = explicitLeadNameForSchedule
       if (!scheduleCustomerName) {
         return {
           ok: false,
