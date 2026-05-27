@@ -155,6 +155,9 @@ export interface NativeAgentConfig {
   // dayNumber: 1=Mon, 2=Tue, ... 7=Sun
   calendarDaySchedule: Record<string, { start: string; end: string; enabled: boolean }>
 
+  // Per-date schedule overrides: { "YYYY-MM-DD": { start: "HH:MM", end: "HH:MM", enabled: boolean } }
+  calendarDateOverrides?: Record<string, { start: string; end: string; enabled: boolean }>
+
   // Lunch break config
   calendarLunchBreakEnabled: boolean
   calendarLunchBreakStart: string  // HH:MM
@@ -495,6 +498,35 @@ function readDaySchedule(input: any, businessStart: string, businessEnd: string,
     const start = readBusinessTime(dayRaw.start, businessStart)
     const end = readBusinessTime(dayRaw.end, businessEnd)
     result[key] = { start, end, enabled }
+  }
+
+  return result
+}
+
+function businessTimeToMinutes(value: string): number | null {
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(value)) return null
+  const [hour, minute] = value.split(":").map(Number)
+  return hour * 60 + minute
+}
+
+function readDateOverrides(input: any): Record<string, { start: string; end: string; enabled: boolean }> {
+  const raw = safeObject(input)
+  const result: Record<string, { start: string; end: string; enabled: boolean }> = {}
+
+  for (const [date, value] of Object.entries(raw)) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue
+    const entry = safeObject(value)
+    const start = readBusinessTime(entry.start, DEFAULT_BUSINESS_START)
+    const end = readBusinessTime(entry.end, DEFAULT_BUSINESS_END)
+    const startMinutes = businessTimeToMinutes(start)
+    const endMinutes = businessTimeToMinutes(end)
+    if (startMinutes === null || endMinutes === null || startMinutes >= endMinutes) continue
+
+    result[date] = {
+      start,
+      end,
+      enabled: readBoolean(entry.enabled, true),
+    }
   }
 
   return result
@@ -1100,6 +1132,7 @@ function normalizeConfig(input: any): NativeAgentConfig {
       readBusinessTime(raw.calendarBusinessEnd, DEFAULT_BUSINESS_END),
       readBusinessDays(raw.calendarBusinessDays),
     ),
+    calendarDateOverrides: readDateOverrides(raw.calendarDateOverrides),
     calendarLunchBreakEnabled: readBoolean(raw.calendarLunchBreakEnabled, DEFAULT_LUNCH_BREAK_ENABLED),
     calendarLunchBreakStart: readBusinessTime(raw.calendarLunchBreakStart, DEFAULT_LUNCH_BREAK_START),
     calendarLunchBreakEnd: readBusinessTime(raw.calendarLunchBreakEnd, DEFAULT_LUNCH_BREAK_END),
@@ -1690,6 +1723,7 @@ export async function updateNativeAgentConfigForTenant(
       calendarBusinessEnd: config.calendarBusinessEnd,
       calendarBusinessDays: config.calendarBusinessDays,
       calendarDaySchedule: config.calendarDaySchedule,
+      calendarDateOverrides: config.calendarDateOverrides || {},
       calendarLunchBreakEnabled: config.calendarLunchBreakEnabled,
       calendarLunchBreakStart: config.calendarLunchBreakStart,
       calendarLunchBreakEnd: config.calendarLunchBreakEnd,

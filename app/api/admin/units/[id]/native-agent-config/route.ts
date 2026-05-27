@@ -97,6 +97,37 @@ function toDaySchedule(
   return result
 }
 
+function timeToMinutes(value: string): number | null {
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(value)) return null
+  const [hour, minute] = value.split(":").map(Number)
+  return hour * 60 + minute
+}
+
+function toDateOverrides(
+  value: any,
+  fallback: Record<string, { start: string; end: string; enabled: boolean }>,
+): Record<string, { start: string; end: string; enabled: boolean }> {
+  const raw = value && typeof value === "object" && !Array.isArray(value) ? value : fallback || {}
+  const result: Record<string, { start: string; end: string; enabled: boolean }> = {}
+
+  for (const [date, entryRaw] of Object.entries(raw)) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue
+    const entry = entryRaw && typeof entryRaw === "object" ? (entryRaw as any) : {}
+    const start = toBusinessTime(entry.start, "08:00")
+    const end = toBusinessTime(entry.end, "20:00")
+    const startMinutes = timeToMinutes(start)
+    const endMinutes = timeToMinutes(end)
+    if (startMinutes === null || endMinutes === null || startMinutes >= endMinutes) continue
+    result[date] = {
+      start,
+      end,
+      enabled: toBool(entry.enabled, true),
+    }
+  }
+
+  return result
+}
+
 function toFollowupBusinessDays(value: any, fallback: number[]): number[] {
   if (Array.isArray(value)) {
     const days = value
@@ -639,6 +670,7 @@ export async function PATCH(req: NextRequest, context: { params: RouteParams }) 
           "6": { start: "08:00", end: "18:00", enabled: true },
           "7": { start: "08:00", end: "18:00", enabled: false },
         },
+        calendarDateOverrides: {},
         calendarLunchBreakEnabled: false,
         calendarLunchBreakStart: "12:00",
         calendarLunchBreakEnd: "13:00",
@@ -1153,6 +1185,10 @@ export async function PATCH(req: NextRequest, context: { params: RouteParams }) 
             nextCalendarBusinessDays || [1, 2, 3, 4, 5, 6],
           )
           : current.calendarDaySchedule,
+      calendarDateOverrides:
+        body?.calendarDateOverrides !== undefined
+          ? toDateOverrides(body.calendarDateOverrides, current.calendarDateOverrides || {})
+          : current.calendarDateOverrides || {},
       calendarLunchBreakEnabled: toBool(
         body?.calendarLunchBreakEnabled,
         current.calendarLunchBreakEnabled,

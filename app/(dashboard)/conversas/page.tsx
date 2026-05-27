@@ -1004,6 +1004,8 @@ export default function ConversasPage() {
   const { tenant } = useTenant()
   const [sessions, setSessions] = useState<ChatSession[]>([])
   const [query, setQuery] = useState("")
+  const [dateFrom, setDateFrom] = useState("")
+  const [dateTo, setDateTo] = useState("")
   const deferredQuery = useDeferredValue(query)
   const [activeTab, setActiveTab] = useState<"leads" | "grupos" | "contatos">("leads")
   const [activeChannelFilter, setActiveChannelFilter] = useState<"all" | "whatsapp" | "instagram">("all")
@@ -1332,13 +1334,21 @@ export default function ConversasPage() {
     setBulkMetaHeaderMediaLink("")
   }, [bulkMetaSelectedTemplate])
 
+  const applyConversationFilters = useCallback((queryParams: URLSearchParams) => {
+    const start = dateFrom.trim()
+    const end = dateTo.trim()
+    if (start) queryParams.set("start", start)
+    if (end) queryParams.set("end", end)
+  }, [dateFrom, dateTo])
+
   const fetchData = useCallback((searchTerm: string) => {
     if (!tenant) return
 
     const trimmedSearch = searchTerm.trim()
+    const hasDateFilter = Boolean(dateFrom.trim() || dateTo.trim())
     setLoading(sessionsRef.current.length === 0)
     setError(null)
-    setServerSearching(trimmedSearch.length > 0)
+    setServerSearching(trimmedSearch.length > 0 || hasDateFilter)
 
     if (fetchControllerRef.current) {
       fetchControllerRef.current.abort()
@@ -1352,6 +1362,7 @@ export default function ConversasPage() {
     if (trimmedSearch) {
       queryParams.set("q", trimmedSearch)
     }
+    applyConversationFilters(queryParams)
 
     fetch(`/api/supabase/chats/summary?${queryParams.toString()}`, { signal: controller.signal })
       .then(async (r) => {
@@ -1437,7 +1448,7 @@ export default function ConversasPage() {
         setLoading(false)
         setServerSearching(false)
       })
-  }, [params, tenant])
+  }, [applyConversationFilters, dateFrom, dateTo, params, tenant])
 
   const currentPausePhone = useMemo(() => {
     return toCanonicalWhatsappPhone(current?.numero)
@@ -1671,6 +1682,7 @@ export default function ConversasPage() {
       queryParams.set("live", "1")
       queryParams.set("t", String(Date.now()))
       if (trimmedSearch) queryParams.set("q", trimmedSearch)
+      applyConversationFilters(queryParams)
 
       const response = await fetch(`/api/supabase/chats/summary?${queryParams.toString()}`, {
         cache: "no-store",
@@ -1731,7 +1743,7 @@ export default function ConversasPage() {
     } finally {
       liveSummaryInFlightRef.current = false
     }
-  }, [tenant, deferredQuery])
+  }, [tenant, deferredQuery, applyConversationFilters])
 
   const refreshActiveSessionLive = useCallback(async () => {
     const sessionId = activeRef.current
@@ -1951,6 +1963,7 @@ export default function ConversasPage() {
 
   const isSearchPending = query !== deferredQuery || serverSearching
   const trimmedQuery = query.trim()
+  const hasDateFilter = Boolean(dateFrom.trim() || dateTo.trim())
 
   const highlightText = (text: string, searchQuery: string): React.ReactNode => {
     if (!searchQuery.trim() || !text) return text
@@ -2943,15 +2956,49 @@ export default function ConversasPage() {
               <Loader2 className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-accent-green animate-spin" />
             )}
             <Input
-              placeholder="Buscar por nome, assunto ou telefone..."
+              placeholder="Buscar por nome, WhatsApp, telefone ou mensagem..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               className="h-10 rounded-2xl border-border/70 bg-secondary/80 pl-10 pr-10 transition-all focus:border-accent-green"
             />
           </div>
-          {trimmedQuery && (
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <div className="relative">
+              <Calendar className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-gray" />
+              <Input
+                type="date"
+                aria-label="Data inicial"
+                value={dateFrom}
+                onChange={(event) => setDateFrom(event.target.value)}
+                className="h-9 rounded-xl border-border/70 bg-secondary/80 pl-9 text-xs text-foreground transition-all focus:border-accent-green"
+              />
+            </div>
+            <div className="relative">
+              <Calendar className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-gray" />
+              <Input
+                type="date"
+                aria-label="Data final"
+                value={dateTo}
+                onChange={(event) => setDateTo(event.target.value)}
+                className="h-9 rounded-xl border-border/70 bg-secondary/80 pl-9 text-xs text-foreground transition-all focus:border-accent-green"
+              />
+            </div>
+          </div>
+          {(trimmedQuery || hasDateFilter) && (
             <p className="text-[11px] text-text-gray mt-2">
-              Buscando nas conversas e nos dados do contato.
+              Buscando por nome do lead, WhatsApp, telefone, mensagens e data.
+              {hasDateFilter && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDateFrom("")
+                    setDateTo("")
+                  }}
+                  className="ml-2 font-medium text-accent-green underline-offset-2 hover:underline"
+                >
+                  Limpar datas
+                </button>
+              )}
             </p>
           )}
         </CardHeader>

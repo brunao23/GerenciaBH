@@ -128,6 +128,7 @@ type TenantNativeAgentConfig = {
   calendarBusinessEnd: string
   calendarBusinessDays: number[]
   calendarDaySchedule: Record<string, { start: string; end: string; enabled: boolean }>
+  calendarDateOverrides: Record<string, { start: string; end: string; enabled: boolean }>
   calendarLunchBreakEnabled: boolean
   calendarLunchBreakStart: string
   calendarLunchBreakEnd: string
@@ -259,6 +260,7 @@ const defaultConfig: TenantNativeAgentConfig = {
     "6": { start: "08:00", end: "18:00", enabled: true },
     "7": { start: "08:00", end: "18:00", enabled: false },
   },
+  calendarDateOverrides: {},
   calendarLunchBreakEnabled: false,
   calendarLunchBreakStart: "12:00",
   calendarLunchBreakEnd: "13:00",
@@ -515,6 +517,10 @@ function normalizeConfig(raw: any): TenantNativeAgentConfig {
       }
       return result
     })(),
+    calendarDateOverrides:
+      source.calendarDateOverrides && typeof source.calendarDateOverrides === "object" && !Array.isArray(source.calendarDateOverrides)
+        ? source.calendarDateOverrides
+        : {},
     calendarLunchBreakEnabled: source.calendarLunchBreakEnabled === true,
     calendarLunchBreakStart: String(source.calendarLunchBreakStart || "12:00"),
     calendarLunchBreakEnd: String(source.calendarLunchBreakEnd || "13:00"),
@@ -915,6 +921,7 @@ export default function AdminAgenteIAPage({ params }: { params: Promise<{ id: st
         calendarBusinessEnd: toOptionalText(config.calendarBusinessEnd) || "20:00",
         calendarBusinessDays: parseBusinessDaysInput(config.calendarBusinessDays.join(",")),
         calendarDaySchedule: config.calendarDaySchedule,
+        calendarDateOverrides: config.calendarDateOverrides || {},
         calendarLunchBreakEnabled: config.calendarLunchBreakEnabled,
         calendarLunchBreakStart: toOptionalText(config.calendarLunchBreakStart) || "12:00",
         calendarLunchBreakEnd: toOptionalText(config.calendarLunchBreakEnd) || "13:00",

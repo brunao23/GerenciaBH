@@ -613,6 +613,72 @@ function extractNameFromMeta(msg: any): string | null {
   return null
 }
 
+function addSearchCandidate(candidates: string[], value: any): void {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim()
+  if (!text) return
+  candidates.push(text)
+}
+
+function buildMessageSearchText(msg: any, rawContent: string): string {
+  const candidates: string[] = []
+  addSearchCandidate(candidates, rawContent)
+  addSearchCandidate(candidates, extractNameFromMeta(msg))
+
+  addSearchCandidate(candidates, msg?.content)
+  addSearchCandidate(candidates, msg?.text)
+  addSearchCandidate(candidates, msg?.body)
+  addSearchCandidate(candidates, msg?.caption)
+  addSearchCandidate(candidates, msg?.lead_name)
+  addSearchCandidate(candidates, msg?.leadName)
+  addSearchCandidate(candidates, msg?.contact_name)
+  addSearchCandidate(candidates, msg?.contactName)
+  addSearchCandidate(candidates, msg?.pushName)
+  addSearchCandidate(candidates, msg?.senderName)
+  addSearchCandidate(candidates, msg?.sender_name)
+  addSearchCandidate(candidates, msg?.fromName)
+  addSearchCandidate(candidates, msg?.notifyName)
+  addSearchCandidate(candidates, msg?.authorName)
+  addSearchCandidate(candidates, msg?.chatName)
+  addSearchCandidate(candidates, msg?.userName)
+  addSearchCandidate(candidates, msg?.instagram_username)
+  addSearchCandidate(candidates, msg?.instagram_bio)
+  addSearchCandidate(candidates, msg?.sender?.name)
+  addSearchCandidate(candidates, msg?.sender?.pushName)
+  addSearchCandidate(candidates, msg?.sender?.username)
+  addSearchCandidate(candidates, msg?.sender?.instagram_username)
+  addSearchCandidate(candidates, msg?.contact?.name)
+  addSearchCandidate(candidates, msg?.contact?.pushName)
+  addSearchCandidate(candidates, msg?.data?.pushName)
+  addSearchCandidate(candidates, msg?.data?.senderName)
+  addSearchCandidate(candidates, msg?.additional?.lead_name)
+  addSearchCandidate(candidates, msg?.additional?.contact_name)
+  addSearchCandidate(candidates, msg?.additional?.contactName)
+  addSearchCandidate(candidates, msg?.additional?.sender_name)
+  addSearchCandidate(candidates, msg?.additional?.senderName)
+  addSearchCandidate(candidates, msg?.additional?.instagram_username)
+  addSearchCandidate(candidates, msg?.additional?.instagram_bio)
+  addSearchCandidate(candidates, msg?.additional?.instagram_profile_context)
+  addSearchCandidate(candidates, msg?.zapi_meta?.contact_name)
+  addSearchCandidate(candidates, msg?.zapi_meta?.sender_name)
+  addSearchCandidate(candidates, msg?.zapi_meta?.pushName)
+  addSearchCandidate(candidates, msg?.zapi_meta?.phone)
+  addSearchCandidate(candidates, msg?.raw?.data?.pushName)
+  addSearchCandidate(candidates, msg?.raw?.data?.senderName)
+
+  const formData = msg?.formData ?? msg?.form_data ?? msg?.metadata?.formData
+  if (formData && typeof formData === "object") {
+    addSearchCandidate(candidates, formData.nome)
+    addSearchCandidate(candidates, formData.name)
+    addSearchCandidate(candidates, formData.primeiroNome)
+    addSearchCandidate(candidates, formData.primeiro_nome)
+    addSearchCandidate(candidates, formData.email)
+    addSearchCandidate(candidates, formData.telefone)
+    addSearchCandidate(candidates, formData.phone)
+  }
+
+  return Array.from(new Set(candidates)).join(" ")
+}
+
 function isUserMessage(msg: any): boolean {
   if (!msg) return false
   const senderType = String(
@@ -993,8 +1059,94 @@ function clampInt(value: string | null, fallback: number, min: number, max: numb
   return Math.min(max, Math.max(min, parsed))
 }
 
-function buildCacheKey(tenant: string, q: string, limit: number, scan: number): string {
-  return `${tenant}|${q}|${limit}|${scan}`
+type DateRangeFilter = {
+  startIso: string | null
+  endIso: string | null
+  cacheKey: string
+}
+
+function normalizeDateParam(value: string | null): string | null {
+  const raw = String(value || "").trim()
+  if (!raw) return null
+
+  const dateOnly = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (dateOnly) return `${dateOnly[1]}-${dateOnly[2]}-${dateOnly[3]}`
+
+  const parsed = new Date(raw)
+  if (Number.isNaN(parsed.getTime())) return null
+  return parsed.toISOString().slice(0, 10)
+}
+
+function buildDateRangeFilter(startRaw: string | null, endRaw: string | null): DateRangeFilter {
+  const start = normalizeDateParam(startRaw)
+  const end = normalizeDateParam(endRaw)
+  const startIso = start ? new Date(`${start}T00:00:00.000-03:00`).toISOString() : null
+  const endIso = end ? new Date(`${end}T23:59:59.999-03:00`).toISOString() : null
+  return {
+    startIso,
+    endIso,
+    cacheKey: `${start || ""}..${end || ""}`,
+  }
+}
+
+function rowTimestampMs(row: Row): number | null {
+  const msg = row.message ?? {}
+  const candidates = [
+    row.created_at,
+    msg.created_at,
+    msg.createdAt,
+    msg.timestamp,
+    msg.time,
+    msg.date,
+    msg.messageTimestamp,
+    msg.raw?.created_at,
+    msg.raw?.timestamp,
+    msg.raw?.messageTimestamp,
+    msg.raw?.data?.created_at,
+    msg.raw?.data?.timestamp,
+    msg.raw?.data?.messageTimestamp,
+    msg.zapi_meta?.created_at,
+    msg.zapi_meta?.timestamp,
+  ]
+
+  for (const candidate of candidates) {
+    if (candidate === null || candidate === undefined || candidate === "") continue
+
+    if (typeof candidate === "number" && Number.isFinite(candidate)) {
+      return candidate < 1_000_000_000_000 ? candidate * 1000 : candidate
+    }
+
+    const text = String(candidate).trim()
+    if (!text) continue
+    if (/^\d{10,13}$/.test(text)) {
+      const numeric = Number(text)
+      return numeric < 1_000_000_000_000 ? numeric * 1000 : numeric
+    }
+
+    const parsed = new Date(text).getTime()
+    if (Number.isFinite(parsed)) return parsed
+  }
+
+  return null
+}
+
+function filterRowsByDateRange(rows: Row[], range: DateRangeFilter): Row[] {
+  if (!range.startIso && !range.endIso) return rows
+
+  const startMs = range.startIso ? new Date(range.startIso).getTime() : null
+  const endMs = range.endIso ? new Date(range.endIso).getTime() : null
+
+  return rows.filter((row) => {
+    const timestamp = rowTimestampMs(row)
+    if (timestamp === null) return false
+    if (startMs !== null && timestamp < startMs) return false
+    if (endMs !== null && timestamp > endMs) return false
+    return true
+  })
+}
+
+function buildCacheKey(tenant: string, q: string, limit: number, scan: number, dateRange: DateRangeFilter): string {
+  return `${tenant}|${q}|${limit}|${scan}|${dateRange.cacheKey}`
 }
 
 function readCache(key: string): SummarySession[] | null {
@@ -1136,6 +1288,7 @@ async function fetchRows(
   chatHistories: string,
   scanLimit: number,
   sessionIdOrFilter: string | null,
+  dateRange: DateRangeFilter,
 ): Promise<{ data: Row[] | null; error: any }> {
   const run = async (includeCreatedAt: boolean) => {
     let query = supabase
@@ -1143,6 +1296,10 @@ async function fetchRows(
       .select(includeCreatedAt ? "session_id, message, id, created_at" : "session_id, message, id")
     if (sessionIdOrFilter) {
       query = query.or(sessionIdOrFilter)
+    }
+    if (includeCreatedAt) {
+      if (dateRange.startIso) query = query.gte("created_at", dateRange.startIso)
+      if (dateRange.endIso) query = query.lte("created_at", dateRange.endIso)
     }
     return await query.order("id", { ascending: false }).range(0, scanLimit - 1)
   }
@@ -1191,10 +1348,15 @@ export async function GET(req: Request) {
     const normalizedQuery = normalizeText(q)
     const semanticQuery = buildSemanticQuery(normalizedQuery)
     const hasSearch = q.length > 0
-    const defaultScanLimit = hasSearch ? (mode === "number" ? 15000 : 12000) : 6000
+    const dateRange = buildDateRangeFilter(
+      searchParams.get("start") ?? searchParams.get("date_from"),
+      searchParams.get("end") ?? searchParams.get("date_to"),
+    )
+    const hasDateFilter = Boolean(dateRange.startIso || dateRange.endIso)
+    const defaultScanLimit = hasSearch ? (mode === "number" ? 15000 : 12000) : hasDateFilter ? 30000 : 6000
     const limitSessions = clampInt(searchParams.get("limit"), 200, 20, 500)
     const scanLimit = clampInt(searchParams.get("scan"), defaultScanLimit, 1000, 50000)
-    const cacheKey = buildCacheKey(tenant, q, limitSessions, scanLimit)
+    const cacheKey = buildCacheKey(tenant, q, limitSessions, scanLimit, dateRange)
 
     if (!fresh) {
       const cached = readCache(cacheKey)
@@ -1214,16 +1376,16 @@ export async function GET(req: Request) {
     const shouldUseNumberFilter = hasSearch && mode === "number" && digitsQuery.length >= 6
     const numberOrFilter = shouldUseNumberFilter ? buildNumberOrFilter(numberVariants) : null
 
-    let res = await fetchRows(supabase, chatHistories, scanLimit, numberOrFilter)
+    let res = await fetchRows(supabase, chatHistories, scanLimit, numberOrFilter, dateRange)
     if (!res.error && shouldUseNumberFilter && (res.data?.length ?? 0) === 0) {
-      res = await fetchRows(supabase, chatHistories, scanLimit, null)
+      res = await fetchRows(supabase, chatHistories, scanLimit, null, dateRange)
     }
 
     if (res.error) {
       throw res.error
     }
 
-    const rows = (res.data ?? []) as Row[]
+    const rows = filterRowsByDateRange((res.data ?? []) as Row[], dateRange)
 
     const bySession = new Map<string, SummarySession>()
     const rowsByCanonicalSession = new Map<string, Row[]>()
@@ -1283,7 +1445,7 @@ export async function GET(req: Request) {
         const numericScore = scoreNumberMatch(session, digitsQuery)
         session.score = Math.max(session.score ?? 0, numericScore)
       } else {
-        const semanticScore = scoreSemanticMatch(session, raw, semanticQuery)
+        const semanticScore = scoreSemanticMatch(session, buildMessageSearchText(msg, raw), semanticQuery)
         session.score = Math.max(session.score ?? 0, semanticScore.score)
         if (semanticScore.strong) {
           session.strong_match = true
@@ -1353,6 +1515,32 @@ export async function GET(req: Request) {
 
         const bio = extractInstagramBioFromMessages(rows, sessionId, sessionRows)
         if (bio) session.instagram_bio = bio
+      }
+    }
+
+    if (hasSearch) {
+      for (const [sessionId, session] of bySession.entries()) {
+        if (mode === "number") {
+          session.score = Math.max(session.score ?? 0, scoreNumberMatch(session, digitsQuery))
+          continue
+        }
+
+        const sessionRows = rowsByCanonicalSession.get(sessionId) ?? []
+        const identityText = [
+          session.contact_name,
+          session.numero,
+          session.session_id,
+          session.instagram_username,
+          session.instagram_bio,
+          ...sessionRows
+            .slice(0, 40)
+            .map((row) => buildMessageSearchText(row.message ?? {}, String(row.message?.content ?? row.message?.text ?? ""))),
+        ].join(" ")
+        const identityScore = scoreSemanticMatch(session, identityText, semanticQuery)
+        session.score = Math.max(session.score ?? 0, identityScore.score)
+        if (identityScore.strong) {
+          session.strong_match = true
+        }
       }
     }
 
