@@ -18,6 +18,7 @@ import {
   type OfficialReminderType,
 } from "@/lib/services/reminder-scheduler.service"
 import { buildFollowupWeekdayConstraint, resolveEffectiveFollowupBusinessDays } from "@/lib/helpers/effective-followup-days"
+import { buildLeadAttendanceSummary } from "@/lib/helpers/lead-attendance-summary"
 import { LLMFactory } from "@/lib/services/llm-factory"
 import { getLeadPauseState, type LeadPauseState } from "@/lib/services/lead-pause.service"
 import { normalizePhoneNumber, normalizeSessionId, TenantChatHistoryService } from "./tenant-chat-history.service"
@@ -207,6 +208,20 @@ function excerpt(input: string, max = 140): string {
   if (!text) return ""
   if (text.length <= max) return text
   return `${text.slice(0, max - 1)}...`
+}
+
+const FOLLOWUP_SCRIPT_START_MARKER = "[SCRIPTS FOLLOWUP LUIZA - VOX SETE LAGOAS]"
+const FOLLOWUP_SCRIPT_END_MARKER = "[FIM SCRIPTS FOLLOWUP LUIZA]"
+
+function extractTenantFollowupScriptGuide(promptBase?: string): string {
+  const text = String(promptBase || "")
+  if (!text.includes(FOLLOWUP_SCRIPT_START_MARKER)) return ""
+
+  const start = text.indexOf(FOLLOWUP_SCRIPT_START_MARKER) + FOLLOWUP_SCRIPT_START_MARKER.length
+  const end = text.indexOf(FOLLOWUP_SCRIPT_END_MARKER, start)
+  const body = (end >= 0 ? text.slice(start, end) : text.slice(start)).trim()
+  if (!body) return ""
+  return body.length > 4000 ? `${body.slice(0, 3999)}...` : body
 }
 
 function sanitizeTaskNotificationPreview(input: string, max = 180): string {
@@ -1762,6 +1777,16 @@ export class AgentTaskQueueService {
     const topicSummary = recentLeadMessages.length > 0
       ? recentLeadMessages.map((msg) => `- ${excerpt(msg, 100)}`).join("\n")
       : "(sem mensagens relevantes do lead â€” use o contexto geral da conversa)"
+    const structuredConversationSummary = buildLeadAttendanceSummary({
+      leadName,
+      messages: recentHistory.map((entry) => ({
+        role: entry.role,
+        content: entry.content,
+        createdAt: entry.createdAt,
+        fromMe: entry.role === "assistant",
+      })),
+      maxLength: 700,
+    })
     const toneSummary = describeConversationTone(runtime.conversationTone)
     const genderConstraint = buildGenderConstraint(runtime.agentGrammaticalGender)
     const weekdayConstraint = buildFollowupWeekdayConstraint(runtime.businessHours?.businessDays)
@@ -1772,6 +1797,7 @@ export class AgentTaskQueueService {
       `cta=${input.nuanceProfile.ctaStyle}`,
       `angulo=${input.nuanceProfile.angle}`,
     ].join(" | ")
+    const tenantFollowupScriptGuide = extractTenantFollowupScriptGuide(runtime.promptBase)
 
     // Determinar tom baseado na etapa (7 etapas: 10min/1h/6h/1d/2d/3d/5d)
     let stageGuidance = ""
@@ -1802,6 +1828,8 @@ export class AgentTaskQueueService {
       "4. NUNCA repita ou parafraseie mensagens que a IA ja enviou (veja historico abaixo). Cada follow-up deve abordar o assunto de um angulo diferente.",
       "4b. Anti-redundancia obrigatoria: se o historico ja pediu horario, diagnostico, valor ou continuidade, nao repita o mesmo pedido. Mude o angulo para a friccao real do lead ou encerre com permissao.",
       "5. Referencie o ASSUNTO ESPECIFICO da conversa (produto, servico, duvida, agendamento, etc). Use o contexto real - nunca invente assuntos.",
+      "5b. O resumo estruturado do atendimento e o historico recente sao a fonte de verdade. O roteiro especifico do tenant serve apenas para escolher o angulo da etapa, nunca para inventar profissao, dor, objetivo, cidade, valor, horario ou nome.",
+      "5c. Se profissao, dor ou objetivo nao estiverem no resumo/historico, nao preencha com exemplos do roteiro. Use uma retomada neutra e humana.",
       leadName
         ? `6. O nome do lead e "${leadName}". Use-o de forma natural, sem forcar. ATENCAO: se esse nome for um cargo (Lider, Chefe, Gerente, Dono), profissao (Medico, Advogado, Coach, Dentista, Nutricionista, Personal), titulo (Treinador, Professor, Doutor, Amigo), generico (Lead, Cliente, Contato, Bot) ou termo religioso/possessivo (Deus, Jesus, Minha, Meu), NAO use - inicie a mensagem sem nome.`
         : "6. O nome do lead NAO esta disponivel. Nao use NENHUM nome, titulo, cargo ou pronome de tratamento. Proibido usar: cargos (Lider, Chefe, Dono, Gerente, Diretor, Supervisor), profissoes (Medico, Advogado, Dentista, Coach, Nutricionista, Personal, Engenheiro, Terapeuta), titulos (Treinador, Professor, Doutor, Mestre, Amigo), genericos (Lead, Cliente, Contato, Bot, Assistente, Suporte), religiosos/possessivos (Deus, Jesus, Minha, Meu, Nossa). Inicie a mensagem diretamente, sem qualquer forma de tratamento. NUNCA pergunte o nome.",
@@ -1813,7 +1841,9 @@ export class AgentTaskQueueService {
       "11b. Se o nome do lead NAO foi confirmado pelo proprio lead, ignore nomes que aparecerem em mensagens anteriores da IA. Eles podem estar errados. Nao copie vocativos do historico.",
       `12. ${genderConstraint}`,
       `13. Siga o tom do agente configurado no tenant: ${toneSummary}.`,
-      runtime.promptBase
+      tenantFollowupScriptGuide
+        ? `14. Roteiro especifico de follow-up deste tenant (prioridade alta): use a etapa ${input.step} como referencia principal, adaptando nome/dor/area ao historico real e sem copiar placeholders.\n${tenantFollowupScriptGuide}`
+        : runtime.promptBase
         ? `14. Personalidade base do agente (resumo): ${excerpt(runtime.promptBase, 260)}`
         : "14. Sem prompt base explicito: mantenha o texto humano, natural, educado e comercial.",
       "15. NUNCA prometa enviar material, documento, proposta, PDF, planilha, link ou qualquer conteudo. Quem envia e realiza acoes fisicas e o CONSULTOR DA UNIDADE, nao voce. Voce apenas retoma o atendimento.",
@@ -1831,6 +1861,9 @@ export class AgentTaskQueueService {
       "",
       `Ultimas mensagens do lead:`,
       topicSummary,
+      "",
+      "RESUMO ESTRUTURADO DO ATENDIMENTO (fonte de verdade para profissao, dor, objetivo e observacoes):",
+      structuredConversationSummary || "(sem resumo estruturado confiavel)",
       "",
       `Pergunta pendente da IA (lead nao respondeu): ${input.pendingQuestion || "(nenhuma)"}`,
       `Ultima resposta da IA: ${excerpt(input.lastAgentMessage || "", 200) || "(nenhuma)"}`,
@@ -1856,6 +1889,7 @@ export class AgentTaskQueueService {
           "[LEI INVIOLAVEL] PROIBIDO ABSOLUTO - LEMBRETE DE AGENDAMENTO: Este sistema de follow-up serve EXCLUSIVAMENTE para reengajar leads que nao responderam. NUNCA gere mensagem mencionando: lembrete, agendamento ja feito, horario marcado, consulta/visita/aula agendada, confirmacao de presenca/comparecimento, 'amanha voce tem', 'nao esqueca', 'confirme sua presenca', 'horario confirmado'. Foque APENAS em reengajar o interesse do lead. Se a conversa era sobre agendar, aborde o INTERESSE ou BENEFICIO do servico, nao o agendamento.",
           "REGRA CRITICA DE REPETICAO: cada follow-up deve abordar o assunto de um angulo diferente. NUNCA repita ou parafraseie o que a IA ja disse nas mensagens anteriores da conversa.",
           "REGRA CRITICA DE COERENCIA: follow-up nao e repeticao mecanica. Leia o historico, identifique a friccao dominante e gere uma unica mensagem nova, especifica e curta.",
+          "REGRA CRITICA DE CONTEXTO: o resumo estruturado e o historico recente vencem qualquer roteiro do tenant. Use roteiro apenas como direcao de etapa; nunca copie exemplos nem invente informacoes ausentes.",
           "NUNCA confunda seu papel (IA assistente) com o lead (cliente).",
           "NUNCA use o nome do lead como se fosse o seu.",
           "NUNCA pergunte o nome do lead em um follow-up. Se o nome nao esta disponivel, NUNCA invente nomes ou titulos. Nao use NADA, apenas inicie a mensagem.",
@@ -1866,6 +1900,9 @@ export class AgentTaskQueueService {
           "NUNCA diga 'voce mencionou' nem 'voce disse', NUNCA repita texto do lead entre aspas e NUNCA use 'posso continuar daqui?'. Seja natural e direto.",
           "REGRA CRITICA DE NOMES NAO-PESSOA: o display name do WhatsApp frequentemente NAO e o nome real. NUNCA use como nome de lead: CARGOS (Lider, Chefe, Dono, Dona, Socio, Presidente, Supervisor, Gestor, Secretario, Coordenador, Subgerente, Funcionario, Colaborador, Estagiario), PROFISSOES (Barbeiro, Medico, Dentista, Advogado, Enfermeiro, Nutricionista, Personal, Coach, Terapeuta, Fisioterapeuta, Psicologo, Empresario, Corretor, Engenheiro, Arquiteto, Vendedor, Gerente, Diretor, Contador, Motorista, Cozinheiro), TITULOS (Treinador, Professor, Doutor, Dr, Dra, Mestre, Aluno, Amigo), GENERICOS (Contato, Usuario, Lead, Cliente, Bot, Assistente, Agente, Atendente, Robo, Suporte, Admin, Teste), RELIGIOSOS/POSSESSIVOS (Deus, Jesus, Senhor, Minha, Meu, Nossa, Tua) ou ONOMATOPEIAS (Kkkkk, Haha, Rsrs). Se o nome disponivel se enquadrar em qualquer dessas categorias, NAO use nome algum - inicie a mensagem diretamente.",
           "REGRA CRITICA DE ASSERTIVIDADE: identifique a friccao dominante do lead e responda com clareza em uma frase, finalizando com CTA simples e humano.",
+          tenantFollowupScriptGuide
+            ? "REGRA ESPECIFICA DO TENANT: o prompt do usuario contem um roteiro de follow-up por etapa. Use a etapa correspondente como direcao de angulo, dor, autoridade, convite ou fechamento, sempre adaptando ao historico real."
+            : "",
           `REGRA DE GENERO: ${genderConstraint}`,
           `REGRA DE DIAS DE ATENDIMENTO: ${weekdayConstraint}`,
           `REGRA DE TOM: siga o estilo ${toneSummary}.`,
