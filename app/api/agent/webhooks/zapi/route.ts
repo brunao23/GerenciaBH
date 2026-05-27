@@ -4023,7 +4023,7 @@ export async function POST(req: NextRequest) {
       const phoneToPause = canonicalPhone
       const leadName = event.senderName || phoneToPause || "Lead"
       if (phoneToPause) {
-        await pauseAiForLead(tenant, phoneToPause, { minutes: 10, reason: "lead_call_received" })
+        await pauseAiForLead(tenant, phoneToPause, { minutes: 2, reason: "lead_call_received" })
         await new AgentTaskQueueService()
           .cancelPendingFollowups({ tenant, sessionId: canonicalSessionId, phone: phoneToPause })
           .catch(() => { })
@@ -4033,7 +4033,7 @@ export async function POST(req: NextRequest) {
         const notificationMsg = [
           `📞 Ligação recebida de *${leadName}*`,
           `Contato: wa.me/${phoneToPause}`,
-          `Automação pausada por 10 minutos — desbloqueio automático em seguida.`,
+          `Automação pausada por 2 minutos — desbloqueio automático em seguida.`,
         ].join("\n")
         await new GroupNotificationDispatcherService()
           .dispatch({
@@ -4042,7 +4042,7 @@ export async function POST(req: NextRequest) {
             source: "call-event-auto-pause",
             message: notificationMsg,
             targets: groupTargets,
-            dedupeKey: `call_event:${canonicalSessionId}:${phoneToPause}:10`,
+            dedupeKey: `call_event:${canonicalSessionId}:${phoneToPause}:2`,
             dedupeWindowSeconds: 900,
           })
           .catch(() => { })
@@ -4055,7 +4055,7 @@ export async function POST(req: NextRequest) {
         ignored: true,
         reason: "lead_call_received_paused_ai",
         autoPaused: Boolean(phoneToPause),
-        pausedMinutes: 10,
+        pausedMinutes: 2,
       })
     }
 

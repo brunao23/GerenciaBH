@@ -894,6 +894,29 @@ function leadAsksOnlyBusinessHoursOrCorrectsSchedule(rawMessage: string): boolea
   return asksModeOnly || asksPeriodLimitOrDuration || asksOrCorrectsHours
 }
 
+function leadChecksExistingAppointmentOrArrival(rawMessage: string): boolean {
+  const text = normalizeComparableMessage(rawMessage)
+  if (!text) return false
+
+  const asksConfirmation =
+    /\b(esta|ta|segue|continua|ficou)\b.{0,60}\b(confirmad[oa]|marcad[oa]|agendad[oa]|reservad[oa])\b/.test(text) ||
+    /\b(confirmad[oa]|marcad[oa]|agendad[oa]|reservad[oa])\b.{0,80}\b(hoje|amanha|as\s+\d{1,2}|\d{1,2}h|\d{1,2}:\d{2})\b/.test(text)
+  if (asksConfirmation && (String(rawMessage || "").includes("?") || /\b(hoje|amanha|as\s+\d{1,2}|\d{1,2}h|\d{1,2}:\d{2})\b/.test(text))) {
+    return true
+  }
+
+  const arrivalOrReception =
+    /\b(jaja|ja ja|estou indo|to indo|estou chegando|to chegando|cheguei|recepcao|portaria|entrada|entrando|acesso|liberar|libera|falo o que|falar o que|informo o que|digo o que)\b/.test(text)
+  if (arrivalOrReception) return true
+
+  const dateCorrection =
+    /\b(nao e|nao eh|nao era|nao foi|nao seria)\b.{0,80}\b(para|pra|pro|dia)\b/.test(text) ||
+    /\b(hoje)\b/.test(text) && /\b(nao|confusao|errad[oa]|dia\s+\d{1,2})\b/.test(text)
+  if (dateCorrection) return true
+
+  return false
+}
+
 function leadAsksCourseValueOrMethodInfo(rawMessage: string): boolean {
   const text = normalizeComparableMessage(rawMessage)
   if (!text) return false
@@ -1858,6 +1881,7 @@ function detectsAvailabilityLookupIntent(rawMessage: string): boolean {
   const text = normalizeComparableMessage(rawMessage)
   if (!text) return false
   if (isGreetingOnlyLeadMessage(rawMessage)) return false
+  if (leadChecksExistingAppointmentOrArrival(rawMessage)) return false
   if (leadMentionsPersonalScheduleWithoutAsking(rawMessage)) return false
   if (leadAsksOnlyBusinessHoursOrCorrectsSchedule(rawMessage)) return false
   if (leadAskedCourseOrMethodInfoBeforeScheduling(rawMessage)) return false
@@ -2001,6 +2025,44 @@ function responseClaimsAppointmentConfirmed(responseText: string): boolean {
   }
 
   return /\b(agendamento\s+(?:confirmado|realizado|feito)|ficou\s+(?:agendado|marcado|reservado|formalizado)|esta\s+(?:agendado|marcado|reservado|formalizado)|diagnostico\s+(?:agendado|confirmado|marcado))\b/.test(text)
+}
+
+function responseIsExistingAppointmentSupport(responseText: string): boolean {
+  const text = normalizeComparableMessage(responseText)
+  if (!text) return false
+
+  const givesArrivalGuidance =
+    /\b(ao chegar|chegar na recepcao|recepcao|portaria|entrada|liberar|liberam|liberar sua entrada|acesso|direcionar|conjunto)\b/.test(text)
+  if (givesArrivalGuidance) return true
+
+  const reassuresExistingAppointment =
+    /\b(esta confirmado|segue confirmado|confirmado sim|te espero|estamos te esperando|ate daqui a pouco|ate daqui|pode ficar tranquilo)\b/.test(text) &&
+    /\b(hoje|amanha|diagnostico|agendamento|recepcao|horario|\d{1,2}h|\d{1,2}:\d{2})\b/.test(text)
+  if (reassuresExistingAppointment) return true
+
+  return false
+}
+
+function leadCorrectsExistingAppointmentFromRecentContext(
+  rawMessage: string,
+  rows: any[] | undefined,
+): boolean {
+  const text = normalizeComparableMessage(rawMessage)
+  if (!text) return false
+
+  const isShortDateCorrection =
+    /^(hoje|amanha)$/.test(text) ||
+    /\b(nao e|nao eh|nao era|nao foi|nao seria)\b.{0,80}\b(para|pra|pro|dia)\b/.test(text)
+  if (!isShortDateCorrection) return false
+
+  const ordered = Array.isArray(rows) ? [...rows].reverse() : []
+  return ordered.slice(0, 6).some((row) => {
+    const message = row?.message || row || {}
+    const role = String(message?.role || row?.role || "").trim().toLowerCase()
+    if (role !== "assistant") return false
+    const content = String(message?.content || row?.content || "")
+    return responseClaimsAppointmentConfirmed(content) || responseIsExistingAppointmentSupport(content)
+  })
 }
 
 function shouldBypassSemanticCacheForScheduling(leadMessage: string, responseText?: string): boolean {
@@ -6751,6 +6813,13 @@ export class NativeAgentOrchestratorService {
       !promptBaseSchedulingToolBlockReason
 
     if (claimsAppointmentWithoutCurrentTool) {
+      const latestLeadMessageText = String(effectiveLeadMessage || content || "")
+      const isExistingAppointmentSupportReply =
+        (
+          leadChecksExistingAppointmentOrArrival(latestLeadMessageText) ||
+          leadCorrectsExistingAppointmentFromRecentContext(latestLeadMessageText, conversationRows)
+        ) &&
+        responseIsExistingAppointmentSupport(String(decision.reply || ""))
       const latestPauseState = pauseLookupPhone
         ? await getLeadPauseState({
             tenant,
@@ -6788,22 +6857,26 @@ export class NativeAgentOrchestratorService {
         phone,
         timezone: config.timezone || "America/Sao_Paulo",
       })
-      if (hasExistingActiveAppointment) {
+      if (hasExistingActiveAppointment || isExistingAppointmentSupportReply) {
         await this
           .persistDebugStatus({
             chat,
             sessionId,
-            content: "schedule_confirmation_allowed_existing_appointment",
+            content: hasExistingActiveAppointment
+              ? "schedule_confirmation_allowed_existing_appointment"
+              : "schedule_confirmation_allowed_existing_context",
             details: {
-              debug_event: "schedule_confirmation_allowed_existing_appointment",
+              debug_event: hasExistingActiveAppointment
+                ? "schedule_confirmation_allowed_existing_appointment"
+                : "schedule_confirmation_allowed_existing_context",
               debug_severity: "info",
               lead_preview: String(effectiveLeadMessage || content || "").slice(0, 180),
               allowed_reply_preview: String(decision.reply || "").slice(0, 240),
+              active_appointment_found: hasExistingActiveAppointment,
             },
           })
           .catch(() => {})
       } else {
-        const latestLeadMessageText = String(effectiveLeadMessage || content || "")
         const pendingTime = findRecentSchedulingTimeCandidate(conversationRows, latestLeadMessageText)
         let pendingDate = pendingTime
           ? await this.resolveRecentScheduleDateHintFromHistory({
@@ -8532,6 +8605,16 @@ export class NativeAgentOrchestratorService {
     const responseText = String(params.responseText || "").trim()
     const timezone = params.config.timezone || "America/Sao_Paulo"
     const claimsConfirmed = responseClaimsAppointmentConfirmed(responseText)
+    const existingAppointmentContext =
+      leadChecksExistingAppointmentOrArrival(leadMessage) ||
+      leadCorrectsExistingAppointmentFromRecentContext(leadMessage, params.conversationRows)
+
+    if (
+      existingAppointmentContext &&
+      (responseIsExistingAppointmentSupport(responseText) || claimsConfirmed)
+    ) {
+      return null
+    }
 
     if (
       !claimsConfirmed &&
