@@ -851,6 +851,7 @@ function leadExplicitlyRequestsScheduling(rawMessage: string): boolean {
 function leadMentionsPersonalScheduleWithoutAsking(rawMessage: string): boolean {
   const text = normalizeComparableMessage(rawMessage)
   if (!text) return false
+  if (shouldForceRescheduleBeforeCancel(rawMessage)) return false
 
   const hasPersonalScheduleContext =
     /\b(minha agenda|minha rotina|meu horario|meus horarios|encaixar na minha agenda|encaixar na rotina|trabalho|trabalhar|trabalhando|estudo|estudar|faculdade|ferias|folga|plantao|plantao|compromisso|viajo|viagem|so posso|nao posso|nao consigo|consigo apenas|vou trabalhar|trabalho ate|estudo a noite)\b/.test(text)
@@ -1092,6 +1093,16 @@ function looksLikeInternalOperationalFallback(value: string): boolean {
     /\b(vou seguir pelo que voce ja contou|sem te fazer repetir|contexto foi cortado|prompt base|langgraph|orquestrador|ferramenta|recuperacao|erro interno)\b/.test(text) ||
     /\b(?:nota|observacao|contexto interno|diagnostico interno)\b.{0,100}\b(?:sistema|detectou|identificou|guardrail|prompt|ferramenta|orquestrador)\b/.test(text) ||
     /\bo sistema (?:detectou|identificou|classificou|acionou|bloqueou|forcou)\b/.test(text)
+  )
+}
+
+function looksLikeSchedulingHandoffFallback(value: string): boolean {
+  const text = normalizeComparableMessage(value)
+  if (!text) return false
+  return (
+    /\b(vou|preciso|vou\s+precisar)\s+(chamar|acionar|pedir)\b.{0,80}\b(time|equipe|atendente|humano|alguem)\b/.test(text) ||
+    /\balguem\s+do\s+time\b/.test(text) ||
+    /\bum\s+momento\b/.test(text) && /\b(chamar|acionar|ver\s+com|conferir\s+com)\b/.test(text)
   )
 }
 
@@ -1836,7 +1847,7 @@ function detectsSchedulingIntent(rawMessage: string): boolean {
     /\b(reagendar|reagendamento|remarcar|remarcacao|desmarcar|desmarcacao)\b/,
     /\b(mudar|trocar)\s+(o\s+)?(horario|dia|data)\b/,
     /\b(nao\s+vou\s+poder|nao\s+vou\s+conseguir|nao\s+consigo|nao\s+poderei)\s+(comparecer|ir)\b/,
-    /\b(estou\s+doente|adoeci|imprevisto)\b/,
+    /\b(estou\s+doente|adoeci|imprevisto|intercorrencia|intercorrencias|em\s+atendimento)\b/,
   ]
 
   for (const p of strongPatterns) {
@@ -2550,6 +2561,43 @@ function buildAvailableSlotsRecoveryReply(response: Record<string, any>, leadMes
   return `Consultei a agenda. Tenho ${formatSlotLabelsForLead(labels)}. Qual funciona melhor para voce?`
 }
 
+function buildTemporaryRescheduleAvailabilityReply(
+  response: Record<string, any>,
+  leadMessage: string,
+  contactName?: string | null,
+  timezone = "America/Sao_Paulo",
+): string {
+  const rawSlots = Array.isArray(response?.recommended_slots_for_lead) && response.recommended_slots_for_lead.length > 0
+    ? response.recommended_slots_for_lead
+    : Array.isArray(response?.slots_with_context) && response.slots_with_context.length > 0
+      ? response.slots_with_context
+      : Array.isArray(response?.slots)
+        ? response.slots
+        : []
+  const normalizedLead = normalizeComparableMessage(leadMessage)
+  const todayIso = formatDateFromParts(getNowPartsForTimezone(timezone))
+  const shouldAvoidToday =
+    /\bhoje\b/.test(normalizedLead) ||
+    /\b(desmarcar|desmarcacao|nao\s+vou\s+poder|nao\s+vou\s+conseguir|nao\s+consigo|nao\s+poderei|imprevisto|intercorrencia|intercorrencias|em\s+atendimento)\b/.test(normalizedLead)
+
+  const futureSlots = shouldAvoidToday
+    ? rawSlots.filter((slot: any) => normalizeDateToIso(slot?.date) !== todayIso)
+    : rawSlots
+  const slotsForLead = futureSlots.length > 0 ? futureSlots : rawSlots
+  const leadName = sanitizeSafeVocativeName(contactName) || ""
+  const opener = leadName ? `${leadName}, sem problema.` : "Sem problema."
+
+  if (!slotsForLead.length) {
+    return `${opener} Nao vou cancelar definitivo ainda. Posso remarcar seu diagnostico; voce prefere outro dia de manha, de tarde ou a noite?`
+  }
+
+  const availabilityReply = buildAvailableSlotsRecoveryReply({ slots: slotsForLead }, leadMessage)
+    .replace(/^Consultei a agenda\.?\s*/i, "")
+    .trim()
+
+  return `${opener} Consigo remarcar seu diagnostico. ${availabilityReply}`
+}
+
 function buildScheduleRecoveryReply(execution: GeminiToolExecution, contactName?: string | null): string | undefined {
   const response = execution.response || {}
   if (!execution.ok || response?.ok === false) {
@@ -2634,7 +2682,7 @@ function shouldForceRescheduleBeforeCancel(rawMessage: string): boolean {
     /\b(nao\s+vou\s+poder|nao\s+vou\s+conseguir|nao\s+consigo|nao\s+poderei)\s+(comparecer|ir)\b/,
     /\bnao\s+vou\b/,
     /\bnao\s+consigo\b/,
-    /\b(estou\s+doente|adoeci|imprevisto|emergencia|passando\s+mal)\b/,
+    /\b(estou\s+doente|adoeci|imprevisto|emergencia|passando\s+mal|intercorrencia|intercorrencias|em\s+atendimento)\b/,
     /\b(reagendar|reagendamento|remarcar|remarcacao)\b/,
     /\b(desmarcar|desmarcacao)\b/,
     /\b(mudar|trocar)\s+(o\s+)?(horario|dia|data)\b/,
@@ -6661,6 +6709,7 @@ export class NativeAgentOrchestratorService {
       existingExecutions: decision.executions as GeminiToolExecution[],
     })
     if (schedulingRecovery?.executions?.length) {
+      let schedulingRecoveryReplyApplied = false
       decision.executions = [
         ...(Array.isArray(decision.executions) ? decision.executions : []),
         ...schedulingRecovery.executions,
@@ -6668,79 +6717,94 @@ export class NativeAgentOrchestratorService {
       decision.actions = decision.executions.map((execution: GeminiToolExecution) => execution.action)
       if (schedulingRecovery.reply) {
         decision.reply = schedulingRecovery.reply
+        schedulingRecoveryReplyApplied = true
       } else if (schedulingRecovery.reason === "forced_get_available_slots_tool") {
         const availabilityExecution = schedulingRecovery.executions.find((execution) => {
           return String(execution.call?.name || "").toLowerCase() === "get_available_slots"
         })
         if (availabilityExecution?.ok) {
-          try {
-            const availabilityContext = JSON.stringify({
-              tool: "get_available_slots",
-              response: {
-                ok: availabilityExecution.response?.ok,
-                slots: availabilityExecution.response?.recommended_slots_for_lead || availabilityExecution.response?.slots_with_context || availabilityExecution.response?.slots || [],
-                recommended_slots_by_period: availabilityExecution.response?.recommended_slots_by_period || {},
-                days_with_free_slots: availabilityExecution.response?.days_with_free_slots || [],
-                business_days_configured: availabilityExecution.response?.business_days_configured || [],
-                business_hours_per_day: availabilityExecution.response?.business_hours_per_day || {},
-              },
-            }).slice(0, 9000)
-            const generatedDecision = await llm.decideNextTurn({
-              systemPrompt: [
-                basePrompt,
-                "",
-                "AGENDA CONSULTADA NESTA RODADA - PROMPT BASE SOBERANO:",
-                "A ferramenta get_available_slots ja foi executada pelo orquestrador apenas para validar a agenda real.",
-                "Agora responda como o agente do tenant, com linguagem natural e seguindo o Prompt Base.",
-                "Use os dados de agenda abaixo como fonte de verdade, sem inventar horarios.",
-                "Ao oferecer opcoes, prefira recommended_slots_by_period/recommended_slots_for_lead. Nao use sempre os primeiros horarios da lista; distribua 2 a 3 horarios por turno disponivel quando couber na conversa.",
-                "Se a ultima mensagem do lead ainda pedir contexto, valor, endereco ou outra duvida, responda a duvida antes de oferecer horarios.",
-                "Nao escreva texto tecnico, JSON, nome de ferramenta, 'vou verificar' nem frases fixas do sistema.",
-                availabilityContext,
-              ].join("\n"),
-              conversation,
-              sampling: {
-                ...llmSampling,
-                temperature: Math.min(Math.max(Number(llmSampling.temperature || 0.4), 0.25), 0.55),
-              },
-            })
-            const generatedText = enforceBusinessHoursClaimConsistency(
-              stripRedundantKnownNameQuestion(
-                stripUnsafeLeadNameVocatives(
-                  fixGreetingTemporalAndVocative(
-                    applyAssistantOutputPolicy(String(generatedDecision.reply || ""), {
-                      allowEmojis: config.moderateEmojiEnabled !== false,
-                      allowLanguageVices: false,
-                    }),
-                    config,
+          if (shouldForceRescheduleBeforeCancel(String(effectiveLeadMessage || content || ""))) {
+            const rescheduleReply = buildTemporaryRescheduleAvailabilityReply(
+              availabilityExecution.response || {},
+              String(effectiveLeadMessage || content || ""),
+              resolvedContactName,
+              config.timezone || "America/Sao_Paulo",
+            )
+            if (rescheduleReply) {
+              decision.reply = rescheduleReply
+              schedulingRecoveryReplyApplied = true
+            }
+          }
+          if (!schedulingRecoveryReplyApplied) {
+            try {
+              const availabilityContext = JSON.stringify({
+                tool: "get_available_slots",
+                response: {
+                  ok: availabilityExecution.response?.ok,
+                  slots: availabilityExecution.response?.recommended_slots_for_lead || availabilityExecution.response?.slots_with_context || availabilityExecution.response?.slots || [],
+                  recommended_slots_by_period: availabilityExecution.response?.recommended_slots_by_period || {},
+                  days_with_free_slots: availabilityExecution.response?.days_with_free_slots || [],
+                  business_days_configured: availabilityExecution.response?.business_days_configured || [],
+                  business_hours_per_day: availabilityExecution.response?.business_hours_per_day || {},
+                },
+              }).slice(0, 9000)
+              const generatedDecision = await llm.decideNextTurn({
+                systemPrompt: [
+                  basePrompt,
+                  "",
+                  "AGENDA CONSULTADA NESTA RODADA - PROMPT BASE SOBERANO:",
+                  "A ferramenta get_available_slots ja foi executada pelo orquestrador apenas para validar a agenda real.",
+                  "Agora responda como o agente do tenant, com linguagem natural e seguindo o Prompt Base.",
+                  "Use os dados de agenda abaixo como fonte de verdade, sem inventar horarios.",
+                  "Ao oferecer opcoes, prefira recommended_slots_by_period/recommended_slots_for_lead. Nao use sempre os primeiros horarios da lista; distribua 2 a 3 horarios por turno disponivel quando couber na conversa.",
+                  "Se a ultima mensagem do lead ainda pedir contexto, valor, endereco ou outra duvida, responda a duvida antes de oferecer horarios.",
+                  "Nao escreva texto tecnico, JSON, nome de ferramenta, 'vou verificar' nem frases fixas do sistema.",
+                  availabilityContext,
+                ].join("\n"),
+                conversation,
+                sampling: {
+                  ...llmSampling,
+                  temperature: Math.min(Math.max(Number(llmSampling.temperature || 0.4), 0.25), 0.55),
+                },
+              })
+              const generatedText = enforceBusinessHoursClaimConsistency(
+                stripRedundantKnownNameQuestion(
+                  stripUnsafeLeadNameVocatives(
+                    fixGreetingTemporalAndVocative(
+                      applyAssistantOutputPolicy(String(generatedDecision.reply || ""), {
+                        allowEmojis: config.moderateEmojiEnabled !== false,
+                        allowLanguageVices: false,
+                      }),
+                      config,
+                      resolvedContactName,
+                    ),
                     resolvedContactName,
                   ),
                   resolvedContactName,
                 ),
-                resolvedContactName,
-              ),
-              config,
-            )
-            if (generatedText && !looksLikeCutPromptBaseFallback(generatedText)) {
-              decision.reply = generatedText
-              if (generatedDecision.usage) {
-                ;(decision as any).usage = mergeLlmUsageMetrics((decision as any).usage, generatedDecision.usage)
+                config,
+              )
+              if (generatedText && !looksLikeCutPromptBaseFallback(generatedText)) {
+                decision.reply = generatedText
+                if (generatedDecision.usage) {
+                  ;(decision as any).usage = mergeLlmUsageMetrics((decision as any).usage, generatedDecision.usage)
+                }
               }
+            } catch (error: any) {
+              await this
+                .persistDebugStatus({
+                  chat,
+                  sessionId,
+                  content: "schedule_recovery_promptbase_reply_failed",
+                  details: {
+                    debug_event: "schedule_recovery_promptbase_reply_failed",
+                    debug_severity: "warning",
+                    error: String(error?.message || error || "").slice(0, 500),
+                    lead_preview: String(effectiveLeadMessage || content || "").slice(0, 180),
+                  },
+                })
+                .catch(() => {})
             }
-          } catch (error: any) {
-            await this
-              .persistDebugStatus({
-                chat,
-                sessionId,
-                content: "schedule_recovery_promptbase_reply_failed",
-                details: {
-                  debug_event: "schedule_recovery_promptbase_reply_failed",
-                  debug_severity: "warning",
-                  error: String(error?.message || error || "").slice(0, 500),
-                  lead_preview: String(effectiveLeadMessage || content || "").slice(0, 180),
-                },
-              })
-              .catch(() => {})
           }
         }
       }
@@ -7187,6 +7251,33 @@ export class NativeAgentOrchestratorService {
       effectiveLeadMessage || content,
       qualificationState,
     )
+    if (
+      responseText &&
+      shouldForceRescheduleBeforeCancel(String(effectiveLeadMessage || content || "")) &&
+      looksLikeSchedulingHandoffFallback(responseText)
+    ) {
+      const blockedReplyPreview = responseText
+      responseText = buildTemporaryRescheduleAvailabilityReply(
+        {},
+        String(effectiveLeadMessage || content || ""),
+        resolvedContactName,
+        config.timezone || "America/Sao_Paulo",
+      )
+      await this
+        .persistDebugStatus({
+          chat,
+          sessionId,
+          content: "temporary_reschedule_handoff_reply_rewritten",
+          details: {
+            debug_event: "temporary_reschedule_handoff_reply_rewritten",
+            debug_severity: "warning",
+            lead_preview: String(effectiveLeadMessage || content || "").slice(0, 180),
+            blocked_reply_preview: blockedReplyPreview.slice(0, 240),
+            repaired_reply_preview: responseText.slice(0, 240),
+          },
+        })
+        .catch(() => {})
+    }
     let suppressEmptyReplyRecovery = false
     const promptBaseDiscoveryGuard = enforcePromptBaseDiscoveryBeforeScheduling({
       responseText,
