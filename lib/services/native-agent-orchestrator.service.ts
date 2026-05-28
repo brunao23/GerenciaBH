@@ -4224,6 +4224,7 @@ function resolveTrustedScheduleContactName(toolName?: string | null, contactName
     normalizeNameForCompare(tool || "") === normalizeNameForCompare(contact || "")
 
   if (!looksLikeFullPersonName && !toolMatchesContact) return null
+  if (toolMatchesContact && !looksLikeFullPersonName) return null
   if (isInvalidLeadNameCandidate(candidate) || isSuspiciousLeadNameToken(candidate)) return null
   return candidate
 }
@@ -10875,7 +10876,7 @@ export class NativeAgentOrchestratorService {
       "- [LEI INVIOLÃVEL] Voce e 100% AUTONOMA para agendar, reagendar e cancelar. NUNCA transfira para humano (handoff_human) quando o assunto for agendamento, reagendamento, remarcacao, mudanca de horario ou cancelamento.",
       "- [PROIBIDO ABSOLUTO] NUNCA diga 'vou chamar o time', 'vou transferir para a equipe', 'vou acionar o time comercial', 'vou pedir para alguem da equipe', 'vou notificar o time', 'um atendente vai te ajudar com o agendamento' ou qualquer variacao que sugira que outra pessoa fara o agendamento/reagendamento.",
       "- [PROIBIDO ABSOLUTO] NUNCA use handoff_human para resolver questoes de agenda, horarios, datas ou remarcacao. Use EXCLUSIVAMENTE as ferramentas: get_available_slots, schedule_appointment, edit_appointment, cancel_appointment.",
-      "- [NOME REAL ANTES DE AGENDAR] Antes de chamar schedule_appointment, confirme que o nome real foi informado pelo proprio lead nesta conversa. Se ainda nao souber o nome real, pergunte uma unica vez: 'Perfeito. Para eu deixar reservado, como posso te chamar?' e aguarde a resposta. NUNCA use nome do WhatsApp, sobrenome isolado, cargo, periodo, dia da semana ou placeholder como customer_name.",
+      "- [NOME REAL ANTES DE AGENDAR] Antes de chamar schedule_appointment, use somente nome real informado pelo lead nesta conversa OU nome completo confiavel do contato quando o sistema ja trouxer uma pessoa clara. Se ainda nao souber o nome real, pergunte uma unica vez: 'Perfeito. Para eu deixar reservado, como posso te chamar?' e aguarde a resposta. NUNCA use sobrenome isolado, cargo, periodo, dia da semana ou placeholder como customer_name.",
       "- [FLUXO OBRIGATORIO DE REAGENDAMENTO] Quando o lead pedir para mudar, remarcar, trocar dia/horario OU avisar que nao podera comparecer (ex.: doenca, imprevisto, 'hoje nao consigo ir'), voce DEVE tentar reagendar IMEDIATAMENTE: (1) chame get_available_slots para ver opcoes; (2) ofereca horarios reais; (3) confirme e chame edit_appointment. NUNCA seja passiva.",
       "- [CANCELAMENTO COM CRITERIO] cancel_appointment so pode ser usado quando o lead pedir cancelamento definitivo de forma explicita. Se houver qualquer chance de remarcacao, priorize reagendar antes de cancelar.",
       "- [CANCELAMENTO COM NOTIFICACAO INTERNA] Quando o lead pedir cancelamento definitivo, use cancel_appointment. O sistema notificara o grupo interno automaticamente quando a ferramenta rodar. Nao diga que vai chamar alguem e nao deixe o pedido sem ferramenta.",
@@ -11325,7 +11326,7 @@ export class NativeAgentOrchestratorService {
             customer_name: {
               type: "string",
               description:
-                "Nome real informado pelo proprio lead nesta conversa. Se o nome ainda nao foi informado, nao chame schedule_appointment: pergunte como pode chamar. Nunca usar nome do WhatsApp, sobrenome isolado, cargo, profissao, area, setor, dia ou periodo como nome.",
+                "Nome real informado pelo lead nesta conversa ou nome completo confiavel do contato validado pelo sistema. Se nao houver nome real, nao chame schedule_appointment: pergunte como pode chamar. Nunca usar sobrenome isolado, cargo, profissao, area, setor, dia ou periodo como nome.",
             },
             customer_email: {
               type: "string",
@@ -11655,6 +11656,10 @@ export class NativeAgentOrchestratorService {
         .loadConversation(params.sessionId, 40)
         .catch(() => [])
       const explicitLeadNameForSchedule = resolveExplicitLeadNameFromConversationRows(recentConversationRows)
+      const trustedContactNameForSchedule = resolveTrustedScheduleContactName(
+        action.customer_name,
+        params.contactName || "",
+      )
       const leadConfirmedSchedulingMutation = leadExplicitlyConfirmsSchedulingMutation(
         String(params.leadMessageContext || ""),
         recentConversationRows,
@@ -11672,7 +11677,7 @@ export class NativeAgentOrchestratorService {
           },
         }
       }
-      const scheduleCustomerName = explicitLeadNameForSchedule
+      const scheduleCustomerName = explicitLeadNameForSchedule || trustedContactNameForSchedule
       if (!scheduleCustomerName) {
         return {
           ok: false,
