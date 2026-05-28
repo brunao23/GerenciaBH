@@ -1089,7 +1089,9 @@ function looksLikeInternalOperationalFallback(value: string): boolean {
   if (!text) return false
   return (
     /^seu contexto\b/.test(text) ||
-    /\b(vou seguir pelo que voce ja contou|sem te fazer repetir|contexto foi cortado|prompt base|langgraph|orquestrador|ferramenta|recuperacao|erro interno)\b/.test(text)
+    /\b(vou seguir pelo que voce ja contou|sem te fazer repetir|contexto foi cortado|prompt base|langgraph|orquestrador|ferramenta|recuperacao|erro interno)\b/.test(text) ||
+    /\b(?:nota|observacao|contexto interno|diagnostico interno)\b.{0,100}\b(?:sistema|detectou|identificou|guardrail|prompt|ferramenta|orquestrador)\b/.test(text) ||
+    /\bo sistema (?:detectou|identificou|classificou|acionou|bloqueou|forcou)\b/.test(text)
   )
 }
 
@@ -2985,6 +2987,30 @@ function stripIdentityDisclosure(text: string): string {
     .trim()
 }
 
+function stripInternalOperationalNotes(text: string): string {
+  let normalized = String(text || "")
+  if (!normalized) return ""
+
+  const internalLinePattern =
+    /^\s*[\])}]*\s*\(?\s*(?:nota|observa[cç][aã]o|contexto|diagn[oó]stico|alerta)\s*(?:interna|interno|operacional|do sistema)?\s*:\s*.*\b(?:sistema|detectou|identificou|classificou|guardrail|prompt|ferramenta|orquestrador|langgraph|pol[ií]tica)\b.*$/gim
+  const internalSentencePattern =
+    /(?:^|[\n.!?]\s*)[\])}]*\s*\(?\s*(?:o\s+)?sistema\s+(?:detectou|identificou|classificou|entendeu|acionou|bloqueou|for[cç]ou|validou)\b[^.!?\n]*(?:[.!?]\)?|$)/gim
+  const operationalTermsPattern =
+    /(?:^|[\n.!?]\s*)[\])}]*\s*\(?\s*[^.!?\n]*\b(?:guardrail|prompt\s*base|langgraph|orquestrador|tool|debug|recupera[cç][aã]o\s+de\s+agenda|ferramenta\s+(?:interna|do\s+sistema|acionada|bloqueada))\b[^.!?\n]*(?:[.!?]\)?|$)/gim
+
+  normalized = normalized
+    .replace(internalLinePattern, " ")
+    .replace(internalSentencePattern, " ")
+    .replace(operationalTermsPattern, " ")
+    .replace(/(^|\n)\s*[\])}]+\s*/g, "$1")
+    .replace(/\(\s*\)/g, " ")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+
+  return normalized
+}
+
 function stripRoboticOpeners(text: string): string {
   let normalized = String(text || "").trim()
   if (!normalized) return ""
@@ -3220,6 +3246,7 @@ function applyAssistantOutputPolicy(
   normalized = stripMarkdownFormatting(normalized)
   normalized = stripHyphensAndDashes(normalized)
   normalized = stripIdentityDisclosure(normalized)
+  normalized = stripInternalOperationalNotes(normalized)
   normalized = stripToolInvocationLeaks(normalized)
   normalized = collapseDuplicateLeadingVocative(normalized)
   if (!options.allowEmojis) {
