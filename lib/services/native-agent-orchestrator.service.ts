@@ -5265,6 +5265,36 @@ function formatNotificationContact(phone: string): string {
   return digits ? `wa.me/${digits}` : "nao informado"
 }
 
+function buildGoogleCalendarEventDescription(input: {
+  note?: string | null
+  fallback: string
+  phone?: string | null
+  sessionId?: string | null
+}): string {
+  const lines: string[] = []
+  const note = String(input.note || "").trim()
+  const fallback = String(input.fallback || "").trim()
+  const digits = normalizePhoneNumber(input.phone || "") || normalizePhoneNumber(input.sessionId || "")
+
+  lines.push(note || fallback || "Agendamento gerado pelo agente nativo")
+  if (digits) {
+    lines.push(`Contato do lead: ${digits}`)
+    lines.push(`WhatsApp: wa.me/${digits}`)
+  }
+
+  const seen = new Set<string>()
+  return lines
+    .map((line) => String(line || "").trim())
+    .filter((line) => {
+      if (!line) return false
+      const key = line.toLowerCase()
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    .join("\n")
+}
+
 function normalizeNotificationTargets(input: any): string[] {
   if (!Array.isArray(input)) return []
   return input
@@ -12991,7 +13021,12 @@ export class NativeAgentOrchestratorService {
           const updatedEvent = await calendar.updateEvent({
             eventId,
             summary,
-            description: params.action.note || "Agendamento atualizado pelo agente nativo",
+            description: buildGoogleCalendarEventDescription({
+              note: params.action.note,
+              fallback: "Agendamento atualizado pelo agente nativo",
+              phone: params.phone,
+              sessionId: params.sessionId,
+            }),
             startIso,
             endIso,
             timezone,
@@ -13003,7 +13038,12 @@ export class NativeAgentOrchestratorService {
         } else {
           const createdEvent = await calendar.createEvent({
             summary,
-            description: params.action.note || "Agendamento atualizado pelo agente nativo",
+            description: buildGoogleCalendarEventDescription({
+              note: params.action.note,
+              fallback: "Agendamento atualizado pelo agente nativo",
+              phone: params.phone,
+              sessionId: params.sessionId,
+            }),
             startIso,
             endIso,
             timezone,
@@ -13532,7 +13572,12 @@ export class NativeAgentOrchestratorService {
               const calendar = this.createGoogleCalendarService(params.config)
               const event = await calendar.createEvent({
                 summary: `Atendimento - ${params.contactName || params.phone}`,
-                description: params.action.note || "Agendamento sincronizado pelo agente nativo",
+                description: buildGoogleCalendarEventDescription({
+                  note: params.action.note,
+                  fallback: "Agendamento sincronizado pelo agente nativo",
+                  phone: params.phone,
+                  sessionId: params.sessionId,
+                }),
                 startIso,
                 endIso,
                 timezone,
@@ -13731,7 +13776,12 @@ export class NativeAgentOrchestratorService {
         const title = `Atendimento - ${params.contactName || params.phone}`
         const event = await calendar.createEvent({
           summary: title,
-          description: params.action.note || "Agendamento gerado pelo agente nativo",
+          description: buildGoogleCalendarEventDescription({
+            note: params.action.note,
+            fallback: "Agendamento gerado pelo agente nativo",
+            phone: params.phone,
+            sessionId: params.sessionId,
+          }),
           startIso,
           endIso,
           timezone,
