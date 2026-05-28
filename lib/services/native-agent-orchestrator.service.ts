@@ -828,6 +828,86 @@ function responseRepeatsKnownQualificationQuestion(
   return (qualification.hasArea && asksArea) || (qualification.hasPain && asksPain)
 }
 
+function leadHistorySupportsSpecificPainClaim(
+  conversationRows: Array<{ role: "user" | "assistant" | "system"; content: string }> | any[] | undefined,
+  latestLeadMessage?: string | null,
+): boolean {
+  const userMessages = Array.isArray(conversationRows)
+    ? conversationRows
+        .filter((row: any) => getConversationRowRole(row) === "user")
+        .map((row: any) => getConversationRowContent(row))
+        .filter(Boolean)
+    : []
+  const latest = String(latestLeadMessage || "").trim()
+  if (latest && !userMessages.some((message) => normalizeComparableMessage(message) === normalizeComparableMessage(latest))) {
+    userMessages.push(latest)
+  }
+
+  return userMessages.some((message) => {
+    const text = normalizeComparableMessage(message)
+    if (!text) return false
+    return (
+      /\b(trav[oa]?[rs]?|travando|travada|travado|dificuldade|dificuldades|desafio|problema|medo|timidez|inseguranca|vergonha|nervosismo|nervosa|nervoso|ansiedade)\b/.test(text) ||
+      /\b(nao\s+consigo|nao\s+tenho\s+confianca|evito|horrivel|embaralho|embolo|embolad[ao]s?|falo\s+rapido|diccao|clareza|voz)\b/.test(text) ||
+      /\b(falar\s+em\s+publico|apresentacao|apresentacoes|palestra|reuniao|reunioes|clientes|diretores|funcionarios)\b/.test(text)
+    )
+  })
+}
+
+function removeUnsupportedLeadPainAttributionSegments(responseText: string): string {
+  const fallback = "Esse diagnostico e fundamental para entendermos seu objetivo e indicar o melhor caminho para voce."
+  const segments = String(responseText || "")
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map((segment) => segment.trim())
+    .filter(Boolean)
+
+  if (!segments.length) return String(responseText || "").trim()
+
+  const cleaned = segments.map((segment) => {
+    const normalized = normalizeComparableMessage(segment)
+    const hasAttribution =
+      /\b(?:como|ja\s+que|pelo\s+que|quando)\s+voce\s+(?:mencionou|falou|disse|contou|comentou|trouxe|relatou|sinalizou)\b/.test(normalized) ||
+      /\bvoce\s+(?:mencionou|falou|disse|contou|comentou|trouxe|relatou|sinalizou)\b/.test(normalized)
+    const hasPainClaim =
+      /\b(trava|travar|travado|travada|dificuldade|dificuldades|desafio|desafios|problema|problemas|medo|timidez|inseguranca|nervosismo|ansiedade|situacao|situacoes)\b/.test(normalized)
+
+    if (!hasAttribution || !hasPainClaim) return segment
+
+    const stripped = segment
+      .replace(
+        /\b(?:Como|J[aá]\s+que|Pelo\s+que|Quando)\s+voc[eê]\s+(?:mencionou|falou|disse|contou|comentou|trouxe|relatou|sinalizou)\s+que\s+[^,.!?]+,?\s*/iu,
+        "",
+      )
+      .replace(
+        /\bVoc[eê]\s+(?:mencionou|falou|disse|contou|comentou|trouxe|relatou|sinalizou)\s+que\s+[^,.!?]+[,.!?]?\s*/iu,
+        "",
+      )
+      .replace(/\s+/g, " ")
+      .trim()
+
+    return stripped && normalizeComparableMessage(stripped) !== normalized ? stripped : fallback
+  })
+
+  return cleaned.join(" ").replace(/\s{2,}/g, " ").trim()
+}
+
+function enforceNoUnsupportedLeadPainAttribution(
+  responseText: string,
+  conversationRows: Array<{ role: "user" | "assistant" | "system"; content: string }> | any[] | undefined,
+  latestLeadMessage?: string | null,
+): string {
+  const text = String(responseText || "").trim()
+  if (!text) return text
+  const normalized = normalizeComparableMessage(text)
+  const mentionsLeadSaidPain =
+    /\bvoce\s+(?:mencionou|falou|disse|contou|comentou|trouxe|relatou|sinalizou)\b.{0,180}\b(trava|travar|travado|travada|dificuldade|dificuldades|desafio|desafios|problema|problemas|medo|timidez|inseguranca|nervosismo|ansiedade|situacao|situacoes)\b/.test(normalized) ||
+    /\b(?:como|ja\s+que|pelo\s+que|quando)\s+voce\s+(?:mencionou|falou|disse|contou|comentou|trouxe|relatou|sinalizou)\b/.test(normalized)
+
+  if (!mentionsLeadSaidPain) return text
+  if (leadHistorySupportsSpecificPainClaim(conversationRows, latestLeadMessage)) return text
+  return removeUnsupportedLeadPainAttributionSegments(text)
+}
+
 function lastAssistantAskedDiscoveryQuestion(
   conversationRows: Array<{ role: "user" | "assistant" | "system"; content: string }>,
 ): boolean {
@@ -7276,6 +7356,11 @@ export class NativeAgentOrchestratorService {
       config.timezone || "America/Sao_Paulo",
     )
     responseText = enforceBusinessHoursClaimConsistency(responseText, config)
+    responseText = enforceNoUnsupportedLeadPainAttribution(
+      responseText,
+      conversationRows,
+      effectiveLeadMessage || content,
+    )
     responseText = enforceExplicitLeadQuestionCoverage(
       responseText,
       effectiveLeadMessage || content,
