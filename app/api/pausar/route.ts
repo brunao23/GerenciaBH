@@ -279,17 +279,16 @@ export async function POST(request: NextRequest) {
       updated_at: nowIso,
     }
 
-    if (paused_until !== undefined) {
-      payload.paused_until = paused_until // Pode ser null ou data ISO string
-    } else if (hasPausarField && pausarBool) {
-      // Pausa acionada pelo botao "Pausado" deve ser permanente.
-      // Sem isso, um paused_until antigo/vencido fica no registro e a IA volta a responder.
+    if (hasPausarField && pausarBool) {
+      // Pausa humana e sempre definitiva. O servidor ignora qualquer duracao enviada pela UI.
       payload.paused_until = null
+    } else if (paused_until !== undefined) {
+      payload.paused_until = paused_until // Pode ser null ou data ISO string para pausas nao-humanas.
     }
 
     if (hasPausarField && pausarBool) {
       payload.pausado_em = nowIso
-      payload.pause_reason = pauseReasonValue || String(existingRow?.pause_reason || "").trim() || "manual_human_panel"
+      payload.pause_reason = "manual_human_panel"
       Object.assign(payload, actorPayload)
     } else if (hasPausarField && !pausarBool) {
       payload.pause_reason = null
@@ -515,7 +514,7 @@ export async function PUT(request: NextRequest) {
       updateData.pausar = pausar === true || pausar === "true" || pausar === 1 || pausar === "1"
       if (updateData.pausar) {
         updateData.pausado_em = nowIso
-        updateData.pause_reason = pauseReasonValue || "manual_human_panel"
+        updateData.pause_reason = "manual_human_panel"
         updateData.paused_until = null
         Object.assign(updateData, actorPayload)
       } else {
@@ -523,7 +522,7 @@ export async function PUT(request: NextRequest) {
         updateData.paused_until = null
       }
     }
-    if (pausar === undefined && pauseReasonValue) {
+    if (pausar === undefined && pauseReasonValue && !updateData.pausar) {
       updateData.pause_reason = pauseReasonValue
     }
     if (vaga !== undefined) {
@@ -532,7 +531,7 @@ export async function PUT(request: NextRequest) {
     if (agendamento !== undefined) {
       updateData.agendamento = agendamento === true || agendamento === "true" || agendamento === 1 || agendamento === "1"
     }
-    if (paused_until !== undefined) {
+    if (paused_until !== undefined && !updateData.pausar) {
       updateData.paused_until = paused_until
     }
 

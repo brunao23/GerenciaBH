@@ -161,7 +161,6 @@ async function uploadAudioDataUriToStorage(params: {
 async function pauseAiForLead(
   tenant: string,
   phone: string,
-  pausedUntil?: string,
   pauseActor?: Record<string, string | null>,
 ): Promise<boolean> {
   const normalized = normalizePhoneNumber(phone)
@@ -179,7 +178,7 @@ async function pauseAiForLead(
     updated_at: nowIso,
     pausado_em: nowIso,
     pause_reason: "manual_human_panel",
-    paused_until: pausedUntil || null,
+    paused_until: null,
     ...(pauseActor || {}),
   }
 
@@ -223,7 +222,6 @@ export async function POST(req: Request) {
     const caption = readText(body?.caption || body?.message)
     const phone = extractPhone(body?.number, body?.sessionId)
     const sessionId = normalizeSessionId(readText(body?.sessionId) || phone)
-    const pausedUntil = readText(body?.paused_until || body?.pausedUntil || "")
 
     if (!phone) {
       return NextResponse.json({ error: "number is required" }, { status: 400 })
@@ -247,7 +245,7 @@ export async function POST(req: Request) {
     const effectiveMimeType = storageAudio?.mimeType || audioMimeType
 
     const historyContent = caption || "[Audio enviado pelo humano]"
-    const paused = await pauseAiForLead(tenant, phone, pausedUntil || undefined, tenantContext.pauseActor)
+    const paused = await pauseAiForLead(tenant, phone, tenantContext.pauseActor)
     if (!paused) {
       return NextResponse.json(
         { error: "Nao foi possivel ativar a pausa de seguranca da IA para este lead." },

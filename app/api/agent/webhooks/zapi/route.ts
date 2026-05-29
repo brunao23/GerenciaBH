@@ -2639,7 +2639,7 @@ async function pauseAiForLead(
     agendamento: false,
     updated_at: nowIso,
     pausado_em: nowIso,
-    paused_until: pausedUntilIso,
+    paused_until: isUnitUserInitiatedPause ? null : pausedUntilIso,
     pause_reason: String(options?.reason || "").trim() || null,
   }
 
@@ -4127,10 +4127,8 @@ export async function POST(req: NextRequest) {
       canonicalPhone &&
       !shouldTriggerFromExternalStarter
     ) {
-      const humanOutboundPauseMinutes = 30
       await pauseAiForLead(tenant, canonicalPhone, {
-        minutes: humanOutboundPauseMinutes,
-        reason: "human_outbound_message_temporary_pause",
+        reason: "manual_human_panel",
       })
       await new AgentTaskQueueService()
         .cancelPendingFollowups({
@@ -4143,12 +4141,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         received: true,
         ignored: true,
-        reason: "human_outbound_message_temporarily_paused_ai",
+        reason: "human_outbound_message_paused_ai",
         tenant,
         persisted,
         canonicalSessionId,
         canonicalPhone,
-        pausedMinutes: humanOutboundPauseMinutes,
+        pausedDefinitive: true,
       })
     }
 

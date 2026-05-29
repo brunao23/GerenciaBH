@@ -1022,7 +1022,6 @@ export default function ConversasPage() {
 
   // Estados de Envio Mensagem Humana
   const [messageInput, setMessageInput] = useState("")
-  const [pauseDuration, setPauseDuration] = useState("30")
   const [isSending, setIsSending] = useState(false)
   const [pendingAudio, setPendingAudio] = useState<PendingAudio | null>(null)
   const [isSendingAudio, setIsSendingAudio] = useState(false)
@@ -2796,16 +2795,6 @@ export default function ConversasPage() {
     setTakeoverLoading(true)
 
     try {
-      let pausedUntil = null
-      if (pauseDuration !== "permanent") {
-        const minutes = parseInt(pauseDuration)
-        if (!isNaN(minutes)) {
-          const date = new Date()
-          date.setMinutes(date.getMinutes() + minutes)
-          pausedUntil = date.toISOString()
-        }
-      }
-
       const res = await fetch("/api/pausar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2814,7 +2803,7 @@ export default function ConversasPage() {
           pausar: true,
           vaga: false,
           agendamento: false,
-          paused_until: pausedUntil,
+          paused_until: null,
           pause_reason: "manual_human_panel",
         })
       })
@@ -3637,18 +3626,9 @@ export default function ConversasPage() {
                   <span className="hidden min-[380px]:inline">Ao assumir, </span>pausar IA:
                 </span>
                 <div className="flex min-w-0 shrink-0 items-center gap-2">
-                  <Select value={pauseDuration} onValueChange={setPauseDuration}>
-                    <SelectTrigger className="h-9 w-[122px] min-w-0 border-border bg-card text-xs text-foreground focus:ring-accent-green sm:h-8 sm:w-[140px]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="bg-popover border-border text-popover-foreground">
-                      <SelectItem value="10">10 minutos</SelectItem>
-                      <SelectItem value="20">20 minutos</SelectItem>
-                      <SelectItem value="30">30 minutos</SelectItem>
-                      <SelectItem value="60">1 hora</SelectItem>
-                      <SelectItem value="permanent">Permanente</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Badge variant="outline" className="h-9 border-accent-gold/35 bg-accent-gold/10 px-3 text-xs text-accent-gold sm:h-8">
+                    Definitiva
+                  </Badge>
                   <Button
                     onClick={handleActivatePause}
                     disabled={takeoverLoading || pauseStatus?.pausar}
