@@ -42,6 +42,7 @@ export function isManualPauseReason(reason: string): boolean {
     "manual_human_panel",
     "group_manual_pause",
     "human_call_intervention",
+    "human_outbound_message_temporary_pause",
     "handoff_human",
     "human_manual_pause",
     "manual_pause",
@@ -51,6 +52,7 @@ export function isManualPauseReason(reason: string): boolean {
   if (normalized.includes("manual_human")) return true
   if (normalized.includes("group_manual")) return true
   if (normalized.includes("human_intervention")) return true
+  if (normalized.includes("human_outbound")) return true
   if (normalized.includes("negative_intent")) return true
   if (normalized.includes("definitive_pause")) return true
   if (normalized.includes("explicit_opt_out")) return true
