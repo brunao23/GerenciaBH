@@ -4361,8 +4361,36 @@ function resolveSafeLeadNotificationName(...candidates: Array<string | null | un
   return "Lead"
 }
 
+function isTrustedContactDisplayNameForScheduling(contactName?: string | null): boolean {
+  const raw = String(contactName || "")
+    .normalize("NFKC")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .trim()
+  if (!raw) return false
+  if (/\p{Emoji_Presentation}|\p{Extended_Pictographic}/u.test(raw)) return false
+  if (/@|https?:\/\/|www\.|\.com\b/i.test(raw)) return false
+  if (/\d/.test(raw)) return false
+
+  const withoutWhatsAppPrefix = raw.replace(/^[~\s]+/, "").trim()
+  if (!withoutWhatsAppPrefix) return false
+  if (!/^[\p{L}\s'-]+$/u.test(withoutWhatsAppPrefix)) return false
+
+  const words = stripDecorativeNameNoise(withoutWhatsAppPrefix)
+    .split(/\s+/)
+    .map((word) => word.trim())
+    .filter(Boolean)
+  if (!words.length || words.length > 4) return false
+  if (words.some((word) => word.length <= 2)) return false
+  if (words.some((word) => isInvalidLeadNameCandidate(word) || isSuspiciousLeadNameToken(word))) return false
+
+  const safeName = sanitizeSafeVocativeName(withoutWhatsAppPrefix)
+  return Boolean(safeName)
+}
+
 function resolveSafeAppointmentCustomerName(toolName?: string | null, contactName?: string | null): string | undefined {
-  const contact = sanitizeSafeVocativeName(contactName)
+  const contact = isTrustedContactDisplayNameForScheduling(contactName)
+    ? sanitizeSafeVocativeName(contactName)
+    : null
   const tool = sanitizeSafeVocativeName(toolName)
   if (contact && tool && normalizeNameForCompare(contact) !== normalizeNameForCompare(tool)) return contact
   return tool || contact || undefined
@@ -4373,20 +4401,25 @@ function resolveSafeCalendarAppointmentLabel(
   contactName?: string | null,
   phone?: string | null,
 ): string {
+  const contact = isTrustedContactDisplayNameForScheduling(contactName)
+    ? sanitizeSafeVocativeName(contactName)
+    : null
   return (
     sanitizeSafeVocativeName(actionName) ||
-    sanitizeSafeVocativeName(contactName) ||
-    firstName(contactName || "") ||
+    contact ||
     String(phone || "Lead").trim() ||
     "Lead"
   )
 }
 
 function resolveTrustedScheduleContactName(toolName?: string | null, contactName?: string | null): string | null {
-  const contact = sanitizeSafeVocativeName(contactName)
+  const contact = isTrustedContactDisplayNameForScheduling(contactName)
+    ? sanitizeSafeVocativeName(contactName)
+    : null
   const tool = sanitizeSafeVocativeName(toolName)
-  const candidate = tool || contact
+  const candidate = contact || tool
   if (!candidate) return null
+  if (!contact) return null
 
   const rawContact = stripDecorativeNameNoise(contactName)
   const contactWords = normalizeNameForCompare(rawContact)
@@ -10744,7 +10777,11 @@ export class NativeAgentOrchestratorService {
 
       return false
     })()
-    const contactFirstName = isNonPersonDisplayName ? null : firstName(ctx.contactName)
+    const trustedContactDisplayNameForPrompt = isTrustedContactDisplayNameForScheduling(ctx.contactName)
+    const contactFirstName =
+      isNonPersonDisplayName || !trustedContactDisplayNameForPrompt
+        ? null
+        : firstName(ctx.contactName)
     const timezone = config.timezone || "America/Sao_Paulo"
     const now = new Date().toISOString()
     const nowLocalParts = getNowPartsForTimezone(timezone)
@@ -11149,7 +11186,7 @@ export class NativeAgentOrchestratorService {
       "- [LEI INVIOLÃVEL] Voce e 100% AUTONOMA para agendar, reagendar e cancelar. NUNCA transfira para humano (handoff_human) quando o assunto for agendamento, reagendamento, remarcacao, mudanca de horario ou cancelamento.",
       "- [PROIBIDO ABSOLUTO] NUNCA diga 'vou chamar o time', 'vou transferir para a equipe', 'vou acionar o time comercial', 'vou pedir para alguem da equipe', 'vou notificar o time', 'um atendente vai te ajudar com o agendamento' ou qualquer variacao que sugira que outra pessoa fara o agendamento/reagendamento.",
       "- [PROIBIDO ABSOLUTO] NUNCA use handoff_human para resolver questoes de agenda, horarios, datas ou remarcacao. Use EXCLUSIVAMENTE as ferramentas: get_available_slots, schedule_appointment, edit_appointment, cancel_appointment.",
-      "- [NOME REAL ANTES DE AGENDAR] Antes de chamar schedule_appointment, use somente nome real informado pelo lead nesta conversa OU nome completo confiavel do contato quando o sistema ja trouxer uma pessoa clara. Se ainda nao souber o nome real, pergunte uma unica vez: 'Perfeito. Para eu deixar reservado, como posso te chamar?' e aguarde a resposta. NUNCA use sobrenome isolado, cargo, periodo, dia da semana ou placeholder como customer_name.",
+      "- [NOME REAL ANTES DE AGENDAR - LEI ABSOLUTA] Antes de chamar schedule_appointment, use somente nome real informado pelo lead nesta conversa OU nome de contato validado pelo sistema como pessoa clara. Se o contato tiver emoji, simbolo, ponto, numero, arroba, inicial isolada, titulo, apelido estranho, nome de empresa ou texto decorativo, ele NAO e nome confiavel: pergunte obrigatoriamente uma unica vez 'Perfeito. Para eu deixar reservado, como posso te chamar?' e aguarde a resposta. NUNCA use sobrenome isolado, cargo, periodo, dia da semana, area, profissao, sentimento ou placeholder como customer_name.",
       "- [FLUXO OBRIGATORIO DE REAGENDAMENTO] Quando o lead pedir para mudar, remarcar, trocar dia/horario OU avisar que nao podera comparecer (ex.: doenca, imprevisto, 'hoje nao consigo ir'), voce DEVE tentar reagendar IMEDIATAMENTE: (1) chame get_available_slots para ver opcoes; (2) ofereca horarios reais; (3) confirme e chame edit_appointment. NUNCA seja passiva.",
       "- [CANCELAMENTO COM CRITERIO] cancel_appointment so pode ser usado quando o lead pedir cancelamento definitivo de forma explicita. Se houver qualquer chance de remarcacao, priorize reagendar antes de cancelar.",
       "- [CANCELAMENTO COM NOTIFICACAO INTERNA] Quando o lead pedir cancelamento definitivo, use cancel_appointment. O sistema notificara o grupo interno automaticamente quando a ferramenta rodar. Nao diga que vai chamar alguem e nao deixe o pedido sem ferramenta.",
@@ -11256,7 +11293,7 @@ export class NativeAgentOrchestratorService {
         "- Se houver contexto de reply, trate a mensagem referenciada como prioridade para evitar perguntas duplicadas.",
         contactFirstName
           ? `- Nome do lead nesta sessao: ${contactFirstName}. Use o nome exato, sem abreviacoes, e nunca troque pelo nome da IA.`
-          : "- Nome real do lead indisponivel. Nao invente nome; pergunte uma unica vez se ainda nao perguntou no historico. Se ja perguntou ou o lead ignorar, trate por 'voce'.",
+          : "- Nome real do lead indisponivel ou contato exibido nao confiavel. Nao invente nome; pergunte uma unica vez se ainda nao perguntou no historico. Se ja perguntou ou o lead ignorar, trate por 'voce'.",
         "- Nunca use profissao, cargo, area de atuacao, setor, turno ou dia da semana como nome do lead. Exemplos proibidos como vocativo ou customer_name: Qual, Dia, Quero, Valor, Horario, Analista, Analista financeiro, Engenheiro, Professor, Dentista, Financeiro, Vendas, Comercial, Manha, Tarde, Noite, Segunda, Terca, Quarta, Quinta, Sexta, Sabado, Domingo.",
         "- Respeite integralmente as configuracoes de agenda da unidade (dias, horarios, bloqueios, feriados e conflitos).",
         "",
@@ -11599,7 +11636,7 @@ export class NativeAgentOrchestratorService {
             customer_name: {
               type: "string",
               description:
-                "Nome real informado pelo lead nesta conversa ou nome completo confiavel do contato validado pelo sistema. Se nao houver nome real, nao chame schedule_appointment: pergunte como pode chamar. Nunca usar sobrenome isolado, cargo, profissao, area, setor, dia ou periodo como nome.",
+                "Nome real informado pelo lead nesta conversa ou nome de contato validado pelo sistema como pessoa clara. Se o contato tiver emoji, simbolo, ponto, numero, arroba, inicial isolada, titulo, apelido estranho, empresa ou texto decorativo, nao chame schedule_appointment: pergunte como pode chamar. Nunca usar sobrenome isolado, cargo, profissao, area, sentimento, setor, dia ou periodo como nome.",
             },
             customer_email: {
               type: "string",
