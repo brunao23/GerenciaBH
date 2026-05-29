@@ -411,6 +411,46 @@ const INVALID_LEAD_NAME_FLOW_TOKENS = new Set([
   "interesse",
   "interessado",
   "interessada",
+  "sem",
+  "con",
+  "certeza",
+  "problema",
+  "problemas",
+  "obrigado",
+  "obrigada",
+  "disponha",
+  "area",
+  "profissao",
+  "advocacia",
+  "direito",
+  "sistemas",
+  "sistema",
+  "informacao",
+  "informacoes",
+  "enfermagem",
+  "saude",
+  "educacao",
+  "pedagogia",
+  "administracao",
+  "marketing",
+  "financeiro",
+  "comercial",
+  "vendas",
+  "rh",
+  "gestao",
+  "tecnologia",
+  "ti",
+  "servidor",
+  "servidora",
+  "estudante",
+  "inseguranca",
+  "ansiedade",
+  "nervosismo",
+  "medo",
+  "gagueira",
+  "timidez",
+  "vergonha",
+  "dor",
 ])
 
 function normalizeLeadNameGuardText(value: string): string {
@@ -4328,6 +4368,20 @@ function resolveSafeAppointmentCustomerName(toolName?: string | null, contactNam
   return tool || contact || undefined
 }
 
+function resolveSafeCalendarAppointmentLabel(
+  actionName?: string | null,
+  contactName?: string | null,
+  phone?: string | null,
+): string {
+  return (
+    sanitizeSafeVocativeName(actionName) ||
+    sanitizeSafeVocativeName(contactName) ||
+    firstName(contactName || "") ||
+    String(phone || "Lead").trim() ||
+    "Lead"
+  )
+}
+
 function resolveTrustedScheduleContactName(toolName?: string | null, contactName?: string | null): string | null {
   const contact = sanitizeSafeVocativeName(contactName)
   const tool = sanitizeSafeVocativeName(toolName)
@@ -6230,7 +6284,7 @@ export class NativeAgentOrchestratorService {
       // Procura no histÃ³rico frases onde o lead informou o nome real.
       // NÃ£o aceite saudaÃ§Ãµes ("OlÃ¡") nem primeira palavra de mensagem comercial como nome.
       const explicitNameIntroPatterns = [
-        /\b(?:me chamo|meu nome [eÃ©]|sou (?:o|a|o\/a)?|pode(?:m)? me chamar de|me chamam de|chama(?:-me)? de|chamo[-\s]me de)\s+(\p{L}{3,20})/iu,
+        /\b(?:me chamo|meu nome [eÃ©]|sou\s+(?:o|a|o\/a)|pode(?:m)? me chamar de|me chamam de|chama(?:-me)? de|chamo[-\s]me de)\s+(\p{L}{3,20})/iu,
       ]
       const candidateRows = [...conversationRows]
         .filter((row) => row.role === "user")
@@ -6269,6 +6323,12 @@ export class NativeAgentOrchestratorService {
       for (const row of candidateRows) {
         const text = String(row.content || "").trim()
         if (text.length > 40 || text.length < 3) continue
+        const rowIndex = conversationRows.indexOf(row)
+        const previousAssistantAskedName = conversationRows
+          .slice(Math.max(0, rowIndex - 3), rowIndex)
+          .reverse()
+          .some((turn) => turn.role === "assistant" && assistantAskedForLeadName(turn.content))
+        if (!previousAssistantAskedName) continue
         const match = text.match(/^(\p{L}{3,20})(?:\s+(\p{L}{2,20}))?[.!?]?$/u)
         if (!match) continue
         const accepted = acceptCandidate([match[1], match[2]].filter(Boolean).join(" "))
@@ -13108,7 +13168,11 @@ export class NativeAgentOrchestratorService {
       try {
         const calendar = this.createGoogleCalendarService(params.config)
 
-        const summary = `Atendimento - ${params.contactName || params.phone}`
+        const summary = `Atendimento - ${resolveSafeCalendarAppointmentLabel(
+          params.action.customer_name,
+          params.contactName,
+          params.phone,
+        )}`
         if (eventId) {
           const updatedEvent = await calendar.updateEvent({
             eventId,
@@ -13663,7 +13727,11 @@ export class NativeAgentOrchestratorService {
             try {
               const calendar = this.createGoogleCalendarService(params.config)
               const event = await calendar.createEvent({
-                summary: `Atendimento - ${params.contactName || params.phone}`,
+                summary: `Atendimento - ${resolveSafeCalendarAppointmentLabel(
+                  params.action.customer_name,
+                  params.contactName,
+                  params.phone,
+                )}`,
                 description: buildGoogleCalendarEventDescription({
                   note: params.action.note,
                   fallback: "Agendamento sincronizado pelo agente nativo",
@@ -13865,7 +13933,11 @@ export class NativeAgentOrchestratorService {
       try {
         const calendar = this.createGoogleCalendarService(params.config)
 
-        const title = `Atendimento - ${params.contactName || params.phone}`
+        const title = `Atendimento - ${resolveSafeCalendarAppointmentLabel(
+          params.action.customer_name,
+          params.contactName,
+          params.phone,
+        )}`
         const event = await calendar.createEvent({
           summary: title,
           description: buildGoogleCalendarEventDescription({
