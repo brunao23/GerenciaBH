@@ -963,6 +963,7 @@ function leadExplicitlyRequestsScheduling(rawMessage: string): boolean {
   const text = normalizeComparableMessage(rawMessage)
   if (!text) return false
   if (leadMentionsPersonalScheduleWithoutAsking(rawMessage)) return false
+  if (leadMentionsNonSchedulingTimeReference(rawMessage)) return false
   if (leadAsksOnlyBusinessHoursOrCorrectsSchedule(rawMessage)) return false
   if (detectsSchedulingIntent(rawMessage)) return true
   return /\b(agendar|agendamento|marcar|reservar|horario|horarios|vaga|vagas|disponivel|disponibilidade|que horas|qual horario|quais horarios|tem horario|tem vaga|quando voce tem|quando tem)\b/.test(text)
@@ -1013,6 +1014,25 @@ function leadAsksOnlyBusinessHoursOrCorrectsSchedule(rawMessage: string): boolea
     /\b(voces|voce|unidade|colocaram|disseram|falou|informaram|nao funciona|funciona|atende|atendem|qual|quais|como)\b/.test(text)
 
   return asksModeOnly || asksPeriodLimitOrDuration || asksOrCorrectsHours
+}
+
+function leadMentionsNonSchedulingTimeReference(rawMessage: string): boolean {
+  const text = normalizeComparableMessage(rawMessage)
+  if (!text) return false
+  if (!extractSchedulingTimeCandidate(rawMessage)) return false
+
+  const explicitScheduleSelection =
+    /\b(pode ser|confirmo|confirmar|confirma|fechado|fecha|prefiro|fico com|fica bom|fica otimo|quero esse|quero essa|pode agendar|pode marcar|agendar|marcar|reservar)\b/.test(text)
+  if (explicitScheduleSelection) return false
+
+  const thirdPartyOrBusinessContext =
+    /\b(dep|departamento|financeiro|pessoa|atendente|secretaria|secretario|recepcao|empresa|equipe|time|trabalho|expediente|cliente|reuniao|consulta|medico|dentista|escola|faculdade)\b/.test(text)
+  const timeStatusVerb =
+    /\b(sai|sair|saiu|saem|fecha|fechar|encerra|termina|acaba|abre|volta|chega|atende|funciona)\b/.test(text)
+  const waitingContext =
+    /\b(espero|aguardo|pois|porque|por conta|depende|preciso ver|vou ver|tenho que ver)\b/.test(text)
+
+  return (thirdPartyOrBusinessContext && timeStatusVerb) || (waitingContext && timeStatusVerb)
 }
 
 function leadChecksExistingAppointmentOrArrival(rawMessage: string): boolean {
@@ -1359,6 +1379,7 @@ function latestLeadMessageIsGenericNonSchedulingReply(
 
   if (latestLeadMessageIsSchedulingQuestionOrInfoRequest(value)) return false
   if (leadExplicitlyRequestsScheduling(value)) return false
+  if (leadMentionsNonSchedulingTimeReference(value)) return true
   if (extractEmailCandidate(value)) return false
   if (extractSchedulingTimeCandidate(value)) return false
   if (/\b(hoje|amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo|dia\s+\d{1,2})\b/.test(compact)) {
@@ -1509,6 +1530,7 @@ function leadExplicitlyConfirmsSchedulingMutation(
   const text = normalizeComparableMessage(rawMessage)
   if (!text) return false
   if (latestLeadMessageIsSchedulingQuestionOrInfoRequest(rawMessage)) return false
+  if (leadMentionsNonSchedulingTimeReference(rawMessage)) return false
 
   const hasRecentOffer = hasRecentAssistantOfferedSchedule(rows)
   const hasEmail = Boolean(extractEmailCandidate(rawMessage))
@@ -2016,6 +2038,7 @@ function detectsAvailabilityLookupIntent(rawMessage: string): boolean {
   if (isGreetingOnlyLeadMessage(rawMessage)) return false
   if (leadChecksExistingAppointmentOrArrival(rawMessage)) return false
   if (leadMentionsPersonalScheduleWithoutAsking(rawMessage)) return false
+  if (leadMentionsNonSchedulingTimeReference(rawMessage)) return false
   if (leadAsksOnlyBusinessHoursOrCorrectsSchedule(rawMessage)) return false
   if (leadAskedCourseOrMethodInfoBeforeScheduling(rawMessage)) return false
   if (detectsSchedulingIntent(rawMessage)) return true
@@ -2253,7 +2276,7 @@ function findRecentSchedulingDateCandidate(rows: any[] | undefined, currentMessa
     timezone,
     timeValue,
   })
-  if (current) return current
+  if (current && !dateIsoIsBeforeToday(current, timezone)) return current
 
   const ordered = Array.isArray(rows) ? [...rows].reverse() : []
   for (const row of ordered.slice(0, 16)) {
@@ -2267,7 +2290,7 @@ function findRecentSchedulingDateCandidate(rows: any[] | undefined, currentMessa
       timezone,
       timeValue,
     })
-    if (candidate) return candidate
+    if (candidate && !dateIsoIsBeforeToday(candidate, timezone)) return candidate
   }
   return undefined
 }
@@ -4783,6 +4806,16 @@ function getWeekdayInfoForDateIso(dateIso?: string | null): { weekday: number; w
   }
 }
 
+function dateIsoIsBeforeToday(dateIso: string | undefined | null, timezone: string): boolean {
+  const normalized = normalizeDateToIso(dateIso)
+  if (!normalized) return false
+  const parsed = parseDateTimeParts(normalized, "00:00")
+  if (!parsed) return false
+  const nowParts = getNowPartsForTimezone(timezone || "America/Sao_Paulo")
+  const today = { ...nowParts, hour: 0, minute: 0, second: 0 }
+  return toComparableMs(parsed) < toComparableMs(today)
+}
+
 function resolveExplicitBrDateIso(
   dayRaw: string,
   monthRaw: string,
@@ -5189,6 +5222,7 @@ function coerceSchedulingDateToCurrentContext(params: {
   }
 
   if (hasExplicitYear) {
+    if (dateIsoIsBeforeToday(isoDate, timezone)) return undefined
     return formatDateFromParts(parsed)
   }
 
