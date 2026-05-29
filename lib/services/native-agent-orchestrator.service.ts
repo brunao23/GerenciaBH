@@ -4351,8 +4351,15 @@ function resolveTrustedScheduleContactName(toolName?: string | null, contactName
     Boolean(tool && contact) &&
     normalizeNameForCompare(tool || "") === normalizeNameForCompare(contact || "")
 
+  const looksLikeSafeSingleName =
+    toolMatchesContact &&
+    contactWords.length === 1 &&
+    Boolean(candidate) &&
+    !isInvalidLeadNameCandidate(candidate) &&
+    !isSuspiciousLeadNameToken(candidate)
+
   if (!looksLikeFullPersonName && !toolMatchesContact) return null
-  if (toolMatchesContact && !looksLikeFullPersonName) return null
+  if (toolMatchesContact && !looksLikeFullPersonName && !looksLikeSafeSingleName) return null
   if (isInvalidLeadNameCandidate(candidate) || isSuspiciousLeadNameToken(candidate)) return null
   return candidate
 }
@@ -11893,7 +11900,7 @@ export class NativeAgentOrchestratorService {
             ok: false,
             error: "schedule_requires_lead_name",
             instruction:
-              "Antes de agendar, pergunte de forma curta: 'Perfeito. Para eu deixar reservado, como posso te chamar?' Nao confirme o agendamento ainda e nao use nome do WhatsApp como customer_name.",
+              "Antes de agendar, pergunte de forma curta: 'Perfeito. Para eu deixar reservado, como posso te chamar?' Nao confirme o agendamento ainda. Use nome do contato apenas quando for pessoa clara e segura; nunca use nome generico, emoji, periodo, dia da semana, cargo ou palavra de intencao como customer_name.",
           },
         }
       }
