@@ -69,6 +69,7 @@ type AppointmentResult = {
   eventId?: string
   htmlLink?: string
   meetLink?: string
+  calendarSyncError?: string
   appointmentMode?: "presencial" | "online"
   idempotentExistingAppointment?: boolean
   effectiveActionType?: "schedule_appointment" | "edit_appointment"
@@ -135,6 +136,7 @@ type EditAppointmentResult = {
   eventId?: string
   htmlLink?: string
   meetLink?: string
+  calendarSyncError?: string
   appointmentMode?: "presencial" | "online"
   previousAppointmentId?: string
   error?: string
@@ -8843,6 +8845,60 @@ export class NativeAgentOrchestratorService {
     })
   }
 
+  private async reportCalendarSyncIssue(params: {
+    tenant: string
+    phone?: string
+    sessionId?: string
+    appointmentId?: string
+    action: "list" | "create" | "update" | "persist_event_id"
+    error: unknown
+  }): Promise<void> {
+    const message = params.error instanceof Error ? params.error.message : String(params.error || "calendar_sync_failed")
+    await sendErrorWebhook({
+      event: "calendar_sync_degraded",
+      severity: "warning",
+      tenant: params.tenant,
+      lead: {
+        phone: params.phone || null,
+        session_id: params.sessionId || params.phone || null,
+      },
+      appointment: {
+        id: params.appointmentId || null,
+      },
+      action: params.action,
+      error_detail: message,
+    }).catch((webhookError) => {
+      console.warn("[native-agent] failed to report calendar sync issue:", webhookError)
+    })
+  }
+
+  private async withGoogleCalendarRetry<T>(
+    operation: "list" | "create" | "update" | "persist_event_id",
+    task: () => Promise<T>,
+  ): Promise<T> {
+    const delaysMs = [0, 750, 1500, 3000]
+    let lastError: unknown
+
+    for (let attempt = 0; attempt < delaysMs.length; attempt += 1) {
+      const delayMs = delaysMs[attempt]
+      if (delayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs))
+      }
+
+      try {
+        return await task()
+      } catch (error) {
+        lastError = error
+        const message = error instanceof Error ? error.message : String(error || "")
+        console.warn(
+          `[native-agent] Google Calendar ${operation} attempt ${attempt + 1}/${delaysMs.length} failed: ${message}`,
+        )
+      }
+    }
+
+    throw lastError instanceof Error ? lastError : new Error(String(lastError || "google_calendar_retry_failed"))
+  }
+
   private async rollbackAppointmentAfterCalendarFailure(params: {
     table: string
     columns: Set<string>
@@ -12897,7 +12953,9 @@ export class NativeAgentOrchestratorService {
           })
           const timeMin = `${startDateIso}T00:00:00-03:00`
           const timeMax = `${endDateIso}T23:59:59-03:00`
-          const gcalEvents = await calendar.listEvents({ timeMin, timeMax, timezone, maxResults: 250 })
+          const gcalEvents = await this.withGoogleCalendarRetry("list", () =>
+            calendar.listEvents({ timeMin, timeMax, timezone, maxResults: 250 }),
+          )
           for (const ev of gcalEvents) {
             const evStartRaw = String(ev.start || "").trim()
             const evEndRaw = String(ev.end || "").trim()
@@ -12950,8 +13008,12 @@ export class NativeAgentOrchestratorService {
             }
           }
         } catch (gcalErr: any) {
-          console.warn(`[getAvailableSlots] Google Calendar fetch failed (blocking): ${gcalErr?.message}`)
-          return { ok: false, error: "google_calendar_validation_failed" }
+          console.warn(`[getAvailableSlots] Google Calendar fetch failed; continuing with local agenda only: ${gcalErr?.message}`)
+          await this.reportCalendarSyncIssue({
+            tenant: params.tenant,
+            action: "list",
+            error: gcalErr,
+          })
         }
       }
 
@@ -13146,7 +13208,13 @@ export class NativeAgentOrchestratorService {
     const columns = await getTableColumns(this.supabase as any, tables.agendamentos)
     const mappedColumns = this.resolveAgendamentosColumns(columns)
     if (params.config.googleCalendarEnabled && columns.size > 0 && !columns.has("google_event_id")) {
-      return { ok: false, error: "google_event_id_column_missing" }
+      await this.reportCalendarSyncIssue({
+        tenant: params.tenant,
+        phone: params.phone,
+        sessionId: params.sessionId,
+        action: "persist_event_id",
+        error: "google_event_id_column_missing",
+      })
     }
 
     const selectionResult = await this.supabase
@@ -13278,39 +13346,44 @@ export class NativeAgentOrchestratorService {
           params.phone,
         )}`
         if (eventId) {
-          const updatedEvent = await calendar.updateEvent({
-            eventId,
-            summary,
-            description: buildGoogleCalendarEventDescription({
-              note: params.action.note,
-              fallback: "Agendamento atualizado pelo agente nativo",
-              phone: params.phone,
-              sessionId: params.sessionId,
+          const currentEventId = eventId
+          const updatedEvent = await this.withGoogleCalendarRetry("update", () =>
+            calendar.updateEvent({
+              eventId: currentEventId,
+              summary,
+              description: buildGoogleCalendarEventDescription({
+                note: params.action.note,
+                fallback: "Agendamento atualizado pelo agente nativo",
+                phone: params.phone,
+                sessionId: params.sessionId,
+              }),
+              startIso,
+              endIso,
+              timezone,
+              attendeeEmail: calendarAttendeeEmail,
             }),
-            startIso,
-            endIso,
-            timezone,
-            attendeeEmail: calendarAttendeeEmail,
-          })
+          )
           eventId = updatedEvent.eventId
           htmlLink = updatedEvent.htmlLink
           meetLink = updatedEvent.meetLink || meetLink
         } else {
-          const createdEvent = await calendar.createEvent({
-            summary,
-            description: buildGoogleCalendarEventDescription({
-              note: params.action.note,
-              fallback: "Agendamento atualizado pelo agente nativo",
-              phone: params.phone,
-              sessionId: params.sessionId,
+          const createdEvent = await this.withGoogleCalendarRetry("create", () =>
+            calendar.createEvent({
+              summary,
+              description: buildGoogleCalendarEventDescription({
+                note: params.action.note,
+                fallback: "Agendamento atualizado pelo agente nativo",
+                phone: params.phone,
+                sessionId: params.sessionId,
+              }),
+              startIso,
+              endIso,
+              timezone,
+              attendeeEmail: calendarAttendeeEmail,
+              generateMeetLink:
+                appointmentMode === "online" && params.config.generateMeetForOnlineAppointments,
             }),
-            startIso,
-            endIso,
-            timezone,
-            attendeeEmail: calendarAttendeeEmail,
-            generateMeetLink:
-              appointmentMode === "online" && params.config.generateMeetForOnlineAppointments,
-          })
+          )
           eventId = createdEvent.eventId
           htmlLink = createdEvent.htmlLink
           meetLink = createdEvent.meetLink
@@ -13329,29 +13402,26 @@ export class NativeAgentOrchestratorService {
             ? Object.fromEntries(Object.entries(calendarSyncPayload).filter(([key]) => columns.has(key)))
             : calendarSyncPayload,
         )
-        if (!hadGoogleEventBefore && syncUpdate.error) {
-          if (eventId) await calendar.cancelEvent(eventId).catch(() => {})
-          throw new Error(syncUpdate.error.message || "calendar_event_id_persist_failed")
+        if (syncUpdate.error) {
+          await this.reportCalendarSyncIssue({
+            tenant: params.tenant,
+            phone: params.phone,
+            sessionId: params.sessionId,
+            appointmentId: existingId,
+            action: "persist_event_id",
+            error: syncUpdate.error.message || "calendar_event_id_persist_failed",
+          })
         }
       } catch (error: any) {
-        await this.restoreAppointmentAfterCalendarFailure({
-          table: tables.agendamentos,
-          columns,
-          mappedColumns,
+        console.warn("[native-agent] Google Calendar update failed; appointment update remains persisted:", error)
+        await this.reportCalendarSyncIssue({
+          tenant: params.tenant,
+          phone: params.phone,
+          sessionId: params.sessionId,
           appointmentId: existingId,
-          existing,
-          reason: "falha ao sincronizar Google Calendar no reagendamento",
+          action: hadGoogleEventBefore ? "update" : "create",
+          error,
         })
-        if (!hadGoogleEventBefore && eventId) {
-          await this.createGoogleCalendarService(params.config).cancelEvent(eventId).catch(() => {})
-        }
-        return {
-          ok: false,
-          appointmentId: existingId,
-          previousAppointmentId: existingId,
-          appointmentMode,
-          error: "calendar_event_update_failed",
-        }
       }
     }
 
@@ -13397,6 +13467,8 @@ export class NativeAgentOrchestratorService {
       eventId,
       htmlLink,
       meetLink,
+      calendarSyncError:
+        params.config.googleCalendarEnabled && !eventId ? "calendar_event_update_failed" : undefined,
       appointmentMode,
     }
   }
@@ -13830,25 +13902,27 @@ export class NativeAgentOrchestratorService {
             let createdEventId: string | undefined
             try {
               const calendar = this.createGoogleCalendarService(params.config)
-              const event = await calendar.createEvent({
-                summary: `Atendimento - ${resolveSafeCalendarAppointmentLabel(
-                  params.action.customer_name,
-                  params.contactName,
-                  params.phone,
-                )}`,
-                description: buildGoogleCalendarEventDescription({
-                  note: params.action.note,
-                  fallback: "Agendamento sincronizado pelo agente nativo",
-                  phone: params.phone,
-                  sessionId: params.sessionId,
+              const event = await this.withGoogleCalendarRetry("create", () =>
+                calendar.createEvent({
+                  summary: `Atendimento - ${resolveSafeCalendarAppointmentLabel(
+                    params.action.customer_name,
+                    params.contactName,
+                    params.phone,
+                  )}`,
+                  description: buildGoogleCalendarEventDescription({
+                    note: params.action.note,
+                    fallback: "Agendamento sincronizado pelo agente nativo",
+                    phone: params.phone,
+                    sessionId: params.sessionId,
+                  }),
+                  startIso,
+                  endIso,
+                  timezone,
+                  attendeeEmail: calendarAttendeeEmail,
+                  generateMeetLink:
+                    appointmentMode === "online" && params.config.generateMeetForOnlineAppointments,
                 }),
-                startIso,
-                endIso,
-                timezone,
-                attendeeEmail: calendarAttendeeEmail,
-                generateMeetLink:
-                  appointmentMode === "online" && params.config.generateMeetForOnlineAppointments,
-              })
+              )
               createdEventId = event.eventId
               existingEventId = event.eventId
               existingHtmlLink = event.htmlLink
@@ -13865,17 +13939,25 @@ export class NativeAgentOrchestratorService {
                 : calendarPayload
               const persisted = await this.updateWithColumnFallback(agendamentosTable, { id: existingId }, persistPayload)
               if (persisted.error) {
-                if (createdEventId) await calendar.cancelEvent(createdEventId).catch(() => {})
-                return { ok: false, appointmentId: existingId, appointmentMode, error: "calendar_event_id_persist_failed" }
+                await this.reportCalendarSyncIssue({
+                  tenant: params.tenant,
+                  phone: params.phone,
+                  sessionId: params.sessionId,
+                  appointmentId: existingId,
+                  action: "persist_event_id",
+                  error: persisted.error.message || "calendar_event_id_persist_failed",
+                })
               }
             } catch (error: any) {
-              console.warn("[native-agent] failed to sync idempotent appointment with Google Calendar:", error)
-              return {
-                ok: false,
+              console.warn("[native-agent] failed to sync idempotent appointment with Google Calendar; keeping local appointment:", error)
+              await this.reportCalendarSyncIssue({
+                tenant: params.tenant,
+                phone: params.phone,
+                sessionId: params.sessionId,
                 appointmentId: existingId,
-                appointmentMode,
-                error: "calendar_event_sync_failed",
-              }
+                action: "create",
+                error,
+              })
             }
           }
 
@@ -13886,6 +13968,8 @@ export class NativeAgentOrchestratorService {
             eventId: existingEventId,
             htmlLink: existingHtmlLink,
             meetLink: existingMeetLink,
+            calendarSyncError:
+              params.config.googleCalendarEnabled && !existingEventId ? "calendar_event_sync_failed" : undefined,
             appointmentMode,
             idempotentExistingAppointment: true,
             effectiveActionType: "schedule_appointment",
@@ -13949,18 +14033,26 @@ export class NativeAgentOrchestratorService {
           oauthClientSecret: params.config.googleOAuthClientSecret,
           oauthRefreshToken: params.config.googleOAuthRefreshToken,
         })
-        const gcalEvents = await gcalService.listEvents({
-          timeMin: startIso,
-          timeMax: endIso,
-          timezone,
-          maxResults: 10,
-        })
+        const gcalEvents = await this.withGoogleCalendarRetry("list", () =>
+          gcalService.listEvents({
+            timeMin: startIso,
+            timeMax: endIso,
+            timezone,
+            maxResults: 10,
+          }),
+        )
         if (gcalEvents.length > 0) {
           return { ok: false, error: "google_calendar_conflict" }
         }
       } catch (gcalErr: any) {
-        console.warn(`[createAppointment] Google Calendar conflict check failed (blocking): ${gcalErr?.message}`)
-        return { ok: false, error: "google_calendar_validation_failed" }
+        console.warn(`[createAppointment] Google Calendar conflict check failed; continuing with local agenda only: ${gcalErr?.message}`)
+        await this.reportCalendarSyncIssue({
+          tenant: params.tenant,
+          phone: params.phone,
+          sessionId: params.sessionId,
+          action: "list",
+          error: gcalErr,
+        })
       }
     }
 
@@ -14042,21 +14134,23 @@ export class NativeAgentOrchestratorService {
           params.contactName,
           params.phone,
         )}`
-        const event = await calendar.createEvent({
-          summary: title,
-          description: buildGoogleCalendarEventDescription({
-            note: params.action.note,
-            fallback: "Agendamento gerado pelo agente nativo",
-            phone: params.phone,
-            sessionId: params.sessionId,
+        const event = await this.withGoogleCalendarRetry("create", () =>
+          calendar.createEvent({
+            summary: title,
+            description: buildGoogleCalendarEventDescription({
+              note: params.action.note,
+              fallback: "Agendamento gerado pelo agente nativo",
+              phone: params.phone,
+              sessionId: params.sessionId,
+            }),
+            startIso,
+            endIso,
+            timezone,
+            attendeeEmail: calendarAttendeeEmail,
+            generateMeetLink:
+              appointmentMode === "online" && params.config.generateMeetForOnlineAppointments,
           }),
-          startIso,
-          endIso,
-          timezone,
-          attendeeEmail: calendarAttendeeEmail,
-          generateMeetLink:
-            appointmentMode === "online" && params.config.generateMeetForOnlineAppointments,
-        })
+        )
 
         eventId = event.eventId
         createdEventId = event.eventId
@@ -14078,39 +14172,29 @@ export class NativeAgentOrchestratorService {
               : updatePayload,
           )
           if (updateResult.error) {
-            if (createdEventId) await calendar.cancelEvent(createdEventId).catch(() => {})
-            await this.rollbackAppointmentAfterCalendarFailure({
-              table: agendamentosTable,
-              columns,
-              mappedColumns,
+            await this.reportCalendarSyncIssue({
+              tenant: params.tenant,
+              phone: params.phone,
+              sessionId: params.sessionId,
               appointmentId,
-              reason: "falha ao salvar o ID do evento do Google Calendar",
-            })
-            return {
-              ok: false,
-              appointmentId,
-              appointmentMode,
+              action: "persist_event_id",
               error: updateResult.error.message || "calendar_event_id_persist_failed",
-            }
+            })
           }
         }
       } catch (error: any) {
         if (createdEventId) {
           await this.createGoogleCalendarService(params.config).cancelEvent(createdEventId).catch(() => {})
         }
-        await this.rollbackAppointmentAfterCalendarFailure({
-          table: agendamentosTable,
-          columns,
-          mappedColumns,
+        console.warn("[native-agent] Google Calendar create failed; local appointment remains persisted:", error)
+        await this.reportCalendarSyncIssue({
+          tenant: params.tenant,
+          phone: params.phone,
+          sessionId: params.sessionId,
           appointmentId,
-          reason: "falha ao criar o evento no Google Calendar",
+          action: "create",
+          error,
         })
-        return {
-          ok: false,
-          appointmentId,
-          appointmentMode,
-          error: "calendar_event_failed",
-        }
       }
     }
 
@@ -14140,6 +14224,8 @@ export class NativeAgentOrchestratorService {
       eventId,
       htmlLink,
       meetLink,
+      calendarSyncError:
+        params.config.googleCalendarEnabled && !eventId ? "calendar_event_failed" : undefined,
       appointmentMode,
     }
   }
