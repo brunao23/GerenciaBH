@@ -45,6 +45,15 @@ function normalizePrivateKey(input: string): string {
   return String(input || "").replace(/\\n/g, "\n").trim()
 }
 
+function shouldRetryWithoutAttendee(errorMessage: string): boolean {
+  const text = String(errorMessage || "").toLowerCase()
+  return (
+    text.includes("service accounts cannot invite attendees") ||
+    text.includes("domain-wide delegation") ||
+    text.includes("domain wide delegation")
+  )
+}
+
 async function fetchAccessToken(config: GoogleCalendarAuthConfig): Promise<string> {
   let oauthFailure: Error | null = null
 
@@ -222,7 +231,7 @@ export class GoogleCalendarService {
       ? `${endpointBase}?conferenceDataVersion=1`
       : endpointBase
 
-    const response = await fetch(endpoint, {
+    let response = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -231,7 +240,7 @@ export class GoogleCalendarService {
       body: JSON.stringify(payload),
     })
 
-    const responseText = await response.text()
+    let responseText = await response.text()
     let responseJson: any = null
     try {
       responseJson = responseText ? JSON.parse(responseText) : null
@@ -241,6 +250,36 @@ export class GoogleCalendarService {
 
     if (!response.ok) {
       const errorMessage = responseJson?.error?.message || responseText || "Google event create failed"
+      if (payload.attendees && shouldRetryWithoutAttendee(errorMessage)) {
+        const retryPayload = { ...payload }
+        delete retryPayload.attendees
+        response = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify(retryPayload),
+        })
+        responseText = await response.text()
+        try {
+          responseJson = responseText ? JSON.parse(responseText) : null
+        } catch {
+          responseJson = null
+        }
+        if (response.ok) {
+          const meetLink =
+            responseJson?.conferenceData?.entryPoints?.find((entry: any) => entry.entryPointType === "video")?.uri ||
+            responseJson?.hangoutLink ||
+            undefined
+
+          return {
+            eventId: String(responseJson?.id || ""),
+            htmlLink: responseJson?.htmlLink || undefined,
+            meetLink,
+          }
+        }
+      }
       throw new Error(errorMessage)
     }
 
@@ -345,7 +384,7 @@ export class GoogleCalendarService {
       this.config.calendarId,
     )}/events/${encodeURIComponent(eventId)}`
 
-    const response = await fetch(endpoint, {
+    let response = await fetch(endpoint, {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json",
@@ -354,7 +393,7 @@ export class GoogleCalendarService {
       body: JSON.stringify(payload),
     })
 
-    const responseText = await response.text()
+    let responseText = await response.text()
     let responseJson: any = null
     try {
       responseJson = responseText ? JSON.parse(responseText) : null
@@ -364,6 +403,31 @@ export class GoogleCalendarService {
 
     if (!response.ok) {
       const errorMessage = responseJson?.error?.message || responseText || "Google event update failed"
+      if (payload.attendees && shouldRetryWithoutAttendee(errorMessage)) {
+        const retryPayload = { ...payload }
+        delete retryPayload.attendees
+        response = await fetch(endpoint, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify(retryPayload),
+        })
+        responseText = await response.text()
+        try {
+          responseJson = responseText ? JSON.parse(responseText) : null
+        } catch {
+          responseJson = null
+        }
+        if (response.ok) {
+          return {
+            eventId: String(responseJson?.id || eventId),
+            htmlLink: responseJson?.htmlLink || undefined,
+            meetLink: responseJson?.hangoutLink || undefined,
+          }
+        }
+      }
       throw new Error(errorMessage)
     }
 

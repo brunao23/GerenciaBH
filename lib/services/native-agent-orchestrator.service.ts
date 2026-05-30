@@ -1035,6 +1035,21 @@ function leadMentionsNonSchedulingTimeReference(rawMessage: string): boolean {
   return (thirdPartyOrBusinessContext && timeStatusVerb) || (waitingContext && timeStatusVerb)
 }
 
+function leadRejectsOfferedScheduleTime(rawMessage: string): boolean {
+  const text = normalizeComparableMessage(rawMessage)
+  if (!text) return false
+  if (!extractSchedulingTimeCandidate(rawMessage)) return false
+
+  const explicitScheduleSelection =
+    /\b(pode ser|confirmo|confirmar|confirma|fechado|fecha|prefiro|fico com|fica bom|fica otimo|quero esse|quero essa|pode agendar|pode marcar|agendar|marcar|reservar)\b/.test(text)
+  if (explicitScheduleSelection) return false
+
+  return (
+    /\b(nao|nunca|impossivel|sem condicoes)\b.{0,70}\b(consigo|posso|da|daria|funciona|serve|encaixa|rolaria|rola|vou conseguir|conseguiria)\b/.test(text) ||
+    /\b(consigo|posso|da|daria|funciona|serve|encaixa|rolaria|rola|vou conseguir|conseguiria)\b.{0,70}\b(nao|nunca)\b/.test(text)
+  )
+}
+
 function leadChecksExistingAppointmentOrArrival(rawMessage: string): boolean {
   const text = normalizeComparableMessage(rawMessage)
   if (!text) return false
@@ -1049,6 +1064,11 @@ function leadChecksExistingAppointmentOrArrival(rawMessage: string): boolean {
   const arrivalOrReception =
     /\b(jaja|ja ja|estou indo|to indo|estou chegando|to chegando|cheguei|recepcao|portaria|entrada|entrando|acesso|liberar|libera|falo o que|falar o que|informo o que|digo o que)\b/.test(text)
   if (arrivalOrReception) return true
+
+  const closingWithAppointmentDate =
+    /\b(ate|obrigad[ao]?|valeu|combinado)\b.{0,80}\b(o\s+)?dia\s+\d{1,2}\b/.test(text) ||
+    /\b(ate|obrigad[ao]?|valeu|combinado)\b.{0,80}\b(hoje|amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo)\b/.test(text)
+  if (closingWithAppointmentDate) return true
 
   const dateCorrection =
     /\b(nao e|nao eh|nao era|nao foi|nao seria)\b.{0,80}\b(para|pra|pro|dia)\b/.test(text) ||
@@ -1530,6 +1550,7 @@ function leadExplicitlyConfirmsSchedulingMutation(
   const text = normalizeComparableMessage(rawMessage)
   if (!text) return false
   if (latestLeadMessageIsSchedulingQuestionOrInfoRequest(rawMessage)) return false
+  if (leadRejectsOfferedScheduleTime(rawMessage)) return false
   if (leadMentionsNonSchedulingTimeReference(rawMessage)) return false
 
   const hasRecentOffer = hasRecentAssistantOfferedSchedule(rows)
@@ -2037,6 +2058,7 @@ function detectsAvailabilityLookupIntent(rawMessage: string): boolean {
   if (!text) return false
   if (isGreetingOnlyLeadMessage(rawMessage)) return false
   if (leadChecksExistingAppointmentOrArrival(rawMessage)) return false
+  if (leadRejectsOfferedScheduleTime(rawMessage)) return true
   if (leadMentionsPersonalScheduleWithoutAsking(rawMessage)) return false
   if (leadMentionsNonSchedulingTimeReference(rawMessage)) return false
   if (leadAsksOnlyBusinessHoursOrCorrectsSchedule(rawMessage)) return false
@@ -5587,6 +5609,17 @@ function buildInternalSchedulingEmail(params: {
     normalizeEmailLocalPart(normalizeSessionId(params.sessionId || "").replace(/\./g, "")).slice(-8) || "sessao"
   const local = `${namePart}.${phonePart}.${sessionPart}`.slice(0, 58).replace(/\.+$/g, "")
   return `${local || `lead.${phonePart}` }@vox.sem.email`
+}
+
+function isInternalSchedulingEmail(value: string | undefined | null): boolean {
+  const normalized = normalizeEmailCandidate(value)
+  return Boolean(normalized && normalized.endsWith("@vox.sem.email"))
+}
+
+function resolveCalendarAttendeeEmail(value: string | undefined | null): string | undefined {
+  const normalized = normalizeEmailCandidate(value)
+  if (!normalized || isInternalSchedulingEmail(normalized)) return undefined
+  return normalized
 }
 
 function buildEmptyReplyRecoveryText(params: {
@@ -13199,7 +13232,7 @@ export class NativeAgentOrchestratorService {
         sessionId: params.sessionId,
         contactName: params.contactName,
       })
-    const hasValidEmail = Boolean(customerEmail)
+    const calendarAttendeeEmail = resolveCalendarAttendeeEmail(customerEmail)
 
     const updatePayload: Record<string, any> = {
       updated_at: new Date().toISOString(),
@@ -13257,7 +13290,7 @@ export class NativeAgentOrchestratorService {
             startIso,
             endIso,
             timezone,
-            attendeeEmail: hasValidEmail ? customerEmail : undefined,
+            attendeeEmail: calendarAttendeeEmail,
           })
           eventId = updatedEvent.eventId
           htmlLink = updatedEvent.htmlLink
@@ -13274,7 +13307,7 @@ export class NativeAgentOrchestratorService {
             startIso,
             endIso,
             timezone,
-            attendeeEmail: hasValidEmail ? customerEmail : undefined,
+            attendeeEmail: calendarAttendeeEmail,
             generateMeetLink:
               appointmentMode === "online" && params.config.generateMeetForOnlineAppointments,
           })
@@ -13624,7 +13657,7 @@ export class NativeAgentOrchestratorService {
         sessionId: params.sessionId,
         contactName: params.contactName,
       })
-    const hasValidEmail = Boolean(customerEmail)
+    const calendarAttendeeEmail = resolveCalendarAttendeeEmail(customerEmail)
     const timezone = params.config.timezone || "America/Sao_Paulo"
     const requested = parseDateTimeParts(date, time)
     if (!requested) {
@@ -13812,7 +13845,7 @@ export class NativeAgentOrchestratorService {
                 startIso,
                 endIso,
                 timezone,
-                attendeeEmail: hasValidEmail ? customerEmail : undefined,
+                attendeeEmail: calendarAttendeeEmail,
                 generateMeetLink:
                   appointmentMode === "online" && params.config.generateMeetForOnlineAppointments,
               })
@@ -14020,7 +14053,7 @@ export class NativeAgentOrchestratorService {
           startIso,
           endIso,
           timezone,
-          attendeeEmail: hasValidEmail ? customerEmail : undefined,
+          attendeeEmail: calendarAttendeeEmail,
           generateMeetLink:
             appointmentMode === "online" && params.config.generateMeetForOnlineAppointments,
         })
