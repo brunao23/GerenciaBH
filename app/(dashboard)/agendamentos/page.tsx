@@ -341,7 +341,9 @@ export default function AgendamentosPage() {
         throw new Error(result.error || "Erro ao atualizar agendamento")
       }
 
-      if (shouldSendWebhook) {
+      if (result?.calendarSyncError) {
+        toast.warning(`Agendamento salvo, mas o Google Calendar nao confirmou: ${result.calendarSyncError}`)
+      } else if (shouldSendWebhook) {
         if (result?.webhookSent === false) {
           toast.warning("Agendamento salvo, mas o webhook não confirmou envio.")
         } else {
@@ -404,12 +406,17 @@ export default function AgendamentosPage() {
         }),
       })
 
+      const result = await response.json().catch(() => ({} as any))
       if (!response.ok) {
-        const error = await response.json().catch(() => ({} as any))
+        const error = result
         throw new Error(error.error || "Erro ao criar agendamento")
       }
 
-      toast.success("Agendamento criado com sucesso!")
+      if (result?.calendarSyncError) {
+        toast.warning(`Agendamento criado, mas o Google Calendar nao confirmou: ${result.calendarSyncError}`)
+      } else {
+        toast.success("Agendamento criado com sucesso!")
+      }
       setIsCreateModalOpen(false)
       resetNewAgendamento()
       fetchData()

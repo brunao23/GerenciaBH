@@ -3,6 +3,9 @@ import { createBiaSupabaseServerClient } from "@/lib/supabase/bia-client"
 import { notifyAgendamentoCreated } from "@/lib/services/notifications"
 import { getTenantFromRequest } from "@/lib/helpers/api-tenant"
 import { TenantSmsService } from "@/lib/services/tenant-sms.service"
+import { getTableColumns as probeTableColumns } from "@/lib/helpers/supabase-table-columns"
+import { getNativeAgentConfigForTenant } from "@/lib/helpers/native-agent-config"
+import { GoogleCalendarService } from "@/lib/services/google-calendar.service"
 
 type Row = Record<string, any>
 const tableColumnsCache = new Map<string, Set<string>>()
@@ -70,6 +73,27 @@ function normalizeOptionalText(value: any, max?: number): string | null {
   const trimmed = String(value ?? "").trim()
   if (!trimmed) return null
   return max ? trimmed.substring(0, max) : trimmed
+}
+
+function normalizeDateForStorage(value: any): string {
+  const raw = String(value ?? "").trim()
+  if (!raw) return ""
+  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (iso) return raw
+  const br = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (br) {
+    const day = String(Number(br[1])).padStart(2, "0")
+    const month = String(Number(br[2])).padStart(2, "0")
+    return `${br[3]}-${month}-${day}`
+  }
+  return raw
+}
+
+function normalizeTimeForStorage(value: any): string {
+  const raw = String(value ?? "").trim()
+  const match = raw.match(/^([01]?\d|2[0-3])(?::([0-5]\d))?(?::[0-5]\d)?$/)
+  if (!match) return raw
+  return `${String(Number(match[1])).padStart(2, "0")}:${match[2] || "00"}`
 }
 
 function normalizeMarcacao(value: any): string | null {
@@ -164,8 +188,8 @@ function sanitizeAgendamentoFields(input: {
   observacoes: string | null
 } {
   let status = normalizeOptionalText(input.status)?.toLowerCase() || "pendente"
-  let dia = normalizeOptionalText(input.dia) || "A definir"
-  let horario = normalizeOptionalText(input.horario) || "A definir"
+  let dia = normalizeDateForStorage(normalizeOptionalText(input.dia) || "") || "A definir"
+  let horario = normalizeTimeForStorage(normalizeOptionalText(input.horario) || "") || "A definir"
   const observacoes = sanitizeObservacoesErroDataHorario(input.observacoes)
 
   if (!isDiaDefinidoParaAgendamento(dia)) {
@@ -186,6 +210,106 @@ function sanitizeAgendamentoFields(input: {
     horario,
     observacoes,
   }
+}
+
+function setNameColumns(payload: Record<string, any>, columns: Set<string>, name: string | null) {
+  if (!name) return
+  for (const column of ["nome", "nome_aluno", "nome_responsavel"]) {
+    if (columns.has(column)) payload[column] = name
+  }
+}
+
+function setContactColumns(payload: Record<string, any>, columns: Set<string>, contato: string) {
+  if (columns.has("contato")) payload.contato = contato
+  if (columns.has("numero")) payload.numero = contato
+  if (columns.has("session_id")) payload.session_id = contato
+}
+
+function filterPayloadByColumns(payload: Record<string, any>, columns: Set<string>) {
+  if (!columns.size) return payload
+  return Object.fromEntries(Object.entries(payload).filter(([key]) => columns.has(key)))
+}
+
+function statusShouldSyncCalendar(status: any): boolean {
+  const normalized = String(status || "").trim().toLowerCase()
+  return normalized === "agendado" || normalized === "confirmado"
+}
+
+function buildCalendarIso(dateIso: string, time: string): string {
+  const date = normalizeDateForStorage(dateIso)
+  const normalizedTime = normalizeTimeForStorage(time)
+  return `${date}T${normalizedTime}:00-03:00`
+}
+
+function addMinutesToLocalIso(dateIso: string, time: string, minutes: number): string {
+  const date = normalizeDateForStorage(dateIso)
+  const normalizedTime = normalizeTimeForStorage(time)
+  const [year, month, day] = date.split("-").map(Number)
+  const [hour, minute] = normalizedTime.split(":").map(Number)
+  const local = new Date(year, month - 1, day, hour, minute, 0, 0)
+  local.setMinutes(local.getMinutes() + Math.max(5, Math.min(240, minutes || 50)))
+  return `${local.getFullYear()}-${String(local.getMonth() + 1).padStart(2, "0")}-${String(local.getDate()).padStart(2, "0")}T${String(local.getHours()).padStart(2, "0")}:${String(local.getMinutes()).padStart(2, "0")}:00-03:00`
+}
+
+async function syncGoogleCalendarForManualAppointment(params: {
+  tenant: string
+  columns: Set<string>
+  row: any
+  name: string
+  contato: string
+  dia: string
+  horario: string
+  observacoes?: string | null
+  mode?: "create" | "update"
+}) {
+  if (!params.columns.has("google_event_id")) return { skipped: true }
+  if (!isDiaDefinidoParaAgendamento(params.dia) || !isHorarioDefinidoParaAgendamento(params.horario)) {
+    return { skipped: true }
+  }
+
+  const config = await getNativeAgentConfigForTenant(params.tenant).catch(() => null)
+  if (!config?.googleCalendarEnabled) return { skipped: true }
+
+  const calendar = new GoogleCalendarService({
+    calendarId: config.googleCalendarId || "primary",
+    authMode: config.googleAuthMode || "service_account",
+    serviceAccountEmail: config.googleServiceAccountEmail,
+    serviceAccountPrivateKey: config.googleServiceAccountPrivateKey,
+    delegatedUser: config.googleDelegatedUser,
+    oauthClientId: config.googleOAuthClientId,
+    oauthClientSecret: config.googleOAuthClientSecret,
+    oauthRefreshToken: config.googleOAuthRefreshToken,
+  })
+  const durationMinutes = Math.max(5, Math.min(240, Number(config.calendarEventDurationMinutes || 50)))
+  const summary = `Atendimento - ${params.name || "Lead"}`
+  const description = [
+    params.observacoes || "Agendamento manual criado pelo GerencIA",
+    `Contato do lead: wa.me/${params.contato}`,
+    `Tenant: ${params.tenant}`,
+  ].filter(Boolean).join("\n")
+  const eventId = String(params.row?.google_event_id || "").trim()
+  const startIso = buildCalendarIso(params.dia, params.horario)
+  const endIso = addMinutesToLocalIso(params.dia, params.horario, durationMinutes)
+  const timezone = config.timezone || "America/Sao_Paulo"
+
+  if (eventId) {
+    return calendar.updateEvent({
+      eventId,
+      summary,
+      description,
+      startIso,
+      endIso,
+      timezone,
+    })
+  }
+
+  return calendar.createEvent({
+    summary,
+    description,
+    startIso,
+    endIso,
+    timezone,
+  })
 }
 
 // Função para validar se o agendamento é explícito
@@ -396,6 +520,12 @@ async function getTableColumns(supabase: any, tableName: string): Promise<Set<st
     return tableColumnsCache.get(tableName)!
   }
 
+  const probed = await probeTableColumns(supabase, tableName)
+  if (probed.size > 0) {
+    tableColumnsCache.set(tableName, probed)
+    return probed
+  }
+
   try {
     const { data, error } = await supabase
       .from("information_schema.columns")
@@ -527,10 +657,15 @@ export async function GET(req: Request) {
                 }
 
                 if (nomeReal && nomeReal.trim() && !nomeReal.startsWith("Cliente ")) {
+                  const columns = await getTableColumns(supabase, agendamentos)
+                  const namePayload: Record<string, any> = {}
+                  setNameColumns(namePayload, columns, nomeReal.trim().substring(0, 100))
+                  if (!Object.keys(namePayload).length) continue
+
                   // Atualizar no banco
                   await supabase
                     .from(agendamentos)
-                    .update({ nome: nomeReal.trim().substring(0, 100) })
+                    .update(namePayload)
                     .eq("id", agendamento.id)
 
                   // Atualizar no array local também
@@ -578,17 +713,16 @@ export async function POST(req: Request) {
     const observacoesFinal = sanitized.observacoes
     const observacaoMarcacaoFinal = normalizeMarcacao(body?.observacao_marcacao)
 
+    const columns = await getTableColumns(supabase, agendamentos)
+    const hasObservacaoMarcacaoColumn = columns.has("observacao_marcacao")
     const payload: any = {
-      contato: contatoFinal,
       status: statusFinal,
       dia: diaFinal,
       horario: horarioFinal,
     }
 
-    const columns = await getTableColumns(supabase, agendamentos)
-    const hasObservacaoMarcacaoColumn = columns.has("observacao_marcacao")
-
-    if (nomeFinal) payload.nome = nomeFinal
+    setContactColumns(payload, columns, contatoFinal)
+    setNameColumns(payload, columns, nomeFinal)
     if (hasObservacaoMarcacaoColumn) {
       if (observacoesFinal) payload.observacoes = observacoesFinal
       if (observacaoMarcacaoFinal) payload.observacao_marcacao = observacaoMarcacaoFinal
@@ -614,16 +748,61 @@ export async function POST(req: Request) {
     if (columns.has("updated_at")) {
       payload.updated_at = new Date().toISOString()
     }
+    if (columns.has("created_at")) {
+      payload.created_at = new Date().toISOString()
+    }
 
     const { data, error } = await supabase
       .from(agendamentos)
-      .insert(payload)
+      .insert(filterPayloadByColumns(payload, columns))
       .select()
       .single()
 
     if (error) {
       console.error("[Agendamentos API] Erro ao criar agendamento:", error)
       return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+
+    let dataWithCalendar = data
+    let calendarSyncError: string | null = null
+    if (statusShouldSyncCalendar(statusFinal)) {
+      try {
+        const event = await syncGoogleCalendarForManualAppointment({
+          tenant,
+          columns,
+          row: data,
+          name: nomeFinal || "Cliente",
+          contato: contatoFinal,
+          dia: diaFinal,
+          horario: horarioFinal,
+          observacoes: observacoesFinal,
+          mode: "create",
+        })
+
+        if ("eventId" in event && event.eventId) {
+          const calendarPayload = filterPayloadByColumns({
+            google_event_id: event.eventId,
+            google_event_link: event.htmlLink || null,
+            google_meet_link: event.meetLink || null,
+            updated_at: new Date().toISOString(),
+          }, columns)
+          if (Object.keys(calendarPayload).length) {
+            const updateResult = await supabase
+              .from(agendamentos)
+              .update(calendarPayload)
+              .eq("id", data.id)
+              .select()
+              .single()
+            if (updateResult.error) {
+              calendarSyncError = updateResult.error.message
+            } else {
+              dataWithCalendar = updateResult.data
+            }
+          }
+        }
+      } catch (err: any) {
+        calendarSyncError = err?.message || "calendar_sync_failed"
+      }
     }
 
     await notifyAgendamentoCreated(
@@ -647,7 +826,7 @@ export async function POST(req: Request) {
         .catch((err) => console.warn("[Agendamentos API] SMS pos-agendamento falhou:", err?.message || err))
     }
 
-    return NextResponse.json({ success: true, data })
+    return NextResponse.json({ success: true, data: dataWithCalendar, calendarSyncError })
   } catch (e: any) {
     return NextResponse.json({ error: e?.message ?? "Erro ao criar agendamento" }, { status: 500 })
   }
@@ -655,7 +834,7 @@ export async function POST(req: Request) {
 
 export async function PUT(req: Request) {
   try {
-    const { tables, session } = await getTenantFromRequest()
+    const { tenant, tables, session } = await getTenantFromRequest()
     const { agendamentos } = tables
     const supabase = createBiaSupabaseServerClient()
     const body = await req.json()
@@ -683,8 +862,8 @@ export async function PUT(req: Request) {
     if (nome !== undefined) updates.nome = String(nome).trim().substring(0, 100)
     if (contato !== undefined) updates.contato = String(contato).trim().substring(0, 20)
     if (status !== undefined) updates.status = String(status).trim()
-    if (dia !== undefined) updates.dia = String(dia).trim()
-    if (horario !== undefined) updates.horario = String(horario).trim()
+    if (dia !== undefined) updates.dia = normalizeDateForStorage(dia)
+    if (horario !== undefined) updates.horario = normalizeTimeForStorage(horario)
     if (observacoes !== undefined) {
       const observacoesLimpas = splitObservacoesAndMarcacao(observacoes).observacoes
       updates.observacoes = String(observacoesLimpas || "").substring(0, 500)
@@ -709,6 +888,15 @@ export async function PUT(req: Request) {
 
     const columns = await getTableColumns(supabase, agendamentos)
     const hasObservacaoMarcacaoColumn = columns.has("observacao_marcacao")
+
+    if (nome !== undefined) {
+      delete updates.nome
+      setNameColumns(updates, columns, String(nome).trim().substring(0, 100))
+    }
+    if (contato !== undefined) {
+      delete updates.contato
+      setContactColumns(updates, columns, String(contato).trim().substring(0, 20))
+    }
 
     if (hasObservacaoMarcacaoColumn) {
       if (hasObservacaoMarcacao) {
@@ -750,7 +938,10 @@ export async function PUT(req: Request) {
 
     const normalize = (value: any) => String(value ?? "").trim()
     const existingNome = existing?.nome || existing?.nome_responsavel || existing?.nome_aluno || ""
-    const nextNome = updates.nome !== undefined ? updates.nome : existingNome
+    const nextNomeForChange =
+      updates.nome ?? updates.nome_aluno ?? updates.nome_responsavel ?? existingNome
+    const existingContato = existing?.contato || existing?.numero || existing?.session_id || ""
+    const nextContatoForChange = updates.contato ?? updates.numero ?? updates.session_id ?? existingContato
     const existingObservacoesRaw = readObservacoesFromRow(existing)
     const existingObservacoesLimpas = splitObservacoesAndMarcacao(existingObservacoesRaw).observacoes
     const nextObservacoesLimpas = splitObservacoesAndMarcacao(
@@ -759,8 +950,8 @@ export async function PUT(req: Request) {
     const existingMarcacao = resolveMarcacaoFromRow(existing) ?? "nenhuma"
     const nextMarcacao = resolveMarcacaoFromRow({ ...(existing || {}), ...updates }) ?? "nenhuma"
     const hasChanges = existing
-      ? normalize(nextNome) !== normalize(existingNome) ||
-        normalize(updates.contato ?? existing?.contato) !== normalize(existing?.contato) ||
+      ? normalize(nextNomeForChange) !== normalize(existingNome) ||
+        normalize(nextContatoForChange) !== normalize(existingContato) ||
         normalize(updates.status ?? existing?.status) !== normalize(existing?.status) ||
         normalize(updates.dia ?? existing?.dia) !== normalize(existing?.dia) ||
         normalize(updates.horario ?? existing?.horario) !== normalize(existing?.horario) ||
@@ -790,7 +981,7 @@ export async function PUT(req: Request) {
 
     const { data, error } = await supabase
       .from(agendamentos)
-      .update(updates)
+      .update(filterPayloadByColumns(updates, columns))
       .eq("id", id)
       .select()
       .single()
@@ -800,6 +991,58 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
+    let dataWithCalendar = data
+    let calendarSyncError: string | null = null
+    const nextStatus = data?.status ?? updates.status ?? existing?.status
+    const nextDia = data?.dia ?? updates.dia ?? existing?.dia
+    const nextHorario = data?.horario ?? updates.horario ?? existing?.horario
+    const nextContato = String(data?.contato || data?.numero || updates.contato || existing?.contato || existing?.numero || "").trim()
+    const nextNome = String(data?.nome || data?.nome_aluno || data?.nome_responsavel || updates.nome || existingNome || "Cliente").trim()
+    const shouldTryCalendarSync =
+      hasChanges &&
+      statusShouldSyncCalendar(nextStatus) &&
+      (status !== undefined || dia !== undefined || horario !== undefined || nome !== undefined || contato !== undefined || observacoes !== undefined)
+
+    if (shouldTryCalendarSync) {
+      try {
+        const event = await syncGoogleCalendarForManualAppointment({
+          tenant,
+          columns,
+          row: data,
+          name: nextNome || "Cliente",
+          contato: nextContato,
+          dia: nextDia,
+          horario: nextHorario,
+          observacoes: readObservacoesFromRow(data),
+          mode: "update",
+        })
+
+        if ("eventId" in event && event.eventId) {
+          const calendarPayload = filterPayloadByColumns({
+            google_event_id: event.eventId,
+            google_event_link: event.htmlLink || data?.google_event_link || null,
+            google_meet_link: event.meetLink || data?.google_meet_link || null,
+            updated_at: new Date().toISOString(),
+          }, columns)
+          if (Object.keys(calendarPayload).length) {
+            const updateResult = await supabase
+              .from(agendamentos)
+              .update(calendarPayload)
+              .eq("id", id)
+              .select()
+              .single()
+            if (updateResult.error) {
+              calendarSyncError = updateResult.error.message
+            } else {
+              dataWithCalendar = updateResult.data
+            }
+          }
+        }
+      } catch (err: any) {
+        calendarSyncError = err?.message || "calendar_sync_failed"
+      }
+    }
+
     let webhookSent: boolean | null = null
     let webhookError: string | null = null
     if (shouldSendWebhookManually) {
@@ -807,7 +1050,7 @@ export async function PUT(req: Request) {
       const webhookResult = await sendManualAgendamentoWebhook({
         tableName: agendamentos,
         changedFields,
-        nextRow: data,
+        nextRow: dataWithCalendar,
         previousRow: existing,
       })
 
@@ -817,9 +1060,10 @@ export async function PUT(req: Request) {
 
     return NextResponse.json({
       success: true,
-      data,
+      data: dataWithCalendar,
       webhookSent,
       webhookError,
+      calendarSyncError,
     })
   } catch (e: any) {
     return NextResponse.json({ error: e?.message ?? "Erro ao atualizar agendamento" }, { status: 500 })
