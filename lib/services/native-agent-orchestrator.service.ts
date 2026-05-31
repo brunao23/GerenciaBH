@@ -1566,6 +1566,16 @@ function leadExplicitlyConfirmsSchedulingMutation(
     return true
   }
 
+  const nameOnlyAnswer = normalizeExplicitLeadNameCandidate(rawMessage)
+  if (
+    nameOnlyAnswer &&
+    text.length <= 70 &&
+    recentAssistantAskedLeadNameForScheduling(rows) &&
+    (hasRecentOffer || recentLeadSelectedConcreteScheduleBeforeEmail(rows) || Boolean(findRecentSchedulingTimeCandidate(rows, "")))
+  ) {
+    return true
+  }
+
   const timeCandidate = extractSchedulingTimeCandidate(rawMessage)
   if (timeCandidate && text.length <= 90) {
     return true
@@ -1596,6 +1606,25 @@ function leadExplicitlyConfirmsSchedulingMutation(
       /\b(hoje|amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo|dia\s+\d{1,2})\b/.test(text) ||
       Boolean(timeCandidate)
     )
+}
+
+function recentAssistantAskedLeadNameForScheduling(rows: any[] | undefined): boolean {
+  if (!Array.isArray(rows) || rows.length === 0) return false
+
+  const recentRows = rows.slice(-10).reverse()
+  for (const row of recentRows) {
+    if (conversationTurnRole(row) !== "assistant") continue
+    const content = conversationTurnContent(row)
+    if (!assistantAskedForLeadName(content)) continue
+
+    const text = normalizeComparableMessage(content)
+    if (/\b(reserv|agend|horario|diagnostico|formaliz|deixar)\b/.test(text)) return true
+
+    // Some providers split "how can I call you?" from the scheduling sentence.
+    return true
+  }
+
+  return false
 }
 
 function stripRepeatedPeriodChoiceQuestion(responseText: string, selectedPeriod: "manha" | "tarde" | "noite"): string {
@@ -12048,9 +12077,9 @@ export class NativeAgentOrchestratorService {
           sessionId: params.sessionId,
           requestedTime: args.time,
           requestedDate: args.date,
-        })
+      })
       const coercedScheduleDate = coerceSchedulingDateToCurrentContext({
-        dateValue: explicitLeadDate || recentSlotDateHint || args.date,
+        dateValue: explicitLeadDate || args.date || recentSlotDateHint,
         timeValue: args.time,
         timezone: params.config.timezone || "America/Sao_Paulo",
       })
@@ -12260,9 +12289,9 @@ export class NativeAgentOrchestratorService {
           sessionId: params.sessionId,
           requestedTime: args.time,
           requestedDate: args.date,
-        })
+      })
       const coercedEditDate = coerceSchedulingDateToCurrentContext({
-        dateValue: explicitLeadDate || recentSlotDateHint || args.date,
+        dateValue: explicitLeadDate || args.date || recentSlotDateHint,
         timeValue: args.time,
         timezone: params.config.timezone || "America/Sao_Paulo",
       })

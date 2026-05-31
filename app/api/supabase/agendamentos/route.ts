@@ -312,20 +312,60 @@ async function notifyManualScheduleToGroup(params: {
   })
 }
 
-function buildCalendarIso(dateIso: string, time: string): string {
-  const date = normalizeDateForStorage(dateIso)
-  const normalizedTime = normalizeTimeForStorage(time)
-  return `${date}T${normalizedTime}:00-03:00`
+function getTimeZoneOffsetMinutes(date: Date, timezone: string): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone || "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date)
+
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
+  const asUtc = Date.UTC(
+    Number(values.year),
+    Number(values.month) - 1,
+    Number(values.day),
+    Number(values.hour),
+    Number(values.minute),
+    Number(values.second),
+  )
+  return Math.round((asUtc - date.getTime()) / 60000)
 }
 
-function addMinutesToLocalIso(dateIso: string, time: string, minutes: number): string {
+function formatTimezoneOffset(minutes: number): string {
+  const sign = minutes >= 0 ? "+" : "-"
+  const absolute = Math.abs(minutes)
+  const hours = Math.floor(absolute / 60)
+  const mins = absolute % 60
+  return `${sign}${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`
+}
+
+function buildCalendarIso(dateIso: string, time: string, timezone = "America/Sao_Paulo"): string {
   const date = normalizeDateForStorage(dateIso)
   const normalizedTime = normalizeTimeForStorage(time)
   const [year, month, day] = date.split("-").map(Number)
   const [hour, minute] = normalizedTime.split(":").map(Number)
-  const local = new Date(year, month - 1, day, hour, minute, 0, 0)
-  local.setMinutes(local.getMinutes() + Math.max(5, Math.min(240, minutes || 50)))
-  return `${local.getFullYear()}-${String(local.getMonth() + 1).padStart(2, "0")}-${String(local.getDate()).padStart(2, "0")}T${String(local.getHours()).padStart(2, "0")}:${String(local.getMinutes()).padStart(2, "0")}:00-03:00`
+  const utcGuess = Date.UTC(year, month - 1, day, hour, minute, 0, 0)
+  const firstOffset = getTimeZoneOffsetMinutes(new Date(utcGuess), timezone)
+  const actualUtc = utcGuess - firstOffset * 60 * 1000
+  const finalOffset = getTimeZoneOffsetMinutes(new Date(actualUtc), timezone)
+  return `${date}T${normalizedTime}:00${formatTimezoneOffset(finalOffset)}`
+}
+
+function addMinutesToLocalIso(dateIso: string, time: string, minutes: number, timezone = "America/Sao_Paulo"): string {
+  const date = normalizeDateForStorage(dateIso)
+  const normalizedTime = normalizeTimeForStorage(time)
+  const [year, month, day] = date.split("-").map(Number)
+  const [hour, minute] = normalizedTime.split(":").map(Number)
+  const local = new Date(Date.UTC(year, month - 1, day, hour, minute, 0, 0))
+  local.setUTCMinutes(local.getUTCMinutes() + Math.max(5, Math.min(240, minutes || 50)))
+  const endDate = `${local.getUTCFullYear()}-${String(local.getUTCMonth() + 1).padStart(2, "0")}-${String(local.getUTCDate()).padStart(2, "0")}`
+  const endTime = `${String(local.getUTCHours()).padStart(2, "0")}:${String(local.getUTCMinutes()).padStart(2, "0")}`
+  return buildCalendarIso(endDate, endTime, timezone)
 }
 
 async function syncGoogleCalendarForManualAppointment(params: {
@@ -365,9 +405,9 @@ async function syncGoogleCalendarForManualAppointment(params: {
     `Tenant: ${params.tenant}`,
   ].filter(Boolean).join("\n")
   const eventId = String(params.row?.google_event_id || "").trim()
-  const startIso = buildCalendarIso(params.dia, params.horario)
-  const endIso = addMinutesToLocalIso(params.dia, params.horario, durationMinutes)
   const timezone = config.timezone || "America/Sao_Paulo"
+  const startIso = buildCalendarIso(params.dia, params.horario, timezone)
+  const endIso = addMinutesToLocalIso(params.dia, params.horario, durationMinutes, timezone)
 
   if (eventId) {
     return calendar.updateEvent({
