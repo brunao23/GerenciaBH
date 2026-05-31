@@ -6,6 +6,7 @@ import { TenantSmsService } from "@/lib/services/tenant-sms.service"
 import { getTableColumns as probeTableColumns } from "@/lib/helpers/supabase-table-columns"
 import { getNativeAgentConfigForTenant } from "@/lib/helpers/native-agent-config"
 import { GoogleCalendarService } from "@/lib/services/google-calendar.service"
+import { GroupNotificationDispatcherService } from "@/lib/services/group-notification-dispatcher.service"
 
 type Row = Record<string, any>
 const tableColumnsCache = new Map<string, Set<string>>()
@@ -233,6 +234,82 @@ function filterPayloadByColumns(payload: Record<string, any>, columns: Set<strin
 function statusShouldSyncCalendar(status: any): boolean {
   const normalized = String(status || "").trim().toLowerCase()
   return normalized === "agendado" || normalized === "confirmado"
+}
+
+function formatDateToBr(value: any): string {
+  const text = normalizeDateForStorage(value)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return String(value || "nao informado").trim() || "nao informado"
+  const [year, month, day] = text.split("-")
+  return `${day}/${month}/${year}`
+}
+
+function normalizeNotificationTargets(input: any): string[] {
+  if (!Array.isArray(input)) return []
+  return input
+    .map((value) => {
+      const text = String(value || "").trim()
+      if (!text) return ""
+      if (/@g\.us$/i.test(text)) return text
+      if (/-group$/i.test(text)) return text
+
+      const groupCandidate = text.replace(/[^0-9-]/g, "")
+      if (/^\d{8,}-\d{2,}$/.test(groupCandidate)) {
+        return `${groupCandidate}-group`
+      }
+      return ""
+    })
+    .filter(Boolean)
+    .slice(0, 100)
+}
+
+function formatNotificationContact(contato: string): string {
+  const digits = String(contato || "").replace(/\D/g, "")
+  return digits ? `wa.me/${digits}` : "nao informado"
+}
+
+async function notifyManualScheduleToGroup(params: {
+  tenant: string
+  appointmentId?: string | number | null
+  nome: string
+  contato: string
+  dia: string
+  horario: string
+  observacoes?: string | null
+  unitName?: string | null
+}): Promise<{ sent: number; skipped: number; failed: number } | null> {
+  const config = await getNativeAgentConfigForTenant(params.tenant).catch(() => null)
+  const targets = normalizeNotificationTargets(config?.toolNotificationTargets)
+  if (!config?.toolNotificationsEnabled || !config?.notifyOnScheduleSuccess || !targets.length) {
+    return null
+  }
+
+  const message = [
+    "✅ *AGENDAMENTO REALIZADO COM SUCESSO*",
+    "",
+    `👤 *Cliente:* ${params.nome || "Cliente"}`,
+    `📱 *Contato:* ${formatNotificationContact(params.contato)}`,
+    `📅 *Data:* ${formatDateToBr(params.dia)}`,
+    `⏰ *Horário:* ${normalizeTimeForStorage(params.horario) || "nao informado"}`,
+    "🏢 *Modalidade:* Presencial",
+    params.observacoes ? `📝 *Observações:* ${String(params.observacoes).trim()}` : "",
+    "",
+    "_Agendamento criado manualmente no sistema._",
+  ].filter(Boolean).join("\n")
+
+  return new GroupNotificationDispatcherService().dispatch({
+    tenant: params.tenant,
+    anchorSessionId: params.contato,
+    source: "manual-schedule-success",
+    message,
+    targets,
+    dedupeKey: [
+      "manual_schedule_success",
+      params.appointmentId || params.contato,
+      normalizeDateForStorage(params.dia),
+      normalizeTimeForStorage(params.horario),
+    ].join(":"),
+    dedupeWindowSeconds: 3600,
+  })
 }
 
 function buildCalendarIso(dateIso: string, time: string): string {
@@ -813,6 +890,19 @@ export async function POST(req: Request) {
     ).catch(err => console.error("[Agendamentos API] Erro ao criar notificação:", err))
 
     if (statusFinal !== "pendente" && diaFinal !== "A definir" && horarioFinal !== "A definir") {
+      await notifyManualScheduleToGroup({
+        tenant,
+        appointmentId: data?.id,
+        nome: nomeFinal || "Cliente",
+        contato: contatoFinal,
+        dia: diaFinal,
+        horario: horarioFinal,
+        observacoes: observacoesFinal,
+        unitName: session?.unitName || tenant,
+      }).catch((err) => {
+        console.warn("[Agendamentos API] notificacao de grupo do agendamento manual falhou:", err?.message || err)
+      })
+
       new TenantSmsService()
         .handleAppointmentScheduledSms({
           tenant,
