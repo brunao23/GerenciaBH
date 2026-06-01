@@ -12769,7 +12769,9 @@ export class NativeAgentOrchestratorService {
       const result = await this.createFollowup({
         tenant: params.tenant,
         phone: params.phone,
+        sessionId: params.sessionId,
         contactName: params.contactName,
+        config: params.config,
         action,
       })
 
@@ -13749,7 +13751,6 @@ export class NativeAgentOrchestratorService {
         sessionId: params.sessionId,
         contactName: params.contactName,
         config: params.config,
-        skipPause: true,
         appointmentData: {
           date,
           time,
@@ -14292,6 +14293,25 @@ export class NativeAgentOrchestratorService {
             }
           }
 
+          await this
+            .onAppointmentScheduled({
+              tenant: params.tenant,
+              phone: params.phone,
+              sessionId: params.sessionId,
+              contactName: params.contactName,
+              config: params.config,
+              appointmentData: {
+                date,
+                time,
+                service: params.action.note,
+                appointmentId: existingId,
+                mode: appointmentMode,
+              },
+            })
+            .catch((error) => {
+              console.warn("[native-agent] post-schedule side effects failed for idempotent appointment:", error)
+            })
+
           return {
             ok: true,
             appointmentId: existingId,
@@ -14536,7 +14556,6 @@ export class NativeAgentOrchestratorService {
         sessionId: params.sessionId,
         contactName: params.contactName,
         config: params.config,
-        skipPause: true,
         appointmentData: {
           date,
           time,
@@ -14564,7 +14583,9 @@ export class NativeAgentOrchestratorService {
   private async createFollowup(params: {
     tenant: string
     phone: string
+    sessionId?: string
     contactName?: string
+    config?: NativeAgentConfig
     action: AgentActionPlan
   }): Promise<FollowupResult> {
     const tables = getTablesForTenant(params.tenant)
@@ -14572,6 +14593,32 @@ export class NativeAgentOrchestratorService {
     const note = params.action.note || "Follow-up criado pelo agente nativo"
 
     try {
+      const activeAppointment = await this
+        .hasActiveAppointmentForLead({
+          tenant: params.tenant,
+          sessionId: params.sessionId || params.phone,
+          phone: params.phone,
+          timezone: params.config?.timezone || "America/Sao_Paulo",
+        })
+        .catch(() => false)
+
+      if (activeAppointment) {
+        await Promise.allSettled([
+          this.pauseLeadAfterScheduling(params.tenant, params.phone),
+          this.taskQueue.cancelPendingFollowups({
+            tenant: params.tenant,
+            sessionId: params.sessionId || params.phone,
+            phone: params.phone,
+          }),
+          this.disableFollowupScheduleForLead({
+            sessionId: params.sessionId || params.phone,
+            phone: params.phone,
+            reason: "scheduled_lead_followup_blocked",
+          }),
+        ])
+        return { ok: false, error: "followup_blocked_for_scheduled_lead" }
+      }
+
       const followNormalColumns = await getTableColumns(this.supabase as any, tables.followNormal)
       const followNormalBasePayload: Record<string, any> = {
         numero: params.phone,
@@ -15056,6 +15103,19 @@ export class NativeAgentOrchestratorService {
         console.warn("[native-agent] failed to write post-schedule pause audit:", auditError?.message),
       )
     }
+
+    await Promise.allSettled([
+      this.taskQueue.cancelPendingFollowups({
+        tenant,
+        sessionId: phone,
+        phone,
+      }),
+      this.disableFollowupScheduleForLead({
+        sessionId: phone,
+        phone,
+        reason: "scheduled_auto_pause",
+      }),
+    ])
   }
 
   private async markLeadAsAgendado(tenant: string, sessionId: string): Promise<void> {
@@ -15146,7 +15206,6 @@ export class NativeAgentOrchestratorService {
     sessionId: string
     contactName?: string
     config: NativeAgentConfig
-    skipPause?: boolean
     appointmentData?: {
       date?: string
       time?: string
@@ -15157,9 +15216,7 @@ export class NativeAgentOrchestratorService {
       previousTime?: string
     }
   }): Promise<void> {
-    if (!params.skipPause) {
-      await this.pauseLeadAfterScheduling(params.tenant, params.phone).catch(() => {})
-    }
+    await this.pauseLeadAfterScheduling(params.tenant, params.phone).catch(() => {})
 
     await Promise.allSettled([
       this.markLeadAsAgendado(params.tenant, params.sessionId),

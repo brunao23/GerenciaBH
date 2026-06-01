@@ -7,6 +7,11 @@ import { getTableColumns as probeTableColumns } from "@/lib/helpers/supabase-tab
 import { getNativeAgentConfigForTenant } from "@/lib/helpers/native-agent-config"
 import { GoogleCalendarService } from "@/lib/services/google-calendar.service"
 import { GroupNotificationDispatcherService } from "@/lib/services/group-notification-dispatcher.service"
+import { AgentTaskQueueService } from "@/lib/services/agent-task-queue.service"
+import { normalizePhoneNumber, normalizeSessionId } from "@/lib/services/tenant-chat-history.service"
+import { scheduleRemindersForTenant } from "@/lib/services/reminder-scheduler.service"
+import { buildPauseActorPayload } from "@/lib/helpers/pause-actor"
+import { recordPauseAuditEvent } from "@/lib/services/pause-audit.service"
 
 type Row = Record<string, any>
 const tableColumnsCache = new Map<string, Set<string>>()
@@ -234,6 +239,145 @@ function filterPayloadByColumns(payload: Record<string, any>, columns: Set<strin
 function statusShouldSyncCalendar(status: any): boolean {
   const normalized = String(status || "").trim().toLowerCase()
   return normalized === "agendado" || normalized === "confirmado"
+}
+
+function appointmentHasDefinedDateTime(dia: any, horario: any): boolean {
+  const date = normalizeDateForStorage(dia)
+  const time = normalizeTimeForStorage(horario)
+  return Boolean(date && time && date !== "A definir" && time !== "A definir")
+}
+
+function buildPhoneVariants(value: any): string[] {
+  const normalized = normalizePhoneNumber(String(value || ""))
+  return Array.from(
+    new Set([
+      normalized,
+      normalized.startsWith("55") ? normalized.slice(2) : "",
+      normalized && !normalized.startsWith("55") ? `55${normalized}` : "",
+    ].filter(Boolean)),
+  )
+}
+
+async function disableFollowupScheduleAfterAppointment(params: {
+  supabase: any
+  phone: string
+  sessionId?: string
+  reason: string
+}): Promise<void> {
+  const payload = {
+    is_active: false,
+    lead_status: `paused_${String(params.reason || "scheduled").replace(/[^a-z0-9_]/gi, "_").toLowerCase().slice(0, 64)}`,
+    updated_at: new Date().toISOString(),
+  }
+  const updates: Array<Promise<any>> = []
+  const sessionId = normalizeSessionId(params.sessionId || params.phone)
+  const phoneVariants = buildPhoneVariants(params.phone)
+
+  if (sessionId) {
+    updates.push(
+      Promise.resolve(
+        params.supabase
+          .from("followup_schedule")
+          .update(payload)
+          .eq("session_id", sessionId)
+          .eq("is_active", true),
+      ).then(() => {}),
+    )
+  }
+  if (phoneVariants.length) {
+    updates.push(
+      Promise.resolve(
+        params.supabase
+          .from("followup_schedule")
+          .update(payload)
+          .in("phone_number", phoneVariants)
+          .eq("is_active", true),
+      ).then(() => {}),
+    )
+  }
+
+  const results = await Promise.allSettled(updates)
+  for (const result of results) {
+    if (result.status === "rejected") {
+      console.warn("[Agendamentos API] falha ao desativar followup_schedule:", result.reason)
+    }
+  }
+}
+
+async function enforceOnlyRemindersAfterAppointment(params: {
+  supabase: any
+  tenant: string
+  tables: Record<string, string>
+  phone: string
+  sessionId?: string
+  appointmentId?: string | number | null
+  source: string
+}): Promise<void> {
+  const phone = normalizePhoneNumber(params.phone)
+  const sessionId = normalizeSessionId(params.sessionId || phone)
+  if (!phone && !sessionId) return
+
+  const actorPayload = buildPauseActorPayload({
+    role: "system",
+    source: params.source,
+    unit: params.tenant,
+  })
+  const nowIso = new Date().toISOString()
+  const pauseColumns = await probeTableColumns(params.supabase, params.tables.pausar).catch(() => new Set<string>())
+  const pausePayload = filterPayloadByColumns({
+    numero: phone || sessionId,
+    pausar: true,
+    vaga: true,
+    agendamento: true,
+    pausado_em: nowIso,
+    paused_until: null,
+    updated_at: nowIso,
+    pause_reason: "scheduled_auto_pause",
+    ...actorPayload,
+  }, pauseColumns)
+
+  if (Object.keys(pausePayload).length) {
+    const upsert = await params.supabase
+      .from(params.tables.pausar)
+      .upsert(pausePayload, { onConflict: "numero", ignoreDuplicates: false })
+    if (upsert.error) {
+      console.warn("[Agendamentos API] falha ao pausar lead agendado:", upsert.error?.message || upsert.error)
+    } else {
+      await recordPauseAuditEvent({
+        tenant: params.tenant,
+        phone: phone || sessionId,
+        sessionId: sessionId || phone,
+        action: "pause",
+        previousPaused: null,
+        newPaused: true,
+        pauseReason: "scheduled_auto_pause",
+        pausedUntil: null,
+        actor: actorPayload,
+        metadata: {
+          source: params.source,
+          appointmentId: params.appointmentId ? String(params.appointmentId) : null,
+        },
+      }).catch((err: any) => {
+        console.warn("[Agendamentos API] falha ao auditar pausa pos-agendamento:", err?.message || err)
+      })
+    }
+  }
+
+  const taskQueue = new AgentTaskQueueService()
+  await Promise.allSettled([
+    taskQueue.cancelPendingFollowups({
+      tenant: params.tenant,
+      sessionId: sessionId || phone,
+      phone: phone || undefined,
+    }),
+    disableFollowupScheduleAfterAppointment({
+      supabase: params.supabase,
+      phone: phone || params.phone,
+      sessionId: sessionId || phone,
+      reason: "scheduled_auto_pause",
+    }),
+    scheduleRemindersForTenant(params.tenant, { force: true }),
+  ])
 }
 
 function formatDateToBr(value: any): string {
@@ -929,6 +1073,20 @@ export async function POST(req: Request) {
       horarioFinal
     ).catch(err => console.error("[Agendamentos API] Erro ao criar notificação:", err))
 
+    if (statusShouldSyncCalendar(statusFinal) && appointmentHasDefinedDateTime(diaFinal, horarioFinal)) {
+      await enforceOnlyRemindersAfterAppointment({
+        supabase,
+        tenant,
+        tables,
+        phone: contatoFinal,
+        sessionId: contatoFinal,
+        appointmentId: data?.id,
+        source: "manual_appointment_post",
+      }).catch((err) => {
+        console.warn("[Agendamentos API] rotina pos-agendamento manual falhou:", err?.message || err)
+      })
+    }
+
     if (statusFinal !== "pendente" && diaFinal !== "A definir" && horarioFinal !== "A definir") {
       await notifyManualScheduleToGroup({
         tenant,
@@ -1171,6 +1329,20 @@ export async function PUT(req: Request) {
       } catch (err: any) {
         calendarSyncError = err?.message || "calendar_sync_failed"
       }
+    }
+
+    if (statusShouldSyncCalendar(nextStatus) && appointmentHasDefinedDateTime(nextDia, nextHorario)) {
+      await enforceOnlyRemindersAfterAppointment({
+        supabase,
+        tenant,
+        tables,
+        phone: nextContato,
+        sessionId: nextContato,
+        appointmentId: data?.id,
+        source: "manual_appointment_put",
+      }).catch((err) => {
+        console.warn("[Agendamentos API] rotina pos-atualizacao de agendamento falhou:", err?.message || err)
+      })
     }
 
     let webhookSent: boolean | null = null
