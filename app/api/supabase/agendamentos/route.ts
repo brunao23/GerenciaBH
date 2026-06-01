@@ -570,6 +570,7 @@ async function syncGoogleCalendarForManualAppointment(params: {
     startIso,
     endIso,
     timezone,
+    eventIdHint: `${params.tenant}:${params.row?.id || params.contato}:${params.dia}:${params.horario}`,
   })
 }
 

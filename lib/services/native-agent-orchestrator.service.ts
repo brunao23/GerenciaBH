@@ -13739,6 +13739,7 @@ export class NativeAgentOrchestratorService {
               attendeeEmail: calendarAttendeeEmail,
               generateMeetLink:
                 appointmentMode === "online" && params.config.generateMeetForOnlineAppointments,
+              eventIdHint: `${params.tenant}:${existingId}:${date}:${time}`,
             }),
           )
           eventId = createdEvent.eventId
@@ -14218,7 +14219,13 @@ export class NativeAgentOrchestratorService {
     const mappedColumns = this.resolveAgendamentosColumns(columns)
 
     if (params.config.googleCalendarEnabled && columns.size > 0 && !columns.has("google_event_id")) {
-      return { ok: false, error: "google_event_id_column_missing" }
+      await this.reportCalendarSyncIssue({
+        tenant: params.tenant,
+        phone: params.phone,
+        sessionId: params.sessionId,
+        action: "persist_event_id",
+        error: "google_event_id_column_missing",
+      })
     }
 
     if (columns.size > 0 && mappedColumns.dateColumn && mappedColumns.timeColumn) {
@@ -14301,6 +14308,7 @@ export class NativeAgentOrchestratorService {
                   attendeeEmail: calendarAttendeeEmail,
                   generateMeetLink:
                     appointmentMode === "online" && params.config.generateMeetForOnlineAppointments,
+                  eventIdHint: `${params.tenant}:${existingId}:${date}:${time}`,
                 }),
               )
               createdEventId = event.eventId
@@ -14548,6 +14556,7 @@ export class NativeAgentOrchestratorService {
             attendeeEmail: calendarAttendeeEmail,
             generateMeetLink:
               appointmentMode === "online" && params.config.generateMeetForOnlineAppointments,
+            eventIdHint: `${params.tenant}:${appointmentId || params.sessionId}:${date}:${time}`,
           }),
         )
 

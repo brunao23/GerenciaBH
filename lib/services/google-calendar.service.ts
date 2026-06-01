@@ -20,6 +20,7 @@ export interface CreateCalendarEventInput {
   timezone?: string
   attendeeEmail?: string
   generateMeetLink?: boolean
+  eventIdHint?: string
 }
 
 export interface UpdateCalendarEventInput {
@@ -54,6 +55,81 @@ function shouldRetryWithoutAttendee(errorMessage: string): boolean {
   )
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function isRetryableStatus(status: number): boolean {
+  return status === 408 || status === 409 || status === 425 || status === 429 || status >= 500
+}
+
+function buildDeterministicGoogleEventId(value: string): string | undefined {
+  const raw = String(value || "").trim()
+  if (!raw) return undefined
+  return `g${crypto.createHash("sha256").update(raw).digest("hex").slice(0, 28)}`
+}
+
+async function fetchWithRetry(
+  url: string,
+  init: RequestInit,
+  options?: { attempts?: number; retryUnsafeMethods?: boolean },
+): Promise<Response> {
+  const attempts = Math.max(1, Math.min(6, Number(options?.attempts || 4)))
+  const method = String(init.method || "GET").toUpperCase()
+  const retryUnsafeMethods = options?.retryUnsafeMethods === true
+  let lastError: unknown
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const response = await fetch(url, init)
+      if (
+        attempt < attempts &&
+        isRetryableStatus(response.status) &&
+        (retryUnsafeMethods || method === "GET" || method === "DELETE")
+      ) {
+        await sleep(Math.min(5000, 350 * Math.pow(2, attempt - 1)))
+        continue
+      }
+      return response
+    } catch (error) {
+      lastError = error
+      if (attempt >= attempts) break
+      await sleep(Math.min(5000, 350 * Math.pow(2, attempt - 1)))
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError || "google_fetch_retry_failed"))
+}
+
+function extractMeetLink(responseJson: any): string | undefined {
+  const conferenceEntryPoints = Array.isArray(responseJson?.conferenceData?.entryPoints)
+    ? responseJson.conferenceData.entryPoints
+    : []
+  const meetEntry = conferenceEntryPoints.find(
+    (entry: any) => String(entry?.entryPointType || "").toLowerCase() === "video",
+  )
+  const meetLink = String(
+    meetEntry?.uri || responseJson?.hangoutLink || responseJson?.conferenceData?.conferenceId || "",
+  ).trim()
+  return meetLink || undefined
+}
+
+function mapEventResponse(responseJson: any, fallbackEventId?: string): {
+  eventId: string
+  htmlLink?: string
+  meetLink?: string
+} {
+  const eventId = String(responseJson?.id || fallbackEventId || "").trim()
+  if (!eventId) {
+    throw new Error("Google event response without id")
+  }
+  return {
+    eventId,
+    htmlLink: responseJson?.htmlLink || undefined,
+    meetLink: extractMeetLink(responseJson),
+  }
+}
+
 async function fetchAccessToken(config: GoogleCalendarAuthConfig): Promise<string> {
   let oauthFailure: Error | null = null
 
@@ -62,7 +138,7 @@ async function fetchAccessToken(config: GoogleCalendarAuthConfig): Promise<strin
       oauthFailure = new Error("Google OAuth config missing (client_id/client_secret/refresh_token)")
     } else {
       try {
-        const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+        const tokenRes = await fetchWithRetry("https://oauth2.googleapis.com/token", {
           method: "POST",
           headers: {
             "Content-Type": "application/x-www-form-urlencoded",
@@ -73,7 +149,7 @@ async function fetchAccessToken(config: GoogleCalendarAuthConfig): Promise<strin
             refresh_token: config.oauthRefreshToken,
             grant_type: "refresh_token",
           }),
-        })
+        }, { attempts: 4, retryUnsafeMethods: true })
 
         const tokenText = await tokenRes.text()
         let tokenJson: any = null
@@ -143,7 +219,7 @@ async function fetchAccessToken(config: GoogleCalendarAuthConfig): Promise<strin
   const signature = signer.sign(privateKey)
   const jwtAssertion = `${unsignedToken}.${toBase64Url(signature)}`
 
-  const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+  const tokenRes = await fetchWithRetry("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
@@ -152,7 +228,7 @@ async function fetchAccessToken(config: GoogleCalendarAuthConfig): Promise<strin
       grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
       assertion: jwtAssertion,
     }),
-  })
+  }, { attempts: 4, retryUnsafeMethods: true })
 
   const tokenText = await tokenRes.text()
   let tokenJson: any = null
@@ -194,8 +270,10 @@ export class GoogleCalendarService {
     meetLink?: string
   }> {
     const accessToken = await fetchAccessToken(this.config)
+    const deterministicEventId = buildDeterministicGoogleEventId(input.eventIdHint || "")
 
     const payload: any = {
+      id: deterministicEventId,
       summary: input.summary,
       description: input.description || undefined,
       location: input.location || undefined,
@@ -231,14 +309,14 @@ export class GoogleCalendarService {
       ? `${endpointBase}?conferenceDataVersion=1`
       : endpointBase
 
-    let response = await fetch(endpoint, {
+    let response = await fetchWithRetry(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify(payload),
-    })
+    }, { attempts: 4, retryUnsafeMethods: Boolean(deterministicEventId) })
 
     let responseText = await response.text()
     let responseJson: any = null
@@ -250,17 +328,29 @@ export class GoogleCalendarService {
 
     if (!response.ok) {
       const errorMessage = responseJson?.error?.message || responseText || "Google event create failed"
+      if (response.status === 409 && deterministicEventId) {
+        return this.updateEvent({
+          eventId: deterministicEventId,
+          summary: input.summary,
+          description: input.description,
+          location: input.location,
+          startIso: input.startIso,
+          endIso: input.endIso,
+          timezone: input.timezone,
+          attendeeEmail: input.attendeeEmail,
+        })
+      }
       if (payload.attendees && shouldRetryWithoutAttendee(errorMessage)) {
         const retryPayload = { ...payload }
         delete retryPayload.attendees
-        response = await fetch(endpoint, {
+        response = await fetchWithRetry(endpoint, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${accessToken}`,
           },
           body: JSON.stringify(retryPayload),
-        })
+        }, { attempts: 4, retryUnsafeMethods: Boolean(deterministicEventId) })
         responseText = await response.text()
         try {
           responseJson = responseText ? JSON.parse(responseText) : null
@@ -268,41 +358,13 @@ export class GoogleCalendarService {
           responseJson = null
         }
         if (response.ok) {
-          const meetLink =
-            responseJson?.conferenceData?.entryPoints?.find((entry: any) => entry.entryPointType === "video")?.uri ||
-            responseJson?.hangoutLink ||
-            undefined
-
-          return {
-            eventId: String(responseJson?.id || ""),
-            htmlLink: responseJson?.htmlLink || undefined,
-            meetLink,
-          }
+          return mapEventResponse(responseJson, deterministicEventId)
         }
       }
       throw new Error(errorMessage)
     }
 
-    const eventId = String(responseJson?.id || "").trim()
-    if (!eventId) {
-      throw new Error("Google event created without id")
-    }
-
-    const conferenceEntryPoints = Array.isArray(responseJson?.conferenceData?.entryPoints)
-      ? responseJson.conferenceData.entryPoints
-      : []
-    const meetEntry = conferenceEntryPoints.find(
-      (entry: any) => String(entry?.entryPointType || "").toLowerCase() === "video",
-    )
-    const meetLink = String(
-      meetEntry?.uri || responseJson?.hangoutLink || responseJson?.conferenceData?.conferenceId || "",
-    ).trim()
-
-    return {
-      eventId,
-      htmlLink: responseJson?.htmlLink || undefined,
-      meetLink: meetLink || undefined,
-    }
+    return mapEventResponse(responseJson, deterministicEventId)
   }
 
   async listEvents(params: {
@@ -325,10 +387,10 @@ export class GoogleCalendarService {
       this.config.calendarId,
     )}/events?${searchParams.toString()}`
 
-    const response = await fetch(endpoint, {
+    const response = await fetchWithRetry(endpoint, {
       method: "GET",
       headers: { Authorization: `Bearer ${accessToken}` },
-    })
+    }, { attempts: 4 })
 
     const responseText = await response.text()
     let responseJson: any = null
@@ -384,14 +446,14 @@ export class GoogleCalendarService {
       this.config.calendarId,
     )}/events/${encodeURIComponent(eventId)}`
 
-    let response = await fetch(endpoint, {
+    let response = await fetchWithRetry(endpoint, {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify(payload),
-    })
+    }, { attempts: 4, retryUnsafeMethods: true })
 
     let responseText = await response.text()
     let responseJson: any = null
@@ -406,14 +468,14 @@ export class GoogleCalendarService {
       if (payload.attendees && shouldRetryWithoutAttendee(errorMessage)) {
         const retryPayload = { ...payload }
         delete retryPayload.attendees
-        response = await fetch(endpoint, {
+        response = await fetchWithRetry(endpoint, {
           method: "PATCH",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${accessToken}`,
           },
           body: JSON.stringify(retryPayload),
-        })
+        }, { attempts: 4, retryUnsafeMethods: true })
         responseText = await response.text()
         try {
           responseJson = responseText ? JSON.parse(responseText) : null
@@ -421,31 +483,13 @@ export class GoogleCalendarService {
           responseJson = null
         }
         if (response.ok) {
-          return {
-            eventId: String(responseJson?.id || eventId),
-            htmlLink: responseJson?.htmlLink || undefined,
-            meetLink: responseJson?.hangoutLink || undefined,
-          }
+          return mapEventResponse(responseJson, eventId)
         }
       }
       throw new Error(errorMessage)
     }
 
-    const conferenceEntryPoints = Array.isArray(responseJson?.conferenceData?.entryPoints)
-      ? responseJson.conferenceData.entryPoints
-      : []
-    const meetEntry = conferenceEntryPoints.find(
-      (entry: any) => String(entry?.entryPointType || "").toLowerCase() === "video",
-    )
-    const meetLink = String(
-      meetEntry?.uri || responseJson?.hangoutLink || responseJson?.conferenceData?.conferenceId || "",
-    ).trim()
-
-    return {
-      eventId: String(responseJson?.id || eventId),
-      htmlLink: responseJson?.htmlLink || undefined,
-      meetLink: meetLink || undefined,
-    }
+    return mapEventResponse(responseJson, eventId)
   }
 
   async cancelEvent(eventId: string): Promise<void> {
@@ -459,12 +503,12 @@ export class GoogleCalendarService {
       this.config.calendarId,
     )}/events/${encodeURIComponent(normalizedEventId)}`
 
-    const response = await fetch(endpoint, {
+    const response = await fetchWithRetry(endpoint, {
       method: "DELETE",
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
-    })
+    }, { attempts: 4 })
 
     if (response.ok || response.status === 404 || response.status === 410) {
       return
