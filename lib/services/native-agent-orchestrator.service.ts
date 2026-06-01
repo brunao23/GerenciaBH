@@ -1472,6 +1472,15 @@ function latestLeadMessageIsSchedulingQuestionOrInfoRequest(value: string): bool
   const text = normalizeComparableMessage(value)
   if (!text) return false
 
+  const hasConcreteScheduleSelection =
+    Boolean(extractSchedulingTimeCandidate(value)) ||
+    /\b(hoje|amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo|dia\s+\d{1,2}|\d{1,2}\/\d{1,2})\b/.test(text)
+  const acceptsOfferedSchedule =
+    /\b(funciona\s+(pra|para)\s+mim|funciona\s+sim|serve\s+(pra|para)\s+mim|da\s+certo|daria\s+certo|consigo\s+sim|pode\s+ser|fechado|combinado|confirmo)\b/.test(text)
+  if (!String(value || "").includes("?") && hasConcreteScheduleSelection && acceptsOfferedSchedule) {
+    return false
+  }
+
   if (String(value || "").includes("?")) return true
 
   return (
@@ -1702,7 +1711,7 @@ function leadExplicitlyConfirmsSchedulingMutation(
 
   const shortAffirmativeScheduleConfirmation =
     text.length <= 80 &&
-    /\b(sim|ok|certo|confirmo|confirmado|pode ser|isso|fechado|combinado|pode agendar|pode marcar|marca|marcar|agenda|agendar|reserva|reservar)\b/.test(text)
+    /\b(sim|ok|certo|confirmo|confirmado|pode ser|isso|fechado|combinado|funciona pra mim|funciona para mim|funciona sim|serve pra mim|serve para mim|da certo|daria certo|pode agendar|pode marcar|marca|marcar|agenda|agendar|reserva|reservar)\b/.test(text)
   if (shortAffirmativeScheduleConfirmation && recentAssistantAskedSingleScheduleConfirmation(rows)) {
     return true
   }
@@ -11609,6 +11618,7 @@ export class NativeAgentOrchestratorService {
       "- [ESCOLHA DE DIA JA CONFIRMA SLOT OFERECIDO] Se voce acabou de oferecer UM horario concreto com dia/data/hora (ex.: 'quarta-feira, dia 03/06, as 18:45') e o lead responde escolhendo esse dia/data/opcao (ex.: 'na quarta', 'quarta', 'dia 03'), isso JA e confirmacao do slot oferecido. Nao peca outra confirmacao. Se o nome real ja estiver conhecido, chame schedule_appointment; se faltar nome real, pergunte apenas o nome.",
       "- [LEI DA CONFIRMACAO EXPLICITA] schedule_appointment SO pode ser chamado quando a ULTIMA mensagem do lead confirmar claramente o horario/data escolhido, informar email apos voce pedir para formalizar uma opcao ja escolhida, ou responder a modalidade apos ja ter escolhido horario. Pergunta, duvida ou pedido de informacao NAO e confirmacao.",
       "- [PERGUNTA DE HORARIO NAO CONFIRMA] Se o lead perguntar 'quais horarios?', 'quais seriam os horarios?', 'qual segunda-feira?', 'qual dia?', 'que horas?', 'tem quais horarios?' ou qualquer esclarecimento parecido, responda a pergunta e consulte disponibilidade se necessario. NUNCA trate isso como confirmacao e NUNCA diga 'agendado'.",
+      "- [FUNCIONA PRA MIM CONFIRMA] Se o lead responder com data/dia e hora + 'funciona pra mim', 'funciona sim', 'serve pra mim', 'da certo' ou equivalente, isso e confirmacao clara do slot. Se o nome real estiver seguro, chame schedule_appointment; nao consulte apenas horarios.",
       "- [PERGUNTA NAO AGENDA] Se a ultima mensagem do lead for pergunta como 'Presencial ou on-line?', 'qual valor?', 'quanto tempo dura?', 'onde fica?', 'como funciona?' ou qualquer duvida parecida, responda a pergunta primeiro e NAO agende ainda. Depois peca confirmacao objetiva do horario escolhido.",
       "- [PROMPT BASE ANTES DA AGENDA] Se o lead ainda esta respondendo a descoberta/qualificacao do Prompt Base, continue o fluxo do Prompt Base. Nao transforme resposta de dor, profissao, objetivo ou contexto em agendamento.",
       "- Se o lead pedir remarcacao, reagendamento, mudanca de dia/horario OU avisar que nao podera comparecer, acione SEMPRE edit_appointment para atualizar o horario.",
