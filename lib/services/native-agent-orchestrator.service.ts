@@ -1481,6 +1481,21 @@ function latestLeadMessageIsSchedulingQuestionOrInfoRequest(value: string): bool
   )
 }
 
+function leadAsksSchedulingClarificationQuestion(value: string): boolean {
+  const text = normalizeComparableMessage(value)
+  if (!text) return false
+
+  const hasQuestionSignal =
+    String(value || "").includes("?") ||
+    /\b(qual|quais|como|onde|quando|quanto|porque|por que|que horas|a que horas)\b/.test(text)
+  if (!hasQuestionSignal) return false
+
+  const hasSchedulingContext =
+    /\b(agenda|agendamento|agendar|marcar|reservar|horario|horarios|hora|horas|disponibilidade|disponivel|vaga|vagas|dia|data|hoje|amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo)\b/.test(text)
+
+  return hasSchedulingContext || latestLeadMessageIsSchedulingQuestionOrInfoRequest(value)
+}
+
 function latestLeadMessageIsGenericNonSchedulingReply(
   value: string,
   conversationRows?: any[],
@@ -5689,6 +5704,7 @@ const EMAIL_REGEX = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi
 const SCHEDULE_GUARDRAIL_ERRORS = new Set([
   "email_required_for_scheduling",
   "email_required_for_online_meet",
+  "schedule_lead_question_not_confirmation",
   "schedule_requires_explicit_lead_confirmation",
 ])
 const SCHEDULE_NON_ERROR_CONFLICT_ERRORS = new Set([
@@ -11592,6 +11608,7 @@ export class NativeAgentOrchestratorService {
       "- Quando o lead confirmar data e hora de forma explicita, acione schedule_appointment.",
       "- [ESCOLHA DE DIA JA CONFIRMA SLOT OFERECIDO] Se voce acabou de oferecer UM horario concreto com dia/data/hora (ex.: 'quarta-feira, dia 03/06, as 18:45') e o lead responde escolhendo esse dia/data/opcao (ex.: 'na quarta', 'quarta', 'dia 03'), isso JA e confirmacao do slot oferecido. Nao peca outra confirmacao. Se o nome real ja estiver conhecido, chame schedule_appointment; se faltar nome real, pergunte apenas o nome.",
       "- [LEI DA CONFIRMACAO EXPLICITA] schedule_appointment SO pode ser chamado quando a ULTIMA mensagem do lead confirmar claramente o horario/data escolhido, informar email apos voce pedir para formalizar uma opcao ja escolhida, ou responder a modalidade apos ja ter escolhido horario. Pergunta, duvida ou pedido de informacao NAO e confirmacao.",
+      "- [PERGUNTA DE HORARIO NAO CONFIRMA] Se o lead perguntar 'quais horarios?', 'quais seriam os horarios?', 'qual segunda-feira?', 'qual dia?', 'que horas?', 'tem quais horarios?' ou qualquer esclarecimento parecido, responda a pergunta e consulte disponibilidade se necessario. NUNCA trate isso como confirmacao e NUNCA diga 'agendado'.",
       "- [PERGUNTA NAO AGENDA] Se a ultima mensagem do lead for pergunta como 'Presencial ou on-line?', 'qual valor?', 'quanto tempo dura?', 'onde fica?', 'como funciona?' ou qualquer duvida parecida, responda a pergunta primeiro e NAO agende ainda. Depois peca confirmacao objetiva do horario escolhido.",
       "- [PROMPT BASE ANTES DA AGENDA] Se o lead ainda esta respondendo a descoberta/qualificacao do Prompt Base, continue o fluxo do Prompt Base. Nao transforme resposta de dor, profissao, objetivo ou contexto em agendamento.",
       "- Se o lead pedir remarcacao, reagendamento, mudanca de dia/horario OU avisar que nao podera comparecer, acione SEMPRE edit_appointment para atualizar o horario.",
@@ -12404,6 +12421,19 @@ export class NativeAgentOrchestratorService {
         String(params.leadMessageContext || ""),
         recentConversationRows,
       )
+      if (leadAsksSchedulingClarificationQuestion(String(params.leadMessageContext || ""))) {
+        return {
+          ok: false,
+          action,
+          error: "schedule_lead_question_not_confirmation",
+          response: {
+            ok: false,
+            error: "schedule_lead_question_not_confirmation",
+            instruction:
+              "A ultima mensagem do lead e uma pergunta ou duvida sobre agenda/horario, nao uma confirmacao. Nao agende, nao diga que esta agendado e nao peca confirmacao repetida. Responda objetivamente a pergunta atual; se a pergunta for sobre horarios disponiveis, use get_available_slots e apresente opcoes reais.",
+          },
+        }
+      }
       if (!leadConfirmedSchedulingMutation) {
         return {
           ok: false,
