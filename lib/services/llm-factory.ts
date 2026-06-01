@@ -93,12 +93,29 @@ export class LLMFactory {
     }
 
     private static resolveGeminiApiKey(config: NativeAgentConfig, options?: { envOnly?: boolean }): string {
-        return String(
-            process.env.GEMINI_API_KEY ||
-                process.env.GOOGLE_API_KEY ||
-                (options?.envOnly ? "" : config.geminiApiKey) ||
-                "",
-        ).trim();
+        return LLMFactory.resolveGeminiApiKeys(config, options)[0] || "";
+    }
+
+    private static splitCredentialList(value: any): string[] {
+        return String(value || "")
+            .split(/[\n,;]+/g)
+            .map((item) => item.trim())
+            .filter(Boolean);
+    }
+
+    private static resolveGeminiApiKeys(config: NativeAgentConfig, options?: { envOnly?: boolean }): string[] {
+        return Array.from(
+            new Set(
+                [
+                    ...LLMFactory.splitCredentialList(process.env.GEMINI_API_KEY),
+                    ...LLMFactory.splitCredentialList(process.env.GOOGLE_API_KEY),
+                    ...LLMFactory.splitCredentialList(process.env.GEMINI_API_KEY_FALLBACK),
+                    ...LLMFactory.splitCredentialList(process.env.GOOGLE_API_KEY_FALLBACK),
+                    ...LLMFactory.splitCredentialList(process.env.GEMINI_API_KEYS),
+                    ...(options?.envOnly ? [] : LLMFactory.splitCredentialList(config.geminiApiKey)),
+                ].filter(Boolean),
+            ),
+        );
     }
 
     private static readCredentialString(value: any): string {
@@ -191,10 +208,10 @@ export class LLMFactory {
 
     private static resolveVertexFallbackServices(config: NativeAgentConfig): LLMFallbackInfo[] {
         const fallbacks: LLMFallbackInfo[] = [];
-        const geminiKey = LLMFactory.resolveGeminiApiKey(config, { envOnly: true });
-        if (geminiKey) {
+        const geminiKeys = LLMFactory.resolveGeminiApiKeys(config, { envOnly: true });
+        for (const [index, geminiKey] of geminiKeys.entries()) {
             const model = LLMFactory.resolveGeminiModel(config);
-            console.log(`[LLMFactory] Using Vertex fallback: Google Gemini model=${model}`);
+            console.log(`[LLMFactory] Using Vertex fallback ${index + 1}/${geminiKeys.length}: Google Gemini model=${model}`);
             fallbacks.push({
                 service: new GeminiService(geminiKey, model),
                 provider: "google",
