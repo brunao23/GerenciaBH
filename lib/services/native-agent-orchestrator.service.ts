@@ -7722,6 +7722,13 @@ export class NativeAgentOrchestratorService {
       conversationRows,
       effectiveLeadMessage || content,
     )
+    if (hasSuccessfulPresentialSchedulingAction) {
+      responseText = this.appendScheduleLocationFinalizationIfNeeded(
+        responseText,
+        config,
+        { mode: "presencial" },
+      )
+    }
     responseText = enforceExplicitLeadQuestionCoverage(
       responseText,
       effectiveLeadMessage || content,
@@ -11680,6 +11687,7 @@ export class NativeAgentOrchestratorService {
       hasConfiguredUnitCoordinates
         ? "- MENSAGEM 2: confirme o endereco em texto curto e NAO escreva link de Google Maps. O sistema enviara o pin de localizacao automaticamente quando houver coordenadas configuradas."
         : "- MENSAGEM 2 (somente se houver endereco configurado): apenas o endereco e como chegar. Exemplo: 'Nosso endereco e Av. Dr. Julio Marques Luz, 1433 A, Jatiuca. Estamos em frente ao Hospital Veterinario DOK.'",
+      "- [FINALIZACAO ATE O FIM] Video, imagem, documento ou recado pos-agendamento NAO substitui endereco/localizacao. Em todo agendamento presencial confirmado, a finalizacao precisa conter tambem endereco/localizacao da unidade.",
       "- MENSAGEM 3: frase de encerramento leve e breve, sem repetir data ou horario. Exemplo: 'Qualquer duvida, e so falar.'",
       "- PROIBIDO: usar apenas o nome do dia sem a data numerica na confirmacao (ex: so 'quinta as 18h30' e insuficiente â€” use 'quinta-feira, dia 15/05, as 18h30').",
     ] as (string | null)[]).filter((v): v is string => v !== null).join("\n")
@@ -15240,6 +15248,58 @@ export class NativeAgentOrchestratorService {
     return this.renderPostScheduleTemplate(rawTemplate, contactName, appointmentData)
   }
 
+  private isPresentialAppointmentMode(mode?: string): boolean {
+    return String(mode || "").trim().toLowerCase() !== "online"
+  }
+
+  private buildScheduleLocationFinalizationText(config: NativeAgentConfig): string {
+    const address = String(config.unitAddress || "").trim()
+    const lat = Number(config.unitLatitude)
+    const lng = Number(config.unitLongitude)
+    const hasCoordinates = Number.isFinite(lat) && Number.isFinite(lng)
+    const mapsUrl = hasCoordinates
+      ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${lat},${lng}`)}`
+      : address
+        ? `https://maps.google.com/?q=${encodeURIComponent(address)}`
+        : ""
+
+    if (address && mapsUrl) {
+      return `Endereco da unidade: ${address}\nLocalizacao: ${mapsUrl}`
+    }
+
+    if (address) {
+      return `Endereco da unidade: ${address}`
+    }
+
+    if (mapsUrl) {
+      return `Localizacao: ${mapsUrl}`
+    }
+
+    return ""
+  }
+
+  private appendScheduleLocationFinalizationIfNeeded(
+    text: string,
+    config: NativeAgentConfig,
+    appointmentData?: { mode?: string },
+  ): string {
+    const base = String(text || "").trim()
+    if (!base || !this.isPresentialAppointmentMode(appointmentData?.mode)) return base
+
+    const locationText = this.buildScheduleLocationFinalizationText(config)
+    if (!locationText) return base
+
+    const normalizedBase = normalizeComparableMessage(base)
+    const address = normalizeComparableMessage(String(config.unitAddress || ""))
+    const alreadyHasAddress = Boolean(address && normalizedBase.includes(address.slice(0, Math.min(address.length, 42))))
+    const alreadyHasLocation =
+      /\b(endereco|endereço|localizacao|localização|maps\.google|google\.com\/maps|maps\.app\.goo\.gl)\b/i.test(base)
+
+    if (alreadyHasAddress || alreadyHasLocation) return base
+
+    return `${base}\n\n${locationText}`.trim()
+  }
+
   private async onAppointmentScheduled(params: {
     tenant: string
     phone: string
@@ -15382,9 +15442,18 @@ export class NativeAgentOrchestratorService {
         params.contactName,
         params.appointmentData,
       )
-      const captionText = this.renderPostScheduleTemplate(
-        String(params.config.postScheduleCaption || messageText),
-        params.contactName,
+      const finalizedMessageText = this.appendScheduleLocationFinalizationIfNeeded(
+        messageText,
+        params.config,
+        params.appointmentData,
+      )
+      const captionText = this.appendScheduleLocationFinalizationIfNeeded(
+        this.renderPostScheduleTemplate(
+          String(params.config.postScheduleCaption || finalizedMessageText),
+          params.contactName,
+          params.appointmentData,
+        ),
+        params.config,
         params.appointmentData,
       )
       const mode = configuredPostScheduleMode
@@ -15414,7 +15483,7 @@ export class NativeAgentOrchestratorService {
         if (mode === "text") {
           const sent = await this.messaging.sendText({
             ...common,
-            message: messageText,
+            message: finalizedMessageText,
             additional: {
               post_schedule_key: postScheduleKey,
               appointment_id: params.appointmentData?.appointmentId || null,
@@ -15476,7 +15545,7 @@ export class NativeAgentOrchestratorService {
             tenant: params.tenant,
             sessionId: params.sessionId,
             phone: params.phone,
-            message: messageText,
+            message: finalizedMessageText,
             runAt,
             idempotencyKey: postScheduleKey,
             metadata: {
