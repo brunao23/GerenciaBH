@@ -13,6 +13,7 @@ import {
 } from "@/lib/helpers/native-agent-config"
 import { resolveEffectiveFollowupBusinessDays } from "@/lib/helpers/effective-followup-days"
 import {
+  type ConversationTurn,
   normalizePhoneNumber,
   normalizeSessionId,
   TenantChatHistoryService,
@@ -86,6 +87,13 @@ type ReminderResult = {
   ok: boolean
   taskId?: string
   error?: string
+}
+
+type MinorAppointmentPolicyResult = {
+  detected: boolean
+  age?: number
+  reason?: string
+  matchedText?: string
 }
 
 type AvailableSlotsResult = {
@@ -589,6 +597,75 @@ function normalizeComparableMessage(value: string): string {
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim()
+}
+
+function isCuiabaMinorPolicyTenant(tenant: string): boolean {
+  const normalized = normalizeTenant(tenant)
+  return normalized === "bia_vox" || normalized.includes("cuiaba")
+}
+
+function detectMinorAppointmentPolicyText(value: string): MinorAppointmentPolicyResult {
+  const text = normalizeComparableMessage(value)
+  if (!text) return { detected: false }
+
+  const directMinorPattern =
+    /\b(menor(?:\s+de\s+idade)?|de\s+menor|adolescente|crianca|criancas|infantil)\b/
+  const responsiblePattern =
+    /\b(meu|minha|para|pro|pra|responsavel|pai|mae|filh[ao]s?|sobrinh[ao]s?|net[ao]s?|alun[ao]s?)\b/
+
+  if (directMinorPattern.test(text)) {
+    const match = text.match(directMinorPattern)?.[0] || "menor de idade"
+    return {
+      detected: true,
+      reason: "minor_term_detected",
+      matchedText: match,
+    }
+  }
+
+  const agePatterns = [
+    /\b(?:tenho|tem|possui|esta com|est[aá] com|idade de|faz|com|de)\s+(\d{1,2})\s*(?:anos?|aninhos?)\b/g,
+    /\b(\d{1,2})\s*(?:anos?|aninhos?)\b/g,
+  ]
+
+  for (const pattern of agePatterns) {
+    for (const match of text.matchAll(pattern)) {
+      const age = Number(match[1])
+      if (!Number.isFinite(age) || age < 0 || age > 17) continue
+
+      const index = match.index || 0
+      const window = text.slice(Math.max(0, index - 90), Math.min(text.length, index + 120))
+      const hasMinorContext =
+        responsiblePattern.test(window) ||
+        /\b(eu|ele|ela|menino|menina|jovem|adolescente|crianca|estudante|escola|colegio)\b/.test(window) ||
+        /\b(tenho|tem|possui|idade)\b/.test(window)
+
+      if (hasMinorContext) {
+        return {
+          detected: true,
+          age,
+          reason: "under_18_age_detected",
+          matchedText: match[0],
+        }
+      }
+    }
+  }
+
+  return { detected: false }
+}
+
+function detectMinorAppointmentPolicyFromTurns(
+  turns: Array<ConversationTurn | { role?: string; content?: string }> | undefined,
+): MinorAppointmentPolicyResult {
+  if (!Array.isArray(turns) || turns.length === 0) return { detected: false }
+
+  for (const turn of turns.slice(-40)) {
+    const role = String(turn?.role || "").toLowerCase()
+    if (role !== "user") continue
+    const detected = detectMinorAppointmentPolicyText(String(turn?.content || ""))
+    if (detected.detected) return detected
+  }
+
+  return { detected: false }
 }
 
 function compactComparableMessage(value: string): string {
@@ -1580,6 +1657,20 @@ function leadExplicitlyConfirmsSchedulingMutation(
     return true
   }
 
+  const timeCandidate = extractSchedulingTimeCandidate(rawMessage)
+  const dateOnlyScheduleSelection =
+    !timeCandidate &&
+    text.length <= 90 &&
+    /\b(hoje|amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo|dia\s+\d{1,2}|\d{1,2}\/\d{1,2})\b/.test(text) &&
+    !latestLeadMessageIsSchedulingQuestionOrInfoRequest(rawMessage)
+  if (
+    dateOnlyScheduleSelection &&
+    recentAssistantAskedSingleScheduleConfirmation(rows) &&
+    Boolean(findRecentSchedulingTimeCandidate(rows, ""))
+  ) {
+    return true
+  }
+
   const nameOnlyAnswer = normalizeExplicitLeadNameCandidate(rawMessage)
   if (
     nameOnlyAnswer &&
@@ -1590,7 +1681,6 @@ function leadExplicitlyConfirmsSchedulingMutation(
     return true
   }
 
-  const timeCandidate = extractSchedulingTimeCandidate(rawMessage)
   if (timeCandidate && text.length <= 90) {
     return true
   }
@@ -6003,6 +6093,40 @@ export class NativeAgentOrchestratorService {
       }
     }
 
+    if (isCuiabaMinorPolicyTenant(tenant)) {
+      const minorPolicy = detectMinorAppointmentPolicyText(content)
+      if (minorPolicy.detected) {
+        const policyResult = await this.enforceCuiabaMinorAppointmentPolicy({
+          tenant,
+          sessionId,
+          phone,
+          contactName: input.contactName,
+          config,
+          chat,
+          leadMessage: content,
+          detection: minorPolicy,
+          source: "inbound",
+          sendLeadReply: true,
+        })
+
+        return {
+          processed: true,
+          replied: policyResult.replied,
+          responseText: policyResult.responseText,
+          actions: [{
+            type: "handoff_human" as AgentActionPlan["type"],
+            ok: true,
+            details: {
+              policy: "cuiaba_no_minor_appointments",
+              age: minorPolicy.age || null,
+              paused: true,
+            },
+          }],
+          reason: "cuiaba_minor_appointment_policy_block",
+        }
+      }
+    }
+
     // -----------------------------------------------------------------------
     // Auto-pause: detect negative intent BEFORE any AI processing
     // Only runs when autoPauseOnHumanIntervention is explicitly enabled
@@ -9637,6 +9761,134 @@ export class NativeAgentOrchestratorService {
     }
   }
 
+  private async enforceCuiabaMinorAppointmentPolicy(params: {
+    tenant: string
+    sessionId: string
+    phone: string
+    contactName?: string | null
+    config: NativeAgentConfig
+    chat?: TenantChatHistoryService
+    leadMessage?: string
+    detection: MinorAppointmentPolicyResult
+    source: "inbound" | "schedule_tool"
+    sendLeadReply?: boolean
+  }): Promise<{ replied: boolean; responseText?: string }> {
+    const tenant = normalizeTenant(params.tenant)
+    if (!isCuiabaMinorPolicyTenant(tenant) || !params.detection.detected) {
+      return { replied: false }
+    }
+
+    const phone = normalizePhoneNumber(params.phone)
+    const sessionId = normalizeSessionId(params.sessionId || phone)
+    const chat = params.chat || new TenantChatHistoryService(tenant)
+    const safeName = sanitizeSafeVocativeName(params.contactName)
+    const leadLabel = safeName || phone || sessionId || "Lead"
+    const ageLabel = Number.isFinite(params.detection.age)
+      ? `${params.detection.age} anos`
+      : "menor de idade"
+    const reason = `cuiaba_minor_appointment_blocked_${params.source}`
+
+    await this.pauseLeadForCriticalReason({
+      tenant,
+      sessionId,
+      phone,
+      reason,
+    }).catch((error) => {
+      console.warn("[native-agent][cuiaba-minor-policy] failed to pause lead:", error)
+    })
+
+    await createNotification({
+      type: "lead_paused",
+      title: "Cuiaba: menor de idade - atendimento humano obrigatorio",
+      message: `${leadLabel} foi pausado. Regra Cuiaba: nao agendar diagnostico para menor de idade (${ageLabel}).`,
+      phoneNumber: phone,
+      leadName: safeName || undefined,
+      metadata: {
+        sessionId,
+        source: params.source,
+        age: params.detection.age || null,
+        matchedText: params.detection.matchedText || null,
+        originalMessage: String(params.leadMessage || "").slice(0, 500),
+        policy: "cuiaba_no_minor_appointments",
+        definitivePause: true,
+      },
+      priority: "urgent",
+      tenant,
+    }).catch((error) => {
+      console.warn("[native-agent][cuiaba-minor-policy] notification error:", error)
+    })
+
+    await chat.persistMessage({
+      sessionId,
+      role: "system",
+      type: "status",
+      content: "cuiaba_minor_appointment_policy_block",
+      source: "native-agent",
+      additional: {
+        debug_event: "cuiaba_minor_appointment_policy_block",
+        debug_severity: "warning",
+        phone,
+        source: params.source,
+        age: params.detection.age || null,
+        matched_text: params.detection.matchedText || null,
+        original_message: String(params.leadMessage || "").slice(0, 500),
+        paused: true,
+      },
+    }).catch(() => {})
+
+    const targets = normalizeNotificationTargets(params.config.toolNotificationTargets)
+    if (targets.length > 0) {
+      const message = [
+        "*CUIABA: MENOR DE IDADE - AGENDAMENTO BLOQUEADO*",
+        "",
+        `Lead: ${leadLabel}`,
+        phone ? `Contato: ${phone}` : "",
+        `Motivo: regra da unidade nao permite agendamento para menor de 18 anos (${ageLabel}).`,
+        params.detection.matchedText ? `Trecho detectado: "${params.detection.matchedText}"` : "",
+        params.leadMessage ? `Mensagem: "${String(params.leadMessage).slice(0, 220)}"` : "",
+        "",
+        "A IA foi pausada definitivamente para este caso. Atendimento humano obrigatorio.",
+      ].filter(Boolean).join("\n")
+
+      await this.sendToolNotifications(tenant, targets, message, {
+        anchorSessionId: sessionId,
+        dedupeKey: `cuiaba_minor_policy:${phone || sessionId}`,
+        dedupeWindowSeconds: 24 * 60 * 60,
+      }).catch((error) => {
+        console.warn("[native-agent][cuiaba-minor-policy] group notification error:", error)
+      })
+    }
+
+    if (!params.sendLeadReply || !phone) return { replied: false }
+
+    const responseText = safeName
+      ? `${safeName}, vou chamar alguem do time para te orientar corretamente sobre esse caso. Um momento.`
+      : "Vou chamar alguem do time para te orientar corretamente sobre esse caso. Um momento."
+
+    await this.messaging.sendText({
+      tenant,
+      phone,
+      message: responseText,
+      sessionId,
+      source: "native-agent-cuiaba-minor-policy",
+    }).catch((error) => {
+      console.warn("[native-agent][cuiaba-minor-policy] lead reply error:", error)
+    })
+
+    await chat.persistMessage({
+      sessionId,
+      role: "assistant",
+      type: "text",
+      content: responseText,
+      source: "native-agent",
+      additional: {
+        cuiaba_minor_policy_reply: true,
+      },
+    }).catch(() => {})
+
+    return { replied: true, responseText }
+  }
+
   private fallbackAutoPauseAcknowledgement(category: NegativeIntentResult["category"]): string {
     switch (category) {
       case "opt_out":
@@ -11175,6 +11427,15 @@ export class NativeAgentOrchestratorService {
     const qualificationStateRule = ""
     const tenantPrefix = String(ctx.tenant || "").toLowerCase()
     const isVoxTenant = tenantPrefix.startsWith("vox_") || tenantPrefix === "bia_vox"
+    const cuiabaMinorAppointmentRule = isCuiabaMinorPolicyTenant(String(ctx.tenant || ""))
+      ? [
+          "## REGRA ESPECIFICA CUIABA - MENORES DE IDADE",
+          "- PROIBIDO agendar diagnostico para menor de 18 anos nesta unidade.",
+          "- Se o proprio lead disser que tem menos de 18 anos, ou se pai/mae/responsavel falar que o atendimento e para filho/filha/crianca/adolescente menor de idade, NAO ofereca agenda e NAO chame schedule_appointment.",
+          "- Nessa situacao, responda apenas que vai chamar alguem do time para orientar corretamente. O sistema vai pausar e notificar o atendente.",
+          "- Se o lead tiver 18 anos ou mais, pode seguir o fluxo normal de agendamento.",
+        ].join("\n")
+      : ""
     const nicheContentRule = isVoxTenant
       ? [
           "## REGRA DE CONTEUDO â€” METODOLOGIA (CLIENTES VOX)",
@@ -11329,6 +11590,7 @@ export class NativeAgentOrchestratorService {
       "- [REGRA CRITICA DE HORARIO ESPECIFICO] Se o lead pedir um horario ESPECIFICO (ex: '17:40', '18h30', 'e possivel as 17:40?'), primeiro chame get_available_slots para a data. Se o horario aparecer nos slots, pode oferecer/confirmar. Se nao aparecer, NUNCA confirme; se o lead insistir ou confirmar esse horario, chame schedule_appointment e confie SOMENTE no retorno da ferramenta. A confirmacao ao lead so pode acontecer com schedule_appointment ok=true. Se a ferramenta negar, ofereca alternativeSlots ou proximos slots reais.",
       "- Se o horario estiver ocupado, diga 'Esse horario ja esta ocupado' e sugira o proximo disponivel.",
       "- Quando o lead confirmar data e hora de forma explicita, acione schedule_appointment.",
+      "- [ESCOLHA DE DIA JA CONFIRMA SLOT OFERECIDO] Se voce acabou de oferecer UM horario concreto com dia/data/hora (ex.: 'quarta-feira, dia 03/06, as 18:45') e o lead responde escolhendo esse dia/data/opcao (ex.: 'na quarta', 'quarta', 'dia 03'), isso JA e confirmacao do slot oferecido. Nao peca outra confirmacao. Se o nome real ja estiver conhecido, chame schedule_appointment; se faltar nome real, pergunte apenas o nome.",
       "- [LEI DA CONFIRMACAO EXPLICITA] schedule_appointment SO pode ser chamado quando a ULTIMA mensagem do lead confirmar claramente o horario/data escolhido, informar email apos voce pedir para formalizar uma opcao ja escolhida, ou responder a modalidade apos ja ter escolhido horario. Pergunta, duvida ou pedido de informacao NAO e confirmacao.",
       "- [PERGUNTA NAO AGENDA] Se a ultima mensagem do lead for pergunta como 'Presencial ou on-line?', 'qual valor?', 'quanto tempo dura?', 'onde fica?', 'como funciona?' ou qualquer duvida parecida, responda a pergunta primeiro e NAO agende ainda. Depois peca confirmacao objetiva do horario escolhido.",
       "- [PROMPT BASE ANTES DA AGENDA] Se o lead ainda esta respondendo a descoberta/qualificacao do Prompt Base, continue o fluxo do Prompt Base. Nao transforme resposta de dor, profissao, objetivo ou contexto em agendamento.",
@@ -11477,6 +11739,7 @@ export class NativeAgentOrchestratorService {
         deepInteractionRule,
         qualificationFlowRule,
         qualificationStateRule,
+        cuiabaMinorAppointmentRule,
         nicheContentRule,
         personalizationRule,
         emailSchedulingRule,
@@ -11651,6 +11914,7 @@ export class NativeAgentOrchestratorService {
       contextualReasoningRule,
       qualificationFlowRule,
       qualificationStateRule,
+      cuiabaMinorAppointmentRule,
       nicheContentRule,
       personalizationRule,
       emailSchedulingRule,
@@ -13777,6 +14041,30 @@ export class NativeAgentOrchestratorService {
     const requested = parseDateTimeParts(date, time)
     if (!requested) {
       return { ok: false, error: "invalid_date_or_time" }
+    }
+
+    if (isCuiabaMinorPolicyTenant(params.tenant)) {
+      const chat = new TenantChatHistoryService(params.tenant)
+      const turns = await chat.loadConversation(params.sessionId || params.phone, 80).catch(() => [])
+      const minorPolicy = detectMinorAppointmentPolicyFromTurns(turns)
+      if (minorPolicy.detected) {
+        await this.enforceCuiabaMinorAppointmentPolicy({
+          tenant: params.tenant,
+          sessionId: params.sessionId,
+          phone: params.phone,
+          contactName: params.contactName,
+          config: params.config,
+          chat,
+          leadMessage: turns.slice(-6).map((turn) => turn.content).join("\n").slice(0, 700),
+          detection: minorPolicy,
+          source: "schedule_tool",
+          sendLeadReply: false,
+        })
+        return {
+          ok: false,
+          error: "cuiaba_minor_appointment_blocked",
+        }
+      }
     }
 
     if (appointmentMode === "online" && params.config.generateMeetForOnlineAppointments && !params.config.googleCalendarEnabled) {
